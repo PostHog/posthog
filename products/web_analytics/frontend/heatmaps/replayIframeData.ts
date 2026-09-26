@@ -24,10 +24,18 @@ export function isUsableHeatmapUrl(url: string | undefined | null): url is strin
 // renderer.
 export const MAX_REPLAY_IFRAME_HTML_CHARS = 2_000_000
 
+export const MAX_REPLAY_IFRAME_DIMENSION_PX = 8_000
+
+const replayDimensionSchema = z.number().int().positive().max(MAX_REPLAY_IFRAME_DIMENSION_PX)
+
+export function isReplayDimension(value: number): boolean {
+    return replayDimensionSchema.safeParse(value).success
+}
+
 const replayIframeDataSchema = z.object({
     html: z.string().refine((html) => !!html.trim()),
-    width: z.number(),
-    height: z.number(),
+    width: replayDimensionSchema,
+    height: replayDimensionSchema,
     startDateTime: z.union([z.string(), z.undefined()]),
     url: z.union([z.string(), z.undefined()]),
 })

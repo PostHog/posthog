@@ -296,6 +296,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "AI embedding (LLM)",
             "description": "A call to an embedding model.",
         },
+        "$recording_observed": {
+            "label": "Recording observed (Replay Vision)",
+            "description": "One Replay Vision scanner finished analyzing one session recording. Emitted once per scanner and session, minutes to months after the recording itself, so it describes a session rather than happening inside one. The scanner's output is flattened into `scanner_output_*` properties, and the observed session is named by `session_id`.",
+            "primary_property": "scanner_name",
+        },
         "$csp_violation": {
             "label": "CSP violation",
             "description": "Content Security Policy violation reported by a browser to our csp endpoint.",
@@ -847,6 +852,45 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["100"],
             "system": True,
             "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "$sdk_debug_pending_queue_size": {
+            "label": "Pending queue size",
+            "description": "Useful for debugging. The depth of the mobile SDK's single disk-backed event queue, which handles both normal batching and retry backoff. Mobile SDKs report this instead of the retry queue size.",
+            "examples": ["100"],
+            "system": True,
+            "ignored_in_assistant": True,
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_flush_hold_reason": {
+            "label": "Replay flush hold reason",
+            "description": "Why session replay is holding its buffer instead of flushing. Mobile SDKs attach it only while the recording status is buffering.",
+            "examples": [
+                "awaiting_remote_config",
+                "below_minimum_duration",
+                "no_interaction_since_recording_started",
+                "no_interaction_since_session_rotated",
+            ],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_capture_mode": {
+            "label": "Replay capture mode",
+            "description": "How the mobile SDK captures the screen for session replay.",
+            "examples": ["screenshot", "wireframe"],
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_throttle_delay_ms": {
+            "label": "Replay throttle delay (ms)",
+            "description": "The configured session replay throttle delay in milliseconds on mobile SDKs.",
+            "examples": [1000],
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_pending_trigger_conditions": {
+            "label": "Replay pending trigger conditions",
+            "description": "The configured recording trigger conditions that are not yet satisfied, such as a linked flag or an event trigger.",
             "used_for_debug": True,
         },
         "$last_posthog_reset": {
@@ -2502,6 +2546,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The boolean verdict of the evaluation (true = pass, false = fail).",
             "examples": [True, False],
         },
+        "$ai_evaluation_numeric_result": {
+            "label": "AI evaluation numeric result",
+            "description": "The raw numeric score returned by an online evaluation.",
+            "examples": [0, 0.75, 10],
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_min": {
+            "label": "AI evaluation numeric result minimum",
+            "description": "The configured minimum score for an online evaluation.",
+            "type": "Numeric",
+        },
+        "$ai_evaluation_numeric_result_max": {
+            "label": "AI evaluation numeric result maximum",
+            "description": "The configured maximum score for an online evaluation.",
+            "type": "Numeric",
+        },
         "$ai_evaluation_reasoning": {
             "label": "AI Evaluation Reasoning (LLM)",
             "description": "The LLM's explanation for why the evaluation passed or failed.",
@@ -3155,6 +3215,41 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "MCP session vendor client",
             "description": "Vendor client captured at session initialize and carried across every request in that session.",
             "examples": ["ClaudeCode", "ClaudeAI"],
+        },
+        # Replay Vision properties, all on `$recording_observed`. This group labels a property name
+        # everywhere it appears, so only names Replay Vision owns belong here. `session_id`,
+        # `triggered_by`, `credits`, `model_used` and `provider_used` are deliberately absent:
+        # error tracking, experiments, LLM analytics and signals send their own, with different
+        # values. `scanner_*` is safe because Replay Vision's own LLM calls carry it too.
+        "scanner_id": {
+            "label": "Scanner ID (Replay Vision)",
+            "description": "Scanner that produced the observation.",
+        },
+        "scanner_name": {
+            "label": "Scanner name (Replay Vision)",
+            "description": "Scanner name as it was configured when the scan ran. Renaming the scanner does not rewrite past observations.",
+        },
+        "scanner_type": {
+            "label": "Scanner type (Replay Vision)",
+            "description": "Which kind of analysis ran. Monitors answer a yes/no question, classifiers assign tags, scorers return a number, and summarizers describe the session.",
+            "examples": ["monitor", "classifier", "scorer", "summarizer"],
+        },
+        "scanner_version": {
+            "label": "Scanner version (Replay Vision)",
+            "description": "Version of the scanner config that produced the observation. Editing a scanner bumps this, so breaking down by it separates results from before and after a prompt change.",
+            "type": "Numeric",
+        },
+        "emits_signals": {
+            "label": "Emits signals (Replay Vision)",
+            "description": "Whether the scanner pushed each finding into the Signals inbox.",
+        },
+        "recording_distinct_id": {
+            "label": "Observed distinct ID (Replay Vision)",
+            "description": "Distinct ID of the person in the recording. The event's own distinct ID is a synthetic scanner actor, so use this property to reach the observed person.",
+        },
+        "recording_subject_email": {
+            "label": "Observed subject email (Replay Vision)",
+            "description": "Email of the person in the recording, captured when the scan ran.",
         },
         "$csp_document_url": {
             "label": "Document URL",
@@ -4110,3 +4205,20 @@ WELL_KNOWN_EVENT_NAMES: list[str] = sorted(
     for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get("events", {}).items()
     if name not in IGNORED_EVENT_NAMES and name != "All events"
 )
+
+
+def is_virtual_property(group: str, name: str) -> bool:
+    """Whether a property is virtual — computed at query time, never stored as a PropertyDefinition row.
+
+    Single source of truth for both taxonomy listings (read_taxonomy) and HogQL taxonomy validation
+    (execute_sql), so the two agree on which `$virt_*` names are known.
+    """
+    definition = CORE_FILTER_DEFINITIONS_BY_GROUP.get(group, {}).get(name)
+    return definition is not None and definition.get("virtual") is True
+
+
+def virtual_property_names(group: str) -> frozenset[str]:
+    """Names of the group's virtual properties. See `is_virtual_property`."""
+    return frozenset(
+        name for name in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group, {}) if is_virtual_property(group, name)
+    )

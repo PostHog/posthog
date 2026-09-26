@@ -66,7 +66,7 @@ import {
     ExporterFormat,
     InsightLogicProps,
     ItemMode,
-    QueryBasedInsightModel,
+    InsightModel,
     SidePanelTab,
 } from '~/types'
 
@@ -288,7 +288,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
                     {showCopyToProject && (
                         <SceneMenuBarItem
-                            onClick={() => push(urls.resourceTransfer('Insight', insight.id!))}
+                            onClick={() => push(urls.resourceTransfer('Insight', insight.id!, insight.short_id))}
                             data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
                         >
                             <IconCopy />
@@ -392,7 +392,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     <SceneMenuBarItem
                         disabled={insightDuplicating}
                         tooltip={insightDuplicating ? 'Duplicating…' : undefined}
-                        onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
+                        onClick={() => duplicateInsight(insight as InsightModel, true)}
                         data-attr={`${RESOURCE_TYPE}-menubar-duplicate`}
                     >
                         <IconCopy />

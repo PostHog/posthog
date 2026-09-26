@@ -661,6 +661,43 @@ class TestAccountViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json(), [{"user_id": teammate.id, "display_name": "Alex Rivera"}])
 
+    def test_presence_list_returns_viewers_for_requested_accessible_accounts(self) -> None:
+        first_account = self._create_account(name="First account")
+        second_account = self._create_account(name="Second account")
+        teammate = User.objects.create_and_join(self.organization, "presence@posthog.com", "testtest")
+        teammate.first_name = "Alex"
+        teammate.last_name = "Rivera"
+        teammate.save(update_fields=["first_name", "last_name"])
+
+        self.client.force_login(teammate)
+        self.client.post(f"{self.endpoint_base}{first_account.id}/presence/", format="json")
+        self.client.post(f"{self.endpoint_base}{second_account.id}/presence/", format="json")
+
+        self.client.force_login(self.user)
+        expected_teammate = [{"user_id": teammate.id, "display_name": "Alex Rivera"}]
+        self.assertEqual(
+            self.client.post(f"{self.endpoint_base}{first_account.id}/presence/", format="json").json(),
+            expected_teammate,
+        )
+        self.assertEqual(
+            self.client.post(f"{self.endpoint_base}{second_account.id}/presence/", format="json").json(),
+            expected_teammate,
+        )
+        response = self.client.post(
+            f"{self.endpoint_base}presence_list/",
+            {"account_ids": [str(first_account.id), str(second_account.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(
+            {item["account_id"]: item["viewers"] for item in response.json()},
+            {
+                str(first_account.id): expected_teammate,
+                str(second_account.id): expected_teammate,
+            },
+        )
+
     @patch("products.customer_analytics.backend.logic.account_presence.time")
     def test_presence_removes_expired_viewers(self, mock_time: MagicMock) -> None:
         account = self._create_account()
@@ -949,7 +986,7 @@ class TestAccountViewSet(APIBaseTest):
             ["enterprise", "priority"],
         )
         self.assertEqual(
-            sorted(TaggedItem.objects.filter(account=account).values_list("tag__name", flat=True)),
+            sorted(TaggedItem.objects.for_object(account).values_list("tag__name", flat=True)),
             ["enterprise", "priority"],
         )
 

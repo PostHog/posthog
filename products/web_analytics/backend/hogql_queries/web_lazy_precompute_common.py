@@ -29,7 +29,7 @@ from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.property import get_property_key, get_property_type, property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
@@ -510,7 +510,7 @@ def get_sticky_warm_shapes() -> list[dict]:
     return entries
 
 
-def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
+def enqueue_stale_revalidation(*, team: Team, query: Any, family: str, debounce_extra: Optional[str] = None) -> None:
     """Enqueue a background re-run of `query` so a stale-served read gets fresh data next time.
 
     Debounced via Redis per (team, family, query shape). Best-effort: this runs on the
@@ -527,7 +527,10 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str) -> None:
 
     try:
         client = redis.get_client()
-        debounce_key = f"web_swr_reval:{team.id}:{family}:{compute_filters_eligibility_hash(query, team.timezone)[:16]}"
+        shape_part = compute_filters_eligibility_hash(query, team.timezone)[:16]
+        if debounce_extra:
+            shape_part = hashlib.sha256(f"{shape_part}:{debounce_extra}".encode()).hexdigest()[:16]
+        debounce_key = f"web_swr_reval:{team.id}:{family}:{shape_part}"
         if not client.set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
             return
         budget_key = f"web_swr_reval_budget:{team.id}"
@@ -568,10 +571,36 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     """
     WEB_ANALYTICS_LAZY_PRECOMPUTE_STALE_SERVED.labels(family=family).inc()
     tag_queries(precompute_stale=True)
-    enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family)
+    # Channel-filtered shapes are distinct per custom-rules set (the rules join the
+    # job hash), so the debounce identity must carry them too — otherwise one rule
+    # set's miss suppresses revalidating another's for the whole debounce window.
+    debounce_extra = None
+    if any(
+        get_property_type(prop) == "session" and get_property_key(prop) == "$channel_type"
+        for prop in getattr(runner.query, "properties", None) or []
+    ):
+        # Mirror `channel_rules_shape_key` (import would cycle): only the fields
+        # that change what the channel INSERT stores join the debounce identity.
+        dump = runner.modifiers.model_dump(mode="json")
+        debounce_extra = json.dumps(
+            {
+                field: dump.get(field)
+                for field in (
+                    "customChannelTypeRules",
+                    "bounceRateDurationSeconds",
+                    "bounceRatePageViewMode",
+                    "sessionsV2JoinMode",
+                    "sessionTableVersion",
+                )
+            },
+            sort_keys=True,
+        )
+    enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family, debounce_extra=debounce_extra)
 
 
-def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResult:
+def web_ensure_precomputed(
+    *, team: Team, shape_key_extra: Optional[str] = None, **kwargs: Any
+) -> LazyComputationResult:
     """`ensure_precomputed` for web analytics, with reactive per-team OOM capping and
     the web-wide stale-while-revalidate policy.
 
@@ -621,6 +650,11 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     # must not pay for its own backfill.
     if "run_inserts" not in kwargs:
         kwargs["run_inserts"] = background
+    # No web analytics build is read back in the same request: user reads either hit
+    # covering READY jobs or fall back to the live query, and builders (warmer,
+    # revalidation) run ahead of demand. Replica quorum therefore buys no consistency
+    # here — it only turns a downed aux replica into a total build outage.
+    kwargs.setdefault("read_after_write", False)
     # Per-team distinct-shape backstop. Only build paths can mint a new namespace, so this
     # only bites there (a user read is already run_inserts=False). At the ceiling, a *new*
     # shape drops back to a check-only pass — not ready → the caller serves live — instead
@@ -628,6 +662,8 @@ def web_ensure_precomputed(*, team: Team, **kwargs: Any) -> LazyComputationResul
     # so a shape counts the same however it reaches this build path.
     if kwargs.get("run_inserts") and runner is not None:
         shape_hash = compute_shape_cap_key(runner.query, team.timezone, getattr(runner, "_test_account_filters", None))
+        if shape_key_extra is not None:
+            shape_hash = hashlib.sha256(f"{shape_hash}:{shape_key_extra}".encode()).hexdigest()
         if not try_reserve_precompute_shape(team.id, shape_hash):
             kwargs["run_inserts"] = False
             WEB_ANALYTICS_LAZY_PRECOMPUTE_SHAPE_CAPPED.labels(family=family or "unknown").inc()
@@ -722,9 +758,11 @@ _FILTERS_ELIGIBILITY_HASH_IGNORED_QUERY_FIELDS: frozenset[str] = frozenset(
 #    Windows aged 2+ days are *session-final*: sessions cap at 24h (the insert
 #    scans window_end+24h), so bounce/duration can no longer change, and
 #    measured late-event ingestion beyond 49h is ≤0.03% of pageviews on the
-#    worst enrolled team (~0% elsewhere). Their TTLs are therefore generous —
-#    recomputing an immutable window buys nothing — and bounded in practice by
-#    hash rotations (any AST-affecting deploy rebuilds everything anyway).
+#    worst enrolled team (~0% elsewhere). Their TTLs are therefore generous,
+#    because recomputing an immutable window buys nothing, and bounded in
+#    practice by hash rotations (any AST-affecting deploy rebuilds everything
+#    anyway). The `default` band holds 90 days so that a year-long shape does
+#    not re-scan a year of events every time the band expires.
 # 2. Job sizing — `split_ranges_by_ttl` merges *consecutive days with the same
 #    TTL* into one job. Distinct per-week TTLs therefore force weekly job
 #    boundaries, so a 31-day warm splits into ≤7-day jobs instead of one ~24-day
@@ -739,17 +777,33 @@ LAZY_TTL_SECONDS: dict[str, int] = {
     "21d": 10 * 24 * 60 * 60,  # days 15–21 → one 7d job
     "28d": 12 * 24 * 60 * 60,  # days 22–28 → one 7d job
     "35d": 14 * 24 * 60 * 60,  # days 29–35 → one 7d job (covers the tail of a 31d warm)
-    "default": 21 * 24 * 60 * 60,  # days 36+
+    "default": 90 * 24 * 60 * 60,  # days 36+
 }
+
+# Job-width cap. `split_ranges_by_ttl` merges consecutive days sharing one TTL
+# band into a single job, so the `default` band above would put a year-long
+# span's whole tail into ONE insert without this cap. Seven days keeps each
+# insert bounded (a 366-day backfill runs as ~53 jobs) while the reactive OOM
+# pin can still tighten a pathological team to 1-day windows.
+LAZY_MAX_WINDOW_DAYS = 7
+
+
+def lazy_ttl_schedule(team: Team) -> TtlSchedule:
+    """The lazy precompute TTL schedule, with the job-width cap applied."""
+    return parse_ttl_schedule(LAZY_TTL_SECONDS, team.timezone, max_window_days=LAZY_MAX_WINDOW_DAYS)
+
 
 # MVP user-filter allowlist: only an EventPropertyFilter on `$host` with
 # operator `exact` is admitted. Test-account filters are always allowed
 # (their content is hashed into the cache key).
 SUPPORTED_USER_FILTER_KEYS: set[str] = {"$host"}
 
-# Upper bound on the precompute span. Above this, the framework would create
-# enough daily jobs that the first request burns INSERT slots for minutes.
-MAX_PRECOMPUTE_DAYS = 90
+# Upper bound on the precompute span: a full year plus a leap day, which covers
+# the "this year" and "last 12 months" dashboards these shapes appear on. Span
+# width does not size an insert, because `LAZY_MAX_WINDOW_DAYS` caps job width
+# independently, and cold spans build behind the live fallback, so the first
+# request never burns the slots itself.
+MAX_PRECOMPUTE_DAYS = 366
 
 # Forward pad on the per-job event-scan window. Matches the JS SDK's
 # 24 h hard SESSION_LENGTH_LIMIT and covers ~100% of population sessions.
@@ -849,9 +903,9 @@ class MissingDateRange(LazyPrecomputeIneligible):
 
 
 class DateRangeOverMax(LazyPrecomputeIneligible):
-    def __init__(self, days: int):
+    def __init__(self, days: int, max_days: int = MAX_PRECOMPUTE_DAYS):
         self.days = days
-        super().__init__(f"days={days} max={MAX_PRECOMPUTE_DAYS}")
+        super().__init__(f"days={days} max={max_days}")
 
 
 def is_org_feature_flag_enabled(team: Team) -> bool:
@@ -905,6 +959,8 @@ def check_common_eligibility(
     modifiers: Any,
     properties: list,
     resolve_date_range: Callable[[], tuple[Optional[datetime], Optional[datetime]]],
+    allow_channel_type_filter: bool = False,
+    max_days: int = MAX_PRECOMPUTE_DAYS,
 ) -> None:
     """Run the gate checks shared by all web-analytics lazy precompute paths.
 
@@ -953,6 +1009,12 @@ def check_common_eligibility(
     # population than the live fallback. Those queries fall through to the live path,
     # which applies them correctly.
     for prop in properties:
+        if (
+            allow_channel_type_filter
+            and get_property_type(prop) == "session"
+            and get_property_key(prop) == "$channel_type"
+        ):
+            continue
         if get_property_type(prop) not in ("event", "person"):
             raise UnsupportedFilterType(get_property_type(prop))
 
@@ -968,8 +1030,8 @@ def check_common_eligibility(
         raise MissingDateRange()
 
     days = (date_to - date_from).days
-    if days > MAX_PRECOMPUTE_DAYS:
-        raise DateRangeOverMax(days)
+    if days > max_days:
+        raise DateRangeOverMax(days, max_days)
 
 
 def log_eligibility_outcome(*, log_prefix: str, team_id: int, error: Optional[LazyPrecomputeIneligible]) -> None:

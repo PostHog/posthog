@@ -118,7 +118,7 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             cursor_timestamp, cursor_unit_id = page.next_cursor_timestamp, page.next_cursor_unit_id
         return walked
 
-    def _count(self, **overrides: Any) -> int:
+    def _scope(self, **overrides: Any) -> Any:
         kwargs: dict[str, Any] = {
             "team": self.team,
             "evaluation_id": str(self.evaluation.id),
@@ -131,6 +131,9 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
         }
         kwargs.update(overrides)
         return count_backfill_candidates(**kwargs)
+
+    def _count(self, **overrides: Any) -> int:
+        return self._scope(**overrides).to_evaluate
 
     def _fetch(self, **overrides: Any) -> Any:
         kwargs: dict[str, Any] = {
@@ -221,8 +224,38 @@ class TestBackfillCandidates(ClickhouseTestMixin, APIBaseTest):
             properties=properties,
         )
         flush_persons_and_events()
-        assert self._count(target=target, rerun_existing=False) == expected
-        assert self._count(target=target, rerun_existing=True) == expected + 1
+        deduped = self._scope(target=target, rerun_existing=False)
+        rerun = self._scope(target=target, rerun_existing=True)
+        assert (deduped.to_evaluate, deduped.already_judged) == (expected, 1)
+        assert (rerun.to_evaluate, rerun.already_judged) == (expected + 1, 1)
+
+    @parameterized.expand(
+        [
+            # A judge response nobody could read may parse on a later run, so the unit is still owed a verdict.
+            ("unparsable_response", 4),
+            ("output_limit_exceeded", 4),
+            # These two skip the same way every run, so re-offering them would never produce a verdict.
+            ("context_window_exceeded", 3),
+            ("trace_errored", 3),
+        ]
+    )
+    def test_only_a_transient_skip_leaves_the_unit_a_candidate(self, skip_reason: str, expected: int) -> None:
+        _create_event(
+            team=self.team,
+            event="$ai_evaluation",
+            distinct_id="d",
+            timestamp=BASE + timedelta(minutes=5),
+            properties={
+                "$ai_evaluation_id": str(self.evaluation.id),
+                "$ai_target_id": _generation_uuid(1),
+                "$ai_target_type": "generation_uuid",
+                "$ai_evaluation_skipped": True,
+                "$ai_evaluation_skip_reason": skip_reason,
+            },
+        )
+        flush_persons_and_events()
+
+        assert self._count(target="generation", rerun_existing=False) == expected
 
     @parameterized.expand(
         [

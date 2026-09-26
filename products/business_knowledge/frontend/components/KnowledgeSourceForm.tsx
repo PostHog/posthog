@@ -23,7 +23,7 @@ export function KnowledgeSourceForm({
 
     if (source?.source_type === 'url') {
         return (
-            <Form logic={knowledgeSourceLogic} formKey="editUrlSource" className="flex flex-col gap-2 max-w-2xl">
+            <Form logic={knowledgeSourceLogic} formKey="editUrlSource" className="flex flex-col gap-2">
                 <LemonField name="name" label="Name">
                     <LemonInput />
                 </LemonField>
@@ -55,7 +55,7 @@ export function KnowledgeSourceForm({
 
     if (source?.source_type === 'text' && !isSourceTextReady) {
         return (
-            <div className="flex flex-col gap-2 max-w-2xl">
+            <div className="flex flex-col gap-2">
                 <LemonSkeleton className="h-10" />
                 <LemonSkeleton className="h-60" />
             </div>
@@ -63,7 +63,7 @@ export function KnowledgeSourceForm({
     }
 
     return (
-        <Form logic={knowledgeSourceLogic} formKey="editSource" className="flex flex-col gap-2 max-w-2xl">
+        <Form logic={knowledgeSourceLogic} formKey="editSource" className="flex flex-col gap-2">
             {sourceTextFailed && (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadSourceText }}>
                     Couldn't load this source's content. You can still save the name.

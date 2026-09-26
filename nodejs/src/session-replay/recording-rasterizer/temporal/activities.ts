@@ -5,6 +5,8 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
+import { METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
+
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
 import { config } from '~/session-replay/recording-rasterizer/config'
@@ -13,8 +15,10 @@ import { createLogger } from '~/session-replay/recording-rasterizer/logger'
 import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 import { videoTimestampsFromFrames } from '~/session-replay/recording-rasterizer/postprocess'
 import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
+import { extractThumbnail } from '~/session-replay/recording-rasterizer/thumbnail'
 import {
     ActivityTimings,
+    ExtractThumbnailInput,
     RasterizationProgress,
     RasterizeRecordingInput,
     RasterizeRecordingOutput,
@@ -26,8 +30,8 @@ function toActivityError(err: unknown): Error {
     if (rasterizationError) {
         // The code travels as the failure type either way, so a caller can tell a recording that can never render
         // (NO_SNAPSHOTS) from one that merely ran out of retries. Retryability stays the player's call: NO_SNAPSHOTS is
-        // retryable while a recording is still being ingested, so the code is only conclusive once Temporal has spent
-        // the attempts.
+        // retryable while nothing has loaded, as the recording may still be ingesting, and final when no window has a
+        // full snapshot to draw from.
         return rasterizationError.retryable
             ? ApplicationFailure.retryable(rasterizationError.message, rasterizationError.code, rasterizationError)
             : ApplicationFailure.nonRetryable(rasterizationError.message, rasterizationError.code, rasterizationError)
@@ -167,6 +171,7 @@ async function rasterizeRecordingActivity(
             video_duration_s: result.capture_duration_s,
             playback_speed: result.playback_speed,
             show_metadata_footer: !!input.show_metadata_footer,
+            footer_height_px: input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0,
             truncated: result.truncated,
             inactivity_periods: periods,
             file_size_bytes: stat.size,
@@ -224,5 +229,22 @@ async function rasterizeRecordingActivity(
 export function createActivities(pool: BrowserPool, playerHtml: string) {
     return {
         'rasterize-recording': (input: RasterizeRecordingInput) => rasterizeRecordingActivity(pool, playerHtml, input),
+        // No browser and no pool: this one reads an MP4 the rasterizer already produced.
+        'extract-thumbnail': async (input: ExtractThumbnailInput) => {
+            // The media path is fail-soft, so these counters are the only sign that the fleet is failing.
+            RasterizationMetrics.activityStarted()
+            try {
+                return await extractThumbnail(input)
+            } catch (err) {
+                const rasterizationError = asRasterizationError(err)
+                RasterizationMetrics.incrementError(
+                    rasterizationError?.code ?? 'UNKNOWN',
+                    rasterizationError?.retryable ?? true
+                )
+                throw toActivityError(rasterizationError ?? err)
+            } finally {
+                RasterizationMetrics.activityFinished()
+            }
+        },
     }
 }

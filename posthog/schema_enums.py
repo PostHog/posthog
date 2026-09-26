@@ -167,11 +167,23 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AmazonAdsDefaultSources(StrEnum):
+    AMAZON = "amazon"
+    AMAZON_ADS = "amazon_ads"
+
+
 class AnnotationScope(StrEnum):
     DASHBOARD_ITEM = "dashboard_item"
     DASHBOARD = "dashboard"
     PROJECT = "project"
     ORGANIZATION = "organization"
+
+
+class AppleSearchAdsDefaultSources(StrEnum):
+    APPLE = "apple"
+    APPLE_SEARCH_ADS = "apple_search_ads"
+    APPLE_ADS = "apple_ads"
+    ASA = "asa"
 
 
 class ApprovalDecisionStatus(StrEnum):
@@ -1064,6 +1076,7 @@ class DetectorType(StrEnum):
     LOF = "lof"
     OCSVM = "ocsvm"
     PCA = "pca"
+    LLM = "llm"
 
 
 class DistanceFunc(StrEnum):
@@ -1259,6 +1272,12 @@ class StartHandling(StrEnum):
     LAST_SEEN = "last_seen"
 
 
+class Kind2(StrEnum):
+    EVENTS_NODE = "EventsNode"
+    ACTIONS_NODE = "ActionsNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
+
+
 class ConversionRateInputType(StrEnum):
     MANUAL = "manual"
     AUTOMATIC = "automatic"
@@ -1376,6 +1395,7 @@ class FileSystemIconType(StrEnum):
     TRACING = "tracing"
     METRICS = "metrics"
     WORKFLOWS = "workflows"
+    BROADCASTS = "broadcasts"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"
@@ -1808,6 +1828,7 @@ class MCPToolQualitySortColumn(StrEnum):
     USERS = "users"
     SESSIONS = "sessions"
     LAST_SEEN = "last_seen"
+    TREND_SCORE = "trend_score"
 
 
 class MCPToolQualitySortDirection(StrEnum):
@@ -2077,6 +2098,9 @@ class NativeMarketingSource(StrEnum):
     BING_ADS = "BingAds"
     SNAPCHAT_ADS = "SnapchatAds"
     PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
+    OPEN_AI_ADS = "OpenAIAds"
+    AMAZON_ADS = "AmazonAds"
 
 
 class NodeKind(StrEnum):
@@ -2158,6 +2182,7 @@ class NodeKind(StrEnum):
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"
     TEAM_TAXONOMY_QUERY = "TeamTaxonomyQuery"
@@ -2194,6 +2219,12 @@ class NodeKind(StrEnum):
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
+
+
+class OpenAIAdsDefaultSources(StrEnum):
+    OPENAI = "openai"
+    CHATGPT = "chatgpt"
+    OPENAI_ADS = "openai_ads"
 
 
 class PathType(StrEnum):
@@ -2235,6 +2266,12 @@ class PlanningStepStatus(StrEnum):
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+
+
+class PredicateFixAction(StrEnum):
+    EDIT_QUERY = "edit_query"
+    EDIT_PROPERTY_TYPE = "edit_property_type"
+    MATERIALIZE = "materialize"
 
 
 class PredicateIndexVerdict(StrEnum):
@@ -2362,6 +2399,7 @@ class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
     AI_ENGINEERING = "AI engineering"
     BEHAVIOR = "Behavior"
+    MESSAGING = "Messaging"
     APP_MONITORING = "App monitoring"
     FEATURES = "Features"
     TOOLS = "Tools"
@@ -2554,13 +2592,12 @@ class QueryScanFindingKind(StrEnum):
     PERSONS_JOIN = "persons_join"
 
 
-class QueryScanFindingReason(StrEnum):
-    IN_OR = "in_or"
-    WRAPPED = "wrapped"
-    NEGATED = "negated"
-    DYNAMIC = "dynamic"
-    NOT_PRUNED = "not_pruned"
-    FILTERS = "filters"
+class QueryScanFixLocation(StrEnum):
+    QUERY = "query"
+    SUBQUERY = "subquery"
+    VIEW = "view"
+    INSIGHT_DATE_RANGE = "insight_date_range"
+    DASHBOARD_DATE_FILTER = "dashboard_date_filter"
 
 
 class QuickFilterContext(StrEnum):

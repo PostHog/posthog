@@ -9,6 +9,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.netlify import netlify as netlify_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.netlify import (
     NetlifyCappedHeaderLinkPaginator,
     NetlifyHeaderLinkPaginator,
@@ -215,6 +216,26 @@ class TestFanOut:
         assert rows == [{"id": "u1", "email": "a@b.co", "account_slug": "acme"}]
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_a_parent_that_does_not_serve_the_child_resource(self, MockSession) -> None:
+        session = MockSession.return_value
+
+        def route(url: str) -> Response:
+            if url == f"{BASE}/sites?filter=all&per_page=100":
+                return _response([{"id": "s1"}, {"id": "s2"}], next_url=None)
+            if url == f"{BASE}/sites/s1/forms":
+                return _response({"message": "Not Found"}, status=404)
+            if url == f"{BASE}/sites/s2/forms":
+                return _response([{"id": "f2"}], next_url=None)
+            raise AssertionError(f"unexpected url: {url}")
+
+        _wire(session, route)
+        rows = _rows(_source("forms", _manager()))
+
+        # A site with form detection off 404s on /forms. That parent holds no rows, so the table
+        # still syncs every other site rather than failing the whole sync.
+        assert rows == [{"id": "f2", "site_id": "s2"}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_fanout_from_saved_state_skipping_completed_parent(self, MockSession) -> None:
         session = MockSession.return_value
 
@@ -267,16 +288,36 @@ class TestFailLoud:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR),
+            ("forbidden", 403, False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR),
+            ("rate_limited", 429, False, netlify_module._NETLIFY_UNREACHABLE_ERROR),
+            ("netlify_down", 503, False, netlify_module._NETLIFY_UNREACHABLE_ERROR),
+        ]
+    )
     @mock.patch(NETLIFY_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session) -> None:
+    def test_status_mapping(self, _name: str, status: int, expected: bool, message: str | None, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.Mock(status_code=status)
-        assert validate_credentials("tok") is expected
+        assert validate_credentials("tok") == (expected, message)
 
     @mock.patch(NETLIFY_SESSION_PATCH)
-    def test_exception_is_false(self, mock_session) -> None:
+    def test_unreachable_netlify_does_not_blame_the_token(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError()
-        assert validate_credentials("tok") is False
+        assert validate_credentials("tok") == (False, netlify_module._NETLIFY_UNREACHABLE_ERROR)
+
+    @mock.patch(NETLIFY_SESSION_PATCH)
+    def test_unexpected_status_reaches_error_tracking(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.Mock(status_code=418)
+        with mock.patch.object(netlify_module, "capture_exception") as capture:
+            ok, error = validate_credentials("tok")
+
+        assert (ok, error) == (False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR)
+        assert error is not None
+        assert "418" not in error
+        # The status has to reach error tracking, or a later triage has only the generic message.
+        assert "418" in str(capture.call_args.args[0])
 
 
 class TestNetlifySourceResponse:

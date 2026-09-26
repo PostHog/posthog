@@ -31,7 +31,7 @@ export interface StreamlitAppEditLogicProps {
 async function uploadAppVersion(projectId: string, shortId: string, file: File): Promise<AppVersionContractApi> {
     const formData = new FormData()
     formData.append('file', file)
-    // nosemgrep: prefer-codegen-api
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
     return await api.create<AppVersionContractApi>(getStreamlitAppsUploadVersionCreateUrl(projectId, shortId), formData)
 }
 

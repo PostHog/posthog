@@ -39,6 +39,7 @@ Base path: `/api/projects/{id}/task_channels/`.
 | `DELETE /{id}/`                                 | Delete an empty public or private channel. Personal and general spaces cannot be deleted.            |
 | `GET /{id}/members/`                            | List private channel members. Return an empty list for public and personal channels.                 |
 | `PUT /{id}/members/ {user_ids}`                 | Replace a private channel's members. Keep the creator.                                               |
+| `POST /{id}/setup/ {kind, goal, feature}`       | Start the task that sets the space up for a goal or a feature. Returns `task_id` with status 201.    |
 
 Listing channels does not create them. Call `provision_defaults` to create the default channels.
 Send `limit` and `offset` to get one page with `count`, `next`, `previous`, and `results`.
@@ -59,12 +60,43 @@ A `channel_type` update switches a shared channel between `public` and `private`
 Making a channel private removes every membership row and seeds the creator and the requester.
 Making a channel public removes every membership row. The name must be free among active public channels, or the request returns 400.
 
+Space setup runs as one unattended task in the channel, the same way CONTEXT.md generation does.
+`kind` is `goal` or `feature`; `goal` carries `statement`, `period`, `direction`, `target`, `deadline`, and `insight_short_id`; `feature` carries `name`, `description`, and `flag_key`.
+`repository` defaults to the channel's first repository. The task runs on `gpt-5.6-sol` at high reasoning effort with full PostHog MCP scopes and becomes the channel's context generation task.
+A goal setup also creates a tracking canvas, the first ranked plan, and four workflow-backed loops (Plan daily, Build every six hours, Measure daily, Improve weekly); a feature setup writes the context page only.
+Every loop brief carries three verbatim blocks: GUARDRAILS (what a loop never does), STATE (the canvas keys and their shapes), and AUTONOMY (what the page's `autonomy` level permits).
+The page frontmatter key `autonomy` is `propose` at setup: the loops rank and recommend but open no pull requests, create no experiments, and touch no flags. A person raises it to `ship_drafts` (draft pull requests and draft experiments) or `autopilot` (release a winning variant per its registered decision rule) by editing the page.
+The team steers through the page's Direction section, which loops read first and never edit. Every loop appends to one Learnings table that the Plan loop reads before it ranks, so a failed hypothesis is not retried until its retest condition is met.
+The four-line status (where we are, what is being worked on, what needs a person, what happens next) lives on the canvas key `status` and is every loop's final message. The `task-channels-feed-create` MCP tool is disabled, so loops do not post to the feed directly; their task results appear there.
+The tracker's pause switch calls the canvas actions `workflows.pause` and `workflows.resume` on the space's loop workflows (status `draft` and `active`, the same change as the Workflows lifecycle tools) and records the choice on the canvas key `control.paused`.
+The endpoint posts a `space_setup_started` feed message with `kind`, `subject`, and `task_id`. It returns 404 for an inaccessible channel and 409 while a setup task is active, including after that task publishes the context page.
+A feed write failure does not cancel setup.
+The endpoint requires the same public API scopes it grants to the setup task. The task can write tasks, canvases, workflows, and its own context page; it has read access to the project data it uses for research.
+User text stays in JSON-encoded data blocks in the setup and loop prompts.
+Goal setup returns 503 without starting a task when `template-posthog-create-task` is missing or the `workflow-ai-task-action` flag is disabled for the project.
+Sync HogFunction templates after the CDP API starts, then retry setup.
+The context prompt includes the server's `team_id` and `channel_id` so a new Space page passes wiki validation.
+When no eligible population exists, setup records the measure as unknown and does not invent a target. The loops still start enabled; the Plan loop keeps trying to verify the measure on each run.
+
+Before enabling `code-space-setup`, deploy the setup endpoint and sync the workflow templates.
+Enable `workflow-ai-task-action` for the target project and `loops` plus `loops-hog-flows` for its Desktop users.
+Reconcile enabled context wikis before rollout so legacy `channels/` pages move under `projects/<project-id>/spaces/`.
+Verify a setup in a test project: the Context page saves with `autonomy: propose`, the plan and status keys hold the first plan, all four goal loops appear enabled, and their test runs succeed.
+Keep the setup flag off if any dependency check fails.
+
 Channel updates, deletion, membership changes, private channel handoffs, feed posts, instructions, context generation, and stars lock the channel row.
 Each write checks access after it acquires the lock. A request from a removed member fails even if it started before removal.
 Membership replacement checks project access after it acquires the lock.
 Handoff locks the private channel before the task. It fails if the task moved to another channel during the wait.
 
 ## Task API
+
+`POST /tasks/` with `start_run: true` and `POST /tasks/{task_id}/run/` accept `scheduled_at`.
+So do `tasks-create-and-run` and `tasks-run-create` in MCP.
+Use a future ISO 8601 time within 30 days; missing offsets mean UTC. Omit or send null to start immediately. Attached files must remain valid until the scheduled time.
+Scheduled runs require background ACP execution, server-managed credentials, and the PostHog gateway. Dispatch rechecks task access and usage limits.
+Model settings use saved defaults or the previous run on resume. Use `tasks-models-retrieve` for explicit model and effort choices.
+The existing run cancellation endpoint also supports scheduled runs and closes their event streams. Retry a `503` response to complete stream cleanup.
 
 - `TaskCreateSerializer` accepts a channel UUID from the same project. The requester must have access to the channel.
 - An ordinary user task without a channel goes into the user's `#me` space.

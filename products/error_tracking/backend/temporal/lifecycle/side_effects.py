@@ -14,6 +14,7 @@ from posthog.helpers.tiktoken_encoding import (
 )
 from posthog.models import Team
 
+from products.error_tracking.backend.logic.assignees import resolve_current_assignee
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
@@ -88,10 +89,32 @@ def _status_property(
     return _STATUS_LABELS.get(status, status) if humanize_status else status
 
 
+def _assignee_display_properties(inputs: IssueLifecycleWorkflowInputs) -> dict[str, str]:
+    if inputs.assignee is None:
+        return {}
+    resolved = resolve_current_assignee(inputs.issue_id)
+    # Cymbal snapshots the assignee at ingestion, and the issue can be reassigned before
+    # this activity runs. Names for a different assignee would contradict `assignee`,
+    # so leave them out in that case.
+    if resolved is None or resolved.property_value != inputs.assignee:
+        return {}
+    return resolved.display_properties()
+
+
+def _normalize_timestamp(value: str) -> datetime:
+    timestamp = parse_datetime(value)
+    if timestamp is None:
+        return datetime.now(UTC)
+    if timestamp.tzinfo is None:
+        return timestamp.replace(tzinfo=UTC)
+    return timestamp
+
+
 def alert_delivery_inputs(
     inputs: IssueLifecycleWorkflowInputs,
     *,
     event: str,
+    exception_timestamp: str,
     extra_properties: dict[str, object] | None = None,
     include_status: bool = True,
     humanize_status: bool = True,
@@ -111,10 +134,16 @@ def alert_delivery_inputs(
         issue_description=inputs.issue.description,
         status=_status_property(inputs, include_status=include_status, humanize_status=humanize_status),
         assignee=inputs.assignee,
+        severity=inputs.issue.severity,
+        fingerprint=inputs.fingerprint,
+        first_seen=inputs.issue.created_at,
         event_uuid=inputs.event_uuid,
         # Paired with event_uuid, so it must be the exception's own time: spiking
         # passes the detection time as exception_timestamp, which can differ.
         event_timestamp=inputs.event_timestamp,
+        # Same value the internal event carries as exception_timestamp (spiking: the
+        # detection time), so filters see one clock across both paths.
+        lifecycle_timestamp=_normalize_timestamp(exception_timestamp).isoformat(),
         extra=extra or None,
     )
 
@@ -123,6 +152,7 @@ def dispatch_issue_lifecycle_alert(
     inputs: IssueLifecycleWorkflowInputs,
     *,
     event: str,
+    exception_timestamp: str,
     extra_properties: dict[str, object] | None = None,
     include_status: bool = True,
     humanize_status: bool = True,
@@ -132,6 +162,7 @@ def dispatch_issue_lifecycle_alert(
         alert_delivery_inputs(
             inputs,
             event=event,
+            exception_timestamp=exception_timestamp,
             extra_properties=extra_properties,
             include_status=include_status,
             humanize_status=humanize_status,
@@ -154,11 +185,7 @@ def produce_issue_lifecycle_internal_event(
         return
 
     event_properties = fetch_event_properties(team, inputs)
-    timestamp = parse_datetime(exception_timestamp)
-    if timestamp is None:
-        timestamp = datetime.now(UTC)
-    elif timestamp.tzinfo is None:
-        timestamp = timestamp.replace(tzinfo=UTC)
+    timestamp = _normalize_timestamp(exception_timestamp)
 
     properties: dict[str, object] = {
         "name": inputs.issue.name,
@@ -175,6 +202,7 @@ def produce_issue_lifecycle_internal_event(
         properties["status"] = status_property
     if inputs.assignee is not None:
         properties["assignee"] = inputs.assignee
+        properties.update(_assignee_display_properties(inputs))
     if extra_properties is not None:
         properties.update(extra_properties)
 

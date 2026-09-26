@@ -1,16 +1,26 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { useEffect, useRef, useState } from 'react'
 
-import { IconArrowLeft, IconExternal, IconRefresh } from '@posthog/icons'
+import { IconArrowLeft, IconExternal, IconRefresh, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { openPublishToCommunityDialog } from 'lib/components/openPublishToCommunityDialog'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
+
+import { AccessControlLevel, AccessControlResourceType, ActivityScope } from '~/types'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
+import { scoutPausedByLine } from '../../../utils/scoutGroups'
 import { scoutDisplayName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { ScoutExemptionBadge } from './ScoutBadges'
 import { ScoutEnabledSwitch } from './ScoutConfigControls'
@@ -62,6 +72,29 @@ function ScoutDescription({ text }: { text: string }): JSX.Element {
 }
 
 /**
+ * Who stopped a scout that is off, and where the rest of the story is. The row records only the
+ * last status change, so every earlier toggle is the activity log's to tell.
+ */
+function ScoutPausedBy({ config }: { config: SignalScoutConfig }): JSX.Element | null {
+    const line = scoutPausedByLine(config)
+    if (!line) {
+        return null
+    }
+    const activityUrl = combineUrl(urls.advancedActivityLogs(), {
+        scopes: ActivityScope.SIGNAL_SCOUT_CONFIG,
+        item_ids: config.id,
+    }).url
+    return (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-secondary">
+            <span>{line}</span>
+            <Link to={activityUrl} className="text-xs">
+                See every change
+            </Link>
+        </div>
+    )
+}
+
+/**
  * The scout page header: what it is, the controls that act on it, and one health strip that says
  * whether it is worth keeping on.
  */
@@ -76,11 +109,29 @@ export function ScoutDetailHeader({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { updatingScoutIds, manualRunScoutIds } = useValues(scoutFleetLogic)
-    const { updateScoutConfig, runScoutNow } = useActions(scoutFleetLogic)
+    const { updatingScoutIds, manualRunScoutIds, publishingScoutIds } = useValues(scoutFleetLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
+    const { currentProjectId } = useValues(teamLogic)
+    const { updateScoutConfig, runScoutNow, publishScoutToCommunity } = useActions(scoutFleetLogic)
 
     const updating = updatingScoutIds.includes(config.id)
     const running = manualRunScoutIds.includes(config.id)
+    const publishing = publishingScoutIds.includes(config.id)
+    const communitySkillsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS]
+    const isOwner = !!user && (config.owners ?? []).some((owner) => owner.uuid === user.uuid)
+    // A scout's skill is seeded on the canonical parent team, so both the consent preview and the
+    // publish itself read that team rather than the child environment the page may be scoped to.
+    const canonicalProjectId = typeof currentProjectId === 'number' ? currentProjectId : undefined
+    // Ownership alone lets any project member through, but the publish endpoint needs skill editor
+    // access — without this the owner fills in the whole dialog and the submit returns 403.
+    const publishDisabledReason = publishing
+        ? 'Opening a pull request'
+        : (config.owners ?? []).length === 0
+          ? 'Add an owner before publishing to the community'
+          : !isOwner
+            ? "Only the scout's owners can publish it"
+            : getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor)
 
     return (
         <div className="flex flex-col gap-2 border-b border-primary bg-surface-primary px-4 py-3">
@@ -120,6 +171,30 @@ export function ScoutDetailHeader({
                     </LemonButton>
                 </Tooltip>
                 <ScoutSettingsButton config={config} surface="scout_detail" showLabel />
+                {communitySkillsEnabled && config.scout_origin !== 'canonical' && (
+                    <Tooltip title="Share this scout in the community store, so other projects can set it up with the same instructions and schedule.">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconUpload />}
+                            loading={publishing}
+                            disabledReason={publishDisabledReason}
+                            onClick={() =>
+                                openPublishToCommunityDialog({
+                                    skillName: config.skill_name,
+                                    // The scout page doesn't load the skills logic that resolves a
+                                    // linked GitHub identity, so the handle field starts empty here.
+                                    githubLogin: null,
+                                    isScout: true,
+                                    teamId: canonicalProjectId,
+                                    onPublish: (_skillName, options) => publishScoutToCommunity(config.id, options),
+                                })
+                            }
+                        >
+                            Publish
+                        </LemonButton>
+                    </Tooltip>
+                )}
                 {/* Captured on the way down: Link swallows Cmd/Ctrl-clicks before its onClick runs, and
                     those opens count too. */}
                 <span
@@ -147,6 +222,8 @@ export function ScoutDetailHeader({
             </div>
 
             {config.description && <ScoutDescription text={config.description} />}
+
+            <ScoutPausedBy config={config} />
 
             <ScoutHealthStrip config={config} rollup={rollup} noteCount={noteCount} learnedCount={learnedCount} />
         </div>

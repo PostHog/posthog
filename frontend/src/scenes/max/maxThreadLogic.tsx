@@ -88,6 +88,7 @@ import {
     MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
+    getToolDefinition,
     getModeDisplayName,
     messageLength,
 } from './max-constants'
@@ -314,14 +315,12 @@ export interface maxThreadLogicActions {
     } // posthogAiContextLogic
     bootstrapSandboxRun: (payload: {
         justCreatedRun?: boolean
-        reconcileHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
-        reconcileHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
@@ -355,8 +354,16 @@ export interface maxThreadLogicActions {
         errorMessage: string
         variant: 'crash' | 'error'
     } // runStreamLogic
-    pushSandboxHumanMessage: (content: string) => {
+    pushSandboxHumanMessage: (
+        content: string,
+        stagedAttachments?:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
+    ) => {
         content: string
+        stagedAttachments:
+            | import('../../../../products/posthog_ai/frontend/types/streamTypes').StagedAttachment[]
+            | undefined
     } // runStreamLogic
     resetSandboxStream: () => {
         value: true
@@ -1326,9 +1333,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         const attachedContext: AttachedContext[] = [...values.sandboxAttachments]
                         // Merge context from the new `attachedContextLogic` store (e.g. a future @-mention
                         // picker, or trace refs only the new store knows) into the legacy send. Known entity
-                        // types map to `{ type, id, name }`; anything else degrades to a text item (the
-                        // backend validates against its fixed type set). Server-side `prune_repeated_entity_refs`
-                        // collapses any overlap with `sandboxAttachments`.
+                        // types map to `{ type, id, name }`; `instructions` passes through so the backend can
+                        // keep it trusted; anything else degrades to a text item (the backend validates against
+                        // its fixed type set). Server-side `prune_repeated_entity_refs` collapses any overlap
+                        // with `sandboxAttachments`.
                         const allowedEntityTypes = new Set<AttachedContext['type']>([
                             'dashboard',
                             'insight',
@@ -1342,7 +1350,14 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         // scene bridge or a `useAttachedContext` consumer); a bare legacy chat must not
                         // fail the send over an unmounted logic.
                         for (const item of attachedContextLogic.findMounted()?.values.contextItems ?? []) {
-                            if (
+                            if (item.type === 'instructions') {
+                                // Degrading this to `text` would put our own guidance in the untrusted block,
+                                // alongside values read off the page the user has open.
+                                const value = item.value?.trim()
+                                if (value) {
+                                    attachedContext.push({ type: 'instructions', value })
+                                }
+                            } else if (
                                 item.type !== 'text' &&
                                 allowedEntityTypes.has(item.type as AttachedContext['type']) &&
                                 item.key != null &&
@@ -1367,8 +1382,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             }
                         }
                         if (values.agentMode) {
+                            // Built from the mode's display name, and only works if the agent acts on it,
+                            // which the untrusted block tells it not to do.
                             attachedContext.push({
-                                type: 'text',
+                                type: 'instructions',
                                 value: `The user selected a mode: "${getModeDisplayName(values.agentMode)}". It was in the legacy implementation. Acknowledge the mode if the user refers to it.`,
                             })
                         }
@@ -1684,7 +1701,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
         }
         return {
-            [sandboxStreamActionTypes.markTurnComplete]: completeSandboxTurn,
+            [sandboxStreamActionTypes.markTurnComplete]: ({ isReplay }: { isReplay?: boolean }) => {
+                if (!isReplay) {
+                    completeSandboxTurn()
+                }
+            },
             // handleTerminalStatus fires for every task_run_state frame, including the initial
             // non-terminal queued/in_progress ones — only tear down on an actually terminal
             // status, mirroring runStreamLogic's own guard.
@@ -3281,6 +3302,12 @@ export async function onEventImplementation(
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             if (parsedResponse.ui_payload != null) {
                 for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                    const alreadyProcessed = parsedResponse.id
+                        ? cache.processedToolResultIds?.has(parsedResponse.id)
+                        : false
+                    if (!alreadyProcessed) {
+                        getToolDefinition(toolName)?.onResult?.(toolResult)
+                    }
                     if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Static tools (mode-level) don't operate via ui_payload
                     }
@@ -3290,6 +3317,10 @@ export async function onEventImplementation(
                         actions.setPendingApproval(proposalId)
                     }
                     await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
+                }
+                if (parsedResponse.id) {
+                    cache.processedToolResultIds ??= new Set()
+                    cache.processedToolResultIds.add(parsedResponse.id)
                 }
             }
             actions.addMessage({

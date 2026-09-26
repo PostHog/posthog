@@ -988,9 +988,11 @@ class SafeRemoveIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
 class DropForeignKeyAnalyzer(OperationAnalyzer):
     """The constraint drop that rides along with a state-only removal of a column or table.
 
-    Dropping a foreign key is a catalog change. It holds ACCESS EXCLUSIVE on the referenced
-    parent for microseconds and scans nothing, so it scores with `ADD CONSTRAINT ... NOT
-    VALID` rather than with the operations that rewrite a table.
+    Dropping a foreign key is a catalog change and scans nothing, so it scores with `ADD
+    CONSTRAINT ... NOT VALID` rather than with the operations that rewrite a table. Its locks
+    are the risk, and the op takes them in a bounded, parent-first phase of its own. What the
+    op cannot control is the rest of its transaction, so LockPhaseTransactionPolicy
+    checks that at migration level.
     """
 
     operation_type = "DropForeignKey"
@@ -1000,15 +1002,43 @@ class DropForeignKeyAnalyzer(OperationAnalyzer):
         return OperationRisk(
             type=self.operation_type,
             score=1,
-            reason="DROP CONSTRAINT on a foreign key is a catalog change (brief lock on the parent, no table scan)",
+            reason="DROP CONSTRAINT on a foreign key is a catalog change (parent-first bounded lock phase, no table scan)",
             details={
                 "table": getattr(op, "table", None),
-                "column": getattr(op, "column", None),
+                "columns": getattr(op, "columns", None),
                 "to_table": getattr(op, "to_table", None),
             },
             guidance=f"""Required beside a state-only removal of the column or table this foreign key sits on. Django stops cascading into a relation it cannot see, and the deferred constraint then fails the parent delete at COMMIT.
 
+The transaction holds the parent locks until COMMIT. Keep this op alone in its migration, next to state-only operations at most, and pass every key on the table to one op with `column=[...]`.
+
 Irreversible. Add the constraint back with `AddForeignKeyNotValid` in a new migration rather than by unapplying this one.
+
+[See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
+        )
+
+
+class DropColumnConstraintsAnalyzer(OperationAnalyzer):
+    """The check and unique rules that go with a retiring column.
+
+    Every drop is a catalog change on one table, taken under one bounded lock phase, so it
+    scores with DropForeignKey. LockPhaseTransactionPolicy checks the rest of the transaction.
+    """
+
+    operation_type = "DropColumnConstraints"
+    default_score = 1
+
+    def analyze(self, op) -> OperationRisk:
+        return OperationRisk(
+            type=self.operation_type,
+            score=1,
+            reason="DROP CONSTRAINT and DROP INDEX for retiring columns are catalog changes (bounded lock phase, no table scan)",
+            details={"table": getattr(op, "table", None), "columns": getattr(op, "columns", None)},
+            guidance=f"""Finds every check and unique rule on the columns in the catalog, so it also drops rules no migration file names any more. Run it before the release that stops writing the columns, because a check that requires them then rejects every insert.
+
+The transaction holds the table lock until COMMIT. Keep this op alone in its migration, next to state-only operations at most.
+
+Irreversible. Add a rule back in a new migration rather than by unapplying this one.
 
 [See the migration safety guide]({SAFE_MIGRATIONS_DOCS_URL}#dropping-columns)""",
         )

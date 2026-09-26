@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
+import { TaxonomicSearchIntentBanner } from './TaxonomicSearchIntentBanner'
 
 export function TaxonomicFilter({
     taxonomicFilterLogicKey: taxonomicFilterLogicKeyInput,
@@ -40,6 +41,7 @@ export function TaxonomicFilter({
     selectedProperties,
     popoverEnabled = true,
     selectFirstItem = true,
+    promoteSelectedItemToFirstPosition,
     propertyAllowList,
     hideBehavioralCohorts,
     showCohortFlagTargeting,
@@ -80,6 +82,7 @@ export function TaxonomicFilter({
         schemaColumnsLoading,
         popoverEnabled,
         selectFirstItem,
+        promoteSelectedItemToFirstPosition,
         excludedProperties,
         includeHiddenEvents,
         selectedProperties,
@@ -154,6 +157,7 @@ export function TaxonomicFilter({
                             eventName={eventNames?.[0]}
                             focusInput={focusInput}
                         />
+                        <TaxonomicSearchIntentBanner taxonomicFilterLogicProps={taxonomicFilterLogicProps} />
                     </div>
                 ) : null}
                 {refReady && (

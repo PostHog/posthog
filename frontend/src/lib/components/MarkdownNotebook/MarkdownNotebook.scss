@@ -888,6 +888,11 @@
     pointer-events: auto;
 }
 
+.MarkdownNotebook__link-hint-anchor {
+    position: fixed;
+    pointer-events: none;
+}
+
 // Holding Cmd/Ctrl (MarkdownNotebook--link-modifier-held, toggled in MarkdownNotebook.tsx)
 // makes links clickable again so modifier-click can open them while editing
 .MarkdownNotebook--link-modifier-held .MarkdownNotebook__text-block[contenteditable='true'] a,
@@ -977,8 +982,10 @@ h3.MarkdownNotebook__text-block--heading {
     left: var(--markdown-notebook-format-toolbar-left);
     z-index: calc(var(--z-popover) + 2);
     display: inline-flex;
+    flex-wrap: wrap;
     gap: 0.125rem;
     align-items: center;
+    max-width: calc(100vw - 1rem);
     padding: 0.25rem;
     margin: 0;
     color: var(--color-text-primary);

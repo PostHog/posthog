@@ -17,14 +17,15 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import type { Breadcrumb } from '~/types'
 
-import { deleteSource, getSource, getSourceText, refreshSource, updateSource } from '../api'
+import { deleteSource, getSource, getSourceDocuments, getSourceText, refreshSource, updateSource } from '../api'
 import type { UpdateSourcePayload } from '../api'
-import type { KnowledgeSourceApi } from '../generated/api.schemas'
+import type { KnowledgeSourceApi, KnowledgeSourceDocumentApi } from '../generated/api.schemas'
 import {
     DEFAULT_URL_SOURCE_FORM,
     type CrawlMode,
@@ -91,6 +92,10 @@ export interface knowledgeSourceLogicValues {
     showEditSourceErrors: boolean
     showEditUrlSourceErrors: boolean
     source: KnowledgeSource | null
+    sourceDocuments: KnowledgeSourceDocumentApi[]
+    sourceDocumentsFailed: boolean
+    sourceDocumentsLoaded: boolean
+    sourceDocumentsLoading: boolean
     sourceLoading: boolean
     sourceNotFound: boolean
     sourceText: {
@@ -110,6 +115,21 @@ export interface knowledgeSourceLogicActions {
         value: true
     }
     loadSource: () => any
+    loadSourceDocuments: (_: void) => void
+    loadSourceDocumentsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadSourceDocumentsSuccess: (
+        sourceDocuments: KnowledgeSourceDocumentApi[],
+        payload?: void
+    ) => {
+        sourceDocuments: KnowledgeSourceDocumentApi[]
+        payload?: void
+    }
     loadSourceFailure: (
         error: string,
         errorObject?: any
@@ -290,6 +310,22 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                 loadSourceTextFailure: () => true,
             },
         ],
+        sourceDocumentsFailed: [
+            false,
+            {
+                loadSourceDocuments: () => false,
+                loadSourceDocumentsSuccess: () => false,
+                loadSourceDocumentsFailure: () => true,
+            },
+        ],
+        // Stays false until the first successful response, so the table does not
+        // render its empty state in the gap before the loader starts.
+        sourceDocumentsLoaded: [
+            false,
+            {
+                loadSourceDocumentsSuccess: () => true,
+            },
+        ],
     }),
     loaders(({ actions, props }) => ({
         source: [
@@ -314,6 +350,17 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
             {
                 loadSourceText: async () => {
                     return await getSourceText(props.id)
+                },
+            },
+        ],
+        sourceDocuments: [
+            [] as KnowledgeSourceDocumentApi[],
+            {
+                loadSourceDocuments: async (_: void, breakpoint) => {
+                    const documents = await getSourceDocuments(props.id)
+                    // A poll can start a second fetch before the first returns.
+                    breakpoint()
+                    return documents
                 },
             },
         ],
@@ -342,6 +389,11 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                         ? `"${updated.name}" re-indexed into ${updated.chunk_count} chunks`
                         : `"${updated.name}" renamed`
                     lemonToast.success(msg)
+                    const submitted = { name, text, always_include }
+                    // Fields stay editable during the save, so keep any edit made in flight.
+                    if (objectsEqual(values.editSource, submitted)) {
+                        actions.resetEditSource(submitted)
+                    }
                     actions.loadSource()
                 } catch (error: any) {
                     lemonToast.error(
@@ -378,6 +430,9 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                 try {
                     const updated = await updateSource(props.id, payload)
                     lemonToast.success(`"${updated.name}" updated`)
+                    if (objectsEqual(values.editUrlSource, vals)) {
+                        actions.resetEditUrlSource(vals)
+                    }
                     actions.loadSource()
                 } catch (error: any) {
                     lemonToast.error(
@@ -399,12 +454,13 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
             }
             // Hydrate once. Later polls must not wipe in-progress edits, and a text
             // save must not restore the stale sourceText loader value.
+            // Reset, not set, so the form's changed flag stays off until the user edits.
             if (!cache.formHydrated) {
                 if (source.source_type === 'url') {
-                    actions.setEditUrlSourceValues(editUrlSourceValuesFromSource(source))
+                    actions.resetEditUrlSource(editUrlSourceValuesFromSource(source))
                 } else {
                     const textReady = hasLoadedSourceText(source, values.sourceText)
-                    actions.setEditSourceValues({
+                    actions.resetEditSource({
                         name: source.name,
                         text: textReady ? values.sourceText.text : '',
                         always_include: source.always_include ?? false,
@@ -414,6 +470,9 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
                     }
                 }
                 cache.formHydrated = true
+            }
+            if (source.source_type === 'url') {
+                actions.loadSourceDocuments()
             }
             const delayMs = sourcePollDelayMs(source)
             if (delayMs === null) {
@@ -427,7 +486,11 @@ export const knowledgeSourceLogic: LogicWrapper<knowledgeSourceLogicType> = kea<
         },
         loadSourceTextSuccess: ({ sourceText }) => {
             if (values.source && values.source.id === sourceText.id) {
-                actions.setEditSourceValue('text', sourceText.text)
+                if (values.editSourceChanged) {
+                    actions.setEditSourceValue('text', sourceText.text)
+                } else {
+                    actions.resetEditSource({ ...values.editSource, text: sourceText.text })
+                }
             }
         },
         deleteSource: async () => {
