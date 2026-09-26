@@ -132,10 +132,14 @@ describe('navProductsTabLogic', () => {
             { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
         ])
 
-        await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.setProductStarred('Feature flags', false))
+        await expectLogic(navProductsTabLogic, () =>
+            navProductsTabLogic.actions.setProductStarred('Feature flags', false)
+        )
             .toDispatchActions([projectTreeDataLogic.actionTypes.deleteShortcutFailure])
             .toMatchValues({ starredProductIds: { 'Feature flags': 'app-star' }, shortcutDataLoading: false })
-        await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.setProductStarred('Feature flags', false))
+        await expectLogic(navProductsTabLogic, () =>
+            navProductsTabLogic.actions.setProductStarred('Feature flags', false)
+        )
             .toDispatchActions([projectTreeDataLogic.actionTypes.deleteShortcutSuccess])
             .toMatchValues({ starredProductIds: {}, shortcutDataLoading: false })
     })

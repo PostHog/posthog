@@ -38,15 +38,15 @@ export interface navProductsTabLogicActions {
     deleteShortcut: (id: string) => {
         id: string
     } // projectTreeDataLogic
+    setConfigureStarredOpen: (open: boolean) => {
+        open: boolean
+    }
     setProductStarred: (
         productPath: string,
         starred: boolean
     ) => {
         productPath: string
         starred: boolean
-    }
-    setConfigureStarredOpen: (open: boolean) => {
-        open: boolean
     }
     setSearch: (search: string) => {
         search: string
