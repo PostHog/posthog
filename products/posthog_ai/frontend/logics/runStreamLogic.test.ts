@@ -2871,6 +2871,25 @@ describe('runStreamLogic', () => {
             }
         )
 
+        it('keeps an unconfirmed resume echo that repeats more than one saved message', () => {
+            const saved = ['Retry', 'Retry'].flatMap((content) => [
+                notification('_posthog/user_message', { content }),
+                notification('_posthog/turn_complete', {}),
+            ])
+            const unconfirmed = {
+                entry: notification('_client/human_message', { content: 'Retry' }),
+                source: 'client' as const,
+            }
+
+            const log = reconcileRunLog(saved, [unconfirmed], [], unconfirmed)
+
+            expect(
+                foldLogToThread(log.entries, { isResumeRun: false })
+                    .threadItems.filter((item) => item.type === 'human_message')
+                    .map((item) => item.text)
+            ).toEqual(['Retry', 'Retry', 'Retry'])
+        })
+
         it('renders a follow-up sent to the previous run once after the successor bootstraps', async () => {
             const run = {
                 id: 'run-2',
