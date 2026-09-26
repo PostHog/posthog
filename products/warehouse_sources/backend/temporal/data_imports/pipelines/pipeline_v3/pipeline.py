@@ -79,7 +79,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     S3BatchWriter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
+    ResumableSourceManager,
+    resolve_resume_manager,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceResponse,
@@ -195,7 +198,8 @@ class PipelineV3(Generic[ResumableData]):
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
-        is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
+        self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
+        is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
 
         self._producer_kwargs: dict[str, Any] = {
             "sync_type": sync_type,
@@ -211,14 +215,15 @@ class PipelineV3(Generic[ResumableData]):
             self._s3_batch_writer, resource_name=self._resource_name, cdc_write_mode=self._resource.cdc_write_mode
         )
 
-        self._resumable_source_manager = resumable_source_manager
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
         # Arrow coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables)
         # from becoming the queue's batch granularity, but it delays when a yielded table is
         # persisted, so it must stay off for sources that treat yield as durable: the webhook path
         # deletes its staged S3 files right after yielding, and the resume cursor commit after a
-        # write assumes that write drained every table yielded so far.
+        # write assumes that write drained every table yielded so far. The resolved manager is what
+        # decides that, not the raw one — a resumable source class whose current run can't resume
+        # commits no cursor, so it can still coalesce.
         self._batcher = Batcher(
             self._logger,
             chunk_size=source_response.chunk_size,
@@ -226,7 +231,7 @@ class PipelineV3(Generic[ResumableData]):
             source_type=self._source.source_type if self._source else None,
             team_id=self._job.team_id,
             schema_name=self._schema.name,
-            coalesce_tables=resumable_source_manager is None and not self._schema.is_webhook,
+            coalesce_tables=self._resumable_source_manager is None and not self._schema.is_webhook,
             primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()

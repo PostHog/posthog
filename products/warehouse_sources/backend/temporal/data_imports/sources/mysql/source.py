@@ -18,7 +18,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
     SourceFieldSSHTunnelConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     HostNotAllowedError,
     SSHTunnelMixin,
@@ -26,8 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     ValidateDatabaseHostMixin,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _SSH_HANDSHAKE_EOF_ERROR,
@@ -90,10 +93,29 @@ _HOST_IS_URL_ERROR = (
 
 
 @SourceRegistry.register
-class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MySQLSource(
+    SQLSource[MySQLSourceConfig],
+    ResumableSource[MySQLSourceConfig, KeysetResumeState],
+    SSHTunnelMixin,
+    ValidateDatabaseHostMixin,
+):
     @property
     def get_implementation(self) -> MySQLImplementation:
         return _MYSQL_IMPLEMENTATION
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KeysetResumeState]:
+        return ResumableSourceManager[KeysetResumeState](inputs, KeysetResumeState)
+
+    def source_for_pipeline(  # type: ignore[override]
+        self,
+        config: MySQLSourceConfig,
+        resumable_source_manager: ResumableSourceManager[KeysetResumeState],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        # A reset must not resume from a stale checkpoint — the full load restarts from the top.
+        if inputs.reset_pipeline:
+            resumable_source_manager.clear_state()
+        return self.get_implementation.build_pipeline(config, inputs, resumable_source_manager=resumable_source_manager)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
