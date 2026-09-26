@@ -487,7 +487,7 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
     130: ErrorCodeMeta("CANNOT_READ_ARRAY_FROM_TEXT"),
-    131: ErrorCodeMeta("TOO_LARGE_STRING_SIZE"),
+    131: ErrorCodeMeta("TOO_LARGE_STRING_SIZE", user_safe=True),  # string built by the query exceeds ClickHouse's cap
     133: ErrorCodeMeta("AGGREGATE_FUNCTION_DOESNT_ALLOW_PARAMETERS"),
     134: ErrorCodeMeta("PARAMETERS_TO_AGGREGATE_FUNCTIONS_MUST_BE_LITERALS"),
     135: ErrorCodeMeta("ZERO_ARRAY_OR_TUPLE_INDEX", user_safe=True),
