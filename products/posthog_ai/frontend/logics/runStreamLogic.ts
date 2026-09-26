@@ -1277,11 +1277,19 @@ function retainedFramesWithoutOptimisticEchoes(retained: StoredEntry[]): StoredL
     })
 }
 
+/**
+ * A persisted turn replaces its local echo whichever run of the resume chain it belongs to, because
+ * a follow-up sent to a live run persists under that run while its echo waits for the successor
+ * run's bootstrap. The dedupe below keeps that from eating a repeat: a turn already covered by a
+ * retained frame is one the thread showed before this fetch, so an identical later send is its own.
+ * `unconfirmedEcho` is the one echo no persisted copy covers yet. It is matched by identity rather
+ * than by text, so earlier echoes of the same words still pair off with the copies they belong to.
+ */
 export function reconcileRunLog(
     history: StoredLogEntry[],
     retained: StoredEntry[],
     buffered: StoredLogEntry[],
-    optimisticRunId?: string
+    unconfirmedEcho?: StoredEntry
 ): RunLog {
     let entries: StoredEntry[] = history.map((entry) => ({ entry, source: 'replay' }))
     const coverage = new RunEventCoverage(history)
@@ -1289,7 +1297,7 @@ export function reconcileRunLog(
     const rememberedHumanTexts = new Map<string, number>()
     for (const entry of dedupeBufferedAgainstHistory(history, retainedFramesWithoutOptimisticEchoes(retained))) {
         const text = persistedHumanText(entry)
-        if (!text || (optimisticRunId && entry.source_run_id !== optimisticRunId)) {
+        if (!text) {
             continue
         }
         if (entry.notification.method === '_posthog/user_message') {
@@ -1315,7 +1323,7 @@ export function reconcileRunLog(
         survivors.forEach((entry) => survivorCounts.set(entry, (survivorCounts.get(entry) ?? 0) + 1))
         for (const stored of tail) {
             const { entry } = stored
-            if (entry.notification.method === '_client/human_message') {
+            if (entry.notification.method === '_client/human_message' && stored !== unconfirmedEcho) {
                 const text = String(entry.notification.params?.content ?? '')
                 const saved = savedHumanCounts.get(text) ?? 0
                 if (saved > 0) {
@@ -3406,21 +3414,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
             })
             const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
             let retained = values.log.entries
-            if (
-                cache.retainedMessage &&
-                history.some(
-                    (entry) =>
-                        entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
-                )
-            ) {
+            let unconfirmedEcho: StoredEntry | undefined
+            if (cache.retainedMessage) {
                 const optimisticIndex = retained.findLastIndex(
                     ({ entry }) =>
                         entry.notification.method === '_client/human_message' &&
                         entry.notification.params?.content === cache.retainedMessage
                 )
-                retained = retained.filter((_, index) => index !== optimisticIndex)
+                const persisted = history.some(
+                    (entry) =>
+                        entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
+                )
+                if (persisted) {
+                    retained = retained.filter((_, index) => index !== optimisticIndex)
+                } else if (optimisticIndex >= 0) {
+                    unconfirmedEcho = retained[optimisticIndex]
+                }
             }
-            const log = reconcileRunLog(history, retained, session.buffer, session.runId)
+            const log = reconcileRunLog(history, retained, session.buffer, unconfirmedEcho)
             const bufferedEntries = new Set(session.buffer)
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             // Rebuild state without publishing a partial transcript or repeating live reactions.
