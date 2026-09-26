@@ -75,6 +75,10 @@ class TestClassifySearchIntent(SimpleTestCase):
             ("opaque_token", "sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("key_value_pair", "token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("url_inside_word", "visits:https://example.com/reset", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("spaced_key_value", "token = sk_live_abcdefghijklmnop", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("value_after_marker", "token= sk_live_abcdefghijklmnop", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("spaced_email", "ada @ example.com", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("email_split_at_domain", "ada@ example.com", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("too_short", "e", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("one_option_left", "email", ("events", "suggested_filters"), None, SearchIntentSource.SKIPPED),
         ]

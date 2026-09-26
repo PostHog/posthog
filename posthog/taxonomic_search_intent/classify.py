@@ -100,11 +100,16 @@ def rule_intent(query: str, available_group_types: tuple[str, ...]) -> SearchInt
 
 # Brackets, quotes and trailing punctuation around a value would otherwise hide it from the shape checks.
 _WRAPPING_PUNCTUATION = "()[]{}<>.,;:!?\"'`"
+_VALUE_MARKERS = ("@", "=")
+
+
+def _bare(word: str) -> str:
+    return word.strip(_WRAPPING_PUNCTUATION)
 
 
 def _placeholder(word: str) -> str | None:
     """The shape of a value-shaped word, which the model reads instead of the value. None for an ordinary word."""
-    bare = word.strip(_WRAPPING_PUNCTUATION)
+    bare = _bare(word)
     if "@" in bare:
         return "<email>"
     if "://" in bare or "www." in bare.lower():
@@ -127,6 +132,9 @@ def redact_values(query: str) -> str | None:
     None when only values are left, because the model then has nothing to read.
     """
     words = query.split()
+    # A marker at a word's edge, as in "token = sk_live_x" or "ada @ example.com", leaves its value in the next word.
+    if any(bare[:1] in _VALUE_MARKERS or bare[-1:] in _VALUE_MARKERS for bare in map(_bare, words)):
+        return None
     placeholders = [_placeholder(word) for word in words]
     if all(placeholders):
         return None
