@@ -16,7 +16,7 @@ from posthog.schema import (
     RefreshType,
 )
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.query import QueryViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin

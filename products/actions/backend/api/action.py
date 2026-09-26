@@ -15,7 +15,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.api.documentation import (
+from posthog.api.documentation.filter_serializers import (
     ArrayPropertyFilterSerializer,
     DatePropertyFilterSerializer,
     ExistencePropertyFilterSerializer,

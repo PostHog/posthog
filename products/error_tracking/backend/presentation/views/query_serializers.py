@@ -4,9 +4,10 @@ from typing import cast
 
 from django.db import models
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
+from posthog.api.documentation.filter_serializers import PropertyItemSerializer
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueSeverityField

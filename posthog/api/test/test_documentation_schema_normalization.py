@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from posthog.api.documentation import _fix_pydantic_schema_for_openapi
+from posthog.api.documentation.schema_normalization import _fix_pydantic_schema_for_openapi
 
 
 @pytest.mark.parametrize(

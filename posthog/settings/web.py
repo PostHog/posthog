@@ -529,7 +529,7 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "EXCEPTION_HANDLER": "posthog.exceptions.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
-    "DEFAULT_SCHEMA_CLASS": "posthog.api.documentation.PostHogAutoSchema",
+    "DEFAULT_SCHEMA_CLASS": "posthog.api.documentation.autoschema.PostHogAutoSchema",
     # These rate limits are defined in `rate_limit.py`, and they're only
     # applied if env variable `RATE_LIMIT_ENABLED` is set to True
     "DEFAULT_THROTTLE_CLASSES": [
@@ -553,8 +553,8 @@ SPECTACULAR_SETTINGS = {
         {"url": "https://eu.posthog.com", "description": "PostHog Cloud EU"},
     ],
     "AUTHENTICATION_WHITELIST": ["posthog.auth.PersonalAPIKeyAuthentication"],
-    "GET_MOCK_REQUEST": "posthog.api.documentation.build_openapi_mock_request",
-    "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocess_exclude_path_format"],
+    "GET_MOCK_REQUEST": "posthog.api.documentation.autoschema.build_openapi_mock_request",
+    "PREPROCESSING_HOOKS": ["posthog.api.documentation.preprocessing.preprocess_exclude_path_format"],
     "POSTPROCESSING_HOOKS": [
         # The guard pair around postprocess_schema_enums fails the build when two
         # different choice sets resolve to one component name, which the enum hook
@@ -563,11 +563,11 @@ SPECTACULAR_SETTINGS = {
         "drf_spectacular.hooks.postprocess_schema_enums",
         "posthog.openapi.enum_name_guard.check_enum_name_clashes",
         "products.dashboards.backend.widget_specs.pydantic_openapi.inject_widget_spec_pydantic_components",
-        "posthog.api.documentation.custom_postprocessing_hook",
+        "posthog.api.documentation.postprocessing.custom_postprocessing_hook",
         # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
         # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)
         # so `--fail-on-warn` in `hogli build:openapi-schema` catches them in CI.
-        "posthog.api.documentation.lint_spec_consistency_hook",
+        "posthog.api.documentation.consistency_lint.lint_spec_consistency_hook",
     ],
     "ENUM_NAME_OVERRIDES": ChoicesEnumNameOverrides(
         {

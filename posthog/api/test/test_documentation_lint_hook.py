@@ -1,9 +1,9 @@
-"""Tests for posthog.api.documentation.lint_spec_consistency_hook."""
+"""Tests for posthog.api.documentation.consistency_lint.lint_spec_consistency_hook."""
 
 import pytest
 from unittest.mock import patch
 
-from posthog.api.documentation import lint_spec_consistency_hook
+from posthog.api.documentation.consistency_lint import lint_spec_consistency_hook
 
 
 @pytest.mark.parametrize(
@@ -28,7 +28,7 @@ def test_lint_spec_consistency_hook_operation_id_validation(operation_id: str, s
             },
         },
     }
-    with patch("posthog.api.documentation.spectacular_warn") as mock_warn:
+    with patch("posthog.api.documentation.consistency_lint.spectacular_warn") as mock_warn:
         lint_spec_consistency_hook(spec, generator=None, request=None, public=True)
         warned_about_op_id = any(
             "operationId" in str(call_args.args[0]) and operation_id in str(call_args.args[0])
@@ -50,7 +50,7 @@ def test_lint_spec_consistency_hook_skips_non_method_keys() -> None:
             },
         },
     }
-    with patch("posthog.api.documentation.spectacular_warn") as mock_warn:
+    with patch("posthog.api.documentation.consistency_lint.spectacular_warn") as mock_warn:
         lint_spec_consistency_hook(spec, generator=None, request=None, public=True)
         op_id_warnings = [c for c in mock_warn.call_args_list if "operationId" in str(c.args[0])]
         assert op_id_warnings == []
@@ -83,7 +83,7 @@ def test_lint_spec_consistency_hook_schema_checks(schema: dict, expected_fragmen
             }
         }
     }
-    with patch("posthog.api.documentation.spectacular_warn") as mock_warn:
+    with patch("posthog.api.documentation.consistency_lint.spectacular_warn") as mock_warn:
         lint_spec_consistency_hook(spec, generator=None, request=None, public=True)
     warnings = [c.args[0] for c in mock_warn.call_args_list]
     if expected_fragment is None:

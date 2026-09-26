@@ -146,7 +146,7 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
 
     # Not part of the public API scope model: access is gated entirely by IsStaffUser below,
     # not by a personal-API-key scope, so this stays out of the public OpenAPI/generated-client
-    # surface (see posthog/api/documentation.py's INTERNAL handling).
+    # surface (see posthog/api/documentation/preprocessing.py's INTERNAL handling).
     scope_object = "INTERNAL"
     permission_classes = [IsAuthenticated, IsStaffUser]
 

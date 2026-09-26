@@ -2,7 +2,8 @@ from typing import Any
 
 import pytest
 
-from posthog.api.documentation import custom_postprocessing_hook, preprocess_exclude_path_format
+from posthog.api.documentation.postprocessing import custom_postprocessing_hook
+from posthog.api.documentation.preprocessing import preprocess_exclude_path_format
 
 
 class _Callback:

@@ -9,12 +9,12 @@ from django.db.models import Field, Manager, QuerySet
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 
+from drf_spectacular.utils import extend_schema
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.documentation import extend_schema
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.statement_timeout import statement_timeout
