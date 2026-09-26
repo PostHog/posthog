@@ -105,7 +105,10 @@ class HogQLPrinter(BasePrinter):
         return self._print_identifier(table_type.table.to_printed_hogql())
 
     def _render_untyped_join_expr(self, node: ast.JoinExpr) -> list[str]:
-        parts = [self.visit(node.table)]
+        table = self.visit(node.table)
+        if node.table_args is not None:
+            table = f"{table}({', '.join(self.visit(arg) for arg in node.table_args)})"
+        parts = [table]
         if node.alias is not None:
             parts.append(f"AS {self._print_identifier(node.alias)}")
         return parts

@@ -516,15 +516,27 @@ describe('dataQualityOverviewLogic', () => {
         expect(logic.values.isRunning).toBe(false)
     })
 
-    it.each<[string, Record<string, string>[], string | null]>([
+    it.each<[string, Record<string, string | boolean>[], string | null, boolean]>([
         // Retention clears the compiled query of older runs first, so "latest" is not always [0].
         [
             'the newest run that still has one',
             [{ compiled_query: 'SELECT 2' }, { compiled_query: 'SELECT 1' }],
             'SELECT 2',
+            false,
         ],
-        ['past runs whose query was cleared', [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }], 'SELECT 1'],
-    ])('opens the failing rows of %s', async (_case, runs, expected) => {
+        [
+            'past runs whose query was cleared',
+            [{ compiled_query: '' }, { compiled_query: 'SELECT 1' }],
+            'SELECT 1',
+            false,
+        ],
+        [
+            'a run that checked an unpublished refresh',
+            [{ compiled_query: 'WITH orders AS (SELECT 1) SELECT * FROM orders', audited_staged_refresh: true }],
+            'WITH orders AS (SELECT 1) SELECT * FROM orders',
+            true,
+        ],
+    ])('opens the failing rows of %s', async (_case, runs, expected, explained) => {
         ;(dataQualityChecksRunsList as jest.Mock).mockResolvedValue(runs)
         await mountLogic()
 
@@ -533,6 +545,7 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(router.values.location.pathname).toMatch(/\/sql$/)
         expect(router.values.searchParams.open_query).toEqual(expected)
+        expect(lemonToast.info).toHaveBeenCalledTimes(explained ? 1 : 0)
     })
 
     it.each<[string, Record<string, string>[]]>([

@@ -40,10 +40,12 @@ def compile_check(
     parsed = spec.validate(config, column_name)
     plan = _windowed(spec.build(subject, column_name, parsed, related_subject), check_type, subject, parsed)
     query = _aggregate(plan)
+    failing_rows = plan.diagnostic_rows or plan.failing_rows
     return CompiledCheck(
         query=query,
-        printed_query=_print(query),
-        printed_failing_rows_query=_print(plan.diagnostic_rows or plan.failing_rows),
+        printed_query=print_check_query(query),
+        printed_failing_rows_query=print_check_query(failing_rows),
+        failing_rows=failing_rows,
         evaluation=plan.evaluation,
     )
 
@@ -62,7 +64,7 @@ def _windowed(plan: CheckPlan, check_type: str, subject: SubjectRef, config: Any
     return plan
 
 
-def _print(query: "ast.SelectQuery | ast.SelectSetQuery") -> str:
+def print_check_query(query: "ast.SelectQuery | ast.SelectSetQuery") -> str:
     # limit_top_select=False: the aggregate is a single row anyway, and the failing-rows form is
     # stored for a human to re-run, so a synthetic LIMIT would misrepresent what the check examined.
     return print_prepared_ast(
