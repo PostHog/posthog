@@ -8,6 +8,9 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const SurveysListParams = () => zod.object({
     project_id: zod
         .string()
@@ -42,6 +45,9 @@ export const SurveysListQueryParams = () => zod.object({
         ),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const SurveysCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -909,6 +915,9 @@ export const SurveysCreateBody = () => zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const SurveysRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
@@ -918,6 +927,9 @@ export const SurveysRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const SurveysPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
@@ -1788,6 +1800,9 @@ export const SurveysPartialUpdateBody = () => zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const SurveysDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod

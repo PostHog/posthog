@@ -70,6 +70,9 @@ export const DesktopFeedbackCreateBody = /* @__PURE__ */ zod.object({
     image_2: zod.instanceof(File).optional().describe('Second image that the user attached.'),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const surveysCreateBodyNameMax = 400
 
 export const surveysCreateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -929,6 +932,9 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const surveysUpdateBodyNameMax = 400
 
 export const surveysUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -1788,6 +1794,9 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const surveysPartialUpdateBodyNameMax = 400
 
 export const surveysPartialUpdateBodyTargetingFlagFiltersOneEarlyExitDefault = false
@@ -2757,6 +2766,9 @@ export const SurveysDuplicateToProjectsCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const surveysGenerateTranslationsCreateBodyOverwriteDefault = false
 
 export const SurveysGenerateTranslationsCreateBody = /* @__PURE__ */ zod.object({
@@ -2999,6 +3011,9 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
         .describe('When true, bypass cached summaries and regenerate. Defaults to false.'),
 })
 
+/**
+ * Create, read, update, and manage surveys and their targeting.
+ */
 export const surveysSummaryHeadlineCreateBodyNameMax = 400
 
 export const surveysSummaryHeadlineCreateBodyResponsesLimitMin = 0
