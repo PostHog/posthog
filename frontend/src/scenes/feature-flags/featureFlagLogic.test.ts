@@ -497,6 +497,7 @@ describe('featureFlagLogic', () => {
 
                 // The permission-specific branch must not fire; the generic loaders toast owns this case.
                 expect(toastSpy).not.toHaveBeenCalledWith('Nope')
+                expect(logic.values.isSaveInProgress).toBe(false)
             } finally {
                 toastSpy.mockRestore()
             }
@@ -628,6 +629,77 @@ describe('featureFlagLogic', () => {
             }).toFinishAllListeners()
 
             expect(router.values.location.pathname).toBe(embeddedPathname)
+        })
+    })
+
+    describe('while a save is in flight', () => {
+        it('keeps the unsaved-changes prompt and stops a second submit', async () => {
+            let releaseSave: (() => void) | undefined
+            const updateSpy = jest.spyOn(api, 'update').mockImplementation(
+                () =>
+                    new Promise((resolve) => {
+                        releaseSave = () => resolve(MOCK_FEATURE_FLAG)
+                    })
+            )
+            const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false)
+            try {
+                logic.actions.setFeatureFlagValue('name', 'Edited name')
+                expect(logic.values.isFormDirty).toBe(true)
+
+                logic.actions.saveFeatureFlag(logic.values.featureFlag)
+                expect(logic.values.isSavingFeatureFlag).toBe(true)
+
+                // Leaving unmounts the logic, and the failure listener that shows the
+                // approval-required and duplicate-key toasts would never run. The prompt keeps
+                // the person on the page until the save resolves.
+                router.actions.push(urls.featureFlags())
+                expect(confirmSpy).toHaveBeenCalledTimes(1)
+
+                // Pressing Enter in a field still submits the form, so the in-flight guard has to
+                // sit behind the submit path too, not only on the disabled button.
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toDispatchActions(['submitFeatureFlagWithValidation'])
+                expect(updateSpy).toHaveBeenCalledTimes(1)
+
+                releaseSave?.()
+                await expectLogic(logic).toDispatchActions(['saveFeatureFlagSuccess'])
+                expect(logic.values.isSavingFeatureFlag).toBe(false)
+            } finally {
+                confirmSpy.mockRestore()
+                updateSpy.mockRestore()
+            }
+        })
+
+        it('stops a second submit while the pre-save checks still run', async () => {
+            // The checks can wait on a confirmation dialog or on the dependent flags before the
+            // request starts. The request-level guard is false for that whole wait, so a second
+            // submit used to start a second check run and a second write.
+            const dialogOpenSpy = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const updateSpy = jest.spyOn(api, 'update').mockResolvedValue(MOCK_FEATURE_FLAG)
+            try {
+                logic.actions.setFeatureFlagValue('key', 'renamed-flag')
+
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toDispatchActions(['submitFeatureFlagWithValidation'])
+                expect(logic.values.isSaveInProgress).toBe(true)
+                expect(logic.values.isSavingFeatureFlag).toBe(false)
+
+                await expectLogic(logic, () => {
+                    logic.actions.submitFeatureFlag()
+                }).toDispatchActions(['submitFeatureFlagWithValidation'])
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+                expect(updateSpy).not.toHaveBeenCalled()
+
+                dialogOpenSpy.mock.calls[0][0].onAfterClose?.()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.isSaveInProgress).toBe(false)
+                expect(updateSpy).not.toHaveBeenCalled()
+            } finally {
+                dialogOpenSpy.mockRestore()
+                updateSpy.mockRestore()
+            }
         })
     })
 

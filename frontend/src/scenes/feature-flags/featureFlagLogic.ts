@@ -1009,7 +1009,10 @@ export interface featureFlagLogicValues {
     isFeatureFlagSubmitting: boolean
     isFeatureFlagValid: boolean
     isFormDirty: boolean
+    isPreSaveChecking: boolean
     isRecurring: boolean
+    isSaveInProgress: boolean
+    isSavingFeatureFlag: boolean
     multivariateEnabled: boolean
     newCohort: CohortType | null
     newCohortLoading: boolean
@@ -1686,6 +1689,9 @@ export interface featureFlagLogicActions {
     setPayloadExpanded: (expanded: boolean) => {
         expanded: boolean
     }
+    setPreSaveChecking: (checking: boolean) => {
+        checking: boolean
+    }
     setRecurrenceInterval: (interval: RecurrenceInterval | null) => {
         interval: RecurrenceInterval | null
     }
@@ -2044,6 +2050,7 @@ export interface featureFlagLogicMeta {
             hasUnsavedChanges: boolean,
             featureFlagChanged: boolean
         ) => boolean
+        isSaveInProgress: (isPreSaveChecking: boolean, isSavingFeatureFlag: boolean) => boolean
         multivariateEnabled: (featureFlag: FeatureFlagType) => boolean
         flagType: (featureFlag: FeatureFlagType) => 'boolean' | 'multivariate' | 'remote_config'
         flagTypeString: (
@@ -2258,6 +2265,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setOpenVariants: (openVariants: string[]) => ({ openVariants }),
         setAdvancedExpanded: (expanded: boolean) => ({ expanded }),
         setPayloadExpanded: (expanded: boolean) => ({ expanded }),
+        setPreSaveChecking: (checking: boolean) => ({ checking }),
         setTemplateExpanded: (expanded: boolean) => ({ expanded }),
         applyUrlTemplate: (templateId: string) => ({ templateId }),
         applyTemplate: (templateId: string) => ({ templateId }),
@@ -2559,6 +2567,25 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         accessDeniedToFeatureFlag: [false, { setAccessDeniedToFeatureFlag: () => true }],
+        // `featureFlagLoading` cannot tell a load apart from a save, and the two need opposite
+        // treatment: a load has nothing to show yet, a save must keep the form on screen.
+        isSavingFeatureFlag: [
+            false,
+            {
+                saveFeatureFlag: () => true,
+                saveFeatureFlagSuccess: () => false,
+                saveFeatureFlagFailure: () => false,
+            },
+        ],
+        // The pre-save checks run before the request: a key-change confirmation, a wait for the
+        // dependent flags, then the change confirmation. No request runs yet, so this phase stays
+        // out of `isSavingFeatureFlag`, which answers only whether `featureFlagLoading` is a save.
+        isPreSaveChecking: [
+            false,
+            {
+                setPreSaveChecking: (_, { checking }) => checking,
+            },
+        ],
         propertySelectErrors: [
             null as any,
             {
@@ -3123,10 +3150,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             product_type: ProductKey.FEATURE_FLAGS,
                             intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
                         })
-                        // Copy into the extra projects inside this loader so featureFlagLoading
-                        // stays true until the copies resolve. FeatureFlag.tsx swaps the form for
-                        // a skeleton while that flag is set, which blocks a second submit through
-                        // the copy phase.
+                        // Copy into the extra projects inside this loader so isSavingFeatureFlag
+                        // stays true until the copies resolve. That keeps the form locked and
+                        // blocks a second submit through the copy phase.
                         const alsoCreateIn = values.alsoCreateInProjects.filter(
                             (projectId) => projectId !== values.currentProjectId
                         )
@@ -4456,57 +4482,74 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagWithValidation: async (_payload, breakpoint, action, previousState) => {
-            const featureFlag = values.featureFlag
-            const originalFlag = values.originalFeatureFlag
-            const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
-
-            if (keyChanged) {
-                const confirmed = await new Promise<boolean>((resolve) => {
-                    LemonDialog.open({
-                        title: 'Change flag key?',
-                        description: createElement(
-                            'span',
-                            null,
-                            'Renaming this key will break any existing code that references it (e.g. ',
-                            createElement(
-                                'code',
-                                { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
-                                `getFeatureFlag('${originalFlag.key}')`
-                            ),
-                            '). Make sure to update all SDK calls and integrations.'
-                        ),
-                        primaryButton: {
-                            children: 'Change key',
-                            status: 'danger',
-                            onClick: () => resolve(true),
-                        },
-                        secondaryButton: {
-                            children: 'Cancel',
-                        },
-                        onAfterClose: () => resolve(false),
-                    })
-                })
-                if (!confirmed) {
-                    return
-                }
+            // A disabled Save button does not cover every caller. Pressing Enter in a field submits
+            // the form again, and the notebook widget calls this listener directly.
+            if (values.isSaveInProgress) {
+                return
             }
+            actions.setPreSaveChecking(true)
+            try {
+                const featureFlag = values.featureFlag
+                const originalFlag = values.originalFeatureFlag
+                const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
 
-            await sharedListeners.checkDependentFlagsAndConfirm(
-                {
-                    originalFlag,
-                    updatedFlag: featureFlag,
-                    onConfirm: () => {
-                        if (featureFlag.id) {
-                            actions.saveFeatureFlag(featureFlag)
-                        } else {
-                            actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
-                        }
+                if (keyChanged) {
+                    const confirmed = await new Promise<boolean>((resolve) => {
+                        LemonDialog.open({
+                            title: 'Change flag key?',
+                            description: createElement(
+                                'span',
+                                null,
+                                'Renaming this key will break any existing code that references it (e.g. ',
+                                createElement(
+                                    'code',
+                                    { className: 'text-xs bg-fill-secondary rounded px-1 py-0.5' },
+                                    `getFeatureFlag('${originalFlag.key}')`
+                                ),
+                                '). Make sure to update all SDK calls and integrations.'
+                            ),
+                            primaryButton: {
+                                children: 'Change key',
+                                status: 'danger',
+                                onClick: () => resolve(true),
+                            },
+                            secondaryButton: {
+                                children: 'Cancel',
+                            },
+                            onAfterClose: () => resolve(false),
+                        })
+                    })
+                    if (!confirmed) {
+                        return
+                    }
+                }
+
+                await sharedListeners.checkDependentFlagsAndConfirm(
+                    {
+                        originalFlag,
+                        updatedFlag: featureFlag,
+                        onConfirm: () => {
+                            if (featureFlag.id) {
+                                actions.saveFeatureFlag(featureFlag)
+                            } else {
+                                actions.saveFeatureFlag({
+                                    ...featureFlag,
+                                    _create_in_folder: 'Unfiled/Feature Flags',
+                                })
+                            }
+                        },
                     },
-                },
-                breakpoint,
-                action as any,
-                previousState
-            )
+                    breakpoint,
+                    action as any,
+                    previousState
+                )
+            } finally {
+                // The checks can wait on a dialog or on the dependent flags, so the button stays busy
+                // until they finish. Clearing the flag here is safe on every exit. After a confirmed
+                // save, `isSavingFeatureFlag` is already true. An open confirmation modal blocks the
+                // form. A cancelled check must release the button.
+                actions.setPreSaveChecking(false)
+            }
         },
         toggleFeatureFlagActive: async ({ active }, breakpoint, action, previousState) => {
             const updatedFlag = { ...values.featureFlag, active }
@@ -4580,6 +4623,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // Existing flags compare against server state; new flags fall back to the
                 // form-defaults check from kea-forms (NEW_FLAG would otherwise always read dirty).
                 originalFeatureFlag ? hasUnsavedChanges : featureFlagChanged,
+        ],
+        // What the Save and Cancel buttons and the submit guard need: the whole save, from the
+        // click to the end of the request, not only the request.
+        isSaveInProgress: [
+            (s) => [s.isPreSaveChecking, s.isSavingFeatureFlag],
+            (isPreSaveChecking: boolean, isSavingFeatureFlag: boolean): boolean =>
+                isPreSaveChecking || isSavingFeatureFlag,
         ],
         multivariateEnabled: [
             (s) => [s.featureFlag],
