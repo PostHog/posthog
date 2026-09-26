@@ -533,6 +533,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         // itself when there is a cap, and reads every project on every key in one
                         // pass when there is not, so nothing is asked per usage type or per page.
                         // Past what it can hold it refuses with guidance, which the catch below shows.
+                        // nosemgrep: prefer-codegen-api -- billingReads builds the URL for the source the organization-billing-api flag picks, and the response goes to this page's own parser. Remove with the legacy source.
                         return await api.get<BillingUsageResponse>(values.billingReads.usageSeriesUrl(params))
                     } catch (error) {
                         const billingUsageError = getBillingUsageError(error)

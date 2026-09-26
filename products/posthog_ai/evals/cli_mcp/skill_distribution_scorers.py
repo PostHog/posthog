@@ -10,8 +10,9 @@ from braintrust_core.score import Scorer
 
 from posthog.dataclasses import frozen
 
+from products.posthog_ai.backend.exec_commands import normalize_tool_name
 from products.posthog_ai.eval_harness.harness.cli import SkillDelivery
-from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall, normalize_tool_name
+from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, LogParser, ToolCall
 
 _BUNDLED_SKILL_PATH_MARKERS = (
     "/scripts/plugins/posthog/skills/",

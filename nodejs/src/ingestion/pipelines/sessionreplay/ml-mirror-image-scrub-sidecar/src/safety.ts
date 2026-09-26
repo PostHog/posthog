@@ -7,6 +7,7 @@
 import * as ort from 'onnxruntime-node'
 
 import { ORT_THREADS } from './cores.ts'
+import { rgbToChw } from './pixel-convert.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const SAFETY_SIZE = 224 // fixed model input; pixel values 0-255 (normalization is baked into the graph)
@@ -43,13 +44,8 @@ export async function classifySafety(model: SafetyModel, src: Src): Promise<Safe
         .resize(SAFETY_SIZE, SAFETY_SIZE, { fit: 'fill' })
         .raw()
         .toBuffer({ resolveWithObject: true })
-    const plane = SAFETY_SIZE * SAFETY_SIZE
-    const chw = new Float32Array(3 * plane)
-    for (let i = 0, p = 0; i < data.length; i += 3, p++) {
-        chw[p] = data[i]
-        chw[plane + p] = data[i + 1]
-        chw[2 * plane + p] = data[i + 2]
-    }
+    const chw = new Float32Array(3 * SAFETY_SIZE * SAFETY_SIZE)
+    rgbToChw(data, chw, 'rgb')
     const out = await model.session.run({
         [model.inputName]: new ort.Tensor('float32', chw, [1, 3, SAFETY_SIZE, SAFETY_SIZE]),
     })

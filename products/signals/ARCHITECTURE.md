@@ -577,7 +577,7 @@ Per-team singleton config for Signals settings, including the default autonomy p
 
 Notes:
 
-- Auto-created as a team extension via `register_team_extension_signal`
+- Created on first access through `get_or_create_team_extension`. Readers treat a missing row as the field defaults.
 - `default_autostart_priority` defaults to `P4` (every report priority auto-starts). The inbox UI exposes it as the "Project threshold" control on the PR generation card.
 - `SignalUserAutonomyConfig.autostart_priority` holds a per-user override (`null` = use the team default). The inbox UI exposes it as the "My threshold" control on the same card, where a "Default" segment maps to `null` and inherits the project threshold.
 - `github_issue_writeback_enabled` adds a report link to each source GitHub issue after the report notification completes. The comment contains no report title or research. The report requires project access.
@@ -1255,7 +1255,7 @@ The autonomy system allows Signals to automatically start a Tasks coding run whe
 
 Autonomy is configured at two levels:
 
-1. **Team level** (`SignalTeamConfig`): Sets the `default_autostart_priority` threshold (`P0`–`P4`). Auto-created as a team extension via `register_team_extension_signal`. Managed via `GET/POST /api/projects/:team_id/signals/config/`.
+1. **Team level** (`SignalTeamConfig`): Sets the `default_autostart_priority` threshold (`P0`–`P4`). Created on first access through `get_or_create_team_extension`. Managed via `GET/POST /api/projects/:team_id/signals/config/`.
 
 2. **User level** (`SignalUserAutonomyConfig`): Per-user opt-in. A row existing means the user is opted in. Each user can optionally override the team priority threshold with `autostart_priority`. Managed via `GET/PUT/DELETE /api/users/@me/signal_autonomy/`.
 

@@ -231,6 +231,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                 // workflow) and returns the run handle. Live progress is surfaced by the Installation
                 // layer (installationProgressLogic), which streams this run's TaskRun pipeline merged
                 // with the wizard session detail.
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 const { task_id, run_id } = await api.create<{ task_id: string; run_id: string; status: string }>(
                     'api/wizard/cloud_run',
                     {

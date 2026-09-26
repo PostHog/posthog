@@ -443,15 +443,7 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.client.logout()
-
-        token = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="pat-with-project-write",
-            user=self.user,
-            scopes=["project:write", "project:read"],
-            secure_value=hash_key_value(token),
-        )
-        self.token = token
+        self.token = self.create_personal_api_key_with_scopes(["project:write", "project:read", "endpoint:read"])
 
     def _auth(self):
         return {"HTTP_AUTHORIZATION": f"Bearer {self.token}"}
@@ -555,3 +547,111 @@ class TestProjectSecretAPIKeysViaPersonalAPIKey(APIBaseTest):
         )
         assert response.status_code == 200, response.content
         assert ProjectSecretAPIKey.objects.get(id=key_id).label == "via-put"
+
+    @parameterized.expand(
+        [
+            ("lacks_scope", ["project:write"], ["endpoint:read"], ["endpoint:read"]),
+            (
+                "lacks_one_of_several",
+                ["project:write", "endpoint:read"],
+                ["endpoint:read", "account:read"],
+                ["account:read"],
+            ),
+            ("read_does_not_cover_write", ["project:write", "loop:read"], ["loop:write"], ["loop:write"]),
+            (
+                "lacks_several_listed_sorted",
+                ["project:write"],
+                ["loop:write", "account:read"],
+                ["account:read", "loop:write"],
+            ),
+            ("holds_scope", ["project:write", "endpoint:read"], ["endpoint:read"], []),
+            ("write_covers_read", ["project:write", "feature_flag:write"], ["feature_flag:read"], []),
+            ("wildcard", ["*"], ["account:read", "loop:write"], []),
+        ]
+    )
+    def test_create_requires_caller_to_hold_requested_scopes(
+        self, _name: str, caller_scopes: list[str], requested_scopes: list[str], missing_scopes: list[str]
+    ) -> None:
+        token = self.create_personal_api_key_with_scopes(caller_scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/",
+            data={"label": "minted", "scopes": requested_scopes},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        if missing_scopes:
+            assert response.status_code == 403, response.content
+            assert response.json()["detail"].endswith(f": {', '.join(missing_scopes)}."), response.content
+        else:
+            assert response.status_code == 201, response.content
+        assert ProjectSecretAPIKey.objects.filter(team=self.team, label="minted").exists() == (not missing_scopes)
+
+    @parameterized.expand(
+        [
+            (
+                "adds_unheld_scope",
+                ["endpoint:read"],
+                ["project:write", "endpoint:read"],
+                ["endpoint:read", "account:read"],
+                403,
+            ),
+            (
+                "adds_held_scope_and_keeps_unheld_scope",
+                ["account:read"],
+                ["project:write", "endpoint:read"],
+                ["account:read", "endpoint:read"],
+                200,
+            ),
+            (
+                "keeps_and_removes_unheld_scopes",
+                ["endpoint:read", "account:read"],
+                ["project:write"],
+                ["account:read"],
+                200,
+            ),
+        ]
+    )
+    def test_update_requires_caller_to_hold_added_scopes(
+        self, _name: str, key_scopes: list[str], caller_scopes: list[str], new_scopes: list[str], expected_status: int
+    ) -> None:
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=hash_key_value(generate_random_token_secret()),
+            scopes=key_scopes,
+            created_by=self.user,
+        )
+        token = self.create_personal_api_key_with_scopes(caller_scopes)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/",
+            data={"scopes": new_scopes},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status, response.content
+        key.refresh_from_db()
+        assert key.scopes == (new_scopes if expected_status == 200 else key_scopes)
+
+    def test_roll_rejected_when_caller_lacks_key_scopes(self) -> None:
+        secure_value = hash_key_value(generate_random_token_secret())
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="existing",
+            secure_value=secure_value,
+            scopes=["endpoint:read", "account:read"],
+            created_by=self.user,
+        )
+        token = self.create_personal_api_key_with_scopes(["project:write", "endpoint:read"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == 403, response.content
+        key.refresh_from_db()
+        assert key.secure_value == secure_value

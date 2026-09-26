@@ -28,6 +28,7 @@ import {
   REVIEW_FILE_BROWSER_MIN_WIDTH,
   REVIEW_LIST_BUFFER_PX,
   REVIEW_LIST_ESTIMATED_ITEM_SIZE,
+  REVIEW_LIST_MIN_ITEM_SIZE,
 } from "../constants";
 import { useReviewDraftsStore } from "../reviewDraftsStore";
 import { REVIEW_HOST, type ReviewHost } from "../reviewHost";
@@ -349,7 +350,7 @@ export function ReviewShell({
       <div
         key={item.key}
         data-scroll-key={item.scrollKey}
-        className="pb-2 last:pb-0"
+        style={{ minHeight: REVIEW_LIST_MIN_ITEM_SIZE }}
       >
         {item.node}
       </div>

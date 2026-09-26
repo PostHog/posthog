@@ -131,6 +131,7 @@ export function IntegrationView({
                                 onBeforeManage={
                                     currentTeam?.id
                                         ? async () => {
+                                              // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. integrationsGithubPrepareCallbackCreate() from 'products/integrations/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                                               await api.create(
                                                   `api/projects/${currentTeam.id}/integrations/github/prepare_callback/`,
                                                   {

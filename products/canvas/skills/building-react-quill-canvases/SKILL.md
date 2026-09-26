@@ -18,6 +18,7 @@ Start from the working scaffold in [references/starter-scaffold.md](references/s
 on a first build: it already wires the date picker, theme tokens, per-query loading state (every
 card fills in independently as its own data lands), and correct typed-node result reading. Keep
 that wiring; replace the sample metrics and layout.
+Keep its pattern of one component per card with `editable()` params, and follow the "Params" section of the `building-canvases` skill for each card you add.
 
 ## Imports
 

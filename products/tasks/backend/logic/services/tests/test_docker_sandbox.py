@@ -151,6 +151,30 @@ def test_build_agent_server_command_gates_connected_project_operations(sandbox: 
     assert "--posthogExecPermissionRegex" not in without_flag
 
 
+def test_build_agent_server_command_opens_the_codex_run_token_on_fd_3(sandbox: DockerSandbox):
+    with_token = sandbox._build_agent_server_command(
+        None, "t1", "r1", "interactive", True, codex_run_token_file="/tmp/agent-codex-run-token"
+    )
+    assert "exec 3< /tmp/agent-codex-run-token && rm -f /tmp/agent-codex-run-token && exec " in with_token
+    assert "exec 3<" not in sandbox._build_agent_server_command(None, "t1", "r1", "interactive", True)
+
+
+def test_start_agent_server_stages_the_codex_run_token_again_for_the_branchless_retry(sandbox: DockerSandbox):
+    with (
+        patch.object(sandbox, "is_running", return_value=True),
+        patch.object(sandbox, "write_file", return_value=_ok_result()) as write_file,
+        patch.object(sandbox, "_build_agent_server_command", return_value="run-agent-server"),
+        patch.object(sandbox, "_launch_and_check", side_effect=[False, True]),
+        patch.object(sandbox, "execute", return_value=_log_result()),
+    ):
+        sandbox.start_agent_server(
+            repository=None, task_id="t1", run_id="r1", branch="feature", codex_run_token="run-token"
+        )
+
+    token_writes = [call for call in write_file.call_args_list if call.args[0] == "/tmp/agent-codex-run-token"]
+    assert len(token_writes) == 2
+
+
 @parameterized.expand([("supported", AGENT_SERVER_LAUNCH_CAPABILITIES), ("unsupported", ())])
 def test_start_agent_server_launch_failure_is_captured(_name: str, capabilities: tuple[str, ...]):
     config = SandboxConfig(name="test-sandbox")

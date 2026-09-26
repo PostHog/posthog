@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use feature_flags::flags::config_v2::{Outcome, ParseError};
-use feature_flags::flags::evaluate_v2::{Evaluation, EvaluationError, Evaluator};
+use feature_flags::flags::evaluate_v2::{Evaluation, EvaluationError, Evaluator, PersonProperties};
 use feature_flags::flags::feature_flag_list::PreparedFlags;
 use feature_flags::flags::flag_matching_utils::calculate_hash;
 use feature_flags::flags::flag_request::MAX_DISTINCT_ID_LEN;
@@ -175,7 +175,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
 }
 
 #[tokio::test]
-async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_stays_closed() {
+async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_is_evaluated() {
     use feature_flags::config::DEFAULT_TEST_CONFIG;
     use feature_flags::utils::test_utils::{
         insert_flags_for_team_in_redis, insert_new_team_in_redis, setup_redis_client,
@@ -230,11 +230,9 @@ async fn corpus_eligibility_uses_the_request_boundary_and_valid_v2_stays_closed(
         .await
         .unwrap();
     assert_eq!(body["flags"]["healthy"]["enabled"], true);
-    assert_eq!(body["flags"]["eligible-v2"]["failed"], true);
-    assert_eq!(
-        body["flags"]["eligible-v2"]["reason"]["code"],
-        "flag_data_parsing_error"
-    );
+    assert_eq!(body["flags"]["eligible-v2"]["enabled"], true);
+    assert!(body["flags"]["eligible-v2"].get("failed").is_none());
+    assert_eq!(body["errorsWhileComputingFlags"], false);
     for case in &cases {
         assert!(body["flags"].get(case["id"].as_str().unwrap()).is_none());
         assert_eq!(case["expected"], json!({"status":"omitted"}));
@@ -379,4 +377,169 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
     let result = evaluator.evaluate(&context);
     assert!(matches!(result, Ok(Evaluation::TargetingMatch { .. })));
     assert!(!format!("{evaluator:?} {result:?}").contains("sensitive-seed"));
+}
+
+/// Complete properties come from a stored person and run through the request path. The
+/// service reads the person for a missing predicate key and treats an overrides-only
+/// request as complete, so partial and unavailable context exist only below that path:
+/// those cases reach `get_match` directly, with no preparation.
+#[tokio::test]
+async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
+    use feature_flags::api::types::{
+        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, LegacyFlagsResponse,
+    };
+    use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
+    use feature_flags::flags::flag_matching::FeatureFlagMatcher;
+    use feature_flags::utils::test_utils::{
+        flag_list_with_metadata, mock_group_type_cache, TestContext,
+    };
+    use std::collections::HashMap;
+
+    let db = TestContext::new(None).await;
+    let cohort_cache = Arc::new(CohortCacheManager::new(
+        db.non_persons_reader.clone(),
+        None,
+        None,
+    ));
+    let (mut projected, mut direct, mut skipped) = (0, 0, 0);
+    for case in corpus::cases() {
+        let id = case["id"].as_str().unwrap();
+        let properties = corpus::properties(&case);
+        let context = corpus::context(&case, &properties);
+        // White-box needs the hash seam, eligibility the request boundary.
+        if matches!(
+            case["family"].as_str().unwrap(),
+            "white_box" | "eligibility"
+        ) {
+            skipped += 1;
+            continue;
+        }
+        let team = db.insert_new_team(None).await.unwrap();
+        let mut flag = corpus::read(&case);
+        flag.team_id = team.id;
+        let mut matcher = FeatureFlagMatcher::new(
+            context.person_identifier.to_string(),
+            None,
+            team.id,
+            db.create_postgres_router(),
+            cohort_cache.clone(),
+            mock_group_type_cache(HashMap::new()),
+            None,
+        )
+        .with_timezone(context.timezone)
+        .with_explicit_exact_matching(context.use_explicit_exact_matching)
+        .with_now(context.now);
+        let expected = &case["expected"];
+        let failed = expected["status"] != "success";
+        let enabled = expected["value"].as_bool().unwrap_or(false);
+        let reason = match expected["reason"].as_str() {
+            Some("targeting_match") => "condition_match",
+            Some("rollout_miss") => "out_of_rollout_bound",
+            _ => "no_condition_match",
+        };
+        let rule_index = expected["rule"]["index"].as_i64();
+        let PersonProperties::Complete(_) = context.properties else {
+            let overrides =
+                matches!(context.properties, PersonProperties::Partial(_)).then_some(&properties);
+            match matcher.get_match(&flag, overrides, None, None, &None) {
+                Ok(outcome) => {
+                    assert!(!failed, "{id}");
+                    assert_eq!(
+                        (
+                            outcome.matches,
+                            outcome.reason.to_string(),
+                            outcome.condition_index
+                        ),
+                        (enabled, reason.to_string(), rule_index.map(|i| i as usize)),
+                        "{id}"
+                    );
+                    assert_eq!((outcome.variant, outcome.payload), (None, None), "{id}");
+                }
+                Err(error) => {
+                    assert!(failed, "{id}");
+                    assert_eq!(
+                        error.evaluation_error_code(),
+                        "flag_evaluation_error",
+                        "{id}"
+                    );
+                }
+            }
+            direct += 1;
+            continue;
+        };
+        if !properties.is_empty() {
+            db.insert_person(
+                team.id,
+                context.person_identifier.to_string(),
+                Some(json!(properties)),
+            )
+            .await
+            .unwrap();
+        }
+        let key = flag.key.clone();
+        let response = matcher
+            .evaluate_all_feature_flags(
+                flag_list_with_metadata(vec![flag]),
+                None,
+                None,
+                None,
+                Uuid::new_v4(),
+                None,
+                false,
+            )
+            .await
+            .unwrap();
+        let details = &response.flags[&key];
+        assert_eq!(
+            (
+                details.failed,
+                details.enabled,
+                &details.variant,
+                &details.metadata.payload
+            ),
+            (failed, enabled, &None, &None),
+            "{id}"
+        );
+        assert_eq!(response.errors_while_computing_flags, failed, "{id}");
+        if failed {
+            let expected_code = if case["family"] == "parser" {
+                "flag_data_parsing_error"
+            } else {
+                "flag_evaluation_error"
+            };
+            assert_eq!(details.reason.code, expected_code, "{id}");
+        } else {
+            assert_eq!(details.reason.code, reason, "{id}");
+            assert_eq!(
+                details.reason.condition_index.map(i64::from),
+                rule_index,
+                "{id}"
+            );
+        }
+        let wire = serde_json::to_value(&response).unwrap();
+        let reparse = || serde_json::from_value::<FlagsResponse>(wire.clone()).unwrap();
+        let legacy = LegacyFlagsResponse::from_response(reparse());
+        assert_eq!(
+            legacy.feature_flags[&key],
+            FlagValue::Boolean(enabled),
+            "{id}"
+        );
+        assert!(legacy.feature_flag_payloads.is_empty(), "{id}");
+        assert_eq!(
+            DecideV1Response::from_response(reparse())
+                .feature_flags
+                .contains(&key),
+            enabled,
+            "{id}"
+        );
+        assert_eq!(
+            DecideV2Response::from_response(reparse())
+                .feature_flags
+                .get(&key),
+            enabled.then_some(FlagValue::Boolean(true)).as_ref(),
+            "{id}"
+        );
+        projected += 1;
+    }
+    assert_eq!((projected, direct, skipped), (114, 8, 13));
 }

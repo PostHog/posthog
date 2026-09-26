@@ -57,6 +57,8 @@ function mockRun(
     }
 }
 
+const TASK_1_RUN = mockRun('task-1', TaskRunStatus.COMPLETED, '2024-01-15T09:30:00Z', '2024-01-15T09:48:00Z')
+
 const TASKS: Task[] = [
     {
         id: 'task-1',
@@ -71,7 +73,7 @@ const TASKS: Task[] = [
         signal_report: null,
         json_schema: null,
         internal: false,
-        latest_run: mockRun('task-1', TaskRunStatus.COMPLETED, '2024-01-15T09:30:00Z', '2024-01-15T09:48:00Z'),
+        latest_run: TASK_1_RUN,
         created_at: '2024-01-15T09:25:00Z',
         updated_at: '2024-01-15T09:48:00Z',
         created_by: CREATED_BY,
@@ -218,6 +220,45 @@ export const AiTaskSelected: Story = {
     parameters: {
         pageUrl: urls.aiTask('task-3'),
     },
+}
+
+export const CloudTaskSelected: Story = {
+    parameters: {
+        pageUrl: taskDetailUrl('task-1'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/task-1/': TASKS[0],
+                '/api/projects/:team_id/tasks/task-1/runs/': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [TASK_1_RUN],
+                },
+                '/api/projects/:team_id/tasks/task-1/runs/run-task-1/': TASK_1_RUN,
+                '/api/projects/:team_id/tasks/task-1/runs/run-task-1/logs': () =>
+                    new HttpResponse(
+                        JSON.stringify({
+                            type: 'notification',
+                            notification: {
+                                method: 'session/update',
+                                params: {
+                                    update: {
+                                        sessionUpdate: 'agent_message',
+                                        messageId: 'task-1-msg',
+                                        content: {
+                                            type: 'text',
+                                            text: 'Added a CSV export to the retention graph insight menu.',
+                                        },
+                                    },
+                                },
+                            },
+                        })
+                    ),
+            },
+        }),
+    ],
 }
 
 export const NewTask: Story = {

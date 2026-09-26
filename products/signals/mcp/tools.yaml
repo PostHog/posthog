@@ -287,14 +287,14 @@ tools:
                 - updated_at
     inbox-reports-merge:
         operation: signals_reports_merge_create
-        enabled: false
+        enabled: true
         scopes:
             - task:write
         annotations:
             readOnly: false
             destructive: true
             idempotent: false
-        enrich_url: '{id}'
+        enrich_url: '{params.id}'
         title: Merge duplicate reports into one
         description: >
             Fold duplicate inbox reports into the one report that survives them, when the same issue landed in more than
@@ -1295,6 +1295,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-config-sync. This alias forwards to the same endpoint and will be removed.
             Call scout-config-sync directly with the same arguments.'
+    signals-scout-config-tool-catalogue:
+        operation: signals_scout_config_tool_catalogue
+        enabled: false
     signals-scout-config-update:
         operation: signals_scout_config_update
         enabled: true

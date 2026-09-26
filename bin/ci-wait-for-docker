@@ -23,6 +23,11 @@ COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
 # timeout leaves the whole stack missing.
 LAUNCH_RETRIES="${WAIT_FOR_DOCKER_LAUNCH_RETRIES:-3}"
 LAUNCH_RETRY_DELAY="${WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY:-5}"
+# Registry that mirrors Docker Hub, such as mirror.gcr.io. When set, launch pulls each Docker
+# Hub image from it and tags it with the Docker Hub name, so `compose up` finds the image
+# locally and never asks auth.docker.io for a token. The daemon config stays untouched, so
+# Docker Hub credentials are never sent to the mirror.
+REGISTRY_MIRROR="${WAIT_FOR_DOCKER_REGISTRY_MIRROR:-}"
 
 usage() {
     cat <<'EOF'
@@ -164,6 +169,28 @@ missing_services() {
     printf '%s\n' "${missing[@]}"
 }
 
+pull_from_registry_mirror() {
+    local image
+    local path
+    local host
+
+    [ -n "$REGISTRY_MIRROR" ] || return 0
+    while read -r image; do
+        path="${image#docker.io/}"
+        host="${path%%/*}"
+        # Digest-pinned images and images from other registries (ghcr.io, quay.io) pull as usual.
+        if [[ "$path" == *@* ]] \
+            || [[ "$path" == "$image" && "$path" == */* && ( "$host" == *[.:]* || "$host" == localhost ) ]]; then
+            continue
+        fi
+        [[ "$path" == */* ]] || path="library/${path}"
+        # A miss leaves the image for `compose up` to pull from Docker Hub.
+        { docker pull -q "${REGISTRY_MIRROR}/${path}" >/dev/null 2>&1 \
+            && docker tag "${REGISTRY_MIRROR}/${path}" "$image"; } &
+    done < <(compose config --images "$@" 2>/dev/null)
+    wait
+}
+
 run_launch_once() {
     local down_mode="$1"
     shift
@@ -183,6 +210,7 @@ run_launch_once() {
             ;;
     esac
 
+    pull_from_registry_mirror "$@"
     compose_up "$@"
 }
 
