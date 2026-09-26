@@ -137,6 +137,9 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 @extend_schema(extensions={"x-product": "core"})
 class OrganizationDomainViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
+    # Custom actions get no scope by default, so a scoped token is refused before the action runs.
+    scope_object_read_actions = ["list", "retrieve", "scim_logs"]
+    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "verify"]
     serializer_class = OrganizationDomainSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = OrganizationDomain.objects.order_by("domain").all()
