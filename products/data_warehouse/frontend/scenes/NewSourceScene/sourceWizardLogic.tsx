@@ -2239,8 +2239,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         props.onComplete()
                     }
                 } else if (values.hasWebhookSchemas) {
-                    // Go to webhook setup step (4)
-                    actions.onNext()
+                    // Go to webhook setup step (4). Set it, do not increment: the destination
+                    // step is numbered after the real steps, so an increment from there lands on
+                    // a step that does not exist.
+                    actions.setStep(4)
                 } else {
                     // Skip webhook step, go directly to progress (5)
                     actions.setStep(5)
