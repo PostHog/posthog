@@ -190,6 +190,12 @@ export interface PersonRepository {
         tag?: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
+    /** Trims and writes a person whose stored properties already exceed the size limit, or rejects the update. */
+    handleOversizedPersonProperties(
+        person: InternalPerson,
+        update: PersonUpdateFields
+    ): Promise<[InternalPerson, PersonMessage[], boolean]>
+
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]>
 
     /**
@@ -198,11 +204,21 @@ export interface PersonRepository {
      * - success: boolean indicating if the update succeeded
      * - version: the new version if successful
      * - kafkaMessage: the Kafka message to send if successful
+     * - properties: the properties the row holds after the update, if successful
      * - error: error details if the update failed
      */
-    updatePersonsBatch(
-        personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>>
+    updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                properties?: Properties
+                error?: Error
+            }
+        >
+    >
 
     deletePerson(person: InternalPerson): Promise<PersonMessage[]>
 

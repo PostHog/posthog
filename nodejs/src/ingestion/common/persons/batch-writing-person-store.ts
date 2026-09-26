@@ -1,3 +1,4 @@
+import { isEqual } from 'lodash'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 
@@ -285,6 +286,7 @@ class BatchWritingPersonsCache {
                 ...result,
                 properties: { ...result.properties },
                 properties_to_set: { ...result.properties_to_set },
+                properties_to_set_once: { ...result.properties_to_set_once },
                 properties_to_unset: [...result.properties_to_unset],
             }
         }
@@ -479,8 +481,13 @@ class BatchWritingPersonsCache {
             ...existingPersonUpdate.properties_to_set,
             ...person.properties_to_set,
         }
+        mergedPersonUpdate.properties_to_set_once = {
+            ...existingPersonUpdate.properties_to_set_once,
+            ...person.properties_to_set_once,
+        }
         for (const key of person.properties_to_unset) {
             delete mergedPersonUpdate.properties_to_set[key]
+            delete mergedPersonUpdate.properties_to_set_once[key]
         }
 
         mergedPersonUpdate.properties_to_unset = [
@@ -506,6 +513,11 @@ class BatchWritingPersonsCache {
 
     private getDistinctCacheKey(teamId: number, distinctId: string): string {
         return `${teamId}:${distinctId}`
+    }
+
+    /** The live entry itself: no copy and no cache hit metrics. */
+    getLiveUpdate(teamId: number, personId: string): PersonUpdate | null | undefined {
+        return this.personUpdateCache.get(this.getPersonIdCacheKey(teamId, personId))
     }
 
     private getPersonIdCacheKey(teamId: number, personId: string): string {
@@ -634,6 +646,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             return 'changed'
         }
 
+        // The store cannot tell whether the row already holds a carried key, so a pending set-once always writes.
+        if (Object.keys(update.properties_to_set_once).length > 0) {
+            return 'changed'
+        }
+
         const hasPropertyChanges =
             Object.keys(update.properties_to_set).length > 0 || update.properties_to_unset.length > 0
 
@@ -715,15 +732,26 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             if (outcome === 'changed') {
                 // Track which property keys caused person updates
                 const metricsKeys = new Set<string>()
-                Object.keys(update.properties_to_set).forEach((propertyKey) => {
-                    metricsKeys.add(getMetricKey(propertyKey))
-                })
+                Object.keys({ ...update.properties_to_set, ...update.properties_to_set_once }).forEach(
+                    (propertyKey) => {
+                        metricsKeys.add(getMetricKey(propertyKey))
+                    }
+                )
                 update.properties_to_unset.forEach((propertyKey) => {
                     metricsKeys.add(getMetricKey(propertyKey))
                 })
                 metricsKeys.forEach((propertyKey) => personPropertyKeyUpdateCounter.labels({ key: propertyKey }).inc())
 
-                updateEntries.push([key, update])
+                // A copy, because the retire edits the live entry in place and compares it with what this write carried.
+                updateEntries.push([
+                    key,
+                    {
+                        ...update,
+                        properties_to_set: { ...update.properties_to_set },
+                        properties_to_set_once: { ...update.properties_to_set_once },
+                        properties_to_unset: [...update.properties_to_unset],
+                    },
+                ])
             }
 
             // Clear needs_write for every dirty entry we considered, including
@@ -793,6 +821,43 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     }
 
     /**
+     * Moves what a landed write carried from the entry's pending into its base; a key changed since stays pending,
+     * unless it changed back to the carried value. A set-once takes the row's value, because another writer can fill
+     * the key first.
+     */
+    private retireLandedChanges(record: PersonUpdate, landed: Properties): void {
+        const entry = this.personCache.getLiveUpdate(record.team_id, record.id)
+        if (!entry) {
+            return
+        }
+        const properties = { ...entry.properties }
+        for (const [name, value] of Object.entries(record.properties_to_set)) {
+            if (Object.hasOwn(entry.properties_to_set, name) && isEqual(entry.properties_to_set[name], value)) {
+                delete entry.properties_to_set[name]
+                properties[name] = value
+            }
+        }
+        for (const [name, value] of Object.entries(record.properties_to_set_once)) {
+            if (
+                Object.hasOwn(entry.properties_to_set_once, name) &&
+                isEqual(entry.properties_to_set_once[name], value)
+            ) {
+                delete entry.properties_to_set_once[name]
+                if (Object.hasOwn(landed, name)) {
+                    properties[name] = landed[name]
+                }
+            }
+        }
+        for (const name of record.properties_to_unset) {
+            if (entry.properties_to_unset.includes(name)) {
+                entry.properties_to_unset = entry.properties_to_unset.filter((unset) => unset !== name)
+                delete properties[name]
+            }
+        }
+        entry.properties = properties
+    }
+
+    /**
      * Flush all person updates using a single batch query (NO_ASSERT mode).
      * Falls back to individual updates for any persons that fail in the batch.
      */
@@ -811,10 +876,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const allKafkaMessages: FlushResult[] = []
         const failedUpdates: PersonUpdate[] = []
 
+        // With a uuid carried by two entries, the returned row cannot say which entry's write it holds.
+        const uuidCounts = new Map<string, number>()
+        for (const update of updates) {
+            uuidCounts.set(update.uuid, (uuidCounts.get(update.uuid) ?? 0) + 1)
+        }
+
         // Process batch results
         for (const update of updates) {
             const result = batchResults.get(update.uuid)
             if (result?.success && result.kafkaMessage) {
+                if (uuidCounts.get(update.uuid) === 1 && result.properties) {
+                    this.retireLandedChanges(update, result.properties)
+                }
                 allKafkaMessages.push({
                     messages: [result.kafkaMessage],
                     teamId: update.team_id,
@@ -1412,6 +1486,14 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // intents refine here too — identification only transitions
         // false→true, last-seen only advances.
         const refined = refineEventOps(ops, person.properties, this.options.updateAllProperties)
+        // The view shows a pending set-once before it lands, so a $set of that value refines away but must still write.
+        const pendingSetOnce = this.personCache.getLiveUpdate(person.team_id, person.id)?.properties_to_set_once
+        for (const [key, value] of Object.entries(ops.set)) {
+            if (pendingSetOnce && Object.hasOwn(pendingSetOnce, key) && isEqual(pendingSetOnce[key], value)) {
+                refined.toSet[key] = value
+                refined.hasChanges = true
+            }
+        }
         const otherUpdates = computeOpsScalarUpdates(ops, person)
 
         if (!refined.hasChanges && Object.keys(otherUpdates).length === 0) {
@@ -1546,7 +1628,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {
         const cached = this.personCache.getCachedPersonForUpdateByPersonId(teamId, personId)
         return cached
-            ? { toSet: cached.properties_to_set, toUnset: cached.properties_to_unset, createdAt: cached.created_at }
+            ? {
+                  toSet: cached.properties_to_set,
+                  toSetOnce: cached.properties_to_set_once,
+                  toUnset: cached.properties_to_unset,
+                  createdAt: cached.created_at,
+              }
             : null
     }
 
@@ -1983,16 +2070,22 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             })
         }
 
+        personUpdate.properties_to_set_once = {
+            ...personUpdate.properties_to_set_once,
+            ...update.properties_to_set_once,
+        }
+
         // An unset wins over a set the batch already queued for the same key.
         for (const key of update.properties_to_unset ?? []) {
             delete personUpdate.properties_to_set[key]
+            delete personUpdate.properties_to_set_once[key]
             if (!personUpdate.properties_to_unset.includes(key)) {
                 personUpdate.properties_to_unset.push(key)
             }
         }
 
         // Apply other updates (excluding properties which we handled above)
-        const fieldsToExclude = ['properties', 'properties_to_unset', 'is_identified']
+        const fieldsToExclude = ['properties', 'properties_to_set_once', 'properties_to_unset', 'is_identified']
         if (!allowCreatedAtUpdate) {
             fieldsToExclude.push('created_at')
         }
@@ -2061,6 +2154,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             }
             // Remove from set list if it was there
             delete personUpdate.properties_to_set[key]
+            delete personUpdate.properties_to_set_once[key]
         })
 
         // Handle is_identified specially with || operator
@@ -2097,13 +2191,38 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         const start = performance.now()
 
         const result = (await this.personRepository.updatePersonsBatch([personUpdate])).get(personUpdate.uuid)
+        if (result?.error instanceof PersonPropertiesSizeViolationError) {
+            return this.repairOversizedPerson(personUpdate, start)
+        }
         this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
         observeLatencyByVersion(toInternalPerson(personUpdate), start, 'updatePersonNoAssert')
 
         if (!result?.success) {
             throw result?.error ?? new NoRowsUpdatedError(`Person with uuid="${personUpdate.uuid}" was not updated`)
         }
+        if (result.properties) {
+            this.retireLandedChanges(personUpdate, result.properties)
+        }
         return { success: true, messages: result.kafkaMessage ? [result.kafkaMessage] : [] }
+    }
+
+    /**
+     * Trims and writes a row already over the size limit; rejects any other oversized write. The trim can drop keys
+     * this write carried, so nothing retires.
+     */
+    private async repairOversizedPerson(personUpdate: PersonUpdate, start: number): Promise<PersonUpdateResult> {
+        const person = toInternalPerson(personUpdate)
+        const [, messages] = await this.personRepository.handleOversizedPersonProperties(person, {
+            properties: person.properties,
+            properties_last_updated_at: person.properties_last_updated_at,
+            properties_last_operation: person.properties_last_operation,
+            is_identified: person.is_identified,
+            created_at: person.created_at,
+            last_seen_at: person.last_seen_at,
+        })
+        this.recordUpdateLatency('updatePersonNoAssert', (performance.now() - start) / 1000, personUpdate.distinct_id)
+        observeLatencyByVersion(person, start, 'updatePersonNoAssert')
+        return { success: true, messages }
     }
 
     /**
@@ -2329,6 +2448,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             last_seen_at: personUpdate.last_seen_at,
             needs_write: personUpdate.needs_write,
             properties_to_set: personUpdate.properties_to_set,
+            properties_to_set_once: personUpdate.properties_to_set_once,
             properties_to_unset: personUpdate.properties_to_unset,
             original_is_identified: personUpdate.original_is_identified,
             original_created_at: personUpdate.original_created_at,

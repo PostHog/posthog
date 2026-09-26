@@ -2159,11 +2159,12 @@ describe('PersonState.processEvent()', () => {
             }
             await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
 
-            // The survivor's own key (b) stays out; a prototype-named key unsets like any other.
+            // The survivor's own key (b) stays out; the source's key (a) only fills a gap; a prototype-named key unsets like any other.
             expect(personRepository.updatePersonsBatch).toHaveBeenCalledWith([
                 expect.objectContaining({
                     uuid: newUserUuid,
-                    properties_to_set: { a: 1, d: 6 },
+                    properties_to_set: { d: 6 },
+                    properties_to_set_once: { a: 1 },
                     properties_to_unset: ['c', 'constructor'],
                 }),
             ])
@@ -2174,6 +2175,185 @@ describe('PersonState.processEvent()', () => {
                 properties: { a: 1, b: 3, d: 6, nested: { k: [1, 2] } },
             })
         })
+
+        it(`a merge does not replay a set this pod already flushed over another pod's newer value`, async () => {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(hub, timestamp2, { own: 'x' }, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+            const podA = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const source = await podA.fetchForUpdate(teamId, oldUserDistinctId, 0)
+            await podA.updatePersonWithPropertiesDiffForUpdate(source!, { k: 'v1' }, [], {}, oldUserDistinctId, 0)
+            await podA.flush()
+            const podB = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const sourceB = await podB.fetchForUpdate(teamId, oldUserDistinctId, 0)
+            await podB.updatePersonWithPropertiesDiffForUpdate(sourceB!, { k: 'v2' }, [], {}, oldUserDistinctId, 0)
+            await podB.flush()
+
+            const mergeService = personMergeService(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: { $anon_distinct_id: oldUserDistinctId },
+                },
+                hub,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                podA
+            )
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { own: 'x', k: 'v2' } })
+        })
+
+        it.each([
+            ["survives the merge's own write", {}, 'v2'],
+            ["yields to the merge event's $set of the value the merge read", { $set: { k: 'v1' } }, 'v1'],
+        ])(`a source's update flushed from another pod during a merge %s`, async (_case, eventProperties, expected) => {
+            await createPerson(hub, timestamp, { k: 'v1' }, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(hub, timestamp2, { own: 'x' }, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+            // Pod B holds the source's newer value, unflushed.
+            const podB = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const source = await podB.fetchForUpdate(teamId, oldUserDistinctId, 0)
+            await podB.updatePersonWithPropertiesDiffForUpdate(source!, { k: 'v2' }, [], {}, oldUserDistinctId, 0)
+
+            const podA = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const mergeService = personMergeService(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: { ...eventProperties, $anon_distinct_id: oldUserDistinctId },
+                },
+                hub,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                podA
+            )
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+
+            // Pod B's flush finds the source gone and re-targets; pod A's flush comes after.
+            await podB.flush()
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { own: 'x', k: expected } })
+
+            // Pod A's merged-in key landed, so it no longer waits to be written.
+            expect(podA.getCachedPersonForUpdateByPersonId(teamId, persons[0].id)?.properties_to_set_once).toEqual({})
+        })
+
+        it(`merge event's $set of the value a pending set-once carries lands over a later fill`, async () => {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(hub, timestamp2, { own: 'x' }, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+            const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const target = await batchStore.fetchForUpdate(teamId, newUserDistinctId, 0)
+            await batchStore.updatePersonForMerge(target!, { properties_to_set_once: { k: 'a' } }, newUserDistinctId, 0)
+
+            const mergeService = personMergeService(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: { $set: { k: 'a' }, $anon_distinct_id: oldUserDistinctId },
+                },
+                hub,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                batchStore
+            )
+            const result = await mergeService.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            if (!result.success) {
+                throw new Error('Expected successful merge result')
+            }
+            // Another writer fills the key after the merge read the rows.
+            await hub.postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `UPDATE posthog_person SET properties = properties || '{"k": "b"}'::jsonb WHERE team_id = $1 AND uuid = $2`,
+                [teamId, newUserUuid],
+                'otherWriterFill'
+            )
+            await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { own: 'x', k: 'a' } })
+        })
+
+        it.each([
+            ['holds the key', { k: 'target' }, {}],
+            ['lacks the key', {}, { k: 'pending' }],
+        ])(
+            `merge lands a source's key over the survivor's unflushed unset when the row %s`,
+            async (_case, row, set) => {
+                await createPerson(hub, timestamp, { k: 'source' }, {}, {}, teamId, null, false, oldUserUuid, {
+                    distinctId: oldUserDistinctId,
+                })
+                await createPerson(hub, timestamp2, row, {}, {}, teamId, null, false, newUserUuid, {
+                    distinctId: newUserDistinctId,
+                })
+                const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+                const target = await batchStore.fetchForUpdate(teamId, newUserDistinctId, 0)
+                await batchStore.updatePersonWithPropertiesDiffForUpdate(target!, set, [], {}, newUserDistinctId, 0)
+                await batchStore.updatePersonWithPropertiesDiffForUpdate(target!, {}, ['k'], {}, newUserDistinctId, 0)
+
+                const mergeService = personMergeService(
+                    {
+                        event: '$identify',
+                        distinct_id: newUserDistinctId,
+                        properties: { $anon_distinct_id: oldUserDistinctId },
+                    },
+                    hub,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    batchStore
+                )
+                const result = await mergeService.handleIdentifyOrAlias()
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Expected successful merge result')
+                }
+                await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+
+                const persons = await fetchPostgresPersonsH()
+                expect(persons[0]).toMatchObject({ uuid: newUserUuid, properties: { k: 'source' } })
+            }
+        )
 
         it(`merge carries a property this batch set on the source but has not flushed yet`, async () => {
             await createPerson(hub, timestamp, { a: 1 }, {}, {}, teamId, null, false, oldUserUuid, {
@@ -2345,9 +2525,9 @@ describe('PersonState.processEvent()', () => {
             expect(persons[0].created_at.toISO()).toEqual(birth.toISO())
         })
 
-        it(`a merge chain in one batch carries the oldest birth through the middle person`, async () => {
+        it(`a merge chain in one batch carries the oldest birth and properties through the middle person`, async () => {
             const oldest = DateTime.fromISO('2019-01-01T00:00:00.000Z').toUTC()
-            await createPerson(hub, oldest, {}, {}, {}, teamId, null, false, new UUIDT().toString(), {
+            await createPerson(hub, oldest, { first: 1 }, {}, {}, teamId, null, false, new UUIDT().toString(), {
                 distinctId: 'oldest-anon',
             })
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
@@ -2391,7 +2571,7 @@ describe('PersonState.processEvent()', () => {
 
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
-            expect(persons[0]).toMatchObject({ uuid: newUserUuid, created_at: oldest })
+            expect(persons[0]).toMatchObject({ uuid: newUserUuid, created_at: oldest, properties: { first: 1 } })
         })
 
         it.each([

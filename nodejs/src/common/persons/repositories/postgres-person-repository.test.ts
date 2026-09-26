@@ -252,6 +252,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -339,6 +340,7 @@ describe('PostgresPersonRepository', () => {
                 ...buildPersonUpdate(person, 'batch-lost-update-did', person.version),
                 properties: { own: 'v1' },
                 properties_to_set: { own: 'v2' },
+                properties_to_set_once: { from_merge: 'stale', filled: 'yes' },
                 properties_to_unset: ['gone'],
                 properties_last_updated_at: { from_merge: 'old' },
                 is_identified: false,
@@ -355,7 +357,8 @@ describe('PostgresPersonRepository', () => {
                 [team.id, person.id],
                 'fetchAfterBatch'
             )
-            expect(rows.rows[0].properties).toEqual({ own: 'v2', from_merge: 'kept?' })
+            // Set-once fills a missing key and leaves the other writer's key alone.
+            expect(rows.rows[0].properties).toEqual({ own: 'v2', from_merge: 'kept?', filled: 'yes' })
             expect(rows.rows[0].properties_last_updated_at).toEqual({ from_merge: 'new', gone: 'x' })
             expect(Number(rows.rows[0].created_at_epoch)).toBe(Math.floor(olderCreatedAt.toSeconds()))
             expect(rows.rows[0].is_identified).toBe(true)
@@ -1962,6 +1965,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -1999,6 +2003,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -2034,6 +2039,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -2065,6 +2071,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { new_prop: 'new_value', to_update: 'new' }, // New properties to merge
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -2105,6 +2112,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: {},
                 properties_to_unset: ['remove_me'],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -2143,6 +2151,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { update: 'new', added: 'fresh' },
                 properties_to_unset: ['remove'],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -2771,6 +2780,7 @@ describe('PostgresPersonRepository', () => {
                     needs_write: true,
                     properties_to_set: { description: 'x'.repeat(150) },
                     properties_to_unset: [],
+                    properties_to_set_once: {},
                     original_is_identified: false,
                     original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                     original_last_seen_at: null,
@@ -3021,6 +3031,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,

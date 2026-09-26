@@ -137,17 +137,27 @@ export interface PostgresMergePolicy {
     noopMappingDebounce?: MergeMappingDebounce
 }
 
-/** The keys a merge changes, so its write leaves every other key to the row. */
-function propertyChanges(before: Properties, after: Properties): { toSet: Properties; toUnset: string[] } {
+/**
+ * The keys a merge changes. The event's $set keys and keys this pod's pending unset hides go as sets, because the view
+ * can show a set-once that has not landed and the row can still hold a hidden key. Every other key only fills a gap.
+ */
+function propertyChanges(
+    before: Properties,
+    after: Properties,
+    eventSets: Properties,
+    hidden: Set<string>
+): { toSet: Properties; toSetOnce: Properties; toUnset: string[] } {
     const toSet: Properties = {}
+    const toSetOnce: Properties = {}
     for (const [key, value] of Object.entries(after)) {
         // Deep equality: the outcome is a copy, so object values never match by reference.
-        if (!isEqual(before[key], value)) {
-            toSet[key] = value
+        if (Object.hasOwn(eventSets, key) || !isEqual(before[key], value)) {
+            const fillsGap = !Object.hasOwn(eventSets, key) && !hidden.has(key)
+            ;(fillsGap ? toSetOnce : toSet)[key] = value
         }
     }
     const toUnset = Object.keys(before).filter((key) => !Object.hasOwn(after, key))
-    return { toSet, toUnset }
+    return { toSet, toSetOnce, toUnset }
 }
 
 /**
@@ -250,7 +260,7 @@ export class PostgresPersonMerge {
         target: InternalPerson,
         sources: InternalPerson[],
         missing: (role: 'target' | 'source') => Error
-    ): Promise<{ changes: { toSet: Properties; toUnset: string[] }; createdAt: DateTime }> {
+    ): Promise<{ changes: { toSet: Properties; toSetOnce: Properties; toUnset: string[] }; createdAt: DateTime }> {
         const rows = await tx.readMergeRows(
             target.team_id,
             target.id,
@@ -263,7 +273,7 @@ export class PostgresPersonMerge {
             if (!pending) {
                 return row
             }
-            const properties = { ...row.properties, ...pending.toSet }
+            const properties = { ...pending.toSetOnce, ...row.properties, ...pending.toSet }
             for (const key of pending.toUnset) {
                 delete properties[key]
             }
@@ -289,7 +299,12 @@ export class PostgresPersonMerge {
         const refined = refineEventOps(this.request.eventOps, merged, this.policy.updateAllProperties)
         const [after] = applyEventPropertyUpdates(refined, { ...targetView, properties: merged })
         return {
-            changes: propertyChanges(targetView.properties, after.properties),
+            changes: propertyChanges(
+                targetView.properties,
+                after.properties,
+                this.request.eventOps.set,
+                new Set(this.store.pendingChanges(target.team_id, target.id)?.toUnset)
+            ),
             createdAt: DateTime.min(targetView.created_at, ...sourceViews.map((source) => source.created_at)),
         }
     }
@@ -761,6 +776,7 @@ export class PostgresPersonMerge {
                     {
                         created_at: createdAt,
                         properties: changes.toSet,
+                        properties_to_set_once: changes.toSetOnce,
                         properties_to_unset: changes.toUnset,
                         is_identified: true,
                         version,
@@ -992,6 +1008,7 @@ export class PostgresPersonMerge {
                     {
                         created_at: createdAt,
                         properties: changes.toSet,
+                        properties_to_set_once: changes.toSetOnce,
                         properties_to_unset: changes.toUnset,
                         is_identified: true,
 

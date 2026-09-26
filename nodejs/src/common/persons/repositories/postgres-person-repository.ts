@@ -128,7 +128,7 @@ export class PostgresPersonRepository
         this.isClaimTeam = buildIntegerMatcher(this.options.personCreateClaimTeamAllowlist, true)
     }
 
-    private async handleOversizedPersonProperties(
+    async handleOversizedPersonProperties(
         person: InternalPerson,
         update: PersonUpdateFields,
         tx?: TransactionClient
@@ -2052,6 +2052,11 @@ export class PostgresPersonRepository
         try {
             // Calculate final properties by applying set and unset operations
             const finalProperties = { ...personUpdate.properties }
+            for (const [key, value] of Object.entries(personUpdate.properties_to_set_once)) {
+                if (!Object.hasOwn(finalProperties, key)) {
+                    finalProperties[key] = value
+                }
+            }
             Object.entries(personUpdate.properties_to_set).forEach(([key, value]) => {
                 finalProperties[key] = value
             })
@@ -2126,12 +2131,27 @@ export class PostgresPersonRepository
      *
      * No version assertion: every column merges with the row, so a stale snapshot cannot undo another writer's flush.
      */
-    async updatePersonsBatch(
-        personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>> {
+    async updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                properties?: Properties
+                error?: Error
+            }
+        >
+    > {
         const results = new Map<
             string,
-            { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                properties?: Properties
+                error?: Error
+            }
         >()
 
         if (personUpdates.length === 0) {
@@ -2146,6 +2166,7 @@ export class PostgresPersonRepository
         const createdAt: string[] = []
         const lastSeenAt: (string | null)[] = []
         const propertiesToUnset: string[] = []
+        const propertiesToSetOnce: string[] = []
 
         for (const update of personUpdates) {
             uuids.push(update.uuid)
@@ -2153,6 +2174,7 @@ export class PostgresPersonRepository
 
             properties.push(sanitizeJsonbValue(update.properties_to_set))
             propertiesToUnset.push(sanitizeJsonbValue(update.properties_to_unset))
+            propertiesToSetOnce.push(sanitizeJsonbValue(update.properties_to_set_once))
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
             lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
@@ -2174,7 +2196,7 @@ export class PostgresPersonRepository
                     FOR NO KEY UPDATE
                 )
                 UPDATE posthog_person AS p SET
-                    properties = (p.properties || batch.new_properties::jsonb)
+                    properties = ((batch.new_set_once::jsonb || p.properties) || batch.new_properties::jsonb)
                         - ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)),
                     is_identified = p.is_identified OR batch.new_is_identified,
                     created_at = LEAST(p.created_at, batch.new_created_at::timestamp with time zone),
@@ -2187,13 +2209,23 @@ export class PostgresPersonRepository
                     $4::boolean[],
                     $5::text[],
                     $6::text[],
-                    $7::text[]
-                ) AS batch(batch_uuid, batch_team_id, new_properties, new_is_identified, new_created_at, new_last_seen_at, unset_json)
+                    $7::text[],
+                    $8::text[]
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_is_identified, new_created_at, new_last_seen_at, unset_json, new_set_once)
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
                   AND p.id IN (SELECT id FROM locked)
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
-                [uuids, teamIds, properties, isIdentified, createdAt, lastSeenAt, propertiesToUnset],
+                [
+                    uuids,
+                    teamIds,
+                    properties,
+                    isIdentified,
+                    createdAt,
+                    lastSeenAt,
+                    propertiesToUnset,
+                    propertiesToSetOnce,
+                ],
                 'updatePersonsBatch'
             )
 
@@ -2212,6 +2244,7 @@ export class PostgresPersonRepository
                         success: true,
                         version: updatedPerson.version,
                         kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
+                        properties: updatedPerson.properties,
                     })
                 } else {
                     // Person was not found/updated - likely deleted or merged

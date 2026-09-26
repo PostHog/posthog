@@ -7,7 +7,8 @@ import {
     personProfileBatchUpdateOutcomeCounter,
     personPropertyKeyUpdateCounter,
 } from '~/common/persons/metrics'
-import { fromInternalPerson } from '~/common/persons/person-update-batch'
+import { fromInternalPerson, toInternalPerson } from '~/common/persons/person-update-batch'
+import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
@@ -138,6 +139,7 @@ describe('BatchWritingPersonStore', () => {
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
+            handleOversizedPersonProperties: jest.fn(),
             updatePersonAssertVersion: jest.fn().mockResolvedValue([person.version + 1, []]),
             updatePersonsBatch: jest.fn().mockImplementation((updates) => {
                 // Return a map with success for each update
@@ -147,6 +149,7 @@ describe('BatchWritingPersonStore', () => {
                         success: true,
                         version: update.version + 1,
                         kafkaMessage: {},
+                        properties: toInternalPerson(update).properties,
                     })
                 }
                 return Promise.resolve(results)
@@ -825,6 +828,51 @@ describe('BatchWritingPersonStore', () => {
                 expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
             })
 
+            it.each([
+                ['repairs a row already over the limit', true],
+                ['rejects a write that would push the row over the limit', false],
+            ])('an individual write rejected for size %s', async (_case, oversized) => {
+                const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                    dbWriteMode: 'NO_ASSERT',
+                    useBatchUpdates: false,
+                })
+                mockRepo.updatePersonsBatch = jest.fn().mockImplementation((updates: any[]) =>
+                    Promise.resolve(
+                        new Map(
+                            updates.map((u: any) => [
+                                u.uuid,
+                                {
+                                    success: false,
+                                    error: new PersonPropertiesSizeViolationError('too large', u.team_id, u.id),
+                                },
+                            ])
+                        )
+                    )
+                )
+                mockRepo.handleOversizedPersonProperties = oversized
+                    ? jest.fn().mockResolvedValue([person, [], false])
+                    : jest
+                          .fn()
+                          .mockRejectedValue(new PersonPropertiesSizeViolationError('too large', teamId, person.id))
+
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'v' }, [], {}, 'test')
+                await personStore.flush()
+
+                expect(mockRepo.handleOversizedPersonProperties).toHaveBeenCalledWith(
+                    expect.objectContaining({ id: person.id }),
+                    expect.objectContaining({ properties: expect.objectContaining({ new_value: 'v' }) })
+                )
+                // The store never writes the whole person itself; only the repository's trim does.
+                expect(mockRepo.updatePerson).not.toHaveBeenCalled()
+                const sizeWarnings = jest
+                    .mocked(emitIngestionWarning)
+                    .mock.calls.filter(([, , warning]) => warning.type === 'person_properties_size_violation')
+                expect(sizeWarnings).toHaveLength(oversized ? 0 : 1)
+                expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.properties_to_set).toEqual({
+                    new_value: 'v',
+                })
+            })
+
             it('should retry individual updates on error when useBatchUpdates is false', async () => {
                 const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
                     dbWriteMode: 'NO_ASSERT',
@@ -1351,6 +1399,22 @@ describe('BatchWritingPersonStore', () => {
                 expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(expectedWrites)
             }
         )
+
+        it('a $set of the value a pending set-once carries still writes as a set', async () => {
+            await personStore.updatePersonForMerge(
+                person,
+                { properties_to_set_once: { k: 'carried' } },
+                'test-distinct'
+            )
+            const view = toInternalPerson(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)!)
+
+            await personStore.applyEventOps(view, ops({ set: { k: 'carried' } }), 'test-distinct', 0)
+            await personStore.flush()
+
+            expect(mockRepo.updatePersonsBatch).toHaveBeenLastCalledWith([
+                expect.objectContaining({ properties_to_set: { k: 'carried' } }),
+            ])
+        })
     })
 
     describe('moveDistinctIds', () => {
@@ -2946,13 +3010,112 @@ describe('BatchWritingPersonStore', () => {
 
             // No second fetch — persistent cache had the person
             expect(mockRepo.fetchPerson).toHaveBeenCalledTimes(1)
-            // Second flush writes the accumulated state — which includes the
-            // batch 1 changes still in the cache (`a`, `b`) merged with batch
-            // 2 changes (`c` added, `a` unset).
+            // Batch 1's sets landed and left pending; the second flush sends only batch 2's changes.
             expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(2)
             const secondCallPayload = mockRepo.updatePersonsBatch.mock.calls[1][0][0]
-            expect(secondCallPayload.properties_to_set).toEqual(expect.objectContaining({ b: '2', c: '3' }))
-            expect(secondCallPayload.properties_to_unset).toContain('a')
+            expect(secondCallPayload.properties_to_set).toEqual({ c: '3' })
+            expect(secondCallPayload.properties_to_unset).toEqual(['a'])
+            expect(secondCallPayload.properties).toEqual(expect.objectContaining({ a: '1', b: '2' }))
+        })
+
+        const heldWrite = (): (() => void) => {
+            let release!: () => void
+            mockRepo.updatePersonsBatch.mockImplementationOnce(
+                (updates: any[]) =>
+                    new Promise((resolve) => {
+                        release = () =>
+                            resolve(
+                                new Map(
+                                    updates.map((u: any) => [
+                                        u.uuid,
+                                        {
+                                            success: true,
+                                            version: u.version + 1,
+                                            kafkaMessage: {},
+                                            properties: toInternalPerson(u).properties,
+                                        },
+                                    ])
+                                )
+                            )
+                    })
+            )
+            return () => release()
+        }
+
+        it('a landed write retires what it carried and keeps a key changed while it was out', async () => {
+            const personStore = getPersonsStore()
+            await personStore.fetchForUpdate(teamId, 'distinct_id_1', 0)
+            await personStore.updatePersonWithPropertiesDiffForUpdate(
+                person,
+                { a: '1', b: '1' },
+                [],
+                {},
+                'distinct_id_1'
+            )
+
+            const release = heldWrite()
+            const flushing = personStore.flush()
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { b: '2' }, [], {}, 'distinct_id_1')
+            release()
+            await flushing
+
+            const entry = personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)
+            expect(entry?.properties_to_set).toEqual({ b: '2' })
+            expect(entry?.properties).toEqual(expect.objectContaining({ a: '1' }))
+        })
+
+        it('a landed set-once another writer filled first leaves the row value in the entry', async () => {
+            const personStore = getPersonsStore()
+            await personStore.updatePersonForMerge(
+                person,
+                { properties_to_set_once: { k: 'carried' } },
+                'distinct_id_1'
+            )
+            mockRepo.updatePersonsBatch.mockImplementationOnce((updates: any[]) =>
+                Promise.resolve(
+                    new Map(
+                        updates.map((u: any) => [
+                            u.uuid,
+                            { success: true, version: u.version + 1, kafkaMessage: {}, properties: { k: 'other' } },
+                        ])
+                    )
+                )
+            )
+
+            await personStore.flush()
+
+            const entry = personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)
+            expect(entry).toMatchObject({ properties: { k: 'other' }, properties_to_set_once: {} })
+        })
+
+        it('a write that lands through the fallback retires what it carried', async () => {
+            const personStore = getPersonsStore()
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { a: '1' }, [], {}, 'distinct_id_1')
+            mockRepo.updatePersonsBatch.mockImplementationOnce((updates: any[]) =>
+                Promise.resolve(
+                    new Map(updates.map((u: any) => [u.uuid, { success: false, error: new Error('batch failed') }]))
+                )
+            )
+
+            await personStore.flush()
+
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.properties_to_set).toEqual({})
+        })
+
+        it('two entries sharing a uuid in one flush retire nothing', async () => {
+            const personStore = getPersonsStore()
+            const zombie = { ...person, id: '99' }
+            await personStore.updatePersonWithPropertiesDiffForUpdate(person, { a: '1' }, [], {}, 'distinct_id_1')
+            await personStore.updatePersonWithPropertiesDiffForUpdate(zombie, { b: '1' }, [], {}, 'distinct_id_2')
+
+            await personStore.flush()
+
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)?.properties_to_set).toEqual({
+                a: '1',
+            })
+            expect(personStore.getCachedPersonForUpdateByPersonId(teamId, zombie.id)?.properties_to_set).toEqual({
+                b: '1',
+            })
         })
 
         it('two distinct_ids pointing to the same person share a single cache entry across batches', async () => {
