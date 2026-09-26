@@ -9,13 +9,14 @@ from django.db.models import Q
 import structlog
 
 from posthog.models import Comment
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskCommentActivity, TaskRun
 from products.tasks.backend.visibility import task_visibility_q
 
 logger = structlog.get_logger(__name__)
 
-COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", *CANVAS_COMMENT_SCOPES})
 
 
 def _visible_tasks(team_id: int, user_id: int | None):
@@ -87,14 +88,18 @@ def project_comment_activity(
     if comment is None or comment.created_by_id is None:
         return
     task_id = comment_task_id(comment)
-    if task_id is None:
-        return
-    if comment.scope == "desktop_canvas":
-        task = Task.objects.filter(team_id=team_id, id=task_id).only("created_by_id").first()
+    task: Task | None = None
+    if comment.scope in CANVAS_COMMENT_SCOPES:
+        if not comment.item_id:
+            return
+        if task_id is not None:
+            task = Task.objects.filter(team_id=team_id, id=task_id).only("created_by_id").first()
     else:
-        task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
-    if task is None:
-        return
+        if task_id is not None:
+            task = _notification_tasks(team_id).filter(id=task_id).only("created_by_id").first()
+        if task is None:
+            return
+    activity_task_id = task.id if task is not None else None
 
     root_comment_id = comment.source_comment_id or comment.id
     recipients: dict[int, str] = {}
@@ -112,28 +117,28 @@ def project_comment_activity(
             )
         else:
             owner_id = target_owner_id
-            if owner_id is None and comment.scope == "task_artifact":
+            if owner_id is None and comment.scope == "task_artifact" and task is not None:
                 try:
                     owner_id = (
                         TaskArtifact.objects.for_team(team_id)
-                        .filter(task_id=task_id, id=comment.item_id)
+                        .filter(task_id=task.id, id=comment.item_id)
                         .values_list("created_by_id", flat=True)
                         .first()
                     )
                 except (ValueError, DjangoValidationError):
                     pass
-            if owner_id is None and comment.scope == "desktop_canvas" and comment.item_id:
+            if owner_id is None and comment.scope in CANVAS_COMMENT_SCOPES and comment.item_id:
                 from products.canvas.backend.comment_access import canvas_owner_id
 
                 owner_id = canvas_owner_id(team_id=team_id, canvas_id=comment.item_id)
-            if comment.scope != "desktop_canvas":
+            if comment.scope not in CANVAS_COMMENT_SCOPES and task is not None:
                 owner_id = owner_id or task.created_by_id
             if owner_id:
                 recipients[owner_id] = TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
 
     recipients.update((user_id, TaskCommentActivity.Kind.MENTION) for user_id in mentioned_user_ids)
     recipients.pop(comment.created_by_id, None)
-    if comment.scope == "desktop_canvas":
+    if comment.scope in CANVAS_COMMENT_SCOPES:
         from products.canvas.backend.comment_access import visible_canvas_user_ids
 
         visible_user_ids = visible_canvas_user_ids(
@@ -144,16 +149,16 @@ def project_comment_activity(
         recipients = {user_id: kind for user_id, kind in recipients.items() if user_id in visible_user_ids}
     TaskCommentActivity.record_many(
         team_id=team_id,
-        task_id=task_id,
+        task_id=activity_task_id,
         activity_at=activity_at or comment.created_at,
         comment_id=comment_id,
         root_comment_id=root_comment_id,
         recipients=recipients,
     )
-    _enqueue_slack_dms(team_id=team_id, comment_id=comment_id, task_id=task_id, recipients=recipients)
+    _enqueue_slack_dms(team_id=team_id, comment_id=comment_id, task_id=activity_task_id, recipients=recipients)
 
 
-def _enqueue_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, recipients: dict[int, str]) -> None:
+def _enqueue_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID | None, recipients: dict[int, str]) -> None:
     """Hand the same recipient map to the Slack DM channel. Never fails the projection: the
     Activity row is the notification that has to land."""
     if not recipients:
@@ -168,7 +173,7 @@ def _enqueue_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, recipie
             deliver_comment_slack_dms.delay(
                 team_id=team_id,
                 comment_id=str(comment_id),
-                task_id=str(task_id),
+                task_id=str(task_id) if task_id is not None else None,
                 recipients={str(user_id): kind for user_id, kind in recipients.items()},
             )
         except Exception:

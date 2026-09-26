@@ -42,13 +42,13 @@ def deliver_comment_slack_dms(
     *,
     team_id: int,
     comment_id: str,
-    task_id: str,
+    task_id: str | None,
     recipients: dict[str, str],
 ) -> None:
     send_comment_slack_dms(
         team_id=team_id,
         comment_id=UUID(comment_id),
-        task_id=UUID(task_id),
+        task_id=UUID(task_id) if task_id else None,
         recipients={int(user_id): kind for user_id, kind in recipients.items()},
     )
 

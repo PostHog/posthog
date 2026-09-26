@@ -2955,7 +2955,11 @@ class TaskActivityPageSerializer(DataclassSerializer):
 
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
-    task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    task_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Task whose displayed activity should be marked read. Optional when activity_id is set.",
+    )
     activity_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -2964,6 +2968,11 @@ class TaskActivityReadMarkerSerializer(serializers.Serializer):
     seen_before = serializers.DateTimeField(
         help_text="Mark activity at or before this timestamp read without clearing newer activity."
     )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not attrs.get("task_id") and not attrs.get("activity_id"):
+            raise serializers.ValidationError("Set task_id or activity_id.")
+        return attrs
 
 
 class TaskActivityMarkReadSerializer(serializers.Serializer):

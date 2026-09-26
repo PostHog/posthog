@@ -76,6 +76,12 @@ TICKET_COMMENT_SCOPES = frozenset({"Ticket", "conversations_ticket"})
 # Product-owned content in these scopes is available only through the owning product's API.
 COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API = frozenset({"EmailThread"})
 
+CANVAS_COMMENT_SCOPES = frozenset({"canvas", "desktop_canvas"})
+
+
+def canonical_comment_scope(scope: str) -> str:
+    return "canvas" if scope == "desktop_canvas" else scope
+
 
 def activity_log_scope_for(comment: Comment) -> str:
     # Map legacy "recording" → "Replay"; replies are logged under the parent thread.

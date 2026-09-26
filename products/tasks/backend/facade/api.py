@@ -50,6 +50,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -355,6 +356,8 @@ __all__ = [
     "list_task_artifacts",
     "list_task_comments",
     "retrieve_task_comment",
+    "list_canvas_comments",
+    "retrieve_canvas_comment",
     "update_sandbox_environment",
     "update_task",
     "update_task_run",
@@ -10327,6 +10330,64 @@ def list_task_comments(
         raise ValueError("Invalid task comment cursor") from None
 
 
+def list_canvas_comments(
+    *,
+    team_id: int,
+    canvas_id: UUID,
+    canvas_name: str,
+    include_resolved: bool,
+    limit: int,
+    cursor: str | None,
+) -> contracts.TaskCommentPageDTO:
+    from products.tasks.backend.logic.services.task_comments import (
+        InvalidTaskCommentCursor,
+        list_canvas_comments as list_comments_for_canvas,
+    )
+
+    try:
+        return list_comments_for_canvas(
+            team_id=team_id,
+            canvas_id=canvas_id,
+            canvas_name=canvas_name,
+            include_resolved=include_resolved,
+            limit=limit,
+            cursor=cursor,
+        )
+    except InvalidTaskCommentCursor:
+        raise ValueError("Invalid canvas comment cursor") from None
+
+
+def retrieve_canvas_comment(
+    *,
+    team_id: int,
+    canvas_id: UUID,
+    canvas_name: str,
+    comment_id: UUID,
+    limit: int,
+    cursor: str | None,
+    content_comment_id: UUID | None,
+    content_offset: int,
+) -> contracts.TaskCommentDetailDTO | None:
+    from products.tasks.backend.logic.services.task_comments import (
+        InvalidTaskCommentCursor,
+        retrieve_canvas_comment as retrieve_comment_for_canvas,
+    )
+
+    try:
+        return retrieve_comment_for_canvas(
+            team_id=team_id,
+            canvas_id=canvas_id,
+            canvas_name=canvas_name,
+            comment_id=comment_id,
+            limit=limit,
+            cursor=cursor,
+            content_comment_id=content_comment_id,
+            content_offset=content_offset,
+        )
+    except InvalidTaskCommentCursor:
+        raise ValueError("Invalid canvas comment cursor") from None
+
+
 def retrieve_task_comment(
     *,
     team_id: int,
@@ -10475,8 +10536,11 @@ def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActi
         TaskCommentActivity.objects.for_team(team_id)
         .filter(user_id=user_id, comment__deleted=False)
         .filter(
-            Q(comment__scope="desktop_canvas", comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id))
-            | (~Q(comment__scope="desktop_canvas") & Q(task__in=visible_tasks))
+            Q(
+                comment__scope__in=CANVAS_COMMENT_SCOPES,
+                comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id),
+            )
+            | (~Q(comment__scope__in=CANVAS_COMMENT_SCOPES) & Q(task__in=visible_tasks))
         )
     )
 
@@ -10486,7 +10550,7 @@ def _visible_canvases_by_id(
 ) -> dict[str, Canvas]:
     canvas_ids: list[UUID] = []
     for row in comment_rows:
-        if row.comment.scope != "desktop_canvas":
+        if row.comment.scope not in CANVAS_COMMENT_SCOPES:
             continue
         try:
             canvas_ids.append(UUID(row.comment.item_id))
@@ -10513,12 +10577,14 @@ class _ActivityTaskDetails:
 def _activity_task_details(
     row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, Canvas]
 ) -> _ActivityTaskDetails:
-    if isinstance(row, TaskCommentActivity) and row.comment.scope == "desktop_canvas" and row.comment.item_id:
+    if isinstance(row, TaskCommentActivity) and row.comment.scope in CANVAS_COMMENT_SCOPES and row.comment.item_id:
         canvas = canvases_by_id.get(row.comment.item_id)
         if canvas is not None:
             return _ActivityTaskDetails(
                 title=canvas.name, channel_id=canvas.channel_id, channel_name=canvas.channel.name
             )
+    if row.task is None:
+        return _ActivityTaskDetails(title="", channel_id=None, channel_name=None)
     return _ActivityTaskDetails(
         title=row.task.title,
         channel_id=row.task.channel_id,
@@ -10563,7 +10629,9 @@ def list_task_activity(
     )
     canvases_by_id = _visible_canvases_by_id(team_id, user_id, comment_rows)
     comment_rows = [
-        row for row in comment_rows if row.comment.scope != "desktop_canvas" or row.comment.item_id in canvases_by_id
+        row
+        for row in comment_rows
+        if row.comment.scope not in CANVAS_COMMENT_SCOPES or row.comment.item_id in canvases_by_id
     ]
     activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
     rows: list[TaskActivity | TaskCommentActivity] = sorted(
@@ -10617,7 +10685,7 @@ def _bounded_activity_snippet(content: str, limit: int = 1024) -> str:
 def mark_task_activity_read(
     team_id: int,
     user_id: int | None,
-    activities: Sequence[tuple[UUID, datetime, UUID | None]],
+    activities: Sequence[tuple[UUID | None, datetime, UUID | None]],
 ) -> int:
     """Mark feed rows read only when their latest activity was visible to the requester."""
     if user_id is None or not activities:
@@ -10627,7 +10695,7 @@ def mark_task_activity_read(
     for task_id, seen_before, comment_activity_id in activities:
         if comment_activity_id:
             comment_activity_ids.append(comment_activity_id)
-        else:
+        elif task_id:
             activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
     task_rows = 0
     if activity_versions:
