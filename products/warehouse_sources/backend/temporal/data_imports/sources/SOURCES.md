@@ -581,6 +581,7 @@ the row lists both.
 | rapid7_insightvm                 | HTTP                        | requests                                                        | ✅                          |
 | raygun                           | HTTP                        | requests                                                        | ✅                          |
 | razorpay                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| recall_ai                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recharge                         | HTTP                        | requests                                                        | ✅                          |
 | recreation                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | recruitee                        | HTTP                        | requests                                                        | ✅                          |
@@ -1314,7 +1315,6 @@ doesn't conflict with concurrent PRs.
 - raygun
 - rb2b
 - rd_station_marketing
-- recall_ai
 - reddit
 - redis
 - redpanda_cloud
