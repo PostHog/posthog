@@ -180,6 +180,33 @@ describe('hogInvocationsLogic', () => {
             logic.unmount()
         })
 
+        it('asks for enough rows to cover every bucket and status in the window', async () => {
+            // With no LIMIT the executor applies its own default of 100 rows. The rows come back
+            // oldest first, so a wider window keeps its start and reads as flat zero after that,
+            // which looks like a destination that stopped delivering.
+            let sentQuery = ''
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': async ({ request }) => {
+                        sentQuery = ((await request.json()) as { query: { query: string } }).query.query
+                        return [200, { results: [] }]
+                    },
+                },
+            })
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, timezone: 'America/Los_Angeles' })
+
+            const logic = hogInvocationsLogic({ id: 'flow-1', functionKind: 'hog_flow' })
+            logic.mount()
+            logic.actions.setFilters({ date_from: '-30h' })
+            await expectLogic(logic).toDispatchActions(['loadSparklineSuccess'])
+
+            const { dates, series } = logic.values.sparkline!
+            const limit = Number(sentQuery.match(/LIMIT\s+(\d+)/)?.[1] ?? 0)
+            expect(limit).toBeGreaterThanOrEqual(dates.length * series.length)
+
+            logic.unmount()
+        })
+
         it('covers a window spanning a DST transition, one bucket per local day', async () => {
             // 1 Nov 2026 is 25 hours long in America/Los_Angeles. Stepping the instant by 24h drifts
             // off local midnight there, and re-snapping the drifted instant lands back on the same
