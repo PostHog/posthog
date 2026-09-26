@@ -1,5 +1,5 @@
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
@@ -11,15 +11,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
+    SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.settings import (
-    CONTACT_STATUSES,
     EMAILOCTOPUS_ENDPOINTS,
     EmailOctopusEndpointConfig,
+    EmailOctopusFanOut,
 )
 
 EMAILOCTOPUS_BASE_URL = "https://api.emailoctopus.com"
@@ -53,8 +58,8 @@ class EmailOctopusResumeConfig:
     # query string — including any incremental time filter — is preserved across a resume. None means
     # "start this list at its first page".
     next_url: str | None = None
-    # Legacy fan-out bookmark fields. The contacts fan-out is now a composed set of single-hop
-    # dependent resources whose retries re-fetch (the [list_id, id] merge key dedupes), so these are
+    # Legacy fan-out bookmark fields. Fan-out endpoints are now composed sets of single-hop
+    # dependent resources whose retries re-fetch (the composite merge key dedupes), so these are
     # no longer written. They are kept — with defaults — so any state persisted by the previous
     # implementation still deserializes via ``dataclass(**saved)`` on resume.
     list_id: str | None = None
@@ -73,8 +78,17 @@ def _format_incremental_value(value: Any) -> str:
     return str(value)
 
 
-def _build_contact_params(status: str, incremental_field: str | None, filter_value: str | None) -> dict[str, Any]:
-    params: dict[str, Any] = {"limit": PAGE_SIZE, "status": status}
+def _build_child_params(
+    fanout: EmailOctopusFanOut,
+    status: str | None,
+    incremental_field: str | None,
+    filter_value: str | None,
+) -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    if fanout.paginated:
+        params["limit"] = PAGE_SIZE
+    if status is not None:
+        params["status"] = status
     if incremental_field and filter_value:
         # Server-side incremental filter, e.g. last_updated_at.gte=2024-01-19T12:14:28Z.
         params[f"{incremental_field}.gte"] = filter_value
@@ -98,12 +112,34 @@ def _client_config(api_key: str, base_url: str) -> ClientConfig:
     }
 
 
-def _rename_list_id(row: dict[str, Any]) -> dict[str, Any]:
-    # `include_from_parent=["id"]` injects the parent list's id as `_lists_id`; expose it as `list_id`
-    # so contact rows carry the exact same field the previous implementation attached.
-    if "_lists_id" in row:
-        row["list_id"] = row.pop("_lists_id")
-    return row
+def _rename_parent_id(fanout: EmailOctopusFanOut) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # `include_from_parent=["id"]` injects the parent's id as `_<parent>_id`; expose it under the
+    # name the endpoint's own path parameter uses, e.g. `list_id` or `campaign_id`.
+    injected_key = f"_{fanout.parent}_id"
+
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        if injected_key in row:
+            row[fanout.param] = row.pop(injected_key)
+        return row
+
+    return _mapper
+
+
+def _parent_status_filter(allowed: tuple[str, ...]) -> Callable[[dict[str, Any]], bool]:
+    def _predicate(row: dict[str, Any]) -> bool:
+        return row.get("status") in allowed
+
+    return _predicate
+
+
+def _attach_status(status: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    # The reports endpoint states the status once on the envelope, which `data_selector` drops, so
+    # the rows of each status walk have to carry it themselves to stay distinguishable.
+    def _mapper(row: dict[str, Any]) -> dict[str, Any]:
+        row["status"] = status
+        return row
+
+    return _mapper
 
 
 def _top_level_resource(
@@ -152,7 +188,7 @@ def _top_level_resource(
     )
 
 
-def _contacts_items(
+def _fan_out_items(
     api_key: str,
     base_url: str,
     config: EmailOctopusEndpointConfig,
@@ -162,58 +198,71 @@ def _contacts_items(
     db_incremental_field_last_value: Any,
     incremental_field: str | None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Fan out over every list and contact status, attaching each contact's `list_id`.
+    """Fan out over every parent row, attaching each child row's parent id.
 
-    Contacts are nested under lists and the API returns one status at a time, so each status is its
-    own single-hop parent(lists)->child(contacts) fan-out; the results are concatenated. A list
-    deleted between enumeration and the child fetch 404s, which is ignored per (list, status) via
-    `response_actions` rather than failing the whole sync. The [list_id, id] merge key keeps a single
-    row per contact across statuses and dedupes any rows re-fetched on a retry.
+    Endpoints nested under a list or a campaign are driven as a single-hop parent->child fan-out.
+    An endpoint that serves one status per request gets one such fan-out per status, concatenated.
+    A parent deleted between enumeration and the child fetch 404s, which is ignored per (parent,
+    status) via `response_actions` rather than failing the whole sync.
     """
+    fanout = config.fanout
+    assert fanout is not None
+
     filter_field = incremental_field if should_use_incremental_field else None
     filter_value = (
         _format_incremental_value(db_incremental_field_last_value)
         if should_use_incremental_field and db_incremental_field_last_value and incremental_field
         else None
     )
+    parent_path = EMAILOCTOPUS_ENDPOINTS[fanout.parent].path
 
-    for status in CONTACT_STATUSES:
-        contact_params: dict[str, Any] = {
-            "list_id": {"type": "resolve", "resource": "lists", "field": "id"},
-            **_build_contact_params(status, filter_field, filter_value),
+    for status in fanout.statuses or (None,):
+        child_name = f"{config.name}_{status}" if status is not None else config.name
+        child_params: dict[str, Any] = {
+            fanout.param: {"type": "resolve", "resource": fanout.parent, "field": "id"},
+            **_build_child_params(fanout, status, filter_field, filter_value),
         }
+        child_endpoint: Endpoint = {
+            "path": config.path,
+            "params": child_params,
+            "data_selector": "$" if fanout.single_object else "data",
+            "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH)
+            if fanout.paginated
+            else SinglePagePaginator(),
+            # A parent deleted mid-fan-out 404s; treat it as an empty result for this (parent,
+            # status) and move on instead of failing the sync.
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        }
+        child_resource: EndpointResource = {"name": child_name, "endpoint": child_endpoint}
+        if fanout.attach_parent_id:
+            child_resource["include_from_parent"] = ["id"]
+
         rest_config: RESTAPIConfig = {
             "client": _client_config(api_key, base_url),
             "resource_defaults": {},
             "resources": [
                 {
-                    "name": "lists",
+                    "name": fanout.parent,
                     "endpoint": {
-                        "path": "/lists",
+                        "path": parent_path,
                         "params": {"limit": PAGE_SIZE},
                         "data_selector": "data",
                         "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
                     },
                 },
-                {
-                    "name": f"contacts_{status}",
-                    "include_from_parent": ["id"],
-                    "endpoint": {
-                        "path": config.path,
-                        "params": contact_params,
-                        "data_selector": "data",
-                        "paginator": JSONResponsePaginator(next_url_path=_NEXT_URL_PATH),
-                        # A list deleted mid-fan-out 404s; treat it as an empty result for this
-                        # (list, status) and move on instead of failing the sync.
-                        "response_actions": [{"status_code": 404, "action": "ignore"}],
-                    },
-                },
+                child_resource,
             ],
         }
 
         resources = rest_api_resources(rest_config, team_id, job_id, None)
-        child = next(r for r in resources if getattr(r, "name", None) == f"contacts_{status}")
-        child.add_map(_rename_list_id)
+        by_name = {getattr(r, "name", None): r for r in resources}
+        if fanout.parent_statuses:
+            by_name[fanout.parent].add_filter(_parent_status_filter(fanout.parent_statuses))
+        child = by_name[child_name]
+        if fanout.attach_parent_id:
+            child.add_map(_rename_parent_id(fanout))
+        if fanout.inject_status and status is not None:
+            child.add_map(_attach_status(status))
         yield from child
 
 
@@ -231,8 +280,8 @@ def emailoctopus_source(
     endpoint_config = EMAILOCTOPUS_ENDPOINTS[endpoint]
     base_url = _base_url_for_version(api_version)
 
-    if endpoint_config.fan_out_over_lists:
-        items: Any = lambda: _contacts_items(
+    if endpoint_config.fanout is not None:
+        items: Any = lambda: _fan_out_items(
             api_key,
             base_url,
             endpoint_config,

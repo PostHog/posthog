@@ -13,14 +13,26 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctop
     EMAILOCTOPUS_BASE_URL as BASE,
     EmailOctopusResumeConfig,
     _base_url_for_version,
-    _build_contact_params,
+    _build_child_params,
     _format_incremental_value,
     emailoctopus_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.emailoctopus.settings import (
+    CAMPAIGN_REPORT_STATUSES,
     EMAILOCTOPUS_ENDPOINTS,
+    EmailOctopusFanOut,
 )
+
+
+def _fanout(endpoint: str) -> EmailOctopusFanOut:
+    fanout = EMAILOCTOPUS_ENDPOINTS[endpoint].fanout
+    assert fanout is not None
+    return fanout
+
+
+CONTACTS_FANOUT = _fanout("contacts")
+LINKS_FANOUT = _fanout("campaign_report_links")
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
 CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
@@ -112,14 +124,19 @@ class TestFormatIncrementalValue:
         assert result.endswith("Z")
 
 
-class TestBuildContactParams:
+class TestBuildChildParams:
     def test_status_only_when_no_incremental(self) -> None:
-        params = _build_contact_params("subscribed", incremental_field=None, filter_value=None)
+        params = _build_child_params(CONTACTS_FANOUT, "subscribed", incremental_field=None, filter_value=None)
         assert params == {"limit": 100, "status": "subscribed"}
 
     def test_no_filter_when_value_missing(self) -> None:
-        params = _build_contact_params("pending", incremental_field="created_at", filter_value=None)
+        params = _build_child_params(CONTACTS_FANOUT, "pending", incremental_field="created_at", filter_value=None)
         assert "created_at.gte" not in params
+
+    def test_unpaginated_endpoint_sends_no_page_size(self) -> None:
+        # /campaigns/{id}/reports/links documents no limit/starting_after, so sending one would be
+        # an undocumented param on a request that always returns the whole collection.
+        assert _build_child_params(LINKS_FANOUT, None, incremental_field=None, filter_value=None) == {}
 
     @parameterized.expand(
         [
@@ -128,7 +145,9 @@ class TestBuildContactParams:
         ]
     )
     def test_server_side_filter(self, _name: str, field: str, expected_param: str) -> None:
-        params = _build_contact_params("subscribed", incremental_field=field, filter_value="2026-01-01T00:00:00Z")
+        params = _build_child_params(
+            CONTACTS_FANOUT, "subscribed", incremental_field=field, filter_value="2026-01-01T00:00:00Z"
+        )
         assert params[expected_param] == "2026-01-01T00:00:00Z"
         assert params["status"] == "subscribed"
 
@@ -318,20 +337,170 @@ class TestContactsFanOut:
             _rows(_source("contacts", _make_manager()))
 
 
+class TestCampaignReportsFanOut:
+    def _pages(
+        self,
+        campaigns: list[dict[str, Any]],
+        rows_by_status: dict[str, list[dict[str, Any]]] | None = None,
+        campaign_id: str = "C1",
+    ) -> dict[str, Any]:
+        pages: dict[str, Any] = {f"{BASE}/campaigns": _resp({"data": campaigns, "paging": {"next": None}})}
+        for status in CAMPAIGN_REPORT_STATUSES:
+            pages[f"{BASE}/campaigns/{campaign_id}/reports?status={status}"] = _resp(
+                {"status": status, "data": (rows_by_status or {}).get(status, []), "paging": {"next": None}}
+            )
+        return pages
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_attaches_campaign_id_and_the_requested_status(self, MockSession) -> None:
+        session = MockSession.return_value
+        # The envelope states the status once and `data_selector` drops it, so without the attach
+        # step the eight walks would be indistinguishable in the table.
+        _wire(
+            session,
+            self._pages(
+                [{"id": "C1", "status": "sent"}],
+                {"opened": [{"contact_id": "ct1", "occurred_at": "2026-01-02T03:04:05+00:00"}]},
+            ),
+        )
+        rows = _rows(_source("campaign_reports", _make_manager()))
+        assert rows == [
+            {
+                "contact_id": "ct1",
+                "occurred_at": "2026-01-02T03:04:05+00:00",
+                "campaign_id": "C1",
+                "status": "opened",
+            }
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requests_every_documented_status(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls: list[tuple[str, Any]] = []
+        _wire(session, self._pages([{"id": "C1", "status": "sent"}]), calls)
+
+        _rows(_source("campaign_reports", _make_manager()))
+
+        requested = {params["status"] for url, params in calls if "/reports" in url}
+        assert requested == set(CAMPAIGN_REPORT_STATUSES)
+
+    @parameterized.expand([("draft",), ("error",)])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_campaigns_that_never_sent(self, campaign_status: str, MockSession) -> None:
+        session = MockSession.return_value
+        calls: list[tuple[str, Any]] = []
+        # A campaign that never sent has no report. Fanning out over it would spend eight requests
+        # per sync on a rejection we could not tell apart from a genuinely malformed one.
+        _wire(session, self._pages([{"id": "C1", "status": campaign_status}]), calls)
+
+        rows = _rows(_source("campaign_reports", _make_manager()))
+
+        assert rows == []
+        assert not [url for url, _ in calls if "/reports" in url]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deleted_campaign_is_skipped(self, MockSession) -> None:
+        session = MockSession.return_value
+        pages = self._pages([{"id": "C1", "status": "sent"}, {"id": "GONE", "status": "sent"}])
+        for status in CAMPAIGN_REPORT_STATUSES:
+            pages[f"{BASE}/campaigns/GONE/reports?status={status}"] = _resp({}, status=404)
+        pages[f"{BASE}/campaigns/C1/reports?status=sent"] = _resp(
+            {"status": "sent", "data": [{"contact_id": "ct1"}], "paging": {"next": None}}
+        )
+        _wire(session, pages)
+
+        rows = _rows(_source("campaign_reports", _make_manager()))
+        assert rows == [{"contact_id": "ct1", "campaign_id": "C1", "status": "sent"}]
+
+
+class TestUnpaginatedCampaignFanOuts:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_summary_yields_the_bare_response_body_as_one_row(self, MockSession) -> None:
+        session = MockSession.return_value
+        # The summary is a bare object rather than a `data` collection, and already carries the
+        # campaign id as `id`, so no parent id is attached on top.
+        _wire(
+            session,
+            {
+                f"{BASE}/campaigns": _resp({"data": [{"id": "C1", "status": "sent"}], "paging": {"next": None}}),
+                f"{BASE}/campaigns/C1/reports/summary": _resp(
+                    {"id": "C1", "sent": 200, "opened": {"total": 110, "unique": 85}}
+                ),
+            },
+        )
+        rows = _rows(_source("campaign_report_summaries", _make_manager()))
+        assert rows == [{"id": "C1", "sent": 200, "opened": {"total": 110, "unique": 85}}]
+        assert "campaign_id" not in rows[0]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_links_attach_campaign_id_and_stop_after_one_page(self, MockSession) -> None:
+        session = MockSession.return_value
+        calls: list[tuple[str, Any]] = []
+        # The links endpoint takes no pagination params and returns no `paging` block; a next-URL
+        # paginator would have nothing to follow, so the walk must terminate on the first response.
+        _wire(
+            session,
+            {
+                f"{BASE}/campaigns": _resp({"data": [{"id": "C1", "status": "sent"}], "paging": {"next": None}}),
+                f"{BASE}/campaigns/C1/reports/links": _resp(
+                    {"data": [{"url": "https://example.com/promo-1", "clicked_total": 10, "clicked_unique": 7}]}
+                ),
+            },
+            calls,
+        )
+        rows = _rows(_source("campaign_report_links", _make_manager()))
+        assert rows == [
+            {
+                "url": "https://example.com/promo-1",
+                "clicked_total": 10,
+                "clicked_unique": 7,
+                "campaign_id": "C1",
+            }
+        ]
+        assert len([url for url, _ in calls if url.endswith("/links")]) == 1
+
+
+class TestListTagsFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_attaches_list_id_and_follows_pagination(self, MockSession) -> None:
+        session = MockSession.return_value
+        next_url = f"{BASE}/lists/L1/tags?limit=100&starting_after=cur1"
+        _wire(
+            session,
+            {
+                f"{BASE}/lists": _resp({"data": [{"id": "L1"}], "paging": {"next": None}}),
+                f"{BASE}/lists/L1/tags": _resp({"data": [{"tag": "vip"}], "paging": {"next": {"url": next_url}}}),
+                next_url: _resp({"data": [{"tag": "beta"}], "paging": {"next": None}}),
+            },
+        )
+        rows = _rows(_source("list_tags", _make_manager()))
+        assert rows == [{"tag": "vip", "list_id": "L1"}, {"tag": "beta", "list_id": "L1"}]
+
+
 class TestSourceResponse:
     @parameterized.expand(
         [
-            ("lists", ["id"]),
-            ("campaigns", ["id"]),
-            ("contacts", ["list_id", "id"]),
+            ("lists", ["id"], "created_at"),
+            ("campaigns", ["id"], "created_at"),
+            ("contacts", ["list_id", "id"], "created_at"),
+            ("campaign_reports", ["campaign_id", "status", "contact_id"], "occurred_at"),
+            ("campaign_report_summaries", ["id"], None),
+            ("campaign_report_links", ["campaign_id", "url"], None),
+            ("list_tags", ["list_id", "tag"], None),
         ]
     )
-    def test_primary_keys_and_partitioning(self, endpoint: str, expected_pks: list[str]) -> None:
+    def test_primary_keys_and_partitioning(
+        self, endpoint: str, expected_pks: list[str], partition_key: str | None
+    ) -> None:
         response = _source(endpoint, _make_manager())
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
         assert response.sort_mode == "asc"
-        assert response.partition_mode == "datetime"
-        assert response.partition_format == "week"
-        assert response.partition_keys == [EMAILOCTOPUS_ENDPOINTS[endpoint].partition_key]
-        assert EMAILOCTOPUS_ENDPOINTS[endpoint].partition_key == "created_at"
+        assert EMAILOCTOPUS_ENDPOINTS[endpoint].partition_key == partition_key
+        if partition_key is None:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+        else:
+            assert response.partition_mode == "datetime"
+            assert response.partition_format == "week"
+            assert response.partition_keys == [partition_key]

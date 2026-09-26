@@ -18,13 +18,25 @@ def _config() -> Any:
 class TestEmailOctopusGetSchemas:
     def test_returns_all_endpoints(self) -> None:
         names = {s.name for s in EmailOctopusSource().get_schemas(_config(), team_id=1)}
-        assert names == {"lists", "campaigns", "contacts"}
+        assert names == {
+            "lists",
+            "campaigns",
+            "contacts",
+            "campaign_reports",
+            "campaign_report_summaries",
+            "campaign_report_links",
+            "list_tags",
+        }
 
     @parameterized.expand(
         [
             ("lists", False),
             ("campaigns", False),
             ("contacts", True),
+            ("campaign_reports", False),
+            ("campaign_report_summaries", False),
+            ("campaign_report_links", False),
+            ("list_tags", False),
         ]
     )
     def test_incremental_support(self, endpoint: str, supports_incremental: bool) -> None:
