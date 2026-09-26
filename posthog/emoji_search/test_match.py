@@ -29,6 +29,19 @@ def answer_questions(questions, selected):
 
 class TestSuggestEmojis(SimpleTestCase):
     @patch("posthog.emoji_search.match.build_system_one_client")
+    def test_case_distinct_queries_have_separate_cached_results(self, build_client) -> None:
+        cache.clear()
+        build_client.return_value.decide.side_effect = lambda *, state, questions: answer_questions(questions, ())
+
+        suggest_emojis("Polish", team_id=4)
+        suggest_emojis("polish", team_id=4)
+
+        assert [call.kwargs["state"]["emoji_search"] for call in build_client.return_value.decide.call_args_list] == [
+            "Polish",
+            "polish",
+        ]
+
+    @patch("posthog.emoji_search.match.build_system_one_client")
     def test_catalog_change_invalidates_cached_results(self, build_client) -> None:
         cache.clear()
         catalog = load_catalog()
@@ -107,14 +120,14 @@ class TestSuggestEmojis(SimpleTestCase):
             selected = (
                 ("reptiles", "other places")
                 if "subgroup" in next(iter(questions))
-                else ("T-Rex", "sauropod", "roller coaster", "ferris wheel")
+                else ("T-Rex", "sauropod", "roller coaster", "ferris wheel", "carousel horse")
             )
             return answer_questions(questions, selected)
 
         build_client.return_value.decide.side_effect = decide
         suggestions = suggest_emojis("jurassic park", team_id=1)
 
-        assert {suggestion.emoji for suggestion in suggestions} == {"🦖", "🦕", "🎢", "🎡"}
+        assert {suggestion.emoji for suggestion in suggestions} == {"🦖", "🦕", "🎢", "🎡", "🎠"}
         assert build_client.return_value.decide.call_count == 2
         for call in build_client.return_value.decide.call_args_list:
             assert len(call.kwargs["questions"]) <= 32

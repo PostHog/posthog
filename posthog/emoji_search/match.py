@@ -118,7 +118,7 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
         return []
 
     catalog = load_catalog()
-    cache_key = f"emoji_search:v3:{catalog.fingerprint}:{team_id}:{hashlib.sha256(query.lower().encode()).hexdigest()}"
+    cache_key = f"emoji_search:v3:{catalog.fingerprint}:{team_id}:{hashlib.sha256(query.encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, str):
         try:
@@ -156,6 +156,6 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
     keys = sorted(
         emoji_scores,
         key=lambda key: -emoji_scores[key] * subgroup_scores[f"s{catalog.emojis[key].subgroup}"],
-    )[:4]
+    )[:5]
     cache.set(cache_key, json.dumps(keys), CACHE_SECONDS)
     return [catalog.emojis[key].suggestion for key in keys]
