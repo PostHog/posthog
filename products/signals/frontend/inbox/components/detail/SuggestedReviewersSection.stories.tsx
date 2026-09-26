@@ -63,6 +63,16 @@ const longReasonSuggestions: EnrichedReviewer[] = [
     })
 )
 
+const mixedSourceSuggestions: EnrichedReviewer[] = [
+    ...sharedReasonSuggestions,
+    reviewer('quinn', 'Quinn Foster', 'quinn@example.com', {
+        source_skill: '',
+        source_label: 'Added by teammate',
+        reason: 'Added as a reviewer by Avery Chen on Jan 1, 2026',
+        explanation: null,
+    }),
+]
+
 const meta: Meta<typeof SuggestedReviewersSectionMockup> = {
     title: 'Scenes-App/Inbox/Detail/Suggested reviewers mockup',
     component: SuggestedReviewersSectionMockup,
@@ -98,15 +108,14 @@ export const SharedReason: Story = {
 }
 
 export const MixedSources: Story = {
+    args: { suggestions: mixedSourceSuggestions },
+}
+
+export const MixedSourcesWithNamedTeammate: Story = {
     args: {
-        suggestions: [
-            ...sharedReasonSuggestions,
-            reviewer('quinn', 'Quinn Foster', 'quinn@example.com', {
-                source_label: 'Added by teammate',
-                reason: 'Added as a reviewer by Avery Chen on Jan 1, 2026',
-                explanation: null,
-            }),
-        ],
+        suggestions: mixedSourceSuggestions.map((suggestion) =>
+            suggestion.github_login === 'quinn' ? { ...suggestion, source_label: 'Added by Avery' } : suggestion
+        ),
     },
 }
 
