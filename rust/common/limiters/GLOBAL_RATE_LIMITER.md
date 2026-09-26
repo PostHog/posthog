@@ -116,7 +116,7 @@ interval, during which the node cannot see the fleet.
 
 **A known, tolerated race.**
 The request path's get-modify-insert can overwrite the entry a Redis read just refreshed.
-The overwriting entry keeps the older estimate and the older `synced_at`, so it stays due for a sync and the next tick corrects it.
+The overwriting entry keeps the older estimate and the older `synced_at`, so it stays due for a sync, and the key's next request queues the read that corrects it.
 Until then its estimate can be lower or higher than the fresh read.
 It is higher when the key's previous epoch was over its threshold, because the window then drains faster than the leak rate.
 The collision window is microseconds per event against one read per key every 7.5 to 60 seconds.
@@ -368,7 +368,7 @@ Without `GLOBAL_RATE_LIMIT_REDIS_URL`, both limiters share capture's main Redis 
 
 - An entry idles out only when no request touches it for `local_cache_idle_timeout`, so a key's sync cadence never evicts an active key.
 - Under high key cardinality with cold-skewed traffic, a shorter idle timeout reclaims slots faster.
-- **`min_sync_floor` gates reads only.** Every event's count reaches Redis regardless of the floor; the floor only suppresses the `MGET` for keys too far under their threshold to be limited.
+- **`min_sync_floor` gates reads only.** It never drops a count; it only suppresses the `MGET` for keys too far under their threshold to be limited. Counts can still be lost to a full channel, the write-batch cap, or a failed write.
 - Writes are bounded separately. `absorb_update` merges updates by `(key, epoch)` between ticks, so write volume scales with distinct active keys, not event rate.
 
 ## Request Flow
