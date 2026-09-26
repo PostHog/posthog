@@ -4,7 +4,6 @@ import type { BreakPointFunction } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import difference from 'lodash.difference'
 import sortBy from 'lodash.sortby'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,12 +12,16 @@ import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { toParams } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { DateMappingOption, OrganizationType } from '~/types'
+
+import type {
+    BillingUsageExportDownloadParams,
+    BillingUsageTimeseriesRetrieveParams,
+} from 'products/billing/frontend/generated/api.schemas'
 
 import type { BillingPeriod, BillingType } from '../../types'
 import {
@@ -30,6 +33,7 @@ import {
 } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import type { BillingPeriodMarker } from './BillingPeriodMarkers'
+import { BillingReads, billingReadsLogic } from './billingReads'
 import { DEFAULT_TOP_PROJECTS } from './constants'
 import type { BillingChartType, BillingFilters } from './types'
 import type { BillingUsageInteractionProps } from './types'
@@ -57,9 +61,9 @@ export enum BillingUsageResponseBreakdownType {
 }
 
 export interface BillingUsageResponse {
-    status: 'ok'
-    type: 'timeseries'
-    customer_id: string
+    count: number
+    next: string | null
+    previous: string | null
     results: Array<{
         id: number
         label: string
@@ -68,7 +72,6 @@ export interface BillingUsageResponse {
         breakdown_type: BillingUsageResponseBreakdownType | null
         breakdown_value: string | string[] | null
     }>
-    next?: string
 }
 
 const DESKTOP_USAGE_SERIES_CONVERSIONS: Record<string, { divisor: number; label: string }> = {
@@ -156,6 +159,7 @@ export interface billingUsageLogicValues {
     billingPeriodUTC: BillingPeriod // billingLogic
     canViewUsageAndSpend: boolean // billingLogic
     currentOrganization: OrganizationType | null // billingLogic
+    billingReads: BillingReads // billingReadsLogic
     isHobby: boolean // preflightLogic
     billingPeriodMarkers: BillingPeriodMarker[]
     billingUsageError: BillingUsageError | null
@@ -182,6 +186,8 @@ export interface billingUsageLogicValues {
     finalHiddenSeries: number[]
     heading: string
     headingTooltip: string | null
+    reportedProjectIds: number[]
+    reportedProjectIdsLoading: boolean
     series: {
         breakdown_type: BillingUsageResponseBreakdownType | null
         breakdown_value: string | string[] | null
@@ -192,8 +198,6 @@ export interface billingUsageLogicValues {
     }[]
     showEmptyState: boolean
     showSeries: boolean
-    teamIdOptions: number[]
-    teamIdOptionsLoading: boolean
     teamOptions: {
         key: string
         label: string
@@ -223,19 +227,19 @@ export interface billingUsageLogicActions {
         billingUsageResponse: BillingUsageResponse | null
         payload?: void
     }
-    loadTeamIdOptions: () => any
-    loadTeamIdOptionsFailure: (
+    loadReportedProjectIds: () => any
+    loadReportedProjectIdsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadTeamIdOptionsSuccess: (
-        teamIdOptions: number[],
+    loadReportedProjectIdsSuccess: (
+        reportedProjectIds: number[],
         payload?: any
     ) => {
-        teamIdOptions: number[]
+        reportedProjectIds: number[]
         payload?: any
     }
     resetFilters: () => {
@@ -302,7 +306,8 @@ export interface billingUsageLogicMeta {
             },
             dateFrom: string,
             dateTo: string | null,
-            effectiveTeamIds: number[] | undefined
+            effectiveTeamIds: number[] | undefined,
+            billingReads: BillingReads
         ) => string
         usageChartExportUrl: (
             filters: {
@@ -314,7 +319,8 @@ export interface billingUsageLogicMeta {
             },
             dateFrom: string,
             dateTo: string | null,
-            effectiveTeamIds: number[] | undefined
+            effectiveTeamIds: number[] | undefined,
+            billingReads: BillingReads
         ) => string
         dateOptions: (billingPeriodUTC: BillingPeriod) => DateMappingOption[]
         billingPeriodMarkers: (
@@ -398,7 +404,7 @@ export interface billingUsageLogicMeta {
         ) => number[] | undefined
         teamOptions: (
             currentOrganization: OrganizationType | null,
-            teamIdOptions: number[]
+            reportedProjectIds: number[]
         ) => {
             key: string
             label: string
@@ -419,9 +425,10 @@ function usageExportUrlFor(
     dateFrom: string,
     dateTo: string | null,
     effectiveTeamIds: number[] | undefined,
-    withChartCap: boolean
+    withChartCap: boolean,
+    billingReads: BillingReads
 ): string {
-    const params = {
+    const params: BillingUsageExportDownloadParams = {
         ...(filters.usage_types?.length ? { usage_types: JSON.stringify(filters.usage_types) } : {}),
         ...(effectiveTeamIds?.length ? { team_ids: JSON.stringify(effectiveTeamIds) } : {}),
         ...(filters.breakdowns?.length ? { breakdowns: JSON.stringify(filters.breakdowns) } : {}),
@@ -432,7 +439,7 @@ function usageExportUrlFor(
             ? { top_projects: filters.top_projects }
             : {}),
     }
-    return `/api/billing/usage/export/?${toParams(params)}`
+    return billingReads.usageExportUrl(params)
 }
 
 export const billingUsageLogic = kea<billingUsageLogicType>([
@@ -445,6 +452,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
             ['billing', 'billingPeriodUTC', 'canViewUsageAndSpend', 'currentOrganization'],
             preflightLogic,
             ['isHobby'],
+            billingReadsLogic,
+            ['billingReads'],
         ],
         actions: [eventUsageLogic, ['reportBillingUsageInteraction']],
     })),
@@ -471,17 +480,15 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
         setBillingUsageError: (error: BillingUsageError | null) => ({ error }),
     }),
     loaders(({ values, actions }) => ({
-        teamIdOptions: [
+        reportedProjectIds: [
             [] as number[],
             {
-                // The project filter's options, loaded once and apart from the chart, so a chart
-                // that fails or has not answered leaves the filter as it was. Billing reads them
-                // from every report the organization has filed, cached for a day on its side.
-                loadTeamIdOptions: async (): Promise<number[]> => {
+                // The project filter's options beyond the live projects, loaded once and apart from
+                // the chart, so a chart that fails or has not answered leaves the filter as it was.
+                // The read lists every project with usage, including projects deleted since.
+                loadReportedProjectIds: async (): Promise<number[]> => {
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use billingUsageTeamOptionsRetrieve() from 'products/billing/frontend/generated/api' instead.
-                        const response = await api.get('api/billing/usage/team_options/')
-                        return response?.team_id_options ?? []
+                        return await values.billingReads.reportedProjectIds()
                     } catch {
                         return []
                     }
@@ -512,7 +519,7 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                     // Only meaningful with a project breakdown - without one there is no
                     // per-project series to fold, and sending it would just be noise.
                     const breakingDownByTeam = !!breakdowns?.includes('team')
-                    const params = {
+                    const params: BillingUsageTimeseriesRetrieveParams = {
                         ...(usage_types && usage_types.length > 0 ? { usage_types: JSON.stringify(usage_types) } : {}),
                         ...(team_ids && team_ids.length > 0 ? { team_ids: JSON.stringify(team_ids) } : {}),
                         ...(breakdowns && breakdowns.length > 0 ? { breakdowns: JSON.stringify(breakdowns) } : {}),
@@ -526,8 +533,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         // itself when there is a cap, and reads every project on every key in one
                         // pass when there is not, so nothing is asked per usage type or per page.
                         // Past what it can hold it refuses with guidance, which the catch below shows.
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use billingUsageRetrieve() from 'products/billing/frontend/generated/api' instead.
-                        return await api.get(`api/billing/usage/?${toParams(params)}`)
+                        // nosemgrep: prefer-codegen-api -- billingReads builds the URL for the source the organization-billing-api flag picks, and the response goes to this page's own parser. Remove with the legacy source.
+                        return await api.get<BillingUsageResponse>(values.billingReads.usageSeriesUrl(params))
                     } catch (error) {
                         const billingUsageError = getBillingUsageError(error)
                         const isActionable =
@@ -535,8 +542,8 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         actions.setBillingUsageError(isActionable ? billingUsageError : null)
                         if (!isActionable) {
                             lemonToast.error('Failed to load billing usage. Please try again or contact support.')
-                            throw error
                         }
+                        // The toast or the page names the failure, so it does not also go to error tracking.
                         return null
                     }
                 },
@@ -610,27 +617,29 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
     })),
     selectors({
         usageExportUrl: [
-            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds],
+            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds, s.billingReads],
             (
                 filters: BillingFilters,
                 dateFrom: string,
                 dateTo: string | null,
-                effectiveTeamIds: number[] | undefined
+                effectiveTeamIds: number[] | undefined,
+                billingReads: BillingReads
             ): string =>
                 // Every project in the period: the page's filters without the chart's project cap,
                 // which is how the chart is drawn and not part of the data.
-                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, false),
+                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, false, billingReads),
         ],
         usageChartExportUrl: [
-            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds],
+            (s) => [s.filters, s.dateFrom, s.dateTo, s.effectiveTeamIds, s.billingReads],
             (
                 filters: BillingFilters,
                 dateFrom: string,
                 dateTo: string | null,
-                effectiveTeamIds: number[] | undefined
+                effectiveTeamIds: number[] | undefined,
+                billingReads: BillingReads
             ): string =>
                 // The chart's series as billing built them, cap and folded row included.
-                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, true),
+                usageExportUrlFor(filters, dateFrom, dateTo, effectiveTeamIds, true, billingReads),
         ],
         dateOptions: [
             (s) => [s.billingPeriodUTC],
@@ -777,21 +786,19 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 selectionCoversEveryProject(filters.team_ids, teamOptions) ? undefined : filters.team_ids,
         ],
         teamOptions: [
-            (s) => [s.currentOrganization, s.teamIdOptions],
-            (currentOrganization: OrganizationType | null, teamIdOptions: number[]) => {
+            (s) => [s.currentOrganization, s.reportedProjectIds],
+            (currentOrganization: OrganizationType | null, reportedProjectIds: number[]) => {
                 const liveTeams = currentOrganization?.teams || []
-                const liveTeamIds = liveTeams.map((team) => team.id)
+                const liveTeamIds = new Set(liveTeams.map((team) => team.id))
                 const liveOptions = sortBy(
                     liveTeams.map((team) => ({ key: String(team.id), label: team.name })),
                     'label'
                 )
-
-                const deletedTeamIds = difference(teamIdOptions, liveTeamIds)
-                const deletedOptions = sortBy(deletedTeamIds).map((teamId: number) => ({
-                    key: String(teamId),
-                    label: `ID: ${teamId} (deleted)`,
+                // A project deleted since its usage was reported still has that usage, so it stays selectable.
+                const deletedOptions = sortBy(reportedProjectIds.filter((id) => !liveTeamIds.has(id))).map((id) => ({
+                    key: String(id),
+                    label: `ID: ${id} (deleted)`,
                 }))
-
                 return [...liveOptions, ...deletedOptions]
             },
         ],
@@ -977,9 +984,16 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                 actions.loadBillingUsage()
             }
         },
+        // Flags can arrive after the page mounts. When they switch the routes, read again from the new ones.
+        billingReads: (reads: BillingReads, previousReads: BillingReads | undefined) => {
+            if (previousReads !== undefined && reads !== previousReads) {
+                actions.loadReportedProjectIds()
+                actions.loadBillingUsage()
+            }
+        },
     })),
     afterMount(({ actions }: billingUsageLogicType) => {
-        actions.loadTeamIdOptions()
+        actions.loadReportedProjectIds()
         actions.loadBillingUsage()
     }),
 ])

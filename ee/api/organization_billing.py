@@ -11,18 +11,19 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db import models
 from django.http import StreamingHttpResponse
+from django.utils.cache import patch_vary_headers
 
 import requests
 from asgiref.sync import sync_to_async
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -36,11 +37,21 @@ from posthog.utils import get_trusted_client_ip
 
 from ee.api.billing import (
     USAGE_BREAKDOWNS_MESSAGE,
+    BillingExportThrottle,
     BillingTimeSeriesPointSerializer,
     BillingUsageRequestSerializer,
-    _resolve_team_labels,
 )
 from ee.billing.billing_manager import BillingManager
+from ee.billing.exports import (
+    _gzip_stream,
+    _release_export_stream_slot,
+    _released_after,
+    _resolve_team_labels,
+    _rewrite_csv_labels,
+    _stream_chunks,
+    _take_export_stream_slot,
+    exportable_team_ids,
+)
 from ee.billing.grants import (
     ORGANIZATION_BILLING_API_FLAG,
     BillingEntitlement,
@@ -517,6 +528,28 @@ class OrganizationUsageTimeseriesRequestSerializer(OrganizationTimeseriesRequest
         return value
 
 
+class OrganizationExportRequestSerializer(OrganizationTimeseriesRequestSerializer):
+    """The spend series' parameters for a file, which carries every series at once."""
+
+    limit = None  # type: ignore[assignment]
+    cursor = None  # type: ignore[assignment]
+
+
+class OrganizationUsageExportRequestSerializer(OrganizationUsageTimeseriesRequestSerializer):
+    """The usage series' parameters for a file, which carries every series at once."""
+
+    limit = None  # type: ignore[assignment]
+    cursor = None  # type: ignore[assignment]
+
+
+class BillingExportTimeout(APIException):
+    """Billing did not produce the file in time. A 400, because asking for less fixes it."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    default_code = "billing_export_timeout"
+    default_detail = "This export took too long. Select fewer projects or a shorter date range."
+
+
 INCLUDE_PLANS = OpenApiParameter(
     "include_plans",
     bool,
@@ -562,6 +595,8 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         "forecast",
         "usage_timeseries",
         "spend_timeseries",
+        "usage_export",
+        "spend_export",
         "invoices",
         "invoice_content",
         "limits",
@@ -632,22 +667,16 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise PermissionDenied(BILLING_ACCESS_DENIED)
         return visible
 
-    def _timeseries(self, request: Request, kind: str) -> Response:
-        organization = self.organization
-        grants = self._grants(request, organization)
-        self._require(grants, BillingEntitlement.USAGE_READ)
-        # Spend serves a project-only breakdown and usage does not, so each read checks its own.
-        serializer_class = (
-            OrganizationUsageTimeseriesRequestSerializer if kind == "usage" else OrganizationTimeseriesRequestSerializer
-        )
-        serializer = serializer_class(data=request.GET)
-        serializer.is_valid(raise_exception=True)
-        params = {key: value for key, value in serializer.validated_data.items() if value is not None}
-        # Billing pages with page_size and after. The API calls the same two limit and cursor.
-        if "limit" in params:
-            params["page_size"] = params.pop("limit")
-        if "cursor" in params:
-            params["after"] = params.pop("cursor")
+    def _scope_projects(
+        self,
+        request: Request,
+        grants: EffectiveBillingGrants,
+        organization: Organization,
+        params: dict[str, Any],
+        *,
+        for_export: bool = False,
+    ) -> dict[int, str]:
+        """Narrow `params["team_ids"]` to the projects the caller may read, and return their names."""
         requested = json.loads(params["team_ids"]) if params.get("team_ids") else None
         visible = self._visible_projects(request, grants, organization)
         scoped: list[int] | None
@@ -670,6 +699,13 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             scoped = sorted(allowed if requested is None else allowed.intersection(requested))
             if requested is not None and not scoped:
                 raise PermissionDenied("The credential does not cover the requested projects.")
+        if for_export and visible is not None:
+            # Below full access an export also needs export access on each project, as the root
+            # exports require.
+            user = cast(User, request.user)
+            scoped = sorted(exportable_team_ids(user, organization, scoped or []))
+            if not scoped:
+                raise PermissionDenied("You do not have permission to export data.")
         if scoped is not None:
             params["team_ids"] = json.dumps(scoped)
         named = Team.objects.filter(organization=organization)
@@ -677,6 +713,25 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             named = named.filter(id__in=scoped)
         teams_map = dict(named.values_list("id", "name"))
         params["teams_map"] = {str(team_id): name for team_id, name in teams_map.items()}
+        return teams_map
+
+    def _timeseries(self, request: Request, kind: str) -> Response:
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.USAGE_READ)
+        # Spend serves a project-only breakdown and usage does not, so each read checks its own.
+        serializer_class = (
+            OrganizationUsageTimeseriesRequestSerializer if kind == "usage" else OrganizationTimeseriesRequestSerializer
+        )
+        serializer = serializer_class(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+        params = {key: value for key, value in serializer.validated_data.items() if value is not None}
+        # Billing pages with page_size and after. The API calls the same two limit and cursor.
+        if "limit" in params:
+            params["page_size"] = params.pop("limit")
+        if "cursor" in params:
+            params["after"] = params.pop("cursor")
+        teams_map = self._scope_projects(request, grants, organization, params)
         data = self._manager().get_organization_timeseries(organization, grants, kind, params)
         results = data.get("results", [])
         # Names the folded "all other projects" row and any project deleted since it reported, as the root read does.
@@ -858,6 +913,79 @@ class OrganizationBillingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     @action(methods=["GET"], detail=False, url_path="spend/timeseries")
     def spend_timeseries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._timeseries(request, "spend")
+
+    def _export(self, request: Request, kind: str) -> StreamingHttpResponse:
+        """The usage or spend rows as a CSV, streamed from billing's organization export route
+        under the same scoping as the series, with project names written in as it passes."""
+        organization = self.organization
+        grants = self._grants(request, organization)
+        self._require(grants, BillingEntitlement.USAGE_READ)
+        serializer_class = (
+            OrganizationUsageExportRequestSerializer if kind == "usage" else OrganizationExportRequestSerializer
+        )
+        serializer = serializer_class(data=request.GET)
+        serializer.is_valid(raise_exception=True)
+        params = {key: value for key, value in serializer.validated_data.items() if value is not None}
+        teams_map = self._scope_projects(request, grants, organization, params, for_export=True)
+        # The names go into the file here, not into the request.
+        params.pop("teams_map", None)
+        # Taken before billing is asked and given back when the download ends, as the root exports do.
+        slot = _take_export_stream_slot(request.user)
+        try:
+            try:
+                upstream = self._manager().get_organization_export(organization, grants, kind, params)
+            except requests.Timeout:
+                raise BillingExportTimeout()
+        except BaseException:
+            _release_export_stream_slot(slot)
+            raise
+        lines = _rewrite_csv_labels(upstream.iter_content(chunk_size=8192), teams_map)
+        accepts_gzip = "gzip" in request.META.get("HTTP_ACCEPT_ENCODING", "").lower()
+        response = streaming_response(
+            _released_after(_stream_chunks(upstream, _gzip_stream(lines) if accepts_gzip else lines), slot),
+            content_type=upstream.headers.get("Content-Type", "text/csv"),
+        )
+        if accepts_gzip:
+            response["Content-Encoding"] = "gzip"
+        patch_vary_headers(response, ("Accept-Encoding",))
+        response["Content-Disposition"] = upstream.headers.get(
+            "Content-Disposition", f'attachment; filename="posthog_{kind}_export.csv"'
+        )
+        return response
+
+    @extend_schema(
+        operation_id="billing_usage_export_download",
+        summary="Export usage as CSV",
+        description=BETA_NOTICE,
+        parameters=[OrganizationUsageExportRequestSerializer],
+        responses={(200, "text/csv"): OpenApiResponse(response=bytes)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="usage/export",
+        # The legacy exports' budget as well, so a person starts files at the same rate on either route.
+        throttle_classes=[BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle, BillingExportThrottle],
+    )
+    def usage_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        return self._export(request, "usage")
+
+    @extend_schema(
+        operation_id="billing_spend_export_download",
+        summary="Export spend as CSV",
+        description=BETA_NOTICE,
+        parameters=[OrganizationExportRequestSerializer],
+        responses={(200, "text/csv"): OpenApiResponse(response=bytes)},
+    )
+    @action(
+        methods=["GET"],
+        detail=False,
+        url_path="spend/export",
+        # The legacy exports' budget as well, so a person starts files at the same rate on either route.
+        throttle_classes=[BillingReadBurstRateThrottle, BillingReadSustainedRateThrottle, BillingExportThrottle],
+    )
+    def spend_export(self, request: Request, *args: Any, **kwargs: Any) -> StreamingHttpResponse:
+        return self._export(request, "spend")
 
     def _cursor_url(self, request: Request, cursor: Optional[str]) -> Optional[str]:
         """The same request with the cursor swapped, so limit and any filter carry across pages."""

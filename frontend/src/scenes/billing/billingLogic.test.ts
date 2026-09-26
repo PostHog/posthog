@@ -68,17 +68,57 @@ type BillingAccessCase = {
 
 describe('billingLogic', () => {
     let billingState: BillingType
+    let billingAnswer: [number, unknown] | null
+    let creditOverviewAnswer: [number, unknown]
 
     beforeEach(() => {
         billingState = billingWithProducts([productWithUsage(0.5)])
+        billingAnswer = null
+        creditOverviewAnswer = [200, creditOverviewResponse]
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing': () => [200, billingState],
-                '/api/billing/credits/overview': [200, creditOverviewResponse],
+                '/api/billing': () => billingAnswer ?? [200, billingState],
+                '/api/billing/credits/overview': () => creditOverviewAnswer,
             },
         })
         initKeaTests()
+    })
+
+    it.each([
+        { case: 'an empty body', answer: [200, null] as [number, unknown] },
+        { case: 'a server error', answer: [500, { detail: 'A server error occurred.' }] as [number, unknown] },
+    ])('keeps the last billing state when billing answers with $case', async ({ answer }) => {
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toFinishAllListeners()
+            .clearHistory()
+        const loaded = billingLogic.values.billing
+        expect(loaded).not.toBeNull()
+
+        billingAnswer = answer
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toDispatchActions(['loadBillingSuccess'])
+            .toNotHaveDispatchedActions(['loadBillingFailure'])
+            .toFinishAllListeners()
+
+        expect(billingLogic.values.billing).toEqual(loaded)
+    })
+
+    it('keeps the last credit overview when billing answers with an empty body', async () => {
+        billingState = { ...billingState, has_active_subscription: true }
+        creditOverviewAnswer = [200, null]
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling())
+            .toFinishAllListeners()
+            .clearHistory()
+
+        await expectLogic(billingLogic, () => billingLogic.actions.loadCreditOverview())
+            .toDispatchActions(['loadCreditOverviewSuccess'])
+            .toNotHaveDispatchedActions(['loadCreditOverviewFailure'])
+            .toFinishAllListeners()
+
+        expect(billingLogic.values.creditOverview.estimated_monthly_credit_amount_usd).toBeNull()
     })
 
     it.each(['/organization/billing', '/organization/billing/overview'])(

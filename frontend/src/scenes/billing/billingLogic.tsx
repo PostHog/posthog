@@ -101,7 +101,11 @@ export type SwitchPlanPayload = {
     to_plan_key: string
 }
 
-const parseBillingResponse = (data: Partial<BillingType>): BillingType => {
+// Billing can answer with an empty body (a proxy error page, an upstream failure), so this takes null.
+const parseBillingResponse = (data: Partial<BillingType> | null): BillingType | null => {
+    if (!data) {
+        return null
+    }
     if (data.billing_period) {
         data.billing_period = {
             current_period_start: dayjs(data.billing_period.current_period_start),
@@ -335,10 +339,10 @@ export interface billingLogicActions {
         errorObject?: any
     }
     loadBillingSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: any
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: any
     }
     loadCreditOverview: () => any
@@ -611,12 +615,12 @@ export interface billingLogicActions {
         errorObject?: any
     }
     updateBillingLimitsSuccess: (
-        billing: BillingType,
+        billing: BillingType | null,
         payload?: {
             [key: string]: number | null
         }
     ) => {
-        billing: BillingType
+        billing: BillingType | null
         payload?: {
             [key: string]: number | null
         }
@@ -857,12 +861,17 @@ export const billingLogic = kea<billingLogicType>([
                     // for customers running into performance issues until we have a more permanent fix
                     // of splitting the billing and forecasting data.
                     const skipForecasting = values.featureFlags[FEATURE_FLAGS.BILLING_SKIP_FORECASTING]
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
-                    const response = await api.get(
-                        'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
-                    )
-
-                    return parseBillingResponse(response)
+                    // Many scenes read billing, so a failed read keeps the last known state quietly
+                    // rather than toasting on every page or reaching error tracking.
+                    try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
+                        const response = await api.get(
+                            'api/billing' + (skipForecasting ? '?include_forecasting=false' : '')
+                        )
+                        return parseBillingResponse(response) ?? values.billing
+                    } catch {
+                        return values.billing
+                    }
                 },
 
                 updateBillingLimits: async (limits: { [key: string]: number | null }) => {
@@ -871,12 +880,12 @@ export const billingLogic = kea<billingLogicType>([
                         const response = await api.update('api/billing', { custom_limits_usd: limits })
                         lemonToast.success('Billing limits updated')
                         actions.loadBilling()
-                        return parseBillingResponse(response)
-                    } catch (error: unknown) {
+                        return parseBillingResponse(response) ?? values.billing
+                    } catch {
                         lemonToast.error(
                             'There was an error updating your billing limits. Please try again or contact support.'
                         )
-                        throw error
+                        return values.billing
                     }
                 },
 
@@ -905,7 +914,7 @@ export const billingLogic = kea<billingLogicType>([
                         actions.loadUser()
                         actions.loadCurrentOrganization()
 
-                        return parseBillingResponse(jsonRes)
+                        return parseBillingResponse(jsonRes) ?? values.billing
                     } catch (error: any) {
                         if (error.code) {
                             if (error.code === BillingAPIErrorCodes.OPEN_INVOICES_ERROR) {
@@ -1024,15 +1033,22 @@ export const billingLogic = kea<billingLogicType>([
                 loadCreditOverview: async () => {
                     // Check if the user is subscribed
                     if (values.billing?.has_active_subscription) {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                        const response = await api.get('api/billing/credits/overview')
+                        // A failed or empty read keeps the last overview rather than breaking the page.
+                        let response
+                        try {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. billingCreditsOverviewRetrieve() from 'products/billing/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
+                            response = await api.get('api/billing/credits/overview')
+                        } catch {
+                            return values.creditOverview
+                        }
+                        if (!response) {
+                            return values.creditOverview
+                        }
 
                         if (!values.creditForm.creditInput) {
-                            let spend = DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
-
-                            if (response.estimated_monthly_credit_amount_usd !== null) {
-                                spend = response.estimated_monthly_credit_amount_usd
-                            }
+                            const spend =
+                                response.estimated_monthly_credit_amount_usd ??
+                                DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
 
                             actions.setCreditBrackets(response.credit_brackets)
                             actions.setCreditFormValue('creditInput', Math.round(spend * 12))
