@@ -3,9 +3,9 @@ import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.m
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { HogQLQueryModifiers, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AppContext, TeamType } from '~/types'
+import { AppContext, PropertyFilterType, PropertyOperator, TeamType } from '~/types'
 
 import { projectLogic } from './projectLogic'
 import { teamLogic } from './teamLogic'
@@ -54,6 +54,75 @@ describe('teamLogic', () => {
 
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect(logic.values.currentTeam?.test_account_filters).toEqual(expectedFilters)
+        })
+    })
+
+    describe('testAccountFilterFrequentMistakes', () => {
+        const mountWithModifiers = async (
+            modifiers: Pick<TeamType, 'modifiers' | 'default_modifiers'>,
+            testAccountFilters?: TeamType['test_account_filters']
+        ): Promise<ReturnType<typeof teamLogic.build>> => {
+            initKeaTests(false, {
+                ...MOCK_DEFAULT_TEAM,
+                ...modifiers,
+                ...(testAccountFilters ? { test_account_filters: testAccountFilters } : {}),
+            })
+            const teamLogicInstance = teamLogic()
+            teamLogicInstance.mount()
+            await expectLogic(teamLogicInstance).toDispatchActions(['loadCurrentTeamSuccess'])
+            return teamLogicInstance
+        }
+
+        const eventTimeMode: HogQLQueryModifiers = { personsOnEventsMode: 'person_id_override_properties_on_events' }
+        const quietModes: HogQLQueryModifiers['personsOnEventsMode'][] = [
+            'person_id_override_properties_joined',
+            'disabled',
+            undefined,
+        ]
+
+        // MOCK_DEFAULT_TEAM filters internal users by the `email` person property
+        it.each([
+            [
+                'person_id_override_properties_on_events',
+                { modifiers: { personsOnEventsMode: 'person_id_override_properties_on_events' } },
+            ],
+            [
+                'person_id_no_override_properties_on_events',
+                { modifiers: { personsOnEventsMode: 'person_id_no_override_properties_on_events' } },
+            ],
+            ['a default_modifiers fallback', { default_modifiers: eventTimeMode }],
+        ] as const)('warns about a person property filter on %s', async (_, config) => {
+            logic = await mountWithModifiers(config)
+            expect(logic.values.testAccountFilterFrequentMistakes).toEqual([
+                expect.objectContaining({ key: 'email', type: 'person' }),
+            ])
+        })
+
+        it('lets an explicit mode override an event-time project default', async () => {
+            logic = await mountWithModifiers({
+                modifiers: { personsOnEventsMode: 'person_id_override_properties_joined' },
+                default_modifiers: eventTimeMode,
+            })
+            expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
+        })
+
+        it.each(quietModes)('stays quiet on the %s mode', async (personsOnEventsMode) => {
+            logic = await mountWithModifiers({ modifiers: { personsOnEventsMode } })
+            expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
+        })
+
+        it.each([
+            [
+                'an is_not_set filter',
+                { key: 'email', type: PropertyFilterType.Person, operator: PropertyOperator.IsNotSet },
+            ],
+            [
+                'a distinct_id filter',
+                { key: 'distinct_id', type: PropertyFilterType.Person, operator: PropertyOperator.Exact },
+            ],
+        ] as const)('stays quiet about %s on an event-time mode', async (_, filter) => {
+            logic = await mountWithModifiers({ modifiers: eventTimeMode }, [filter])
+            expect(logic.values.testAccountFilterFrequentMistakes).toEqual([])
         })
     })
 
