@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.
     normalize_environment_url,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.dynatrace.settings import TAGGED_ENTITY_TYPES
 
 BASE_URL = "https://abc12345.live.dynatrace.com"
 
@@ -260,6 +261,17 @@ class TestFirstPageParams:
             _source("metric_data_points", mock.MagicMock(), metric_selector="   ")
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_releases_widen_the_default_window(self, MockSession: mock.MagicMock) -> None:
+        # Dynatrace only looks back two weeks when `from` is omitted, and a release row carries no
+        # timestamp the pipeline could use to catch up on what that window missed.
+        session = MockSession.return_value
+        params = _wire(session, [_response({"releases": [], "nextPageKey": None})])
+        manager, _ = _make_manager()
+        _rows(_source("releases", manager))
+        assert params[0]["from"] == "now-30d"
+        assert params[0]["pageSize"] == "1000"
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_slos_request_evaluation(self, MockSession: mock.MagicMock) -> None:
         session = MockSession.return_value
         params = _wire(session, [_response({"slo": [], "nextPageKey": None})])
@@ -345,6 +357,46 @@ class TestPagination:
         MockSession.assert_not_called()
 
 
+class TestEntityTagFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_each_entity_type_is_read_and_stamped_onto_its_rows(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        params = _wire(
+            session,
+            [
+                _response({"tags": [{"stringRepresentation": "owner:team-a"}], "totalCount": 1})
+                for _ in TAGGED_ENTITY_TYPES
+            ],
+        )
+        manager, _ = _make_manager()
+        rows = _rows(_source("entity_tags", manager))
+
+        # /api/v2/tags requires a selector naming one type, so each type is a request of its own.
+        assert [p["entitySelector"] for p in params] == [f'type("{t}")' for t in TAGGED_ENTITY_TYPES]
+        assert all(p["from"] == "now-30d" for p in params)
+        assert all("pageSize" not in p for p in params)
+        # A tag comes back with no entity reference, so the type it was read for is the only link
+        # back to the entity tables — and the rest of its primary key.
+        assert [row["entityType"] for row in rows] == list(TAGGED_ENTITY_TYPES)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_a_cursor_does_not_carry_into_the_next_entity_type(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        responses = [
+            _response({"tags": [{"stringRepresentation": "a"}], "nextPageKey": "key-2"}),
+            _response({"tags": [{"stringRepresentation": "b"}]}),
+        ]
+        responses += [_response({"tags": []}) for _ in TAGGED_ENTITY_TYPES[1:]]
+        params = _wire(session, responses)
+        manager, _ = _make_manager()
+        _rows(_source("entity_tags", manager))
+
+        assert params[1] == {"nextPageKey": "key-2"}
+        # The next type starts its own walk; reusing the previous type's cursor would re-read it.
+        assert params[2]["entitySelector"] == f'type("{TAGGED_ENTITY_TYPES[1]}")'
+        assert "nextPageKey" not in params[2]
+
+
 class TestDynatraceSourceResponse:
     @pytest.mark.parametrize(
         ("endpoint", "expected_pks", "expected_sort_mode"),
@@ -359,6 +411,10 @@ class TestDynatraceSourceResponse:
             # A data point is only unique on the metric, its dimension tuple and the timestamp.
             ("metric_data_points", ["metricId", "dimensionKey", "timestamp"], "desc"),
             ("slos", ["id"], "asc"),
+            # Dynatrace documents this tuple as a release's unique identity; it has no id field.
+            ("releases", ["name", "product", "stage", "version"], "asc"),
+            # A tag row is only unique once the entity type it was read for is part of the key.
+            ("entity_tags", ["entityType", "stringRepresentation"], "asc"),
             ("synthetic_monitors", ["entityId"], "asc"),
             ("synthetic_executions", ["executionId"], "desc"),
         ],
