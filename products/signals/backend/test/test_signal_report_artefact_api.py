@@ -1894,6 +1894,7 @@ class TestSignalReportCommitDiff(APIBaseTest):
         with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
             response = self.client.get(self._diff_url(str(report.id), str(artefact.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["code"] == "github_repository_unreachable"
 
     def _mock_github(self, result: dict):
         github = patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository").start()

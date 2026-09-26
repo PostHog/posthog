@@ -90,9 +90,13 @@ export type PrChecksError = {
 }
 
 const GITHUB_CHECKS_PERMISSION_MISSING_CODE = 'github_checks_permission_missing'
+const GITHUB_REPOSITORY_UNREACHABLE_CODE = 'github_repository_unreachable'
 
 function prChecksErrorFrom(error: unknown): PrChecksError {
-    if (error instanceof ApiError && error.code === GITHUB_CHECKS_PERMISSION_MISSING_CODE) {
+    if (
+        error instanceof ApiError &&
+        (error.code === GITHUB_CHECKS_PERMISSION_MISSING_CODE || error.code === GITHUB_REPOSITORY_UNREACHABLE_CODE)
+    ) {
         const remediationUrl = (error.data as { remediation_url?: unknown } | null)?.remediation_url
         return {
             message: error.message,

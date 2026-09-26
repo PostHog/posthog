@@ -3978,6 +3978,8 @@ class TestSignalReportPrEndpoints(APIBaseTest):
         with patch("products.signals.backend.views.GitHubIntegration.first_for_team_repository", return_value=None):
             response = self.client.get(self._checks_url(str(report.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json()["code"] == "github_repository_unreachable"
+        assert response.json()["remediation_url"] == f"/project/{self.team.id}/settings/project-integrations"
 
     def test_pr_checks_503_when_egress_budget_sheds_request(self):
         report = self._create_report()
