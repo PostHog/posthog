@@ -85,8 +85,6 @@ from .report_metrics import (
 )
 from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, validated_github_repository
 
-DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
-
 
 @frozen
 class _DataImportSchema:
@@ -153,8 +151,6 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "team's preferences are kept. "
     "Other sources store these keys without reading them yet; future pipeline stages will consume "
     "the same steering text. "
-    "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
-    "session analysis. "
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
@@ -163,9 +159,9 @@ _SOURCE_CONFIG_HELP_TEXT = (
 
 
 # Declared as an open object WITHOUT typed `properties`: Orval turns properties into a
-# key-stripping `zod.object`, which would silently drop source-specific keys (e.g. session
-# replay's `recording_filters`) from MCP tool calls. The open shape generates a passthrough
-# `zod.record`, and the steering keys are documented in the description instead.
+# key-stripping `zod.object`, which would silently drop a source-specific key from an MCP tool
+# call. The open shape generates a passthrough `zod.record`, and the steering keys are documented
+# in the description instead.
 @extend_schema_field({"type": "object", "additionalProperties": True, "description": _SOURCE_CONFIG_HELP_TEXT})
 class _SourceConfigField(serializers.JSONField):
     """`config` blob typed as an open JSON object in the OpenAPI schema. Runtime behavior is
@@ -251,7 +247,6 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict) -> dict:
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
-        enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
         config = attrs.get("config")
         # `is not None` rather than truthiness: falsy non-dict values ([], "", 0, false) must be
         # rejected, not silently persisted.
@@ -277,37 +272,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                 # Stored stripped: emission matches these ids exactly, so a pasted id with a
                 # stray space would select a scope and then read nothing.
                 config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
-        if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
-            recording_filters = config.get("recording_filters")
-            if recording_filters is not None and not isinstance(recording_filters, dict):
-                raise serializers.ValidationError({"config": "recording_filters must be a JSON object"})
-            sample_rate = config.get("sample_rate")
-            if sample_rate is not None:
-                # `isinstance(True, int)` is True in Python — reject bools explicitly.
-                if isinstance(sample_rate, bool) or not isinstance(sample_rate, int | float):
-                    raise serializers.ValidationError({"config": "sample_rate must be a number between 0 and 1"})
-                if not (0 <= sample_rate <= 1):
-                    raise serializers.ValidationError({"config": "sample_rate must be between 0 and 1"})
-        if enabled and source_type == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER:
-            get_team = self.context.get("get_team")
-            team = get_team() if get_team else None
-            if team is not None and not team.organization.is_ai_data_processing_approved:
-                raise serializers.ValidationError(
-                    {
-                        "enabled": "AI data processing must be approved at the organization level to enable session analysis."
-                    }
-                )
         return attrs
-
-    def create(self, validated_data: dict) -> SignalSourceConfig:
-        if (
-            validated_data.get("source_product") == SignalSourceConfig.SourceProduct.SESSION_REPLAY
-            and validated_data.get("source_type") == SignalSourceConfig.SourceType.SESSION_ANALYSIS_CLUSTER
-        ):
-            config = dict(validated_data.get("config") or {})
-            config.setdefault("sample_rate", DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE)
-            validated_data["config"] = config
-        return super().create(validated_data)
 
 
 # A team overrides the base branch for a handful of its repos; a map larger than this is abuse,

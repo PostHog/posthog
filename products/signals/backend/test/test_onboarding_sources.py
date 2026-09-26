@@ -3,7 +3,9 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from products.signals.backend.facade.api import enable_onboarding_signal_sources
+from parameterized import parameterized
+
+from products.signals.backend.facade.api import enable_onboarding_signal_sources, has_enabled_source
 from products.signals.backend.models import SignalSourceConfig
 
 
@@ -90,3 +92,22 @@ class TestOnboardingSignalSources(BaseTest):
         assert "failing health checks" not in sources.watches
         assert "error tracking" in sources.labels
         assert ("error_tracking", "issue_created") in _enabled_pairs(self.team.id)
+
+
+class TestHasEnabledSource(BaseTest):
+    @parameterized.expand(
+        [
+            ("live_type", "pganalyze", "issue", True),
+            # A row written before a source type was retired outlives the retirement, and nothing
+            # emits that type, so the team is not watching anything through it.
+            ("retired_type", "session_replay", "session_analysis_cluster", False),
+        ]
+    )
+    def test_an_enabled_row_counts_only_while_its_source_type_stays_configurable(
+        self, _name: str, source_product: str, source_type: str, expected: bool
+    ) -> None:
+        SignalSourceConfig.objects.create(
+            team_id=self.team.id, source_product=source_product, source_type=source_type, enabled=True
+        )
+
+        assert has_enabled_source(self.team.id) is expected

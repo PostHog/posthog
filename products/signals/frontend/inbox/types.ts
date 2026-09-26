@@ -11,6 +11,7 @@ import {
     type SignalScoutEmissionApi,
     type SignalScoutRunSummaryApi,
     type SignalUserAutonomyConfigApi,
+    SignalSourceConfigSourceTypeEnumApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
 } from 'products/signals/frontend/generated/api.schemas'
@@ -18,6 +19,19 @@ import {
 // The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
 // Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+const CONFIGURABLE_SOURCE_TYPES: ReadonlySet<string> = new Set(Object.values(SignalSourceConfigSourceTypeEnumApi))
+
+/**
+ * Whether a team can still hold a source config row for this type.
+ *
+ * The taxonomy keeps a retired type so an old signal still resolves to a label, and a row written
+ * before the retirement stays in the table, but nothing emits that type any more. Counting such a
+ * row would show a watcher that produces nothing, so every count of live sources filters on this.
+ */
+export function isConfigurableSourceType(sourceType: string): boolean {
+    return CONFIGURABLE_SOURCE_TYPES.has(sourceType)
+}
 
 // Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
 // field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
