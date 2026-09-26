@@ -173,6 +173,13 @@ SUBJECT_MATTER_CASES = [
         prompt="@PostHog add gpt-5.6-luna to the model picker in settings, it's missing from the dropdown",
         expected=_asks(),
     ),
+    # "Switch X to model Y" reads like an instruction, but X is the code under change, not
+    # this task.
+    BaseEvalCase(
+        name="switches_component_to_model",
+        prompt="@PostHog switch the triage and digest agents to opus 5, they still run on haiku",
+        expected=_asks(),
+    ),
     BaseEvalCase(
         name="question_comparing_models",
         prompt="@PostHog why is opus 5 slower than sonnet 5 on our eval suite? dig into the traces",
