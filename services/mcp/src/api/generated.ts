@@ -116260,6 +116260,13 @@ export namespace Schemas {
     per_scout_limit?: number;
     };
 
+    export type SignalsScoutReportCheckListParams = {
+    /**
+     * The report whose checks to list.
+     */
+    report_id: string;
+    };
+
     export type SignalsScoutScratchpadSearchParams = {
     /**
      * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.
