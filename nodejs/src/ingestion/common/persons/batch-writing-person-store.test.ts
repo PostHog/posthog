@@ -931,6 +931,23 @@ describe('BatchWritingPersonStore', () => {
                 expect(mockPostgres.transaction).not.toHaveBeenCalled()
             })
 
+            it('a successful version-checked write retires what it carried', async () => {
+                const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
+                    dbWriteMode: 'ASSERT_VERSION',
+                })
+                mockRepo.updatePersonAssertVersion = jest.fn().mockResolvedValue([5, []])
+                await personStore.updatePersonWithPropertiesDiffForUpdate(person, { new_value: 'v' }, [], {}, 'test')
+                await personStore.updatePersonForMerge(person, { properties_to_set_once: { carried: 'c' } }, 'test')
+
+                await personStore.flush()
+
+                expect(personStore.getCachedPersonForUpdateByPersonId(teamId, person.id)).toMatchObject({
+                    properties: expect.objectContaining({ new_value: 'v', carried: 'c' }),
+                    properties_to_set: {},
+                    properties_to_set_once: {},
+                })
+            })
+
             it('should retry on version conflicts and eventually fallback', async () => {
                 const personStore = new BatchWritingPersonsStore(mockRepo, mockIngestionWarningsOutputs, {
                     dbWriteMode: 'ASSERT_VERSION',

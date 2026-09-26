@@ -2246,6 +2246,8 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         observeLatencyByVersion(personUpdate, start, 'updatePersonAssertVersion')
 
         if (actualVersion !== undefined) {
+            // The version matched, so the row now holds exactly this record's view.
+            this.retireLandedChanges(personUpdate, toInternalPerson(personUpdate).properties)
             // Success - optimistic update worked, create updated PersonUpdate with new version
             const updatedPersonUpdate: PersonUpdate = {
                 ...personUpdate,
