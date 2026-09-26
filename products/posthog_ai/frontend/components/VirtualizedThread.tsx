@@ -13,6 +13,9 @@ import {
     useState,
 } from 'react'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
 /**
@@ -85,6 +88,12 @@ const FOLLOW_GRACE_MS = 1000
  * scroll or a measurement settle repositions rows without re-rendering them.
  */
 const ROW_BASE_STYLE: CSSProperties = { position: 'absolute', top: 0, left: 0, width: '100%' }
+
+/**
+ * How far from the bottom, in viewport heights, the reader must be before "Jump to latest" shows. Half a
+ * viewport keeps the button off a reader who is only a few lines up.
+ */
+const JUMP_TO_LATEST_MIN_VIEWPORTS = 0.5
 
 /**
  * Virtual keys for the synthetic header/footer rows — reserved prefixes that never collide with a user item
@@ -891,6 +900,28 @@ function Root<T>({
         }
     }, [virtualized, stickToBottom, noteProgrammaticScroll])
 
+    // A long run pushes its latest output far below a reopened thread's landing, and browser find can't
+    // reach rows the virtualizer hasn't rendered. The button gives the reader one step back to the end.
+    const [awayFromLatest, setAwayFromLatest] = useState(false)
+    useEffect(() => {
+        const el = scrollRef.current
+        if (!virtualized || !el) {
+            return
+        }
+        const onScroll = (): void => {
+            const distanceFromEnd = el.scrollHeight - el.clientHeight - el.scrollTop
+            setAwayFromLatest(distanceFromEnd > el.clientHeight * JUMP_TO_LATEST_MIN_VIEWPORTS)
+        }
+        onScroll()
+        el.addEventListener('scroll', onScroll, { passive: true })
+        return () => el.removeEventListener('scroll', onScroll)
+    }, [virtualized])
+
+    const jumpToLatest = useCallback((): void => {
+        setPinned(true)
+        virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
+    }, [setPinned, virtualizer, rowCount])
+
     const rootValue = useMemo<RootContextValue>(
         () => ({
             measureElement: virtualizer.measureElement,
@@ -930,7 +961,7 @@ function Root<T>({
 
     return (
         <RootContext.Provider value={rootValue}>
-            <div className={cn('flex flex-col h-full min-h-0 w-full', className)}>
+            <div className={cn('relative flex flex-col h-full min-h-0 w-full', className)}>
                 {/*
                  * `overflow-anchor: none` because the virtualizer already owns every row's position and
                  * compensates content growth itself. Chrome's native scroll anchoring would compensate the
@@ -952,6 +983,19 @@ function Root<T>({
                         ))}
                     </div>
                 </div>
+                {awayFromLatest && (
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconArrowDown />}
+                            onClick={jumpToLatest}
+                            data-attr="thread-jump-to-latest"
+                        >
+                            Jump to latest
+                        </LemonButton>
+                    </div>
+                )}
             </div>
         </RootContext.Provider>
     )

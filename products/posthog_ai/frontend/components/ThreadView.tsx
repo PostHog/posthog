@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
@@ -10,6 +11,7 @@ import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThrea
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { resolveToolCall } from '../utils/toolResolver'
 import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
+import { formatElapsedSeconds } from './ActivityElapsedTime'
 import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
@@ -340,6 +342,9 @@ const ThreadFooter = memo(function ThreadFooter({
     )
 })
 
+/** A short pause needs no timer. A long one does, or the reader can't tell a slow step from a stuck run. */
+const THINKING_ELAPSED_MIN_SECONDS = 10
+
 /**
  * Bottom-of-thread "what's it doing right now" line for sandbox conversations. Reflects the latest
  * `_posthog/progress` message when present; during `provisioning` (the conversations/open POST / cold
@@ -353,6 +358,20 @@ function ThinkingIndicator({
     phase: 'thinking' | 'provisioning'
 }): JSX.Element {
     const [fallbackMessage, setFallbackMessage] = useState(() => getRandomThinkingMessage())
+    // The indicator mounts when the thread goes quiet (a running tool or streaming text hides it), so its
+    // mount time is when the current wait started.
+    const [startedAt] = useState(Date.now)
+    const [now, setNow] = useState(Date.now)
+    const { isVisible } = usePageVisibility()
+
+    useEffect(() => {
+        if (!isVisible || inStorybookTestRunner()) {
+            return
+        }
+        setNow(Date.now())
+        const interval = setInterval(() => setNow(Date.now()), 1000)
+        return () => clearInterval(interval)
+    }, [isVisible])
 
     // Re-roll the gerund every 5s while genuinely thinking; static "Spinning up sandbox…" during provisioning
     // doesn't need it, and rotating in Storybook would make snapshots non-deterministic.
@@ -364,7 +383,12 @@ function ThinkingIndicator({
         return () => clearInterval(interval)
     }, [phase])
 
-    const message = progress?.trim() ? progress : phase === 'provisioning' ? 'Setting up sandbox' : fallbackMessage
+    const baseMessage = progress?.trim() ? progress : phase === 'provisioning' ? 'Setting up sandbox' : fallbackMessage
+    const elapsedSeconds = Math.floor((now - startedAt) / 1000)
+    const message =
+        elapsedSeconds >= THINKING_ELAPSED_MIN_SECONDS
+            ? `${baseMessage} · ${formatElapsedSeconds(elapsedSeconds)}`
+            : baseMessage
     // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text), via the
     // shared Activity primitive — not a MessageTemplate bubble. Shimmers only while genuinely thinking;
     // provisioning stays static since it's infra boot, not model reasoning.

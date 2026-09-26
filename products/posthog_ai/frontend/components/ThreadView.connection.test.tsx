@@ -140,6 +140,22 @@ describe('ThreadView connection state', () => {
         expect(screen.getByTestId('max-sandbox-context-usage')).toHaveTextContent('Context 1% · $0.04')
     })
 
+    it('shows how long the current wait has lasted once it passes a few seconds', () => {
+        jest.useFakeTimers()
+        try {
+            act(() => logic.actions.sseOpened())
+            expect(screen.getByText('Setting up sandbox')).toBeVisible()
+
+            act(() => jest.advanceTimersByTime(5_000))
+            expect(screen.getByText('Setting up sandbox')).toBeVisible()
+
+            act(() => jest.advanceTimersByTime(70_000))
+            expect(screen.getByText('Setting up sandbox · 1m 15s')).toBeVisible()
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('uses the startup activity as the state indicator and keeps completed steps expandable', async () => {
         act(() => logic.actions.sseOpened())
         await waitFor(() => expect(screen.getByText('Setting up sandbox')).toBeVisible())
