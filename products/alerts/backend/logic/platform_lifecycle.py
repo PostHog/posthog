@@ -11,7 +11,9 @@ from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 
 from products.alerts.backend.facade.contracts import PlatformAlertCheckInput, PlatformAlertOutcome, PlatformAlertUpsert
+from products.alerts.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
 from products.alerts.backend.facade.scheduling import advance_next_check_at, compute_shard_offset_seconds
+from products.alerts.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -126,6 +128,53 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
 
+def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, object]:
+    """What the check was evaluated against, as a message and a comparison need to read it.
+
+    Taken from the configuration when the outcome is recorded rather than shipped with it. A
+    source's copy would cost Temporal payload on every batch, and no path writes a platform
+    configuration between an evaluation and its record: a source keeps its own control plane and
+    reaches these rows through a backfill a person runs.
+    """
+    return {
+        "threshold_count": configuration.threshold_count,
+        "threshold_operator": configuration.threshold_operator,
+        "window_minutes": configuration.window_minutes,
+        "evaluation_periods": configuration.evaluation_periods,
+        "datapoints_to_alarm": configuration.datapoints_to_alarm,
+        "cooldown_minutes": configuration.cooldown_minutes,
+    }
+
+
+def _event_row(
+    configuration: PlatformAlertConfiguration,
+    alert: PlatformAlert,
+    outcome: PlatformAlertOutcome,
+    previous_state: str,
+    now: datetime,
+) -> PlatformAlertEventRow:
+    return PlatformAlertEventRow(
+        team_id=configuration.team_id,
+        configuration_id=configuration.id,
+        alert_id=alert.id,
+        grouping_key=alert.grouping_key,
+        evaluation_key=outcome.evaluation_key,
+        kind=outcome.kind.value,
+        alert_name=configuration.name,
+        previous_state=previous_state,
+        state=outcome.new_state,
+        value=outcome.value,
+        labels=outcome.labels,
+        condition_snapshot=_condition_snapshot(configuration),
+        source_config_snapshot=configuration.source_config,
+        query_duration_ms=outcome.query_duration_ms,
+        error_message=outcome.error_message,
+        consecutive_failures=outcome.consecutive_failures,
+        muted_notification=outcome.muted_notification,
+        occurred_at=now,
+    )
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -140,6 +189,10 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     time and skipping a cycle.
     Returns how many configurations it wrote, which is fewer than it was given when a replay
     finds rows an earlier attempt already advanced.
+
+    History is written after the transaction commits, not inside it. A row the platform cannot
+    record is a gap a comparison sees; a transaction that rolled back on a ClickHouse outage would
+    instead leave the alert due with its state unwritten, which is worse.
     """
     if not outcomes:
         return 0
@@ -153,9 +206,11 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             return 0
         alerts = _alerts_for_write(team_id, configurations)
 
+        rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
             alert = alerts[str(configuration.id)]
+            rows.append(_event_row(configuration, alert, outcome, alert.state, now))
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now
@@ -176,7 +231,11 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
         )
-        return len(configurations)
+
+    recorded = insert_events(team_id, rows)
+    if recorded < len(rows):
+        safe_record(increment_history_rows_dropped, len(rows) - recorded)
+    return len(configurations)
 
 
 def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:

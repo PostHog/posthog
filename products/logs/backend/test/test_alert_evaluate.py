@@ -127,6 +127,36 @@ class TestLogsAlertEvaluation(APIBaseTest):
             ).count()
         assert still_due == 1
 
+    def test_two_scheduled_checks_clamped_to_one_window_keep_distinct_keys(self) -> None:
+        # `resolve_alert_date_to` clamps the window end to the ingestion checkpoint, so a
+        # checkpoint that has not moved gives two consecutive checks the same window. Keyed on the
+        # window alone they read as one evaluation, and a reader deduplicating on the key drops
+        # the second.
+        configuration = self._configuration()
+        # Inside CHECKPOINT_MAX_STALENESS and behind both scheduled times, so both checks clamp
+        # their window end to it.
+        frozen_checkpoint = self.cutoff - timedelta(minutes=3)
+
+        def run_at(next_check_at: datetime) -> str:
+            with team_scope(self.team.id):
+                PlatformAlertConfiguration.objects.filter(id=configuration.id).update(next_check_at=next_check_at)
+            with (
+                patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=frozen_checkpoint),
+                patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
+            ):
+                query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
+                    per_alert={str(configuration.id): [BucketedCount(timestamp=self.cutoff, count=500)]},
+                    query_duration_ms=1,
+                )
+                slot = next_check_at.replace(second=0, microsecond=0).isoformat()
+                evaluation = evaluate_logs_batch(self.team.id, slot, self.cutoff)
+            return evaluation.outcomes[0].evaluation_key
+
+        first = run_at(self.cutoff - timedelta(minutes=2))
+        second = run_at(self.cutoff - timedelta(minutes=1))
+
+        assert first != second
+
     def test_a_check_inside_quiet_hours_runs_and_holds_its_announcement(self) -> None:
         configuration = self._configuration(
             schedule_restriction={"blocked_windows": [{"start": "09:00", "end": "12:00"}]}
