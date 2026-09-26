@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import contextmanager
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.test.client import Client as TestClient
@@ -160,14 +161,38 @@ def cancel_batch_export_run_ok(client: TestClient, team_id: int, batch_export_id
     return response.json()
 
 
-def list_batch_export_backfills(client: TestClient, team_id: int, batch_export_id: str):
-    return client.get(f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills")
+def list_batch_export_backfills(client: TestClient, team_id: int, batch_export_id: str, **query_params):
+    return client.get(
+        f"/api/projects/{team_id}/batch_exports/{batch_export_id}/backfills",
+        data=query_params or None,
+        content_type="application/json",
+    )
 
 
-def list_batch_export_backfills_ok(client: TestClient, team_id: int, batch_export_id: str):
-    response = list_batch_export_backfills(client, team_id, batch_export_id)
+def list_batch_export_backfills_ok(client: TestClient, team_id: int, batch_export_id: str, **query_params):
+    response = list_batch_export_backfills(client, team_id, batch_export_id, **query_params)
     assert response.status_code == status.HTTP_200_OK, response.json()
     return response.json()
+
+
+def collect_all_pages(client: TestClient, first_page: dict) -> list[dict]:
+    """Return every result of a cursor paginated list, by following the `next` links."""
+    results = list(first_page["results"])
+    next_link = first_page["next"]
+    # An unstable cursor can keep returning a next link forever, so we stop rather than hang.
+    pages_left = 50
+
+    while next_link is not None:
+        pages_left -= 1
+        assert pages_left > 0, "Cursor pagination did not reach the last page"
+        parsed = urlsplit(next_link)
+        response = client.get(f"{parsed.path}?{parsed.query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        page = response.json()
+        results.extend(page["results"])
+        next_link = page["next"]
+
+    return results
 
 
 def get_batch_export_backfill(client: TestClient, team_id: int, batch_export_id: str, backfill_id: str):
