@@ -768,7 +768,7 @@ class UserBasicInfo:
 
 
 @stdlib_dataclass(frozen=True)
-class AccountView:
+class AccountDetails:
     """An account as returned by the accounts list/detail endpoints.
 
     ``properties`` is the raw stored JSON dict (``Account._properties``), not the
@@ -800,11 +800,25 @@ class AccountView:
     updated_at: datetime | None = None
 
 
+@dataclass(frozen=True)
+class AccountView:
+    id: UUID
+    name: str
+    visibility: Literal["private"]
+    content: dict[str, Any]
+    text_content: str
+    version: int
+    created_by: int | None
+    last_modified_by: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
 @stdlib_dataclass(frozen=True)
 class CustomerJourneyView:
     """A customer journey as returned by the customer-journey endpoints.
 
-    Defaults exist for the same reason as :class:`AccountView` — the wrapping serializer
+    Defaults exist for the same reason as :class:`AccountDetails` — the wrapping serializer
     doubles as request + response so the OpenAPI components stay identical.
     """
 
@@ -1020,7 +1034,7 @@ class CustomerProfileConfigView:
     """A customer profile config as returned by the profile-config endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1058,7 +1072,7 @@ class CustomPropertyDefinitionView:
     custom-property-definitions endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
+    :class:`AccountDetails`). ``created_by`` is the creator's user id (or ``None``), matching
     the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
     property is used (workflows), resolved by definition id. ``source`` is the read-only
     view-sync binding when one is configured for this definition, else ``None``.
@@ -1092,7 +1106,7 @@ class CustomPropertySourceView:
     run. Account-target sources set ``saved_query`` + ``source_column``; person- and group-target
     sources set ``column_property_map`` plus exactly one of ``external_data_schema`` (an imported
     table) and ``saved_query`` (a materialized view). Defaults exist so the wrapping serializer can
-    parse partial request bodies (see :class:`AccountView`).
+    parse partial request bodies (see :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1156,7 +1170,7 @@ class AccountNotebookView:
     """An account notebook as returned by the nested account-notebooks endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None
@@ -1174,7 +1188,7 @@ class AccountNotebookView:
 class AccountNoteView:
     """A row of the team-wide account-notes list: an internal notebook plus the account it's
     linked to. Read-only (the wrapping serializer never parses request bodies), so fields are
-    strict — no serializer-instantiation defaults like :class:`AccountView` needs."""
+    strict — no serializer-instantiation defaults like :class:`AccountDetails` needs."""
 
     short_id: str
     title: str | None
@@ -1289,7 +1303,7 @@ class EventStreamView:
     (``event_names``), the owner's Slack delivery target, and the member accounts
     (``account_ids``) whose users' events are streamed.
     Defaults exist so the wrapping serializer can parse partial request bodies (see
-    :class:`AccountView`).
+    :class:`AccountDetails`).
     """
 
     id: UUID | None = None

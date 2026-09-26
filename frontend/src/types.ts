@@ -6167,6 +6167,7 @@ export type PromptFlag = {
 export enum ActivityScope {
     DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
     ACTION = 'Action',
+    ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
     ANNOTATION = 'Annotation',
     BATCH_EXPORT = 'BatchExport',

@@ -114,6 +114,21 @@ tools:
     account-track-rules-update:
         operation: account_track_rules_update
         enabled: false
+    account-views-create:
+        operation: account_views_create
+        enabled: false
+    account-views-destroy:
+        operation: account_views_destroy
+        enabled: false
+    account-views-list:
+        operation: account_views_list
+        enabled: false
+    account-views-partial-update:
+        operation: account_views_partial_update
+        enabled: false
+    account-views-retrieve:
+        operation: account_views_retrieve
+        enabled: false
     accounts-by-external-id-retrieve:
         operation: accounts_by_external_id_retrieve
         enabled: false

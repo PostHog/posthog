@@ -516,6 +516,123 @@ export interface PaginatedAccountTrackRuleRunViewListApi {
 }
 
 /**
+ * * `doc` - doc
+ */
+export type AccountViewContentTypeEnumApi =
+    (typeof AccountViewContentTypeEnumApi)[keyof typeof AccountViewContentTypeEnumApi]
+
+export const AccountViewContentTypeEnumApi = {
+    Doc: 'doc',
+} as const
+
+/**
+ * * `ph-markdown-notebook` - ph-markdown-notebook
+ */
+export type AccountViewMarkdownNodeTypeEnumApi =
+    (typeof AccountViewMarkdownNodeTypeEnumApi)[keyof typeof AccountViewMarkdownNodeTypeEnumApi]
+
+export const AccountViewMarkdownNodeTypeEnumApi = {
+    PhMarkdownNotebook: 'ph-markdown-notebook',
+} as const
+
+export interface AccountViewMarkdownAttributesApi {
+    /** Stable identifier for this document. */
+    nodeId: string
+    /** Component-only Markdown stored by the account view editor. */
+    markdown: string
+}
+
+export interface AccountViewMarkdownNodeApi {
+    /** Markdown notebook node type.
+     *
+     * * `ph-markdown-notebook` - ph-markdown-notebook */
+    type: AccountViewMarkdownNodeTypeEnumApi
+    /** Markdown notebook attributes. */
+    attrs: AccountViewMarkdownAttributesApi
+}
+
+export interface AccountViewContentApi {
+    /** Document root type.
+     *
+     * * `doc` - doc */
+    type: AccountViewContentTypeEnumApi
+    /**
+     * The single Markdown notebook node containing the account view components.
+     * @minItems 1
+     * @maxItems 1
+     */
+    content: AccountViewMarkdownNodeApi[]
+}
+
+export interface AccountViewApi {
+    /** Stable account view identifier. */
+    readonly id: string
+    /** Name shown in the account view. */
+    readonly name: string
+    /** Account views created through this API are private. */
+    readonly visibility: string
+    /** Validated Markdown notebook document. */
+    readonly content: AccountViewContentApi
+    /** Searchable component labels extracted from content. */
+    readonly text_content: string
+    /** Optimistic concurrency version. */
+    readonly version: number
+    /**
+     * Creator user ID.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * User ID that last changed the view.
+     * @nullable
+     */
+    readonly last_modified_by: number | null
+    /** When the view was created. */
+    readonly created_at: string
+    /** When the view was last changed. */
+    readonly updated_at: string
+}
+
+export interface AccountViewCreateApi {
+    /**
+     * View name.
+     * @maxLength 400
+     */
+    name: string
+    /** Initial account view components. */
+    content: AccountViewContentApi
+}
+
+/**
+ * * `private` - Personal
+ */
+export type AccountViewUpdateVisibilityEnumApi =
+    (typeof AccountViewUpdateVisibilityEnumApi)[keyof typeof AccountViewUpdateVisibilityEnumApi]
+
+export const AccountViewUpdateVisibilityEnumApi = {
+    Private: 'private',
+} as const
+
+export interface PatchedAccountViewUpdateApi {
+    /**
+     * New view name. Omit to keep the current name.
+     * @maxLength 400
+     */
+    name?: string
+    /** Replacement account view components. Omit to keep current content. */
+    content?: AccountViewContentApi
+    /** Views can only be private.
+     *
+     * * `private` - Personal */
+    visibility?: AccountViewUpdateVisibilityEnumApi
+    /**
+     * Version returned by the last read.
+     * @minimum 1
+     */
+    version?: number
+}
+
+/**
  * * `daily` - daily
  * * `weekly` - weekly
  * * `monthly` - monthly
@@ -4477,6 +4594,13 @@ export type AccountTrackRulesRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AccountViewsDestroyParams = {
+    /**
+     * Version returned by the last read.
+     */
+    version: number
 }
 
 export type AccountsListParams = {
