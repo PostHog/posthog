@@ -52,6 +52,7 @@ const descriptions: Record<string, string> = {
         'Find problems encountered while processing your events. Inspect the warnings to identify tracking issues and improve the data you analyze.',
     Annotations:
         'Add context to changes in your metrics. Mark releases, campaigns, and other milestones so your team can connect a chart with what happened.',
+    ETL: 'Watch the data moving into PostHog and out to your own warehouses. See what is running, what is stale, and what has stopped.',
     Sources:
         'Bring data from your other tools into PostHog. Combine it with product events to answer questions that span your business.',
     Destinations:
