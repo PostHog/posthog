@@ -1530,7 +1530,7 @@ function findTool(
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
             throw new ExecCommandError(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. Reconnect or reauthorize the PostHog MCP connection and approve these scopes. Logging in to PostHog in a browser does not update MCP permissions.`,
+                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. With OAuth, reauthorize the PostHog MCP connection and approve these scopes. With a personal API key, add these scopes to the key and retry. The change takes up to 2 minutes to reach this connection, and reconnecting the client does not make it faster. Logging in to PostHog in a browser does not update MCP permissions.`,
                 'missing_scope'
             )
         }
@@ -1686,7 +1686,7 @@ export function createExecTool(
                             })),
                             hint:
                                 `These tools also match but are hidden because the API key is missing the ` +
-                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools.`,
+                                `required scope(s): ${requiredScopes.join(', ')}. The user needs to re-authenticate the MCP or connector, if the harness supports OAuth, or add the scopes to the personal API key to use these tools. A scope added to a personal API key takes up to 2 minutes to reach this connection, and reconnecting the client does not make it faster.`,
                         })
                     }
                     if (matches.length === 0) {

@@ -131,6 +131,45 @@ describe('StateManager', () => {
             expect(await new StateManager(cache, {} as ApiClient).getApiKey()).toEqual(result)
         })
 
+        it('re-reads scopes once the cached entry expires', async () => {
+            vi.useFakeTimers()
+            try {
+                const current = vi
+                    .fn()
+                    .mockResolvedValueOnce({ success: true, data: mockApiKey })
+                    .mockResolvedValue({ success: true, data: { ...mockApiKey, scopes: ['user:read', 'cdp:read'] } })
+                const api = { apiKeys: () => ({ current }) } as unknown as ApiClient
+
+                expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+
+                vi.advanceTimersByTime(60 * 1000)
+                expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+
+                vi.advanceTimersByTime(2 * 60 * 1000)
+                expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(['user:read', 'cdp:read'])
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it('keeps the cached scopes when a refresh fails', async () => {
+            vi.useFakeTimers()
+            try {
+                const current = vi
+                    .fn()
+                    .mockResolvedValueOnce({ success: true, data: mockApiKey })
+                    .mockRejectedValue(new Error('API unreachable'))
+                const api = { apiKeys: () => ({ current }) } as unknown as ApiClient
+
+                await new StateManager(cache, api).getApiKey()
+                vi.advanceTimersByTime(3 * 60 * 1000)
+
+                expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
         it.each([
             { label: 'an OAuth app name', clientName: 'Claude', expected: 'Claude' },
             { label: 'no OAuth app name', clientName: null, expected: undefined },

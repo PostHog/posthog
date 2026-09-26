@@ -15,6 +15,10 @@ import type { ApiUser } from '@/schema/api'
 import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
+// Scopes come from a credential the user can edit. Somebody who adds a missing scope to a
+// personal API key must recover in the same session, so this entry expires much sooner than
+// the rest. Reconnecting the client does not help on its own: the cache is keyed by token.
+const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 
 // Entitlement-related fields shared by both org shapes we read from — the
@@ -100,14 +104,26 @@ export class StateManager {
     }
 
     async getApiKey(): Promise<NonNullable<State['apiKey']>> {
-        let _apiKey = await this._cache.get('apiKey')
+        const [cached, fetchedAt] = await Promise.all([this._cache.get('apiKey'), this._cache.get('apiKeyFetchedAt')])
 
-        if (!_apiKey) {
-            _apiKey = await this._fetchApiKey()
-            await this._cache.set('apiKey', _apiKey)
+        if (cached && !this.isCacheStale(fetchedAt, API_KEY_CACHE_TTL_MS)) {
+            return cached
         }
 
-        return _apiKey
+        try {
+            const apiKey = await this._fetchApiKey()
+            await Promise.all([this._cache.set('apiKey', apiKey), this._cache.set('apiKeyFetchedAt', Date.now())])
+            return apiKey
+        } catch (error) {
+            if (!cached) {
+                throw error
+            }
+            // A failed refresh must not end a live session. These scopes only filter the tool
+            // roster, and every API call is authorized again server-side.
+            this._reportException(error, 'api_key_refresh_failed')
+            await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
+            return cached
+        }
     }
 
     async getDistinctId(): Promise<NonNullable<State['distinctId']>> {
