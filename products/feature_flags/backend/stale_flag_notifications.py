@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from django.utils import timezone
@@ -6,6 +5,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.cdp.internal_events import InternalEventEvent, flush_internal_events_producer, produce_internal_event
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import ProduceResult
 from posthog.redis import get_client
@@ -56,7 +56,7 @@ def teams_subscribed_to_stale_flags() -> list[int]:
     )
 
 
-@dataclass
+@frozen
 class _PendingNotice:
     flag: FeatureFlag
     key: str
