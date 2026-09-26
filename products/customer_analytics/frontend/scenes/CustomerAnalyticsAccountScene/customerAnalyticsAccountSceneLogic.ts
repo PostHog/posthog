@@ -114,6 +114,7 @@ export interface customerAnalyticsAccountSceneLogicValues {
     accountPresenceViewers: AccountPresenceViewerApi[]
     activeTab: AccountExpansionTab
     breadcrumbs: Breadcrumb[]
+    eventStreamModalOpen: boolean
     isAccountFormSubmitting: boolean
     isAccountFormValid: boolean
     isAccountMissing: boolean
@@ -132,6 +133,9 @@ export interface customerAnalyticsAccountSceneLogicActions {
         variants: Record<string, boolean | string>
     } // featureFlagLogic
     closeAccountEditor: () => {
+        value: true
+    }
+    closeEventStreamModal: () => {
         value: true
     }
     loadAccount: () => {
@@ -153,6 +157,9 @@ export interface customerAnalyticsAccountSceneLogicActions {
         account: AccountApi
     }
     openAccountEditor: () => {
+        value: true
+    }
+    openEventStreamModal: () => {
         value: true
     }
     resetAccountForm: (values?: AccountEditFormValues) => {
@@ -262,6 +269,8 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         updateTagsDone: (account: AccountApi | null) => ({ account }),
         openAccountEditor: true,
         closeAccountEditor: true,
+        openEventStreamModal: true,
+        closeEventStreamModal: true,
     }),
     forms(({ props, values }) => ({
         accountForm: {
@@ -358,6 +367,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
             },
         ],
         accountEditorOpen: [false, { openAccountEditor: () => true, closeAccountEditor: () => false }],
+        eventStreamModalOpen: [false, { openEventStreamModal: () => true, closeEventStreamModal: () => false }],
     }),
     selectors({
         activeTab: [
