@@ -51,6 +51,7 @@ import {
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { clonePayloadPreservingFiles, findUploadedFiles, readJsonFile } from '../../shared/sourceFieldFiles'
+import { MANUAL_LINK_SOURCE_LABELS } from '../../shared/storageProvider'
 import { shouldShowDestinationStep } from './components/destinationStepUtils'
 import { FILE_UPLOAD_SOURCE_CONFIG, FILE_UPLOAD_SOURCE_NAME } from './fileUploadSource'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
@@ -312,13 +313,6 @@ export function resolveConnectErrorMessage(e: any): string {
     }
     // A 4xx without a message body would otherwise toast "undefined".
     return e?.message ?? 'Something went wrong setting up your source. Please try again.'
-}
-
-const manualLinkSourceMap: Record<ManualLinkSourceType, string> = {
-    aws: 'S3',
-    'google-cloud': 'Google Cloud Storage',
-    'cloudflare-r2': 'Cloudflare R2',
-    azure: 'Azure',
 }
 
 const isTimestampType = (field: IncrementalField): boolean => {
@@ -1723,7 +1717,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             () => [],
             (): { name: string; type: ManualLinkSourceType }[] =>
                 manualLinkSources.map((source) => ({
-                    name: manualLinkSourceMap[source],
+                    name: MANUAL_LINK_SOURCE_LABELS[source],
                     type: source,
                 })),
         ],

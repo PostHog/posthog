@@ -11559,6 +11559,10 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "previousTotalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The same total for the previous period, the denominator for each row's previous session share."
+                },
                 "query_metadata": {
                     "type": "object"
                 },
@@ -11598,6 +11602,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of tools matching the date, category, and search filters."
                 },
+                "totalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -11625,9 +11633,11 @@
                 "is_cached",
                 "last_refresh",
                 "next_allowed_client_refresh",
+                "previousTotalSessions",
                 "results",
                 "timezone",
-                "totalCount"
+                "totalCount",
+                "totalSessions"
             ],
             "type": "object"
         },
@@ -31112,6 +31122,13 @@
         "LogAttributesQuery": {
             "additionalProperties": false,
             "properties": {
+                "attributeKeys": {
+                    "description": "Return only attribute keys that exactly match an entry in this list.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "attributeType": {
                     "type": "string"
                 },
@@ -31753,6 +31770,10 @@
                 "harness": {
                     "description": "Customer-facing harness label, e.g. \"Claude Agent SDK\", \"OpenAI Codex\", \"Cursor\", \"Other\".",
                     "type": "string"
+                },
+                "harness_sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName."
                 },
                 "sessions": {
                     "$ref": "#/definitions/integer"
@@ -33589,6 +33610,22 @@
                 "p99_duration_ms": {
                     "type": "number"
                 },
+                "previous_calls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Calls in the previous period: the same length of time right before the window, or for a to-date range (\"This month\") the same part of the previous unit."
+                },
+                "previous_errors": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Errored calls in the previous period."
+                },
+                "previous_p95_duration_ms": {
+                    "description": "p95 duration in the previous period, or null when no previous call carried a duration.",
+                    "type": ["number", "null"]
+                },
+                "previous_sessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions that called the tool in the previous period."
+                },
                 "sessions": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33598,6 +33635,10 @@
                 "total_calls": {
                     "$ref": "#/definitions/integer"
                 },
+                "trend_score": {
+                    "description": "Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a large tool's surge. Not a percentage; only meaningful for ordering.",
+                    "type": "number"
+                },
                 "users": {
                     "$ref": "#/definitions/integer"
                 }
@@ -33605,6 +33646,7 @@
             "required": [
                 "tool",
                 "total_calls",
+                "previous_calls",
                 "errors",
                 "error_rate_pct",
                 "p50_duration_ms",
@@ -33613,7 +33655,11 @@
                 "users",
                 "sessions",
                 "first_seen",
-                "last_seen"
+                "last_seen",
+                "trend_score",
+                "previous_errors",
+                "previous_p95_duration_ms",
+                "previous_sessions"
             ],
             "type": "object"
         },
@@ -33697,6 +33743,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "previousTotalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "The same total for the previous period, the denominator for each row's previous session share."
+                },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -33726,6 +33776,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of tools matching the date, category, and search filters."
                 },
+                "totalSessions": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                },
                 "used_data_warehouse_sources": {
                     "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                     "items": {
@@ -33748,7 +33802,7 @@
                     "type": "array"
                 }
             },
-            "required": ["results", "totalCount"],
+            "required": ["previousTotalSessions", "results", "totalCount", "totalSessions"],
             "type": "object"
         },
         "MCPToolQualitySortColumn": {
@@ -33760,7 +33814,8 @@
                 "p99_duration_ms",
                 "users",
                 "sessions",
-                "last_seen"
+                "last_seen",
+                "trend_score"
             ],
             "type": "string"
         },
@@ -33916,6 +33971,14 @@
                 "p95_ms": {
                     "type": ["number", "null"]
                 },
+                "total_calls": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Calls to any tool in the same window and filters. The denominator for the tool's call share."
+                },
+                "total_conversations": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share."
+                },
                 "users": {
                     "$ref": "#/definitions/integer"
                 },
@@ -33924,7 +33987,17 @@
                     "description": "Calls carrying a non-empty intent payload; the coverage denominator is `calls`."
                 }
             },
-            "required": ["calls", "errors", "p50_ms", "p95_ms", "users", "conversations", "with_intent"],
+            "required": [
+                "calls",
+                "errors",
+                "p50_ms",
+                "p95_ms",
+                "users",
+                "conversations",
+                "with_intent",
+                "total_calls",
+                "total_conversations"
+            ],
             "type": "object"
         },
         "MCPToolStatsQuery": {
@@ -36466,6 +36539,64 @@
                         "adsetStatsTableName"
                     ],
                     "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "campaignTableName": {
+                            "const": "campaigns",
+                            "type": "string"
+                        },
+                        "defaultSources": {
+                            "items": [
+                                {
+                                    "const": "openai",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "chatgpt",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "openai_ads",
+                                    "type": "string"
+                                }
+                            ],
+                            "maxItems": 3,
+                            "minItems": 3,
+                            "type": "array"
+                        },
+                        "idField": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "nameField": {
+                            "const": "name",
+                            "type": "string"
+                        },
+                        "primarySource": {
+                            "const": "openai",
+                            "type": "string"
+                        },
+                        "sourceType": {
+                            "const": "OpenAIAds",
+                            "type": "string"
+                        },
+                        "statsTableName": {
+                            "const": "campaign_insights",
+                            "type": "string"
+                        }
+                    },
+                    "required": [
+                        "sourceType",
+                        "nameField",
+                        "idField",
+                        "campaignTableName",
+                        "statsTableName",
+                        "defaultSources",
+                        "primarySource"
+                    ],
+                    "type": "object"
                 }
             ]
         },
@@ -38374,7 +38505,8 @@
                 "BingAds",
                 "SnapchatAds",
                 "PinterestAds",
-                "AppleSearchAds"
+                "AppleSearchAds",
+                "OpenAIAds"
             ],
             "type": "string"
         },
@@ -38652,6 +38784,10 @@
             },
             "required": ["type"],
             "type": "object"
+        },
+        "OpenAIAdsDefaultSources": {
+            "enum": ["openai", "chatgpt", "openai_ads"],
+            "type": "string"
         },
         "PCADetectorConfig": {
             "additionalProperties": false,
@@ -48239,6 +48375,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "previousTotalSessions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "The same total for the previous period, the denominator for each row's previous session share."
+                        },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
@@ -48268,6 +48408,10 @@
                             "$ref": "#/definitions/integer",
                             "description": "Number of tools matching the date, category, and search filters."
                         },
+                        "totalSessions": {
+                            "$ref": "#/definitions/integer",
+                            "description": "Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share."
+                        },
                         "used_data_warehouse_sources": {
                             "description": "Connector-synced data warehouse sources referenced by this query, if any.",
                             "items": {
@@ -48290,7 +48434,7 @@
                             "type": "array"
                         }
                     },
-                    "required": ["results", "totalCount"],
+                    "required": ["previousTotalSessions", "results", "totalCount", "totalSessions"],
                     "type": "object"
                 },
                 {

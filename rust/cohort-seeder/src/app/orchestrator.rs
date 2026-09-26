@@ -23,7 +23,7 @@ use crate::observability::metrics::{
     CHUNKS_CLAIMED, CHUNKS_POISONED, CHUNKS_RECLAIMED, RUNS_FAILED_EXHAUSTED_CHUNKS,
 };
 use crate::store::chunks::{Claim, PgChunkStore};
-use crate::store::runs::{fail_run, RunError, RunKind};
+use crate::store::runs::{complete_trailing_runs, fail_run, RunError, RunKind};
 use crate::store::{Claimant, MaxAttempts, RenderedError};
 
 use super::completion::CompletionDriver;
@@ -191,6 +191,7 @@ impl SeederOrchestrator {
                     // and before the completion driver's tick, so a run can never be failed and
                     // CAS'd to `reconciling` in the same pass.
                     self.fail_exhausted_runs(&eligible_runs).await;
+                    self.complete_trailing_runs(&eligible_runs).await;
                     self.fill_claim_slots(&eligible_runs, &mut tasks, &mut person_tasks, &shutdown)
                         .await;
                     if let Some(driver) = &self.completion_driver {
@@ -289,14 +290,15 @@ impl SeederOrchestrator {
 
     /// Terminalize runs holding a chunk that exhausted its retry budget, one kind at a time.
     ///
-    /// Such a chunk is never reclaimed again, and the completion CAS demands every chunk
+    /// Such a chunk is never reclaimed again, and the completion CAS demands every readiness chunk
     /// `confirmed`, so without this the run sits in `seeding` forever and holds its cohort's
     /// uniqueness slot — no future run for that cohort can ever be created. Failing it frees the
-    /// slot (Django does not count `failed` as active) and puts the reason in `runs.error`.
+    /// slot (Django does not count `failed` as active) and puts the reason in `runs.error`. A
+    /// `trailing` run's exhausted chunk fails it the same way, so the run does not trail forever.
     ///
     /// Nothing has to be unwound for chunks still mid-scan: their heartbeat and the claim predicate
-    /// both join `runs.status = 'seeding'`, so they lose their lease on the next beat and halt
-    /// cleanly — the same mechanism a Django-side supersede already relies on.
+    /// both join a `seeding` or `trailing` run status, so they lose their lease on the next beat
+    /// and halt cleanly — the same mechanism a Django-side supersede already relies on.
     async fn fail_exhausted_runs(&self, eligible_runs: &HashMap<RunId, PreparedRun>) {
         for kind in [RunKind::Behavioral, RunKind::PersonProperty] {
             let run_ids = run_ids_of_kind(eligible_runs, kind);
@@ -311,6 +313,17 @@ impl SeederOrchestrator {
                 self.settings.max_chunk_attempts,
             )
             .await;
+        }
+    }
+
+    /// Complete the trailing runs whose trailing days have all confirmed. Only behavioral runs plan
+    /// trailing days.
+    async fn complete_trailing_runs(&self, eligible_runs: &HashMap<RunId, PreparedRun>) {
+        let run_ids = run_ids_of_kind(eligible_runs, RunKind::Behavioral);
+        match complete_trailing_runs(&self.pool, &run_ids).await {
+            Ok(0) => {}
+            Ok(completed) => info!(completed, "completed trailing runs"),
+            Err(error) => warn!(error = %error, "completing trailing runs failed"),
         }
     }
 

@@ -16,6 +16,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS
+from products.signals.backend.ranking.model_contract import readable_head_names, trained_head_files
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
@@ -26,7 +27,7 @@ from products.signals.backend.ranking.serving_manifest import (
     model_key,
     serving_model_prefix,
 )
-from products.signals.dags.inbox_ranking.training.unseen import readable_head_names, trained_head_files
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 
 
 @frozen
@@ -58,7 +59,7 @@ def _entry(
 ) -> ServingManifestEntry | None:
     """One manifest entry, or None when the model has no head a store could load. Only the refit
     boosters are named: the holdout fits grade a promotion and never serve."""
-    heads = sorted(trained_head_files(metadata))
+    heads = sorted(trained_head_files(metadata, HEADS_BY_NAME))
     if not heads:
         return None
     key = model_key(metadata["model_name"], metadata["model_version"])

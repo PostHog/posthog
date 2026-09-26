@@ -1153,7 +1153,6 @@ jobs:
               # pytest-split flags must not leak from that shard onto its job-mates.
               env:
                   PRODUCT_LEGS: ${{ toJSON(matrix.legs) }}
-                  # Read only when an unrebased branch planned the pre-legs shape.
                   LEGACY_FILTERS: ${{ matrix.filters }}
                   LEGACY_PYTEST_ARGS: ${{ matrix.pytest_args }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
@@ -1163,9 +1162,8 @@ jobs:
                   # tested in the legacy joined mode, and its snapshots record SQL that no
                   # recent project executes. Tests that need the legacy mode pin it
                   # themselves with override_settings.
-                  # marker: product-poe-default. The run block below greps the checked-out
-                  # workflow for this token to tell a head that carries the flip from one
-                  # that predates it.
+                  # marker: product-poe-default. The run block keeps legacy mode if the
+                  # checked-out workflow lacks this marker and its matching snapshots.
                   PERSON_ON_EVENTS_V2_ENABLED: 'true'
                   # products/tasks/backend/temporal moved here from the Django Temporal
                   # segment, and its conftest and workflows talk to Modal. Injected only
@@ -1196,24 +1194,17 @@ jobs:
               shell: bash
               run: |
                   set +e
-                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  # Enable retries only when the checkout includes retry diagnostics.
                   if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
                       export PYTEST_ADDOPTS="$PYTEST_ADDOPTS --force-reruns 1 --reruns-delay 1 -r fEsxXR"
                   fi
                   overall=0
-                  # The job checks out the PR head while this workflow runs merged with
-                  # master. A head that predates the person-on-events default lacks the
-                  # snapshots regenerated under that mode, so keep it on the legacy mode
-                  # until it rebases. Without this a fork or 'no-snapshot-update' PR, which
-                  # checks snapshots rather than updating them, fails on queries it never
-                  # changed. The marker sits on this step's env line in the checked-out copy.
+                  # A checkout without the matching snapshots must use legacy mode.
                   if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: product-poe-default" .github/workflows/ci-backend.yml; then
                       echo "::notice::Checked-out revision predates the person-on-events default, running product tests in legacy mode"
                       export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
-                  # A workflow edit reaches an open PR before the script edit does, so a
-                  # branch that has not rebased still plans the flat {filters, pytest_args}
-                  # shape. Normalize that into one leg rather than requiring the new key.
+                  # Accept a selector that returns the older flat matrix shape.
                   if [ -z "$PRODUCT_LEGS" ] || [ "$PRODUCT_LEGS" = "null" ]; then
                       PRODUCT_LEGS=$(jq -cn --arg f "$LEGACY_FILTERS" --arg a "$LEGACY_PYTEST_ARGS" \
                           '[{filters: $f, pytest_args: $a}]')
@@ -3038,11 +3029,11 @@ jobs:
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
+            # The default ref, which is the PR merge commit. turbo-discover selects the test files
+            # from this tree, so a checkout of any other ref can lack a file that the selection lists.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  ref: ${{ github.event.pull_request.head.ref }}
                   lfs: true
                   clean: false
 
@@ -3108,11 +3099,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
                   skip-token-revoke: true
 
-            # Tool cache steps inlined rather than the setup-python-cached composite:
-            # this job checks out the PR head ref, which cannot resolve a local
-            # action that only exists on master until the branch rebases. The
-            # restore sits before setup-python so the tool cache is warm when it
-            # starts.
+            # Restore before setup-python so the tool cache is warm when it starts.
             - name: Restore Python tool cache
               id: python-toolcache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -3130,8 +3117,6 @@ jobs:
                   python-version: ${{ matrix.python-version }}
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
 
-            # setup-sqlx-cli resolves from the PR head ref here, so an unrebased branch
-            # gets a version that installs no Rust. Delete once open branches rebase.
             - name: Install Rust
               if: needs.changes.outputs.backend == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -3553,29 +3538,21 @@ jobs:
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   set +e
-                  # Open PR heads must have retry diagnostics before blanket retries are enabled.
+                  # Enable retries only when the checkout includes retry diagnostics.
                   RETRY_ARGS=()
                   if grep -qF '"posthog.runner_name"' posthog/conftest.py; then
                       RETRY_ARGS=(--force-reruns 1 --reruns-delay 1)
                   fi
-                  # Unrebased branches predate .github/coverage-core.cfg; an explicit --cov-config
-                  # pointing at a missing file is a hard error, so drop coverage rather than fail.
+                  # A missing --cov-config file aborts pytest, so skip coverage if it is absent.
                   if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
                       COV_ARGS=""
                   fi
-                  # The job checks out the PR head while this workflow runs merged with
-                  # master. A head that predates the person-on-events default lacks the
-                  # test pins that came with it, so keep it on the legacy mode until it
-                  # rebases. The marker sits on this step's env line in the checked-out copy.
+                  # A checkout without the matching test pins must use legacy mode.
                   if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: person-on-events-default" .github/workflows/ci-backend.yml; then
                       echo "::notice::Checked-out revision predates the person-on-events default, running Core in legacy mode"
                       export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
-                  # Pick the split algorithm and granularity at runtime: optimal_chunks +
-                  # file granularity only when the installed pytest-split offers them, else
-                  # duration_based_chunks / item. A workflow edit runs merged with master, so
-                  # an unrebased PR on older pytest-split must not hit an unknown
-                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  # Unsupported pytest-split flags abort collection, so probe the installed plugin.
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
@@ -3929,10 +3906,7 @@ jobs:
                       junit-*.xml
                       !junit-*-retry-failures.xml
 
-            # Exports TRUNK_CODEOWNERS_PATH for the uploads below, so Trunk attributes each test to
-            # the team that owns its file. The guard is for an unrebased branch: this job checks out
-            # the PR head ref, which may predate the script. Without it the uploader keeps reading
-            # .github/CODEOWNERS, as it did before.
+            # The helper sets TRUNK_CODEOWNERS_PATH so Trunk attributes uploaded tests to their owners.
             - name: Build the Trunk ownership map
               if: ${{ !cancelled() && needs.changes.outputs.backend == 'true' && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' && vars.TRUNK_UPLOAD_ENABLED == 'true' }}
               shell: bash
@@ -3947,9 +3921,7 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
-            # Inlined rather than ./.github/actions/trunk-quarantine-gate, and so without its retry:
-            # this job checks out the PR head ref, which cannot resolve a local action that only
-            # exists on master until the branch rebases.
+            # This inlined gate lacks the shared action's retry.
             - name: Quarantine gate (Core)
               id: quarantine_gate_core
               continue-on-error: true
@@ -4004,32 +3976,22 @@ jobs:
             # Fully expanded compat matrix (version x shard group)
             compat_matrix: ${{ steps.read-versions.outputs.compat_matrix }}
         steps:
-            # Merge ref, for turbo-tests: it checks out the merge ref and mounts that config.xml.
+            # Merge ref: turbo-tests and django check out the merge ref and mount its config.xml.
+            # Reading the version from another ref would split an atomic version+config bump.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: .github/clickhouse-versions.json
                   sparse-checkout-cone-mode: false
-            # Head ref, for django: it checks out the PR head and mounts that config.xml. Reading
-            # its version from the merge ref instead would split an atomic version+config bump.
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
-                  ref: ${{ github.event.pull_request.head.ref }}
-                  sparse-checkout: .github/clickhouse-versions.json
-                  sparse-checkout-cone-mode: false
-                  path: head-tree
             - name: Read ClickHouse versions from JSON
               id: read-versions
-              env:
-                  DJANGO_VERSIONS: head-tree/.github/clickhouse-versions.json
               run: |
                   compat_shards="2"
                   echo "Using $compat_shards shard(s) per compat version"
 
                   # Oldest supported version for main Django tests (for max compatibility)
-                  oldest_supported=$(jq -r '.oldest_supported' "$DJANGO_VERSIONS")
+                  oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
-                    echo "::error::No oldest_supported version found in $DJANGO_VERSIONS"
+                    echo "::error::No oldest_supported version found in .github/clickhouse-versions.json"
                     exit 1
                   fi
                   echo "oldest_supported_image=$oldest_supported" >> $GITHUB_OUTPUT
@@ -4045,15 +4007,15 @@ jobs:
                   echo "Local dev/hobby image for product tests: $local_image"
 
                   # Read all unique versions so we can derive compat coverage.
-                  all=$(jq -c '[.[]] | unique' "$DJANGO_VERSIONS")
+                  all=$(jq -c '[.[]] | unique' .github/clickhouse-versions.json)
                   if [ "$all" = "[]" ] || [ -z "$all" ]; then
-                    echo "::error::No versions found in $DJANGO_VERSIONS"
+                    echo "::error::No versions found in .github/clickhouse-versions.json"
                     exit 1
                   fi
                   echo "All CH versions found: $all"
 
                   # Compat coverage is only needed for non-oldest versions.
-                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' "$DJANGO_VERSIONS")
+                  compat_versions=$(jq -c --arg oldest "$oldest_supported" '[.[]] | unique | map(select(. != $oldest))' .github/clickhouse-versions.json)
                   echo "Compat versions (excluding oldest): $compat_versions"
 
                   compat_count=$(jq -r 'length' <<< "$compat_versions")
@@ -4136,6 +4098,14 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
                   token: ${{ steps.app-token.outputs.token }}
                   fetch-depth: 1
+
+            - name: Require snapshot conflict checks
+              if: steps.check-patches.outputs.has-patches == 'true'
+              run: |
+                  if ! grep -Fq 'marker: snapshot-conflict-exit' .github/actions/commit-snapshots/action.yml; then
+                      echo "::error::Rebase onto master before committing snapshots. This PR head cannot reject conflicting snapshot patches."
+                      exit 1
+                  fi
 
             - name: Commit snapshots
               if: steps.check-patches.outputs.has-patches == 'true'

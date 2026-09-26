@@ -2872,9 +2872,24 @@ export type LogsAttributesRetrieveParams = {
      */
     dateRange?: _DateRangeApi
     /**
+     * Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
      * Property filters to narrow which logs are scanned for attributes.
      */
     filterGroup?: _LogPropertyFilterApi[]
+    /**
+     * Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.
+     * @minLength 1
+     */
+    keys?: string
     /**
      * Max results (default: 100)
      * @minimum 1

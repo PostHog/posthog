@@ -17,7 +17,7 @@ import {
 import { HogFunctionType } from '../types'
 import { getConfiguredSensitiveValues, logEntry, sanitizeLogMessage } from '../utils'
 import { currentRuntimeContractHash } from './filter-runtime'
-import { classifyHogError } from './hog-error-classification'
+import { bytecodeContractOf, classifyHogError } from './hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from './hog-function-filtering'
 
 /** The inputs step of the dead-letter pipeline. Read next to cdp_hog_function_filter_error. */
@@ -124,8 +124,10 @@ export async function buildHogFunctionInvocations(
 
             hogFunctionInputsErrors.inc({
                 type: hogFunction.type,
-                // Inputs are not stamped yet, so a contract error here always reads as legacy.
-                class: classifyHogError(error, { runtimeContract: currentRuntimeContractHash() }),
+                class: classifyHogError(error, {
+                    bytecodeContract: bytecodeContractOf(error),
+                    runtimeContract: currentRuntimeContractHash(),
+                }),
             })
 
             metrics.push({

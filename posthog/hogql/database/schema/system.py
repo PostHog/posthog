@@ -1266,7 +1266,10 @@ replay_scanners: PostgresTable = PostgresTable(
     predicates=[parse_expr("origin = 'configured'")],
     description="Replay Vision scanners: standing LLM probes over session recordings; one row per saved scanner.",
     fields={
-        "id": StringDatabaseField(name="id", description="Scanner UUID."),
+        "id": UUIDDatabaseField(
+            name="id",
+            description="Scanner UUID. Cast with toString(id) to join on a string property such as scanner_id.",
+        ),
         "team_id": IntegerDatabaseField(name="team_id"),
         "origin": StringDatabaseField(name="origin", hidden=True),
         "name": StringDatabaseField(name="name", description="Scanner name, unique within the project."),

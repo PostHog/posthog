@@ -1,17 +1,27 @@
 from typing import Any
 
+import pytest
 from unittest import mock
+
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
     ShopifyAuthMethodConfig,
     ShopifySourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify import (
+    SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR,
+    SHOPIFY_CREDENTIALS_CHECK_ERROR,
+    SHOPIFY_STORE_FROZEN_ERROR,
+    SHOPIFY_STORE_NOT_FOUND_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.source import ShopifySource
 
 _TOKEN_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify._get_shopify_access_token"
 )
-_SESSION_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify.make_tracked_session"
+_SHOPIFY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.shopify.shopify"
+_SESSION_PATH = f"{_SHOPIFY_MODULE}.make_tracked_session"
 
 
 def _access_denied(message: str) -> dict[str, Any]:
@@ -153,3 +163,48 @@ def test_a_configured_access_token_authenticates_without_minting_one():
     assert (valid, error) == (True, None)
     mint.assert_not_called()
     assert session_factory.call_args.kwargs["headers"]["X-Shopify-Access-Token"] == "shpat_supplied"
+
+
+def _token_config() -> ShopifySourceConfig:
+    return ShopifySourceConfig(
+        shopify_store_id="my-store",
+        auth_method=ShopifyAuthMethodConfig(selection="access_token", shopify_access_token="shpat_supplied"),
+    )
+
+
+def _http_error_response(status_code: int, reason: str) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response.reason = reason
+    response.url = "https://my-store.myshopify.com/admin/api/2026-07/graphql.json"
+    return response
+
+
+@pytest.mark.parametrize(
+    "config,response,expected_error",
+    [
+        (_token_config(), _http_error_response(401, "Unauthorized"), SHOPIFY_ACCESS_TOKEN_REJECTED_ERROR),
+        (_config(), _http_error_response(401, "Unauthorized"), SHOPIFY_CREDENTIALS_CHECK_ERROR),
+        (_token_config(), _http_error_response(402, "Payment Required"), SHOPIFY_STORE_FROZEN_ERROR),
+        (_token_config(), _http_error_response(404, "Not Found"), SHOPIFY_STORE_NOT_FOUND_ERROR),
+        (_token_config(), _http_error_response(500, "Internal Server Error"), SHOPIFY_CREDENTIALS_CHECK_ERROR),
+        (
+            _token_config(),
+            mock.MagicMock(status_code=200, json=mock.MagicMock(return_value={"errors": "boom"})),
+            SHOPIFY_CREDENTIALS_CHECK_ERROR,
+        ),
+    ],
+)
+def test_a_failed_token_check_shows_guidance_instead_of_the_raw_error(
+    config: ShopifySourceConfig, response: Any, expected_error: str
+):
+    session = mock.MagicMock(post=mock.MagicMock(return_value=response))
+
+    with (
+        mock.patch(_TOKEN_PATH, return_value="tok"),
+        mock.patch(_SESSION_PATH, return_value=session),
+        mock.patch(f"{_SHOPIFY_MODULE}.capture_exception"),
+    ):
+        valid, error = ShopifySource().validate_credentials(config, team_id=1)
+
+    assert (valid, error) == (False, expected_error)

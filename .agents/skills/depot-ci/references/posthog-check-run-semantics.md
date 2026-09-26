@@ -75,6 +75,8 @@ In the following cancelled runs, an unstarted job received a `cancelled` check w
 
 Check times and `pull_requests` did not pick out the Depot run in these cases, so the event goes into a check name. The Depot wait job's name ends with `(PR <number>, event <pull_request.updated_at>)`, and Depot renders expressions in job names into the check name. `.github/scripts/ci_backend_relay.py` builds the same name from the GitHub run's payload, reads that check, takes the Depot workflow id from its `details_url`, and reads the gate or migration check of that workflow only. Measured 2026-09-24 on PR 105886: Depot posted check `107656013423` named `… (PR 105886, event 2026-09-24T13:33:14Z)`, and GitHub relay job `107655803961` used `EVENT_AT: 2026-09-24T13:33:14Z` and relayed a successful gate.
 
+The newest check per name tells you the verdict. It does not tell you whether the PR can merge. A cancelled run on the same head keeps its checks, and when one of them is a required check, GitHub's merge box and Trunk keep the PR blocked until that run is rerun. `/merging-prs` has the recipe.
+
 ## Depot CI CLI recipes
 
 The CLI needs ids that the GitHub API does not carry. Start from a check run's `details_url`, which encodes the workflow id and job id.
