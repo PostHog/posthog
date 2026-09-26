@@ -4,6 +4,7 @@ import {
   getCustomCloud,
   isCustomCloudHost,
   normalizeCustomCloud,
+  validateAiGatewayUrl,
 } from "./custom-cloud";
 
 describe("custom cloud", () => {
@@ -25,6 +26,15 @@ describe("custom cloud", () => {
         oauthClientId: "custom-client-id",
         gatewayUrl: "https://gateway.example.com",
       });
+    });
+
+    it("accepts plain http on an IPv6 loopback", () => {
+      expect(
+        normalizeCustomCloud({
+          url: "http://[::1]:8000",
+          oauthClientId: "local",
+        })?.url,
+      ).toBe("http://[::1]:8000");
     });
 
     it.each([
@@ -131,5 +141,69 @@ describe("custom cloud", () => {
       vi.stubEnv("POSTHOG_CUSTOM_CLOUD_URL", "");
       expect(isCustomCloudHost("https://posthog.example.com")).toBe(false);
     });
+  });
+});
+
+describe("validateAiGatewayUrl", () => {
+  afterEach(() => configureCustomCloud(null));
+
+  it.each([
+    "https://ai-gateway.us.posthog.com",
+    "https://ai-gateway.eu.posthog.com/",
+    "https://ai-gateway.dev.posthog.dev",
+    "https://AI-GATEWAY.US.POSTHOG.COM.",
+  ])("accepts %s", (raw) => {
+    expect(validateAiGatewayUrl(raw)).toBe(
+      new URL(raw).origin.replace(/\.$/, ""),
+    );
+  });
+
+  it.each([
+    "http://ai-gateway.us.posthog.com",
+    "https://evil.example",
+    "https://evilposthog.com",
+    "https://us.posthog.com",
+    "https://llm.posthog.com",
+    "https://attacker.github.io",
+    "https://ai-gateway.us.posthog.com.evil.example",
+    "https://x-ai-gateway.us.posthog.com.evil.example",
+    "https://1.2.3.4",
+    "https://ai-gateway.us.posthog.com/v1",
+    "https://ai-gateway.us.posthog.com?x=1",
+    "https://user:pw@ai-gateway.us.posthog.com",
+    "http://localhost:3308",
+    "https://127.0.0.1:3308",
+    "not a url",
+  ])("rejects %s", (raw) => {
+    expect(validateAiGatewayUrl(raw)).toBeNull();
+  });
+
+  it("accepts loopback only under the dev override", () => {
+    expect(
+      validateAiGatewayUrl("http://localhost:3308", { allowLoopback: true }),
+    ).toBe("http://localhost:3308");
+    expect(
+      validateAiGatewayUrl("http://[::1]:3308", { allowLoopback: true }),
+    ).toBe("http://[::1]:3308");
+    expect(validateAiGatewayUrl("http://[::1]:3308")).toBeNull();
+    expect(
+      validateAiGatewayUrl("https://gateway.example", { allowLoopback: true }),
+    ).toBeNull();
+  });
+
+  it.each([
+    ["https://us.posthog.com", "https://ai-gateway.dev.posthog.dev"],
+    ["https://app.dev.posthog.dev", "https://ai-gateway.us.posthog.com"],
+    ["http://localhost:8000", "https://ai-gateway.us.posthog.com"],
+  ])("refuses a gateway outside the domain of %s", (apiHost, raw) => {
+    expect(validateAiGatewayUrl(raw, { apiHost })).toBeNull();
+  });
+
+  it.each([
+    ["https://us.posthog.com", "https://ai-gateway.us.posthog.com"],
+    ["https://eu.posthog.com", "https://ai-gateway.eu.posthog.com"],
+    ["https://app.dev.posthog.dev", "https://ai-gateway.dev.posthog.dev"],
+  ])("accepts a gateway in the domain of %s", (apiHost, raw) => {
+    expect(validateAiGatewayUrl(raw, { apiHost })).toBe(raw);
   });
 });

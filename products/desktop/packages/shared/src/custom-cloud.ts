@@ -45,8 +45,12 @@ function httpUrl(value: string | undefined): string | undefined {
   return `${parsed.protocol}//${canonicalHost(parsed)}`;
 }
 
+// URL.hostname keeps the brackets on an IPv6 literal.
 function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.replace(/\.+$/, "").toLowerCase();
+  const host = hostname
+    .replace(/\.+$/, "")
+    .replace(/^\[(.*)\]$/, "$1")
+    .toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
 }
 
@@ -104,4 +108,62 @@ export function configureCustomCloud(target: CustomCloud | null): void {
 
 export function getCustomCloud(): CustomCloud | null {
   return configured ?? fromEnv();
+}
+
+/** Go ai-gateway hosts a mint or the dev override may name. */
+const AI_GATEWAY_HOSTS = new Set([
+  "ai-gateway.us.posthog.com",
+  "ai-gateway.eu.posthog.com",
+  "ai-gateway.dev.posthog.dev",
+]);
+
+function safeUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function postHogDomain(host: string): string | null {
+  return (
+    ["posthog.com", "posthog.dev"].find(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    ) ?? null
+  );
+}
+
+/**
+ * The origin of a Go gateway URL, or null unless it is a bare https origin on
+ * the ai-gateway allowlist. Loopback passes only with `allowLoopback` (the
+ * dev override). With `apiHost`, the gateway must share its PostHog domain,
+ * so a prod bearer never reaches a dev host or the reverse.
+ */
+export function validateAiGatewayUrl(
+  raw: string,
+  options: { allowLoopback?: boolean; apiHost?: string } = {},
+): string | null {
+  const parsed = safeUrl(raw.trim());
+  if (!parsed) return null;
+  if (parsed.username || parsed.password) return null;
+  if (
+    parsed.search ||
+    parsed.hash ||
+    parsed.pathname.replace(/\/+$/, "") !== ""
+  ) {
+    return null;
+  }
+  const host = parsed.hostname.replace(/\.+$/, "").toLowerCase();
+  const origin = `${parsed.protocol}//${canonicalHost(parsed)}`;
+  if (isLoopbackHost(host)) {
+    const httpish = parsed.protocol === "https:" || parsed.protocol === "http:";
+    return options.allowLoopback && httpish ? origin : null;
+  }
+  if (parsed.protocol !== "https:" || !AI_GATEWAY_HOSTS.has(host)) return null;
+  if (options.apiHost !== undefined) {
+    const api = safeUrl(options.apiHost);
+    const apiHost = api?.hostname.replace(/\.+$/, "").toLowerCase() ?? "";
+    if (postHogDomain(apiHost) !== postHogDomain(host)) return null;
+  }
+  return origin;
 }

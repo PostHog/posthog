@@ -80,6 +80,18 @@ export type GatewayLimitCause =
   | "org_limit";
 
 const MODEL_GATE_CODE_REGEX = /"code"\s*:\s*"model_gate"/;
+const AI_GATEWAY_MODEL_GATE_REGEX =
+  /\b(?:model_not_allowed|effort_not_allowed)\b/i;
+const AI_GATEWAY_ORG_LIMIT_REGEX =
+  /\b(?:cap_exceeded|token_cap_exceeded|insufficient_credits|credit_bucket_exhausted|budget_exceeded)\b/i;
+// Go writes these phrases for outages and auth failures too, so they count
+// only after the refusal's own status.
+const AI_GATEWAY_ROUTER_REFUSAL_REGEX =
+  /\b400\b[\s\S]*router rejected request/i;
+const AI_GATEWAY_ADMISSION_REFUSAL_REGEX = /\b402\b[\s\S]*admission rejected/i;
+// Anthropic-dialect bodies carry no code, only this fixed 403 text.
+const AI_GATEWAY_PIN_REFUSAL_REGEX =
+  /\b403\b[\s\S]*(?:not allowed for this credential|this credential requires an explicit reasoning effort)/i;
 const MODEL_UNAVAILABLE_REASON_REGEX = /"reason"\s*:\s*"model_not_available"/;
 
 const MODEL_GATE_PATTERNS = ["needs a paid posthog plan"] as const;
@@ -179,10 +191,57 @@ export function classifyGatewayLimitError(
   ) {
     return "model_unavailable";
   }
-  if (matchesRegex(MODEL_GATE_CODE_REGEX) || matches(MODEL_GATE_PATTERNS)) {
+  if (
+    matchesRegex(MODEL_GATE_CODE_REGEX) ||
+    matches(MODEL_GATE_PATTERNS) ||
+    matchesRegex(AI_GATEWAY_MODEL_GATE_REGEX) ||
+    matchesRegex(AI_GATEWAY_PIN_REFUSAL_REGEX) ||
+    matchesRegex(AI_GATEWAY_ROUTER_REFUSAL_REGEX)
+  ) {
     return "model_gate";
   }
-  if (matches(ORG_LIMIT_PATTERNS)) return "org_limit";
+  if (
+    matches(ORG_LIMIT_PATTERNS) ||
+    matchesRegex(AI_GATEWAY_ORG_LIMIT_REGEX) ||
+    matchesRegex(AI_GATEWAY_ADMISSION_REFUSAL_REGEX)
+  ) {
+    return "org_limit";
+  }
+  return null;
+}
+
+export function aiGatewayDenialCode(
+  denialHeader: string | null | undefined,
+  body: unknown,
+): string | undefined {
+  const fromHeader = denialHeader?.split(":")[0]?.trim();
+  if (fromHeader) return fromHeader;
+  let parsed = body;
+  if (typeof body === "string") {
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      return undefined;
+    }
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const envelope = parsed as { code?: unknown; error?: { code?: unknown } };
+  const candidate = envelope.error?.code ?? envelope.code;
+  return typeof candidate === "string" ? candidate : undefined;
+}
+
+/**
+ * Whether a fresh Go token can fix a refusal: a 401, or a 402 for the token's
+ * own cap (the org's limits are refused again after a re-mint).
+ */
+export function aiGatewayRemintReason(
+  status: number | undefined,
+  denialCode: string | undefined,
+): "unauthorized" | "token_cap_exceeded" | null {
+  if (status === 401) return "unauthorized";
+  if (status === 402 && denialCode === "token_cap_exceeded") {
+    return "token_cap_exceeded";
+  }
   return null;
 }
 

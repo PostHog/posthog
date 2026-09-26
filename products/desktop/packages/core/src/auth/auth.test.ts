@@ -452,6 +452,62 @@ describe("AuthService", () => {
     },
   );
 
+  it("applies a desktop access denial reported by another endpoint", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+
+    service.reportDesktopAccessBlocked(99, {
+      allowed: false,
+      reason: "startup_plan",
+    });
+    expect(service.getState().desktopAccess.status).not.toBe("blocked");
+    service.reportDesktopAccessBlocked(42, {
+      allowed: false,
+      reason: "startup_plan",
+    });
+
+    expect(service.getState().desktopAccess).toEqual({
+      projectId: 42,
+      status: "blocked",
+      reason: "startup_plan",
+    });
+  });
+
+  it("changes the session epoch on a sign-in over a live session only", async () => {
+    seedStoredSession({ selectedProjectId: 42 });
+    stubAuthFetch();
+    oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());
+    await service.initialize();
+    const first = service.getSessionEpoch();
+    expect(first).not.toBeNull();
+
+    await service.refreshAccessToken();
+    expect(service.getSessionEpoch()).toBe(first);
+
+    let finishFlow: (value: unknown) => void = () => undefined;
+    oauthFlow.startFlow.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishFlow = resolve;
+      }),
+    );
+    const pending = service.login("us");
+    await service.refreshAccessToken().catch(() => undefined);
+    expect(service.getSessionEpoch()).toBe(first);
+    finishFlow(mockTokenResponse());
+    await pending;
+    expect(service.getSessionEpoch()).not.toBe(first);
+    const second = service.getSessionEpoch();
+
+    oauthFlow.startFlow.mockResolvedValue(mockTokenResponse());
+    await service.login("us");
+    expect(service.getSessionEpoch()).not.toBe(second);
+
+    await service.logout();
+    expect(service.getSessionEpoch()).toBeNull();
+  });
+
   it("requires scope reauthentication when the stored scope version is stale", async () => {
     seedStoredSession({
       refreshToken: "refresh-token",

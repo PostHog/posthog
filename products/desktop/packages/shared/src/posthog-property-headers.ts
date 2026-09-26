@@ -206,3 +206,83 @@ export function buildPosthogPropertiesHeaderLines(
   const blob = buildPosthogPropertiesBlob(properties);
   return blob ? `${POSTHOG_PROPERTIES_HEADER}: ${blob}` : "";
 }
+
+/**
+ * Session id header the Go gateway reads; the blob cannot carry it because
+ * {@link buildPosthogPropertiesBlob} drops `$` keys.
+ */
+export const POSTHOG_SESSION_ID_HEADER = "X-PostHog-Session-Id";
+
+const PROPERTY_HEADER_PREFIX = "x-posthog-property-";
+
+function parsePropertiesBlob(raw: string): PosthogProperties {
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+    const properties: PosthogProperties = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        properties[key] = value;
+      }
+    }
+    return properties;
+  } catch {
+    return {};
+  }
+}
+
+export function collapsePropertyHeadersForAiGateway(
+  headers: Record<string, string>,
+  trusted: PosthogProperties,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const fromHeaders: PosthogProperties = {};
+  let fromBlob: PosthogProperties = {};
+  let sessionId: string | undefined;
+  for (const [key, value] of Object.entries(headers)) {
+    const lower = key.toLowerCase();
+    if (lower.startsWith(PROPERTY_HEADER_PREFIX)) {
+      fromHeaders[lower.slice(PROPERTY_HEADER_PREFIX.length)] = value;
+    } else if (lower === POSTHOG_PROPERTIES_HEADER.toLowerCase()) {
+      fromBlob = parsePropertiesBlob(value);
+    } else if (lower === POSTHOG_SESSION_ID_HEADER.toLowerCase()) {
+      sessionId = value;
+    } else {
+      out[key] = value;
+    }
+  }
+
+  // A client key that sanitizes to a trusted key would overwrite it inside
+  // the blob builder, so it is dropped here.
+  const trustedKeys = new Set(Object.keys(trusted).map(sanitizeHeaderValue));
+  const client = Object.fromEntries(
+    Object.entries({ ...fromBlob, ...fromHeaders }).filter(
+      ([key]) => !trustedKeys.has(sanitizeHeaderValue(key)),
+    ),
+  );
+  const merged = { ...client, ...trusted };
+  let blob = buildPosthogPropertiesBlob(merged);
+  const kept = blob ? parsePropertiesBlob(blob) : {};
+  const lostTrusted = Object.entries(trusted).some(
+    ([key, value]) =>
+      value !== null &&
+      value !== undefined &&
+      !key.startsWith("$") &&
+      !(key in kept),
+  );
+  if (lostTrusted) blob = buildPosthogPropertiesBlob(trusted);
+  if (blob) out[POSTHOG_PROPERTIES_HEADER] = blob;
+
+  const session = sessionId ?? merged.$ai_session_id;
+  if (session !== null && session !== undefined && session !== "") {
+    const value = sanitizeHeaderValue(String(session));
+    if (value) out[POSTHOG_SESSION_ID_HEADER] = value;
+  }
+  return out;
+}

@@ -188,6 +188,38 @@ describe("resolvePosthogPiModelCatalog", () => {
     },
   );
 
+  it("reads Go-shaped entries through the proxy and honours its marks", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "claude-opus-5", owned_by: "anthropic" },
+            {
+              id: "gpt-6-sol",
+              owned_by: "openai",
+              allowed: false,
+              restriction_reason: "paid_plan_required",
+            },
+          ],
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const models = await fetchPosthogPiModelCatalog(
+      "http://127.0.0.1:4100/session-token",
+      "us",
+      "posthog-code-auth-proxy",
+      42,
+    );
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "http://127.0.0.1:4100/session-token/v1/models",
+    );
+    expect(models.map((model) => model.id)).toEqual(["claude-opus-5"]);
+  });
+
   it("uses fallback models without fetching while offline", async () => {
     process.env.PI_OFFLINE = "1";
     const fetch = vi.fn();
