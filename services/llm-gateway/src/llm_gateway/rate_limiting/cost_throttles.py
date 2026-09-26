@@ -311,6 +311,7 @@ class SandboxTaskCostThrottle(CostThrottle):
     scope = "sandbox_task_cost"
 
     def _get_limit_exceeded_detail(self) -> str:
+        # The desktop agent matches this phrase (error-classification.ts) to classify a spend-limit stop.
         return "This agent run reached its spend limit"
 
     def _get_cache_key(self, context: ThrottleContext) -> str:

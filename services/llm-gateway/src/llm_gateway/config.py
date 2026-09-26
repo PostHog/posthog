@@ -100,6 +100,8 @@ DEFAULT_SANDBOX_TASK_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     # than the week-long Signals window. Accounting happens after each call, so parallel requests
     # can overshoot this threshold by their in-flight spend.
     "slack_app": ProductCostLimit(limit_usd=200.0, window_seconds=86400),
+    # Backstop for a runaway Code task whose billing quota is unset; not an authorization boundary.
+    "posthog_code": ProductCostLimit(limit_usd=500.0, window_seconds=604800),
 }
 
 _COST_LIMIT_KEY_ALIASES: dict[str, str] = {
