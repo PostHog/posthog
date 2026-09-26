@@ -28,11 +28,13 @@ function sessionUpdate(
     turnComplete = false,
     timestamp,
     text,
+    toolCalls,
     traceId,
   }: {
     turnComplete?: boolean;
     timestamp?: number;
     text?: string;
+    toolCalls?: SessionUpdateItem["turnContext"]["toolCalls"];
     traceId?: string | null;
   } = {},
 ): SessionUpdateItem {
@@ -44,7 +46,7 @@ function sessionUpdate(
       content: { type: "text", text: text ?? `text ${id}` },
     } as SessionUpdateItem["update"],
     turnContext: {
-      toolCalls: new Map(),
+      toolCalls: toolCalls ?? new Map(),
       childItems: new Map(),
       turnCancelled: false,
       turnComplete,
@@ -168,6 +170,30 @@ describe("flattenTurnRows", () => {
     ]);
     const flat = flattenTurnRows([done]);
     expect(flat.map((r) => r.turnTraceId)).toEqual([undefined, "trace-d"]);
+  });
+
+  it("carries completed turn tool calls on the last row", () => {
+    const toolCalls: SessionUpdateItem["turnContext"]["toolCalls"] = new Map([
+      [
+        "edit-1",
+        {
+          toolCallId: "edit-1",
+          title: "Edit src/app.ts",
+          kind: "edit",
+          status: "completed",
+        },
+      ],
+    ]);
+    const done = agentTurn("d", [
+      sessionUpdate("d1"),
+      sessionUpdate("d2", {
+        turnComplete: true,
+        timestamp: 1234,
+        toolCalls,
+      }),
+    ]);
+    const flat = flattenTurnRows([done]);
+    expect(flat.map((r) => r.turnToolCalls)).toEqual([undefined, toolCalls]);
   });
 
   it("carries the turn's copy text on the same row as its timestamp", () => {
