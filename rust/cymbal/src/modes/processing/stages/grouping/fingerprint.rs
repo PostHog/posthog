@@ -140,7 +140,7 @@ async fn select_automatic_fingerprint(
         if let Some(issue_id) = ctx.issue_cache.get(&cache_key).await {
             metrics::counter!(FINGERPRINT_LOOKUPS, "outcome" => "cache_hit").increment(1);
             known.insert(fingerprint.value.clone(), issue_id);
-        } else if ctx.fingerprint_miss_cache.contains_key(&cache_key) {
+        } else if ctx.fingerprint_miss_cache.get(&cache_key).await.is_some() {
             metrics::counter!(FINGERPRINT_LOOKUPS, "outcome" => "cached_miss").increment(1);
         } else {
             uncached.push(fingerprint.value.clone());
