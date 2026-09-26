@@ -35715,14 +35715,6 @@ export namespace Schemas {
       idempotent_replay: boolean;
     }
 
-    export interface EmojiSearchRequest {
-      /**
-         * Search text that had no direct emoji match.
-         * @maxLength 64
-         */
-      query: string;
-    }
-
     export interface EmojiSuggestion {
       /** The suggested emoji character. */
       emoji: string;
@@ -109380,6 +109372,15 @@ export namespace Schemas {
      * Optional substring to filter values by (case-sensitive contains match).
      */
     value?: string;
+    };
+
+    export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 1
+     * @maxLength 64
+     */
+    query: string;
     };
 
     export type EndpointsListParams = {
