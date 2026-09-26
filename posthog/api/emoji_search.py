@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.utils.cache import patch_vary_headers
 
@@ -51,7 +51,7 @@ class EmojiSearchDailyThrottle(UserRateThrottle):
     rate = "3000/day"
 
     def get_cache_key(self, request: Request, view: APIView) -> str:
-        return self.cache_format % {"scope": self.scope, "ident": view.team_id}
+        return self.cache_format % {"scope": self.scope, "ident": cast("EmojiSearchViewSet", view).team_id}
 
 
 class EmojiSearchSessionPermission(BasePermission):
