@@ -7,7 +7,15 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { API_SCOPES, DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, getScopeDescription } from 'lib/scopes'
+import { API_SCOPE_GROUPS } from 'lib/scopeGroups.generated'
+import {
+    API_SCOPES,
+    DEFAULT_OAUTH_SCOPES,
+    OTHER_SCOPE_GROUP_LABEL,
+    getMinimumEquivalentScopes,
+    getScopeDescription,
+    getScopeGroupLabel,
+} from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
@@ -58,7 +66,32 @@ export type OAuthScopeRow = {
     locked: boolean
 }
 
+export type OAuthScopeGroup = {
+    label: string
+    rows: OAuthScopeRow[]
+}
+
+// A group action clamps each row to its own floor and ceiling, so a group set to write can hold
+// read-only rows at read. The group shows a level as selected when each row is at that level
+// after the clamp. A disabled level is never selected, which removes the tie between write and
+// read in a group with no writable row, and between none and read in a group of required rows.
+export const scopeGroupAccessLevel = (rows: OAuthScopeRow[]): ScopeAccessLevel | undefined => {
+    const anyWritable = rows.some((row) => row.maxLevel === 'write')
+    const allRequired = rows.every((row) => row.minLevel !== 'none')
+    const levels: ScopeAccessLevel[] = ['write', 'read', 'none']
+    return levels.find(
+        (level) =>
+            !(level === 'write' && !anyWritable) &&
+            !(level === 'none' && allRequired) &&
+            rows.every((row) => row.value === clampAccessLevel(level, row.minLevel, row.maxLevel))
+    )
+}
+
 const WILDCARD_LABEL = 'All PostHog data'
+
+// A request with this many adjustable rows or fewer shows a flat alphabetical list. Group
+// headers only help when the list is long.
+export const SCOPE_GROUPING_MIN_ROWS = 10
 
 // Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
 // behind) — derive a readable label from the raw key.
@@ -230,7 +263,9 @@ export interface oauthAuthorizeLogicValues {
         bulk: ScopeAccessLevel | null
         overrides: Record<string, ScopeAccessLevel>
     }
+    scopeGroups: OAuthScopeGroup[]
     scopeRows: OAuthScopeRow[]
+    scopeRowsGrouped: boolean
     scopes: string[]
     scopesWereDefaulted: boolean
     selectedOrganization: string | null
@@ -321,6 +356,13 @@ export interface oauthAuthorizeLogicActions {
         level: ScopeAccessLevel
         scopeObject: string
     }
+    setScopeGroupAccess: (
+        scopeObjects: string[],
+        level: ScopeAccessLevel
+    ) => {
+        level: ScopeAccessLevel
+        scopeObjects: string[]
+    }
     setScopes: (scopes: string[]) => {
         scopes: string[]
     }
@@ -388,6 +430,8 @@ export interface oauthAuthorizeLogicMeta {
         ) => OAuthScopeRow[]
         requiredScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
         adjustableScopeRows: (scopeRows: OAuthScopeRow[]) => OAuthScopeRow[]
+        scopeRowsGrouped: (adjustableScopeRows: OAuthScopeRow[]) => boolean
+        scopeGroups: (adjustableScopeRows: OAuthScopeRow[]) => OAuthScopeGroup[]
         allScopesRequired: (scopeRows: OAuthScopeRow[]) => boolean
         showReadOnlyBulkAction: (adjustableScopeRows: OAuthScopeRow[]) => boolean
         effectiveScopes: (
@@ -414,6 +458,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
     actions({
         setScopes: (scopes: string[]) => ({ scopes }),
         setScopeAccess: (scopeObject: string, level: ScopeAccessLevel) => ({ scopeObject, level }),
+        setScopeGroupAccess: (scopeObjects: string[], level: ScopeAccessLevel) => ({ scopeObjects, level }),
         setAllScopeAccess: (level: ScopeAccessLevel) => ({ level }),
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setTeamHint: (teamId: number | null) => ({ teamId }),
@@ -528,6 +573,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setScopeAccess: (state, { scopeObject, level }) => ({
                     ...state,
                     overrides: { ...state.overrides, [scopeObject]: level },
+                }),
+                setScopeGroupAccess: (state, { scopeObjects, level }) => ({
+                    ...state,
+                    overrides: {
+                        ...state.overrides,
+                        ...Object.fromEntries(scopeObjects.map((scopeObject) => [scopeObject, level])),
+                    },
                 }),
                 setAllScopeAccess: (_, { level }) => ({ bulk: level, overrides: {} }),
                 setScopes: () => ({ bulk: null, overrides: {} }),
@@ -846,6 +898,25 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         adjustableScopeRows: [
             (s) => [s.scopeRows],
             (scopeRows: OAuthScopeRow[]): OAuthScopeRow[] => scopeRows.filter((row) => !row.locked),
+        ],
+        scopeRowsGrouped: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): boolean => adjustableScopeRows.length > SCOPE_GROUPING_MIN_ROWS,
+        ],
+        // The adjustable rows, grouped by product area in API_SCOPE_GROUPS order. An object that is
+        // not in the map goes in the "Other" group at the end, so it still shows.
+        scopeGroups: [
+            (s) => [s.adjustableScopeRows],
+            (adjustableScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => {
+                const rowsByLabel = new Map<string, OAuthScopeRow[]>()
+                for (const row of adjustableScopeRows) {
+                    const label = row.key === '*' ? OTHER_SCOPE_GROUP_LABEL : getScopeGroupLabel(row.key)
+                    rowsByLabel.set(label, [...(rowsByLabel.get(label) ?? []), row])
+                }
+                return [...API_SCOPE_GROUPS.map(({ label }) => label), OTHER_SCOPE_GROUP_LABEL]
+                    .filter((label) => rowsByLabel.has(label))
+                    .map((label) => ({ label, rows: rowsByLabel.get(label) ?? [] }))
+            },
         ],
         allScopesRequired: [
             (s) => [s.scopeRows],

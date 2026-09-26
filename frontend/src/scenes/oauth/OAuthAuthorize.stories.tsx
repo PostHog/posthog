@@ -55,6 +55,18 @@ const withPinnedSceneHeight: Decorator = function PinnedSceneHeightDecorator(Sto
     )
 }
 
+// A docked side panel leaves a 1280px window about 520px of scene. The group headers have to
+// wrap there instead of pushing their controls out of the card. The root keeps the standard
+// snapshot width, so only the scene narrows.
+const withNarrowScene: Decorator = function NarrowSceneDecorator(Story): JSX.Element {
+    return (
+        <>
+            <style>{'#storybook-root { min-width: 1280px; } .Navigation3000 { width: 520px !important; }'}</style>
+            <Story />
+        </>
+    )
+}
+
 const pushAuthorize = (scope?: string, resolvedScopes?: string[]): void => {
     const appContext = (window as any).POSTHOG_APP_CONTEXT
     appContext.oauth_scope_resolution = {
@@ -211,6 +223,21 @@ export const AccessControlsApply: Story = {
         useDelayedOnMountEffect(() =>
             pushAuthorize(
                 'openid profile email project:read feature_flag:read feature_flag:write insight:write query:read'
+            )
+        )
+        return <App />
+    },
+}
+
+export const ManyOptionalScopesNarrow: Story = {
+    decorators: [withNarrowScene, withOAuthApplication({ required_scopes: [] })],
+    render: () => {
+        useDelayedOnMountEffect(() =>
+            pushAuthorize(
+                'openid profile email user:read user:write organization:read project:read project:write ' +
+                    'feature_flag:read feature_flag:write experiment:read experiment:write insight:read ' +
+                    'insight:write dashboard:read dashboard:write query:read survey:read survey:write ' +
+                    'event_definition:read event_definition:write error_tracking:read logs:read tracing:read'
             )
         )
         return <App />
