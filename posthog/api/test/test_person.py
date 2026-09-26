@@ -1386,6 +1386,38 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert original is not None
         self.assertCountEqual(original.distinct_ids, ["a", "b"])
 
+    @parameterized.expand(
+        [
+            ("specific", ["creator-id", "other"], {"distinct_ids_to_split": ["creator-id"]}, 400, None),
+            ("keep_other", ["creator-id", "other"], {"main_distinct_id": "other"}, 400, None),
+            ("default_other_first", ["other", "creator-id"], {}, 201, "creator-id"),
+            ("keep_creator", ["creator-id", "other"], {"main_distinct_id": "creator-id"}, 201, "creator-id"),
+            ("default_creator_first", ["creator-id", "other"], {}, 201, "creator-id"),
+        ]
+    )
+    def test_split_people_preserves_creator_distinct_id(
+        self, _name, distinct_ids, payload, expected_status, kept_id
+    ) -> None:
+        person = _create_person(
+            team=self.team,
+            distinct_ids=distinct_ids,
+            uuid=uuidFromDistinctId(self.team.id, "creator-id"),
+            immediate=True,
+        )
+
+        with mock.patch("posthog.api.person.split_person.delay") as enqueue:
+            response = self.client.post(f"/api/person/{person.pk}/split/", payload)
+
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == 400:
+            self.assertIn("created this person", response.content.decode())
+            # A person:write caller must not learn a distinct ID it did not send.
+            self.assertNotIn("creator-id", response.content.decode())
+            enqueue.assert_not_called()
+        else:
+            enqueue.assert_called_once()
+            self.assertEqual(enqueue.call_args.args[2], kept_id)
+
     def test_split_people_partial_rejects_combined_with_main_distinct_id(self) -> None:
         person1 = _create_person(
             team=self.team,
