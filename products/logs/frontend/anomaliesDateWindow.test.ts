@@ -1,0 +1,114 @@
+import { dayjs } from 'lib/dayjs'
+
+import { anomaliesWindowDays, stepAnomaliesWindow, weekStartingOn } from './anomaliesDateWindow'
+
+const NOW = dayjs('2026-09-23T11:00:00Z')
+
+describe('anomaliesDateWindow', () => {
+    test.each([
+        {
+            name: 'rolling 7 days steps back one week',
+            dateRange: { date_from: '-7d', date_to: null },
+            direction: -1 as const,
+            expected: { date_from: '2026-09-09T11:00:00.000Z', date_to: '2026-09-16T11:00:00.000Z' },
+        },
+        {
+            name: 'rolling 24 hours steps back one day',
+            dateRange: { date_from: '-24h', date_to: null },
+            direction: -1 as const,
+            expected: { date_from: '2026-09-21T11:00:00.000Z', date_to: '2026-09-22T11:00:00.000Z' },
+        },
+        {
+            name: 'rolling window cannot step forward',
+            dateRange: { date_from: '-7d', date_to: null },
+            direction: 1 as const,
+            expected: null,
+        },
+        {
+            name: 'fixed week steps forward one week',
+            dateRange: { date_from: '2026-09-02T00:00:00.000Z', date_to: '2026-09-09T00:00:00.000Z' },
+            direction: 1 as const,
+            expected: { date_from: '2026-09-09T00:00:00.000Z', date_to: '2026-09-16T00:00:00.000Z' },
+        },
+        {
+            name: 'a forward step that reaches now returns to the rolling option',
+            dateRange: { date_from: '2026-09-09T11:00:00.000Z', date_to: '2026-09-16T11:00:00.000Z' },
+            direction: 1 as const,
+            expected: { date_from: '-7d', date_to: null },
+        },
+        {
+            name: 'a week whose end is capped at now keeps its full length when it steps back',
+            dateRange: { date_from: '2026-09-20T00:00:00.000Z', date_to: '2026-09-27T00:00:00.000Z' },
+            direction: -1 as const,
+            expected: { date_from: '2026-09-13T00:00:00.000Z', date_to: '2026-09-20T00:00:00.000Z' },
+        },
+        {
+            name: 'a week that already ends now cannot step forward',
+            dateRange: { date_from: '2026-09-20T00:00:00.000Z', date_to: '2026-09-27T00:00:00.000Z' },
+            direction: 1 as const,
+            expected: null,
+        },
+        {
+            name: 'a step back to one hour inside the 35 day limit is allowed',
+            dateRange: { date_from: '2026-08-26T12:00:00.000Z', date_to: '2026-09-02T12:00:00.000Z' },
+            direction: -1 as const,
+            expected: { date_from: '2026-08-19T12:00:00.000Z', date_to: '2026-08-26T12:00:00.000Z' },
+        },
+        {
+            name: 'a step back to exactly 35 days ago is refused, because the backend floors the start',
+            dateRange: { date_from: '2026-08-26T11:00:00.000Z', date_to: '2026-09-02T11:00:00.000Z' },
+            direction: -1 as const,
+            expected: null,
+        },
+        {
+            name: 'a shared link with two relative bounds steps like any other week',
+            dateRange: { date_from: '-14d', date_to: '-7d' },
+            direction: -1 as const,
+            expected: { date_from: '2026-09-02T11:00:00.000Z', date_to: '2026-09-09T11:00:00.000Z' },
+        },
+        {
+            name: 'a relative start reads from now, not from the end bound',
+            dateRange: { date_from: '-14d', date_to: '2026-09-16T11:00:00.000Z' },
+            direction: -1 as const,
+            expected: { date_from: '2026-09-02T11:00:00.000Z', date_to: '2026-09-09T11:00:00.000Z' },
+        },
+        {
+            name: 'a two day window from a saved link keeps its length when it steps into the present',
+            dateRange: { date_from: '2026-09-20T11:00:00.000Z', date_to: '2026-09-22T11:00:00.000Z' },
+            direction: 1 as const,
+            expected: { date_from: '-172800s', date_to: null },
+        },
+    ])('$name', ({ dateRange, direction, expected }) => {
+        expect(stepAnomaliesWindow(dateRange, direction, NOW)).toEqual(expected)
+    })
+
+    test.each([
+        {
+            name: 'a picked week bands the seven days it covers',
+            dateRange: { date_from: '2026-09-07T00:00:00.000Z', date_to: '2026-09-14T00:00:00.000Z' },
+            expected: { first: '2026-09-07T00:00:00.000Z', last: '2026-09-13T00:00:00.000Z' },
+        },
+        {
+            name: 'a stepped 24 hour window bands two days, not a week',
+            dateRange: { date_from: '2026-09-21T11:00:00.000Z', date_to: '2026-09-22T11:00:00.000Z' },
+            expected: { first: '2026-09-21T00:00:00.000Z', last: '2026-09-22T00:00:00.000Z' },
+        },
+        {
+            name: 'a rolling window has no band',
+            dateRange: { date_from: '-7d', date_to: null },
+            expected: null,
+        },
+    ])('$name', ({ dateRange, expected }) => {
+        const days = anomaliesWindowDays(dateRange, NOW)
+        const asDates = days && { first: dayjs(days.firstMs).toISOString(), last: dayjs(days.lastMs).toISOString() }
+        expect(asDates).toEqual(expected)
+    })
+
+    it('a picked day spans 168 hours from its midnight', () => {
+        const day = dayjs('2026-09-08T15:30:00')
+        expect(weekStartingOn(day)).toEqual({
+            date_from: day.startOf('day').toISOString(),
+            date_to: day.startOf('day').add(168, 'hour').toISOString(),
+        })
+    })
+})
