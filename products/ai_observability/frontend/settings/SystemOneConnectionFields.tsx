@@ -37,8 +37,8 @@ export function SystemOneConnectionFields(): JSX.Element {
                 />
             </div>
             <p className="text-xs text-muted">
-                Use a public HTTPS endpoint that supports the System One API. Include /v1 in the base URL if your
-                service requires it. Validation sends a short synthetic example to the selected model.
+                Enter the public HTTPS base URL, ending before /systemone. Validation sends a short synthetic example to
+                the selected model.
             </p>
         </div>
     )
