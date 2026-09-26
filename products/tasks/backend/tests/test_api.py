@@ -2853,7 +2853,7 @@ class TestTaskAPI(BaseTaskAPITest):
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
-        self._create_implementation_task_with_runs(report, run_specs, deleted=prior_deleted)
+        prior_task = self._create_implementation_task_with_runs(report, run_specs, deleted=prior_deleted)
 
         response = self._post_signal_report_task(report.id, "implementation")
 
@@ -2861,6 +2861,7 @@ class TestTaskAPI(BaseTaskAPITest):
         if expected_status == status.HTTP_429_TOO_MANY_REQUESTS:
             self.assertEqual(response.json()["code"], "signal_report_task_cap")
             self.assertIn(expected_detail, response.json()["error"])
+            self.assertEqual(response.json()["task_id"], str(prior_task.id))
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
     def test_implementation_creation_respects_an_external_claim(self):
@@ -2875,6 +2876,24 @@ class TestTaskAPI(BaseTaskAPITest):
         assignment.refresh_from_db()
         self.assertEqual(assignment.actor_agent, "test-agent")
         self.assertFalse(Task.objects.filter(title="Report task").exists())
+
+    def test_implementation_refusal_omits_a_private_claiming_task(self):
+        from products.signals.backend.models import SignalReport
+
+        report = SignalReport.objects.create(team=self.team)
+        prior_task = self._create_implementation_task_with_runs(report, [("in_progress", None)])
+        owner = self.create_organization_user("private-task-owner")
+        with team_scope(self.team.id):
+            channel = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=owner
+            )
+        prior_task.channel = channel
+        prior_task.save(update_fields=["channel"])
+
+        response = self._post_signal_report_task(report.id, "implementation")
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertNotIn("task_id", response.json())
 
     @parameterized.expand(
         [
@@ -2895,15 +2914,15 @@ class TestTaskAPI(BaseTaskAPITest):
         # Every run failed without a PR, which releases the slot for a second implementation.
         task = self._create_implementation_task_with_runs(report, [("failed", None), ("failed", None)])
         if create_second_task:
-            self.assertEqual(
-                self._post_signal_report_task(report.id, "implementation").status_code, status.HTTP_201_CREATED
-            )
+            second_response = self._post_signal_report_task(report.id, "implementation")
+            self.assertEqual(second_response.status_code, status.HTTP_201_CREATED)
 
         response = self.client.post(f"/api/projects/@current/tasks/{task.id}/run/")
 
         if expect_refused:
             self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
             self.assertEqual(response.json()["code"], "signal_report_task_cap")
+            self.assertEqual(response.json()["task_id"], second_response.json()["id"])
             mock_workflow.assert_not_called()
         else:
             self.assertNotEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

@@ -353,6 +353,9 @@ export interface inboxReportDetailLogicActions {
     } // inboxTaskKickoffLogic
     discussReportSuccess: () => {
         value: true
+    }
+    reportTaskCapRefused: () => {
+        value: true
     } // inboxTaskKickoffLogic
     cancelReportCheck: (checkId: string) => {
         checkId: string
@@ -664,7 +667,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         // Personal GitHub connection state gates the inline comment composer (comments post as the user).
         values: [personalIntegrationsLogic, ['integrations as personalIntegrations']],
         // Starting a PR task writes to the artefact log, which is where the Create PR gate reads from.
-        actions: [inboxTaskKickoffLogic, ['createPrSuccess', 'discussReportSuccess']],
+        actions: [inboxTaskKickoffLogic, ['createPrSuccess', 'discussReportSuccess', 'reportTaskCapRefused']],
     })),
 
     actions({
@@ -1697,6 +1700,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.loadReportArtefacts()
         },
         discussReportSuccess: () => {
+            actions.loadReportArtefacts()
+        },
+        reportTaskCapRefused: () => {
             actions.loadReportArtefacts()
         },
         selectPullRequest: () => {

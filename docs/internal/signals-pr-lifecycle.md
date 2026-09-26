@@ -97,3 +97,14 @@ Missing data, failed checks, and inconclusive results do not establish that the 
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.
+
+## An implementation task already holds the report
+
+An implementation task can start while a person has the report open.
+If that person then presses Implement, the API returns `429` with the code `signal_report_task_cap`.
+The response includes `task_id` only when the person can read the task that holds the report.
+This rule also applies when another task prevents a failed task from starting again.
+
+The refusal refreshes the report's task list.
+When the response includes `task_id`, the error message offers an Open run action.
+The refreshed report keeps the existing View task action for a task in progress.
