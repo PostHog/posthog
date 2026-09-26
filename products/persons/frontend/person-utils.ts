@@ -157,7 +157,9 @@ export const asLink = (person?: PersonPropType | null): string | undefined => {
     if (bestDistinctId) {
         return urls.personByDistinctId(bestDistinctId)
     }
-    return person.id ? urls.personByUUID(person.id) : undefined
+    // `person.id` is not always a UUID: the persons API and person activity rows put the numeric
+    // Postgres primary key there, and the `/persons/*` route only accepts a UUID.
+    return person.id && isUUIDLike(person.id) ? urls.personByUUID(person.id) : undefined
 }
 
 /**
