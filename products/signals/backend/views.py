@@ -4039,7 +4039,7 @@ class SignalReportViewSet(
         failure to 502 — an upstream hiccup never 500s the endpoint."""
         reference = self._resolve_report_pr_reference(report)
         if reference is None:
-            PR_GITHUB_NOT_FOUND.labels(endpoint=fetch_name, reason="no_pull_request").inc()
+            PR_GITHUB_NOT_FOUND.labels(endpoint=noun, reason="no_pull_request").inc()
             return Response(
                 {"error": "This report has no implementation pull request."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -4050,9 +4050,7 @@ class SignalReportViewSet(
         if isinstance(cached_result, dict) and key in cached_result:
             return Response({key: cached_result[key]})
 
-        github, repository, pr_number, error = self._github_for_report_pr(
-            report, reference=reference, endpoint=fetch_name
-        )
+        github, repository, pr_number, error = self._github_for_report_pr(report, reference=reference, endpoint=noun)
         if error is not None:
             return error
         assert github is not None  # `error is None` guarantees a resolved integration
@@ -4104,7 +4102,7 @@ class SignalReportViewSet(
         report: SignalReport,
         *,
         reference: tuple[str, int] | None = None,
-        endpoint: str = "pr_review_comments",
+        endpoint: str = "review_comments",
     ) -> tuple[GitHubIntegration | None, str, int, Response | None]:
         """Resolve the report's implementation PR and the GitHub integration that can read it.
 
