@@ -3,6 +3,18 @@ import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+# Claude Code checks each model switch with a max_tokens=1 message, and the agent switches models on every new session.
+MODEL_CHECK_REPLY = {
+    "id": "msg_workflow_test",
+    "type": "message",
+    "role": "assistant",
+    "model": "workflow-test",
+    "content": [{"type": "text", "text": ""}],
+    "stop_reason": "max_tokens",
+    "stop_sequence": None,
+    "usage": {"input_tokens": 1, "output_tokens": 1},
+}
+
 
 def main() -> None:
     payload = json.loads(Path("/tmp/workflow-api.json").read_text())
@@ -44,6 +56,8 @@ def main() -> None:
                 self.rfile.read(int(self.headers.get("Content-Length", "0")))
                 if self.path == f"{run_path}append_log/":
                     self.respond(200, run)
+                elif self.path.partition("?")[0].endswith("/v1/messages"):
+                    self.respond(200, MODEL_CHECK_REPLY)
                 else:
                     self.respond(404, {"detail": "Unexpected test API request"})
 
