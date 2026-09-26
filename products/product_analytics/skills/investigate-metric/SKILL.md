@@ -93,8 +93,14 @@ Widen to 3–4× the user's interval (or use `compareFilter: {"compare": true}` 
 TrendsQuery / StickinessQuery; for other kinds run two date ranges).
 Pipe the widened result through
 [`compare_to_prior_periods.py`](./scripts/compare_to_prior_periods.py) — it flags
-seasonality, partial right-edge buckets, and real anomalies. If the movement is
-normal variance, report that and stop.
+seasonality and real anomalies,
+and reports any unfinished bucket as partial instead of counting it as an anomaly.
+Pass the query tool's full JSON response,
+because the completeness check needs the bucket timestamps and the project's UTC offset from it.
+If the movement is normal variance, report that and stop.
+
+Never open an investigation on the current day or hour on its own.
+Wait for it to complete, or compare it to the same elapsed part of earlier periods.
 
 ### 2.3 Known changes in the window
 
