@@ -684,6 +684,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "etlOverview": {
+        "template": "/etl",
+        "params": [],
+        "scope": "project"
+    },
     "event": {
         "template": "/events/{id}/{timestamp}",
         "params": ["id", "timestamp"],

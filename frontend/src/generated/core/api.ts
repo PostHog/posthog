@@ -88,6 +88,8 @@ import type {
     PropertyDefinitionsListParams,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
+    SearchIntentRequestApi,
+    SearchIntentResponseApi,
     SharingConfigurationApi,
     ToolbarEntitlementsApi,
     TwoFactorStatusApi,
@@ -2543,6 +2545,27 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getTaxonomicSearchIntentClassifyCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/taxonomic_search_intent/classify/`
+}
+
+/**
+ * Guess which filter picker tab a search belongs to, so the picker can suggest or promote it.
+ * @summary Classify a filter picker search
+ */
+export const taxonomicSearchIntentClassifyCreate = async (
+    projectId: string,
+    searchIntentRequestApi: SearchIntentRequestApi,
+    options?: RequestInit
+): Promise<SearchIntentResponseApi> => {
+    return apiMutator<SearchIntentResponseApi>(getTaxonomicSearchIntentClassifyCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(searchIntentRequestApi),
     })
 }
 

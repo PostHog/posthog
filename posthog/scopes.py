@@ -420,6 +420,15 @@ def _with_read_halves(scopes: frozenset[str]) -> frozenset[str]:
     return frozenset(scopes | {scope.replace(":write", ":read") for scope in scopes if scope.endswith(":write")})
 
 
+def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str]) -> list[str]:
+    """The required scopes that the held scopes do not cover, in the order given. A `:write` scope
+    covers the matching `:read`. APIScopePermission and project secret API key issuance share this
+    rule, so an issued key cannot get a scope that the issuing credential cannot use. Callers handle
+    `*` themselves, because APIScopePermission does not let `*` reach INTERNAL scope objects."""
+    covered = _with_read_halves(frozenset(held_scopes))
+    return [scope for scope in required_scopes if scope not in covered]
+
+
 def scopes_within_ceiling(
     requested: Iterable[str],
     app_scopes: Iterable[str],

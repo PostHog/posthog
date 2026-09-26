@@ -23,6 +23,7 @@ const MARKETING_SOURCE_ICONS: Record<
         fields: [],
         caption: 'Pinterest Ads',
     },
+    AmazonAds: { name: 'AmazonAds', iconPath: '/static/services/amazon_ads.png', fields: [], caption: 'Amazon Ads' },
     AppleSearchAds: {
         name: 'AppleSearchAds',
         iconPath: '/static/services/apple_search_ads.png',
@@ -87,7 +88,11 @@ const meta: Meta<LemonMenuOverlayProps> = {
         }),
     ],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS, FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS],
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
+        ],
         docs: {
             description: {
                 component: `

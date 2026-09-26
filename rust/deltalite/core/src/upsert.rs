@@ -251,6 +251,68 @@ pub struct UpsertStats {
     /// Non-nullable columns relaxed to nullable before this upsert because the table's
     /// data (or this batch) already contains nulls in them.
     pub columns_relaxed: usize,
+    /// Wall-clock ms spent opening/refreshing the table snapshot around the upsert
+    /// (initial refresh, conflict-retry refreshes, post-commit refresh). Set by
+    /// [`crate::handle::TableHandle::upsert`]; 0 when the core `upsert` runs directly.
+    pub open_ms: u64,
+    /// Wall-clock ms spent importing the caller's source data into Arrow batches. Set
+    /// by the language binding that owns the import; 0 when unset.
+    pub ingest_ms: u64,
+    /// Wall-clock ms spent deciding (and, rarely, performing) nullability relaxation
+    /// before the upsert proper.
+    pub relax_ms: u64,
+    /// Wall-clock ms spent on post-commit checkpoint/log-cleanup maintenance. Non-zero
+    /// only on checkpoint-boundary commits.
+    pub maintenance_ms: u64,
+}
+
+/// Per-table memo for the file-stats scan in [`columns_needing_relax`], which otherwise
+/// JSON-parses every live Add action's stats on every upsert even though relaxation is
+/// almost never needed. A column verified clean stays trusted while the table advances
+/// only through this cache's own upserts: their source batches were verified null-free
+/// for that column (or it would have been relaxed) and their rewrites only copy rows
+/// out of verified-clean files. A commit this cache did not witness (a concurrent
+/// writer, a delta-rs commit-retry interleave) leaves the table on a version the cache
+/// never advanced to, so the next upsert rescans.
+#[derive(Debug, Default)]
+pub struct RelaxCache {
+    /// Table version the clean set was verified against.
+    version: Option<u64>,
+    /// Non-nullable columns whose live files showed no positive evidence of nulls.
+    clean: HashSet<String>,
+}
+
+impl RelaxCache {
+    /// True when `column` was verified clean at `version`. Drops the memo first when it
+    /// was verified against a different version.
+    fn is_verified_clean(&mut self, version: u64, column: &str) -> bool {
+        if self.version != Some(version) {
+            self.version = None;
+            self.clean.clear();
+            return false;
+        }
+        self.clean.contains(column)
+    }
+
+    /// Record that `columns` showed no evidence of nulls in the table's files at
+    /// `version`.
+    fn record_clean(&mut self, version: u64, columns: impl IntoIterator<Item = String>) {
+        if self.version != Some(version) {
+            self.clean.clear();
+        }
+        self.version = Some(version);
+        self.clean.extend(columns);
+    }
+
+    /// Carry the clean set forward onto the version this cache's own upsert just
+    /// committed. Valid only when the commit landed directly on the verified version
+    /// (`committed == verified + 1`): a bigger jump means another writer's actions are
+    /// part of the new version, so the memo stays behind and the next upsert rescans.
+    fn advance_own_commit(&mut self, committed: u64) {
+        if self.version.is_some_and(|v| committed == v + 1) {
+            self.version = Some(committed);
+        }
+    }
 }
 
 /// A file selected for rewrite, with the metadata needed to tombstone it.
@@ -476,6 +538,25 @@ impl Budgets {
 /// insert, unmatched target rows survive verbatim, and SQL NULL semantics apply to the
 /// primary keys (a NULL component never matches). The whole batch lands in ONE commit
 /// carrying `opts.commit_metadata` in flat `commitInfo`.
+pub async fn upsert(
+    table: &DeltaTable,
+    source_batches: Vec<RecordBatch>,
+    source_schema: SchemaRef,
+    opts: UpsertOptions,
+) -> Result<UpsertStats> {
+    upsert_cached(
+        table,
+        source_batches,
+        source_schema,
+        opts,
+        &mut RelaxCache::default(),
+    )
+    .await
+}
+
+/// [`upsert`] with a caller-held [`RelaxCache`], so repeated upserts through one handle
+/// skip the per-file relax scan when the table has only advanced through their own
+/// commits.
 #[instrument(
     level = "info",
     skip_all,
@@ -486,15 +567,16 @@ impl Budgets {
         version = tracing::field::Empty,
     )
 )]
-pub async fn upsert(
+pub async fn upsert_cached(
     table: &DeltaTable,
     source_batches: Vec<RecordBatch>,
     source_schema: SchemaRef,
     opts: UpsertOptions,
+    relax_cache: &mut RelaxCache,
 ) -> Result<UpsertStats> {
     let started = Instant::now();
     let strategy = opts.prune_strategy.as_str();
-    let result = upsert_with_relax(table, source_batches, source_schema, opts).await;
+    let result = upsert_with_relax(table, source_batches, source_schema, opts, relax_cache).await;
 
     // Static label values only -- no per-call allocation (rust/CLAUDE.md).
     histogram!("deltalite_upsert_duration_seconds").record(started.elapsed().as_secs_f64());
@@ -540,10 +622,22 @@ async fn upsert_with_relax(
     source_batches: Vec<RecordBatch>,
     source_schema: SchemaRef,
     opts: UpsertOptions,
+    relax_cache: &mut RelaxCache,
 ) -> Result<UpsertStats> {
-    let relax = columns_needing_relax(table, &source_batches, &source_schema).await?;
+    let relax_started = Instant::now();
+    let relax = columns_needing_relax(table, &source_batches, &source_schema, relax_cache).await?;
     if relax.is_empty() {
-        return upsert_inner(table, source_batches, source_schema, opts).await;
+        let relax_ms = relax_started.elapsed().as_millis() as u64;
+        let mut stats = upsert_inner(table, source_batches, source_schema, opts).await?;
+        stats.relax_ms = relax_ms;
+        // Our own commit added no nulls to the verified-clean columns (the source was
+        // checked above; existing rows only move between files), so the memo may follow
+        // it. `advance_own_commit` refuses any commit that did not land directly on the
+        // verified version, which is what protects against interleaved writers.
+        if let Ok(committed) = u64::try_from(stats.version) {
+            relax_cache.advance_own_commit(committed);
+        }
+        return Ok(stats);
     }
 
     relax_columns_to_nullable(table, &relax).await?;
@@ -551,8 +645,10 @@ async fn upsert_with_relax(
     // the relaxed metadata; the borrowed handle still sees the old snapshot.
     let mut fresh = table.clone();
     fresh.update_incremental(None).await?;
+    let relax_ms = relax_started.elapsed().as_millis() as u64;
     let mut stats = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
     stats.columns_relaxed = relax.len();
+    stats.relax_ms = relax_ms;
     Ok(stats)
 }
 
@@ -564,6 +660,7 @@ async fn columns_needing_relax(
     table: &DeltaTable,
     source_batches: &[RecordBatch],
     source_schema: &Schema,
+    cache: &mut RelaxCache,
 ) -> Result<Vec<String>> {
     let snapshot = table.snapshot()?;
     let non_nullable: Vec<String> = snapshot
@@ -576,6 +673,9 @@ async fn columns_needing_relax(
         return Ok(vec![]);
     }
 
+    // The source-side check always runs -- it is O(columns) and each batch is new
+    // evidence. Only the file-stats scan below is memoized.
+    let version = snapshot.version();
     let mut relax: Vec<String> = Vec::new();
     let mut unresolved: Vec<String> = Vec::new();
     for name in non_nullable {
@@ -587,7 +687,7 @@ async fn columns_needing_relax(
                     .any(|b| b.column(idx).null_count() > 0)
                 {
                     relax.push(name);
-                } else {
+                } else if !cache.is_verified_clean(version, &name) {
                     unresolved.push(name);
                 }
             }
@@ -624,6 +724,9 @@ async fn columns_needing_relax(
                 }
             }
         }
+        // Whatever survived the scan showed no evidence of nulls at this version; the
+        // next upsert through the same cache skips scanning these columns.
+        cache.record_clean(version, unresolved);
     }
 
     relax.sort();
@@ -910,7 +1013,9 @@ async fn upsert_inner(
     let commit_ms = commit_started.elapsed().as_millis() as u64;
 
     if (finalized.version() + 1) % checkpoint_interval == 0 {
+        let maintenance_started = Instant::now();
         best_effort_log_maintenance(table, finalized.version(), cleanup_enabled).await;
+        stats.maintenance_ms = maintenance_started.elapsed().as_millis() as u64;
     }
 
     stats.plan_ms = plan_ms;
@@ -1956,6 +2061,46 @@ mod tests {
         );
         assert!("join".parse::<PruneStrategy>().is_err());
         assert_eq!(PruneStrategy::default(), PruneStrategy::Probe);
+    }
+
+    // ---- RelaxCache ------------------------------------------------------------------
+
+    #[test]
+    fn relax_cache_skips_only_columns_verified_at_the_same_version() {
+        let mut cache = RelaxCache::default();
+        assert!(!cache.is_verified_clean(7, "a"));
+
+        cache.record_clean(7, vec!["a".to_string(), "b".to_string()]);
+        assert!(cache.is_verified_clean(7, "a"));
+        assert!(cache.is_verified_clean(7, "b"));
+        assert!(!cache.is_verified_clean(7, "c"));
+
+        // A different version drops the memo entirely (an unwitnessed writer may have
+        // added null-bearing files), including for previously-clean columns.
+        assert!(!cache.is_verified_clean(9, "a"));
+        assert!(!cache.is_verified_clean(7, "a"));
+    }
+
+    #[test]
+    fn relax_cache_advances_only_across_its_own_adjacent_commit() {
+        let mut cache = RelaxCache::default();
+        cache.record_clean(7, vec!["a".to_string()]);
+
+        // Own commit directly on the verified version: memo follows.
+        cache.advance_own_commit(8);
+        assert!(cache.is_verified_clean(8, "a"));
+
+        // A jump (delta-rs commit retry slotted another writer's commit underneath):
+        // memo stays behind, so the next upsert at 11 rescans.
+        cache.advance_own_commit(11);
+        assert!(!cache.is_verified_clean(11, "a"));
+    }
+
+    #[test]
+    fn relax_cache_advance_without_verification_stays_empty() {
+        let mut cache = RelaxCache::default();
+        cache.advance_own_commit(1);
+        assert!(!cache.is_verified_clean(1, "a"));
     }
 
     // ---- target_file_size resolution -------------------------------------------------

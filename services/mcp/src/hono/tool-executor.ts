@@ -6,6 +6,7 @@ import {
     buildToolResultPayload,
     estimateResponseTokens,
     isToolCallPayload,
+    toolResultAnalyticsProperties,
     type ToolResultPayload,
 } from '@/lib/build-tool-result'
 import {
@@ -75,6 +76,7 @@ interface ExecMetricState {
     innerFailure: { error: unknown } | undefined
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skillLookupMissKind: SkillLookupMissKind | undefined
+    resultEmpty: boolean
 }
 
 /**
@@ -434,6 +436,7 @@ export class ToolExecutor {
                     ...skillShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
+                    ...toolResultAnalyticsProperties(response),
                 },
                 analyticsMeta,
                 this.servedToolDescription(tool.name)
@@ -535,6 +538,7 @@ export class ToolExecutor {
             commandMeta: undefined,
             innerFailure: undefined,
             skillLookupMissKind: undefined,
+            resultEmpty: false,
         }
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
@@ -607,6 +611,8 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...execMetrics.commandMeta,
+                    ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
+                    ...toolResultAnalyticsProperties(response),
                 },
                 analyticsMeta,
                 this.servedToolDescription(execToolName())
@@ -704,6 +710,7 @@ export class ToolExecutor {
                 execMetrics.innerFailure = { error: properties.error }
             }
             execMetrics.skillLookupMissKind = properties.skill_lookup_miss_kind
+            execMetrics.resultEmpty = properties.result_empty === true
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
             // Mirror the native path: schema rejections never start a handler, so

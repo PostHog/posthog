@@ -283,6 +283,7 @@ export const productRoutes: Record<string, [string, string]> = {
         'VisualReviewSnapshotHistory',
         'visualReviewSnapshotHistory',
     ],
+    '/etl': ['PipelineOverview', 'pipelineOverview'],
     '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
@@ -1098,6 +1099,13 @@ export const productConfiguration: Record<string, any> = {
     },
     VisualReviewSnapshotOverview: { name: 'Snapshots', projectBased: true, iconType: 'visual_review' },
     VisualReviewFlakiness: { name: 'Flakiness', projectBased: true, iconType: 'visual_review' },
+    PipelineOverview: {
+        projectBased: true,
+        name: 'ETL',
+        description: 'Every source you import from and every destination you write to, with the health of each.',
+        iconType: 'data_pipeline',
+        docsHref: 'https://posthog.com/docs/data-warehouse',
+    },
     Heatmaps: {
         name: 'Heatmaps',
         projectBased: true,
@@ -1681,6 +1689,7 @@ export const productUrls = {
     visualReviewFlakiness: (repoId: string): string => `/visual_review/repos/${repoId}/flakiness`,
     visualReviewSnapshotHistory: (repoId: string, runType: string, identifier: string): string =>
         `/visual_review/repos/${repoId}/${encodeURIComponent(runType)}/snapshots/${encodeURIComponent(identifier)}`,
+    etlOverview: (): string => '/etl',
     webAnalytics: (): string => `/web`,
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
@@ -2041,6 +2050,7 @@ export type ProductTreePath =
     | 'Endpoints'
     | 'Engineering analytics'
     | 'Error tracking'
+    | 'ETL'
     | 'Evaluations'
     | 'Experiments'
     | 'Feature flags'
@@ -2263,6 +2273,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'AIObservabilityClusters',
             'AIObservabilityCluster',
         ],
+    },
+    {
+        path: 'ETL',
+        intents: [ProductKey.DATA_WAREHOUSE],
+        category: ProductItemCategory.TOOLS,
+        iconType: 'data_pipeline',
+        iconColor: ['var(--color-product-data-warehouse-light)'],
+        href: urls.etlOverview(),
+        flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
+        sceneKey: 'PipelineOverview',
+        sceneKeys: ['PipelineOverview'],
     },
     {
         path: 'Early access features',
