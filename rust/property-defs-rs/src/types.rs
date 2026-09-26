@@ -450,6 +450,12 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
         return Some(PropertyValueType::String);
     }
 
+    if key == "$mcp_protocol_version" {
+        // MCP protocol revisions are named by date ("2025-11-25") but are identifiers, and some
+        // aren't dates at all ("draft"). As DateTime they read back as midnight timestamps.
+        return Some(PropertyValueType::String);
+    }
+
     if key.starts_with("$survey_response") {
         // NB: $survey_responses are collected in an interesting way, where the first
         // response is called `$survey_response` and subsequent responses are called
