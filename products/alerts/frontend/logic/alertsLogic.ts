@@ -68,7 +68,9 @@ export interface alertsLogicActions {
         alertDestinationCounts: Record<string, number>
         payload?: AlertType[]
     }
-    loadAlerts: () => any
+    loadAlerts: () => {
+        value: true
+    }
     loadAlertsFailure: (
         error: string,
         errorObject?: any
@@ -81,13 +83,17 @@ export interface alertsLogicActions {
             count: number
             results: AlertType[]
         },
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         alertsResponse: {
             count: number
             results: AlertType[]
         }
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     removeAlertFromList: (alertId: string) => {
         alertId: string
@@ -136,6 +142,8 @@ export type alertsLogicType = MakeLogicType<alertsLogicValues, alertsLogicAction
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),
     actions({
+        // Declared so the loader's `breakpoint` parameter does not turn this into a payload action.
+        loadAlerts: true,
         setPage: (page: number) => ({ page }),
         setFilters: (filters: Partial<AlertsFilters>) => ({ filters }),
         setAlertToggling: (alertId: string, isToggling: boolean) => ({ alertId, isToggling }),
@@ -219,7 +227,7 @@ export const alertsLogic = kea<alertsLogicType>([
         alertsResponse: [
             { results: [], count: 0 } as { results: AlertType[]; count: number },
             {
-                loadAlerts: async () => {
+                loadAlerts: async (_, breakpoint) => {
                     const search = values.filters.search.trim()
 
                     const response = await api.alerts.list(undefined, {
@@ -228,6 +236,9 @@ export const alertsLogic = kea<alertsLogicType>([
                         ...(search ? { search } : {}),
                         ...(values.filters.createdBy !== 'All users' ? { created_by: values.filters.createdBy } : {}),
                     })
+                    // The user may have left the tab during the request; this aborts the stale
+                    // continuation so it does not read a store path that is already gone.
+                    breakpoint()
                     const results = response.results.filter((alert) => !values.deletedAlertIds.has(alert.id))
                     return {
                         results,
