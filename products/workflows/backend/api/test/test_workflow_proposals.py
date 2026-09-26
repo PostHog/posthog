@@ -14,6 +14,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.workflows.backend.api.hog_flow import DRAFT_CONTENT_FIELDS
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_optimisation import HogFlowOptimisation
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
@@ -46,6 +47,12 @@ class TestWorkflowProposals(APIBaseTest):
         super().setUp()
         sync_template_to_db(webhook_template)
 
+    def _optimise(self, flow_id: str) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": True}, format="json"
+        )
+        assert response.status_code == 200, response.json()
+
     def _create_active_flow(self) -> str:
         create = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows",
@@ -55,6 +62,7 @@ class TestWorkflowProposals(APIBaseTest):
         flow_id = create.json()["id"]
         activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
         assert activate.status_code == 200, activate.json()
+        self._optimise(flow_id)
         return flow_id
 
     def _propose(self, flow_id: str, **overrides) -> dict:
@@ -372,6 +380,140 @@ class TestWorkflowProposals(APIBaseTest):
         assert draft is not None
         assert draft["exit_condition"] == "exit_only_at_end"
         assert {action["name"] for action in draft["actions"]} >= {"renamed"}
+
+    def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": False}, format="json"
+        )
+
+        refused = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "x",
+                "rationale": "y",
+                "content": {"actions": [_trigger_action(), _webhook_action()]},
+                "evidence": {
+                    "metric": "email open rate",
+                    "current_value": 0.1,
+                    "unit": "rate",
+                    "n": 100,
+                    "guardrails": [],
+                },
+                "base_version": 1,
+            },
+            format="json",
+        )
+        assert refused.status_code == 409, refused.json()
+        assert refused.json()["code"] == "workflow_not_optimised"
+        assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
+
+    def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": True}, format="json"
+        )
+        first = self._propose(flow_id, source_id="run-1")
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": False}, format="json"
+        )
+
+        again = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Point the webhook somewhere that answers",
+                "rationale": "The same finding, sent again after a failed response.",
+                "content": {"actions": [_trigger_action(), _webhook_action(url="https://proposed.example.com")]},
+                "evidence": {
+                    "metric": "failure rate",
+                    "current_value": 1.0,
+                    "unit": "rate",
+                    "n": 240,
+                    "guardrails": [],
+                },
+                "base_version": 1,
+                "source_id": "run-1",
+            },
+            format="json",
+        )
+        assert again.status_code == 200, again.json()
+        assert again.json()["id"] == first["id"]
+        assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
+
+    def test_two_first_time_enables_do_not_collide(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        HogFlowOptimisation.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).delete()
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation"
+
+        # The second request stands in for one that read "no row" before the first one wrote.
+        first = self.client.post(url, {"enabled": True}, format="json")
+        second = self.client.post(url, {"enabled": True}, format="json")
+
+        assert (first.status_code, second.status_code) == (200, 200), second.json()
+        assert HogFlowOptimisation.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
+
+    def test_turning_the_workflow_off_keeps_the_suggestions_already_made(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+
+        off = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation", {"enabled": False}, format="json"
+        )
+        assert off.status_code == 200, off.json()
+        assert off.json()["enabled"] is False
+        assert HogFlowOptimisation.objects.for_team(self.team.id).get(hog_flow_id=flow_id).enabled is False
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=suggested")
+        assert listed.status_code == 200, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [proposal["id"]]
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", {}
+        )
+        assert rejected.status_code == 200, rejected.json()
+
+    def test_the_toggle_lands_in_the_workflow_history(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation"
+        self.client.post(url, {"enabled": False}, format="json")
+        self.client.post(url, {"enabled": False}, format="json")
+
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id).order_by("created_at")
+        activities = [entry.activity for entry in entries]
+        assert activities.count("optimisation_enabled") == 1
+        assert activities.count("optimisation_disabled") == 1, "a repeat of the same state logs nothing"
+        disabled_entry = entries.filter(activity="optimisation_disabled").first()
+        assert disabled_entry is not None
+        assert disabled_entry.user == self.user
+
+    def test_turning_it_back_on_reuses_the_row(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimisation"
+        self.client.post(url, {"enabled": False}, format="json")
+
+        back_on = self.client.post(url, {"enabled": True}, format="json")
+
+        assert back_on.status_code == 200, back_on.json()
+        assert back_on.json()["enabled"] is True
+        rows = HogFlowOptimisation.objects.for_team(self.team.id).filter(hog_flow_id=flow_id)
+        assert rows.count() == 1
+        row = rows.first()
+        assert row is not None
+        assert row.enabled is True
+
+    def test_the_list_can_be_narrowed_to_workflows_with_suggestions_on(self, _mock_flag):
+        opted_in = self._create_active_flow()
+        untouched = self._create_active_flow()
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{untouched}/optimisation", {"enabled": False}, format="json"
+        )
+
+        archived = self._create_active_flow()
+        self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{archived}", {"status": "archived"})
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows?optimisation_enabled=true")
+
+        assert listed.status_code == 200, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [opted_in]
 
     def test_repeat_source_id_returns_the_same_proposal(self, _mock_flag):
         flow_id = self._create_active_flow()

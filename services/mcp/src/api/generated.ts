@@ -50078,6 +50078,11 @@ export namespace Schemas {
       readonly user_access_level: string | null;
     }
 
+    export interface HogFlowOptimisation {
+      /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+      enabled: boolean;
+    }
+
     export interface HogFlowPublishImpactMoveTarget {
       /** Id of the surviving step runs will continue at. */
       action_id: string;
@@ -112008,6 +112013,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Only workflows someone turned suggestions on for.
+     */
+    optimisation_enabled?: boolean;
     /**
      * Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.
      */
