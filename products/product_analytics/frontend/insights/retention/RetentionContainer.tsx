@@ -47,7 +47,7 @@ export function RetentionContainer({
             )}
             {showLineGraph && showTable ? <LemonDivider /> : null}
             {showTable && (
-                <div className="RetentionContainer__table overflow-x-auto">
+                <div className="RetentionContainer__table">
                     <RetentionTable inSharedMode={inSharedMode} embedded={embedded} />
                 </div>
             )}
