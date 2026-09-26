@@ -1466,6 +1466,25 @@ class TestStateDualWrite:
             assert (await _batch_state(conn, sibling))[0] == "failed"
         assert (await _batch_state(conn, current))[0] == "pending"
 
+    @pytest.mark.parametrize("spare,expected_state", [(True, "pending"), (False, "failed")])
+    @pytest.mark.asyncio
+    async def test_supersede_can_drop_the_progress_guard(self, conn, sync_conn, spare, expected_state):
+        # A fresh full_refresh overwrites the table on its batch 0, so an older run's loaded rows
+        # are discarded no matter what. Sparing it there only leaves its batches draining through
+        # the serial per-(team, schema) gate to write data that is already gone.
+        signal = await _insert_batch(conn, batch_index=0, run_uuid="run-old", job_id="job-dw")
+        sibling = await _insert_batch(conn, batch_index=1, run_uuid="run-old", job_id="job-dw")
+        current = await _insert_batch(conn, batch_index=0, run_uuid="run-new", job_id="job-dw")
+        await _write_backdated_status(conn, batch_id=signal, job_state="succeeded", age_seconds=60)
+
+        superseded = BatchQueue.supersede_other_runs(
+            sync_conn, job_id="job-dw", current_run_uuid="run-new", spare_runs_with_progress=spare
+        )
+
+        assert (superseded == 0) is spare
+        assert (await _batch_state(conn, sibling))[0] == expected_state
+        assert (await _batch_state(conn, current))[0] == "pending"
+
     @pytest.mark.asyncio
     async def test_supersede_judges_progress_per_run(self, conn, sync_conn):
         # One live run must not shield a stalled sibling run of the same job.
