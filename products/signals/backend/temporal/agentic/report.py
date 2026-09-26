@@ -30,7 +30,10 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
-from products.signals.backend.report_content_gates import team_report_metrics_enabled
+from products.signals.backend.report_content_gates import (
+    team_expected_impact_authoring_enabled,
+    team_report_metrics_enabled,
+)
 from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
@@ -51,7 +54,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_unresolved,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
+from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
@@ -500,7 +503,13 @@ def _resolve_report_charts_payload(
 
 
 def _resolve_report_metrics_payload(
-    metrics: list[ReportMetric], metrics_enabled: bool, *, report_id: str, team_id: int
+    metrics: list[ReportMetric],
+    metrics_enabled: bool,
+    *,
+    expected_impact_authoring_enabled: bool = False,
+    previous_metrics: list[ReportMetric] | None = None,
+    report_id: str,
+    team_id: int,
 ) -> list[dict[str, Any]] | None:
     """Resolve authored metrics using their own rollout and replace/clear/preserve semantics."""
     if not metrics_enabled:
@@ -517,6 +526,28 @@ def _resolve_report_metrics_payload(
             metric_count=len(metrics),
         )
         return []
+    if not expected_impact_authoring_enabled:
+        previous_by_id = {metric.metric_id: metric for metric in previous_metrics or []}
+        sanitized_metrics = []
+        for metric in metrics:
+            previous = previous_by_id.get(metric.metric_id)
+            same_measure = (
+                previous is not None
+                and previous.query == metric.query
+                and previous.kind == metric.kind
+                and previous.value_format == metric.value_format
+                and previous.unit == metric.unit
+            )
+            retained_goal = previous if same_measure else None
+            sanitized_metrics.append(
+                metric.model_copy(
+                    update={
+                        field_name: getattr(retained_goal, field_name) if retained_goal else None
+                        for field_name in REPORT_METRIC_GOAL_FIELDS
+                    }
+                )
+            )
+        metrics = sanitized_metrics
     return [metric.model_dump(mode="json") for metric in metrics]
 
 
@@ -764,6 +795,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
                 input.team_id
             )
+            expected_impact_authoring_enabled = metrics_enabled and await database_sync_to_async(
+                team_expected_impact_authoring_enabled, thread_sensitive=False
+            )(input.team_id)
             # An `agent` check needs a scout fleet to dispatch it. A team with none degrades to
             # deterministic checks rather than storing a check that could never run.
             agent_checks_enabled = await database_sync_to_async(_team_runs_scouts, thread_sensitive=False)(
@@ -801,6 +835,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 metrics_enabled=metrics_enabled,
+                expected_impact_authoring_enabled=expected_impact_authoring_enabled,
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
             )
@@ -819,7 +854,12 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         # not-actionable reset or a failed run, which don't write the new prose).
         charts_payload = _resolve_report_charts_payload(result.charts, report_id=input.report_id, team_id=input.team_id)
         metrics_payload = _resolve_report_metrics_payload(
-            result.metrics, metrics_enabled, report_id=input.report_id, team_id=input.team_id
+            result.metrics,
+            metrics_enabled,
+            expected_impact_authoring_enabled=expected_impact_authoring_enabled,
+            previous_metrics=previous_research.metrics if previous_research else None,
+            report_id=input.report_id,
+            team_id=input.team_id,
         )
         logger.info(
             "signals agentic report completed",

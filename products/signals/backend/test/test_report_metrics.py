@@ -74,6 +74,58 @@ class TestReportMetric(SimpleTestCase):
 
         assert metric.value == 0
 
+    def test_proposed_goal_is_informational_and_round_trips(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content.update(goal_value=0, goal_direction="at_most", decision_window_days=7, minimum_data_points=30)
+
+        metric = ReportMetric.model_validate(content)
+
+        assert metric.goal_value == 0
+        assert ReportMetric.model_validate_json(metric.model_dump_json()) == metric
+
+    def test_proposed_goal_requires_direction_and_decision_rule(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content.update(goal_value=10, goal_direction="at_most")
+
+        with self.assertRaisesRegex(ValidationError, "suggested decision window"):
+            ReportMetric.model_validate(content)
+
+        content["decision_window_days"] = 7
+        content["goal_direction"] = None
+        with self.assertRaisesRegex(ValidationError, "goal_value and goal_direction"):
+            ReportMetric.model_validate(content)
+
+    def test_proposed_goal_rejects_boolean_values(self) -> None:
+        for field_name in ("goal_value", "decision_window_days", "minimum_data_points"):
+            for boolean in (True, False):
+                content = _affected_users_metric().model_dump(mode="json")
+                content.update(goal_value=10, goal_direction="at_most", decision_window_days=7)
+                content[field_name] = boolean
+                with self.subTest(field_name=field_name, value=boolean):
+                    with self.assertRaisesRegex(ValidationError, "must be a number, not a boolean"):
+                        ReportMetric.model_validate(content)
+
+    def test_proposed_duration_goal_rejects_negative_values(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content.update(
+            kind="duration",
+            value_format="duration",
+            unit="ms",
+            goal_value=-1,
+            goal_direction="at_most",
+            decision_window_days=7,
+        )
+
+        with self.assertRaisesRegex(ValidationError, "duration goal must be non-negative"):
+            ReportMetric.model_validate(content)
+
+    def test_rejects_fractional_count_goal(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content.update(goal_value=1.5, goal_direction="at_most", decision_window_days=3)
+
+        with self.assertRaisesRegex(ValidationError, "count goal"):
+            ReportMetric.model_validate(content)
+
     def test_rejects_fractional_or_negative_count_snapshots(self) -> None:
         for value in (-1, 1.5):
             content = _affected_users_metric().model_dump(mode="json")

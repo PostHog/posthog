@@ -358,6 +358,9 @@ class ReportMetricComparison(BaseModel):
         return normalized
 
 
+REPORT_METRIC_GOAL_FIELDS = ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
+
+
 class ReportMetric(BaseModel):
     """One impact measurement backed by a bounded live Trends query.
 
@@ -430,6 +433,26 @@ class ReportMetric(BaseModel):
         default=None,
         description="Legacy authoring field, not exposed as a live comparison.",
     )
+    goal_value: float | None = Field(
+        default=None,
+        description="Proposed threshold for this metric after a change ships; informational only, not a scheduled check.",
+    )
+    goal_direction: Literal["at_most", "at_least"] | None = Field(
+        default=None,
+        description="Whether success means reaching or going below/above goal_value.",
+    )
+    decision_window_days: int | None = Field(
+        default=None,
+        ge=1,
+        le=30,
+        description="Suggested number of days after release to assess the goal, not an automatic monitoring schedule.",
+    )
+    minimum_data_points: int | None = Field(
+        default=None,
+        ge=1,
+        le=1000,
+        description="Optional minimum qualifying observations for the suggested decision window.",
+    )
 
     @field_validator("metric_id")
     @classmethod
@@ -445,12 +468,11 @@ class ReportMetric(BaseModel):
             raise ValueError(f"must not exceed {MAX_METRIC_TITLE_LENGTH} characters")
         return value
 
-    @field_validator("value", mode="before")
+    @field_validator("value", "goal_value", "decision_window_days", "minimum_data_points", mode="before")
     @classmethod
     def value_must_not_be_a_boolean(cls, value: object) -> object:
-        # Pydantic's lax mode coerces a JSON boolean into a float (`true` becomes 1.0, `false`
-        # becomes 0.0), which would store a bogus snapshot that clears the finite, count, and rate
-        # guards below. A snapshot value is never a boolean, so reject it before that coercion runs.
+        # Pydantic's lax mode coerces a JSON boolean into a number (`true` becomes 1, `false`
+        # becomes 0), which would store a bogus measurement that clears the numeric guards below.
         if isinstance(value, bool):
             raise ValueError("must be a number, not a boolean")
         return value
@@ -538,6 +560,19 @@ class ReportMetric(BaseModel):
 
     @model_validator(mode="after")
     def measurement_must_be_available_and_consistent(self) -> ReportMetric:
+        if (self.goal_value is None) != (self.goal_direction is None):
+            raise ValueError("goal_value and goal_direction must be provided together")
+        if self.goal_value is not None and not math.isfinite(self.goal_value):
+            raise ValueError("goal_value must be finite")
+        if self.goal_value is not None and self.decision_window_days is None and self.minimum_data_points is None:
+            raise ValueError("a goal requires a suggested decision window or minimum data points")
+        if self.goal_value is not None and self.value_format == "count":
+            if self.goal_value < 0 or not self.goal_value.is_integer():
+                raise ValueError("a count goal must be a non-negative whole number")
+        if self.goal_value is not None and self.kind in {"conversion_rate", "error_rate"}:
+            upper_bound = 1 if self.value_format == "percentage_scaled" else 100
+            if not 0 <= self.goal_value <= upper_bound:
+                raise ValueError(f"a rate goal must be between 0 and {upper_bound}")
         if (self.value is None) != (self.value_at is None):
             raise ValueError("value and value_at must be provided together")
         self._drop_a_snapshot_measured_in_the_future()
@@ -583,6 +618,8 @@ class ReportMetric(BaseModel):
                 raise ValueError("a duration metric must use duration formatting")
             if self.unit not in {"ms", "s"}:
                 raise ValueError("a duration metric must use `ms` or `s` as its unit")
+            if self.goal_value is not None and self.goal_value < 0:
+                raise ValueError("a duration goal must be non-negative")
             if self.value is not None and self.value < 0:
                 raise ValueError("a duration snapshot must be non-negative")
             if self.comparison is not None and self.comparison.value < 0:

@@ -35,6 +35,7 @@ from products.signals.backend.report_metrics import (
     MAX_LIVE_METRIC_WINDOW_DAYS,
     MAX_METRIC_SERIES_POINTS,
     MAX_REPORT_METRICS,
+    REPORT_METRIC_GOAL_FIELDS,
     ReportMetric,
 )
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, ImplementationResearchContext
@@ -159,6 +160,37 @@ Hard rules:
                 logger.warning(
                     "presentation: dropped chart at index %d that did not validate (%s)", index, _rejection_reason(e)
                 )
+        return kept
+
+    @field_validator("metrics", mode="before")
+    @classmethod
+    def clear_goals_that_do_not_validate(cls, v: object) -> object:
+        # A goal is an optional proposal on a metric that is otherwise valid. Without this, a bad
+        # threshold or a missing decision rule fails the whole presentation step, and the run ends
+        # with no report. A metric that validates without its goal keeps its measurement. A metric
+        # that fails for any other reason still fails the response.
+        if not isinstance(v, list):
+            return v
+        kept: list[object] = []
+        for index, entry in enumerate(v):
+            if not isinstance(entry, dict) or all(entry.get(field) is None for field in REPORT_METRIC_GOAL_FIELDS):
+                kept.append(entry)
+                continue
+            try:
+                kept.append(ReportMetric.model_validate(entry))
+                continue
+            except Exception as e:
+                reason = _rejection_reason(e)
+            try:
+                kept.append(
+                    ReportMetric.model_validate(
+                        {key: value for key, value in entry.items() if key not in REPORT_METRIC_GOAL_FIELDS}
+                    )
+                )
+            except Exception:
+                kept.append(entry)
+                continue
+            logger.warning("presentation: cleared goal on metric at index %d that did not validate (%s)", index, reason)
         return kept
 
     @field_validator("title", "summary")
@@ -595,12 +627,20 @@ Put reproducible report-level measurements under `metrics`. A metric tells the r
 - **At most {MAX_REPORT_METRICS} metrics per report.** Prefer the handful that changes a decision. `metrics` replaces the previous set with the new title and summary, so repeat any still-valid metric on re-research. Snapshot-only or queryless rows are legacy or malformed, are always redacted, and must not be re-sent.
 """
 
+_EXPECTED_IMPACT_GUIDANCE = """## Proposed impact measurement
 
-def _render_previous_metrics_context(previous_metrics: list[ReportMetric]) -> str:
+When the solution has an Expected impact section and the research supports it, give one live metric that directly measures the intended change a `goal_value` and `goal_direction` (`at_most` or `at_least`). Suggest `decision_window_days` (1–30) or `minimum_data_points` (1–1000), or both, based on the observed traffic and how often the underlying event occurs. Count qualifying opportunities, not failures, as data points: a zero-failure goal cannot require failures to occur. Prefer a short useful window over waiting for certainty. State the baseline and intended outcome in the Expected impact prose. The goal is a proposal, not a scheduled check or a statistical confidence claim. If the metric cannot observe the intended outcome, or no credible threshold or traffic estimate exists, omit the goal rather than invent one. Keep an existing valid goal on re-research unless evidence changes it.
+"""
+
+
+def _render_previous_metrics_context(previous_metrics: list[ReportMetric], *, include_goals: bool = True) -> str:
     if not previous_metrics:
         return ""
+    excluded_fields = {"comparison"}
+    if not include_goals:
+        excluded_fields.update(REPORT_METRIC_GOAL_FIELDS)
     rendered = json.dumps(
-        [metric.model_dump(mode="json", exclude={"comparison"}) for metric in previous_metrics], indent=2
+        [metric.model_dump(mode="json", exclude=excluded_fields) for metric in previous_metrics], indent=2
     )
     return (
         "## Impact metrics this report already shows\n\n"
@@ -928,19 +968,28 @@ def build_report_presentation_prompt(
     previous_charts: list[ReportChart] | None = None,
     previous_metrics: list[ReportMetric] | None = None,
     metrics_enabled: bool = False,
+    expected_impact_authoring_enabled: bool = False,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
     if not metrics_enabled:
         schema_dict.get("properties", {}).pop("metrics", None)
         schema_dict.get("$defs", {}).pop("ReportMetric", None)
         schema_dict.get("$defs", {}).pop("ReportMetricComparison", None)
+    elif not expected_impact_authoring_enabled:
+        metric_properties = schema_dict["$defs"]["ReportMetric"]["properties"]
+        for field_name in REPORT_METRIC_GOAL_FIELDS:
+            metric_properties.pop(field_name, None)
     schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 
     visual_sections: list[str] = []
     if metrics_enabled:
         visual_sections.append(_REPORT_METRICS_GUIDANCE)
-        previous_metrics_context = _render_previous_metrics_context(previous_metrics or [])
+        if expected_impact_authoring_enabled:
+            visual_sections.append(_EXPECTED_IMPACT_GUIDANCE)
+        previous_metrics_context = _render_previous_metrics_context(
+            previous_metrics or [], include_goals=expected_impact_authoring_enabled
+        )
         if previous_metrics_context:
             visual_sections.append(previous_metrics_context)
     visual_sections.append(_REPORT_CHARTS_GUIDANCE)
@@ -1095,6 +1144,7 @@ async def run_multi_turn_research(
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
     metrics_enabled: bool = False,
+    expected_impact_authoring_enabled: bool = False,
     agent_checks_enabled: bool = False,
     steering_section: str = "",
     implementation_context: ImplementationResearchContext = NO_IMPLEMENTATION_CONTEXT,
@@ -1266,6 +1316,7 @@ async def run_multi_turn_research(
             previous_charts=previous_report_research.charts if previous_report_research else None,
             previous_metrics=previous_report_research.metrics if previous_report_research else None,
             metrics_enabled=metrics_enabled,
+            expected_impact_authoring_enabled=expected_impact_authoring_enabled,
         )
         presentation_result = await session.send_followup(
             presentation_prompt,

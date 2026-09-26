@@ -211,6 +211,42 @@ def _make_chart() -> ReportChart:
 
 
 class TestBuildReportPresentationPrompt:
+    def test_proposed_impact_guidance_only_appears_with_both_flags(self):
+        off = build_report_presentation_prompt(2, metrics_enabled=True)
+        no_metrics = build_report_presentation_prompt(2, expected_impact_authoring_enabled=True)
+        on = build_report_presentation_prompt(2, metrics_enabled=True, expected_impact_authoring_enabled=True)
+
+        assert "## Proposed impact measurement" not in off
+        assert "## Proposed impact measurement" not in no_metrics
+        assert "## Proposed impact measurement" in on
+        assert '"goal_value"' not in off
+        assert '"goal_value"' not in no_metrics
+        assert '"goal_value"' in on
+        assert "Count qualifying opportunities, not failures" in on
+
+    def test_previous_goal_is_hidden_when_authoring_is_disabled(self):
+        metric = ReportMetric.model_validate(
+            {
+                "metric_id": "affected-users",
+                "title": "Affected users",
+                "kind": "affected_users",
+                "value_format": "count",
+                "unit": "users",
+                "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}]),
+                "goal_value": 5,
+                "goal_direction": "at_most",
+                "decision_window_days": 7,
+            }
+        )
+
+        off = build_report_presentation_prompt(2, metrics_enabled=True, previous_metrics=[metric])
+        on = build_report_presentation_prompt(
+            2, metrics_enabled=True, expected_impact_authoring_enabled=True, previous_metrics=[metric]
+        )
+
+        assert '"goal_value"' not in off
+        assert '"goal_value"' in on
+
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)
         on = build_report_presentation_prompt(2, metrics_enabled=True)
@@ -344,6 +380,44 @@ class TestReportPresentationOutputCharts:
 
         assert parsed.charts == []
         assert parsed.summary == "Signups fell 60% over the week."
+
+
+class TestReportPresentationOutputMetrics:
+    @pytest.mark.parametrize(
+        "goal, goal_kept",
+        [
+            ({"goal_value": 0.01, "goal_direction": "at_most", "decision_window_days": 7}, True),
+            ({"goal_value": 0.01, "goal_direction": "at_most"}, False),
+            ({"goal_direction": "at_most", "decision_window_days": 7}, False),
+            ({"goal_value": 5, "goal_direction": "at_most", "minimum_data_points": 100}, False),
+        ],
+    )
+    def test_an_invalid_goal_is_cleared_without_failing_the_response(self, goal, goal_kept):
+        query = trends_metric_query(series=[{"kind": "EventsNode", "event": "checkout_failed"}])
+        query["source"]["trendsFilter"] = {"aggregationAxisFormat": "percentage_scaled"}
+        parsed = ReportPresentationOutput.model_validate(
+            {
+                "title": "fix(checkout): Handle the payment timeout",
+                "summary": "Checkout errors rose over the week.",
+                "metrics": [
+                    {
+                        "metric_id": "checkout-error-rate",
+                        "title": "Checkout attempts that fail",
+                        "kind": "error_rate",
+                        "role": "primary",
+                        "value_format": "percentage_scaled",
+                        "query": query,
+                        **goal,
+                    }
+                ],
+            }
+        )
+
+        assert parsed.title == "fix(checkout): Handle the payment timeout"
+        assert [metric.metric_id for metric in parsed.metrics] == ["checkout-error-rate"]
+        assert {field: getattr(parsed.metrics[0], field) for field in goal} == (
+            goal if goal_kept else dict.fromkeys(goal)
+        )
 
 
 class TestOwnPullRequestCarveOut:
