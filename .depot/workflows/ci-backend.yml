@@ -1002,7 +1002,7 @@ jobs:
               if: steps.schema-cache.outputs.cache-matched-key == ''
               uses: ./.depot/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
             - name: Install uv
               id: setup-uv
@@ -1158,7 +1158,7 @@ jobs:
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # Needs pnpm from the step above.
             - name: Install turbo
@@ -1546,7 +1546,7 @@ jobs:
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             - name: Install uv
               uses: ./.depot/actions/setup-uv
@@ -1675,7 +1675,7 @@ jobs:
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.app-token.outputs.token || github.token }}
             - name: Install uv
               uses: ./.depot/actions/setup-uv
@@ -1757,7 +1757,7 @@ jobs:
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # Direct install: The job later checks out the PR head, which may predate the local action, so its post step would fail.
             - name: Install uv
@@ -2218,7 +2218,7 @@ jobs:
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
-                  python-version: 3.13.13
+                  python-version: 3.14.7
                   token: ${{ steps.setup-gh-token.outputs.token || github.token }}
             # Direct install: Generated changes target the PR head, which may predate the local action.
             - name: Install uv
@@ -2485,7 +2485,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2498,7 +2498,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2513,7 +2513,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2526,7 +2526,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2541,7 +2541,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2554,7 +2554,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $n,
                           group: .,
@@ -2576,7 +2576,7 @@ jobs:
                                   segment: "Core",
                                   "person-on-events": false,
                                   "new-events-schema": false,
-                                  "python-version": "3.13.13",
+                                  "python-version": "3.14.7",
                                   concurrency: 1,
                                   group: 1,
                                   compat: true,
@@ -2625,7 +2625,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2639,7 +2639,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2653,7 +2653,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2667,7 +2667,7 @@ jobs:
                           segment: "Core",
                           "person-on-events": true,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2681,7 +2681,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": false,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2695,7 +2695,7 @@ jobs:
                           segment: "Temporal",
                           "person-on-events": false,
                           "new-events-schema": true,
-                          "python-version": "3.13.13",
+                          "python-version": "3.14.7",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
                           group: .,
@@ -2713,7 +2713,7 @@ jobs:
                               segment: "Core",
                               "person-on-events": false,
                               "new-events-schema": false,
-                              "python-version": "3.13.13",
+                              "python-version": "3.14.7",
                               compat: true,
                               artifact_key: ("compat-" + ((.key + 1)|tostring))
                             }
