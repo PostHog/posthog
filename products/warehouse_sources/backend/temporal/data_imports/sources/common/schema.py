@@ -47,6 +47,10 @@ class SourceSchema:
     should_sync_default: bool = True
     label: str | None = None
     detected_primary_keys: list[str] | None = None
+    # True when `detected_primary_keys` is a guess the shared SQL base made rather than a key
+    # the source declared. An incremental sync merges on that key, so a wrong guess fails every
+    # run; `build_default_sync_settings` declines to default such a table to incremental.
+    primary_keys_inferred: bool = False
     rls_warning: str | None = None
     # Per-source default for the incremental overlap re-read window, applied at schema
     # creation when the caller doesn't set one. Sources whose recent rows get restated
@@ -95,13 +99,16 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
 def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     """Default sync settings for one discovered table.
 
-    Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
-    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never picks ``cdc``
-    or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
-    explicit opt-in.
+    Picks ``incremental`` when the source supports it, a tracking column exists (cheapest
+    ongoing sync), and the table's primary key was declared rather than inferred, else
+    ``append`` when supported, else ``full_refresh``. Never picks ``cdc`` or ``webhook`` —
+    both need prerequisites (Postgres setup, webhook registration) and explicit opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
-    if source_schema.supports_incremental and chosen is not None:
+    # An inferred key is a guess, and incremental merges rows on it, so a guess that isn't unique
+    # fails on every run. Let such a table fall through to append, which merges nothing and needs
+    # no key. A key the source actually declared still selects incremental.
+    if source_schema.supports_incremental and chosen is not None and not source_schema.primary_keys_inferred:
         sync_type = "incremental"
     elif source_schema.supports_append and chosen is not None:
         sync_type = "append"
