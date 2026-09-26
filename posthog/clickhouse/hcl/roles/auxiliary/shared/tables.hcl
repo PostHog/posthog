@@ -382,6 +382,29 @@ database "posthog" {
       version_column = "computed_at"
     }
   }
+  # The sort key serves three reads off one table: delivery resolving an evaluation by
+  # (configuration_id, evaluation_key), a source rebuilding an N-of-M window from the last rows of
+  # one alert, and a comparison scanning a team over a time range.
+  #
+  # Partitioned on `occurred_at` because ReplacingMergeTree only deduplicates within a partition,
+  # and `occurred_at` is the batch cutoff, so a retry recomputes the same value and lands in the
+  # same partition. `expires_at` is insert time, which a retry moves, so partitioning on it would
+  # leave a retried row undeduplicated across a month boundary. The TTL still reads `expires_at`,
+  # which is what keeps retention independent of a test's frozen clock.
+  table "sharded_platform_alert_events" {
+    order_by     = ["team_id", "configuration_id", "alert_id", "occurred_at", "evaluation_key"]
+    partition_by = "toYYYYMM(occurred_at)"
+    ttl          = "toDateTime(expires_at)"
+    settings = {
+      index_granularity = "8192"
+    }
+    extend = "_platform_alert_events_columns"
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.platform_alert_events"
+      replica_name   = "{replica}-{shard}"
+      version_column = "inserted_at"
+    }
+  }
   table "sharded_session_replay_features" {
     order_by     = ["team_id", "session_id"]
     partition_by = "toYYYYMM(min_first_timestamp)"
