@@ -90439,6 +90439,32 @@ export namespace Schemas {
       report_id: string;
     }
 
+    export interface SignalReportSourceMetadata {
+      /** Report id. */
+      readonly id: string;
+      /** Distinct source products contributing signals to this report. Empty when it has none yet. */
+      readonly source_products: readonly string[];
+      /**
+         * skill_name slug of the scout that authored this report, when scout-authored; null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
+    }
+
+    export interface SignalReportSourceMetadataRequest {
+      /**
+         * Reports to describe. At most 100 ids per call.
+         * @minItems 1
+         * @maxItems 100
+         */
+      report_ids: string[];
+    }
+
+    export interface SignalReportSourceMetadataResponse {
+      /** One entry per requested id, in request order, duplicates removed. An id with no signals in this project, including one that is not a report here, gets empty values. */
+      readonly reports: readonly SignalReportSourceMetadata[];
+    }
+
     export interface SignalReportStateRequest {
       /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
@@ -115890,6 +115916,10 @@ export namespace Schemas {
      * When true, the list includes reports in every status with no default exclusions applied — currently that adds suppressed (dismissed) reports, which are otherwise hidden. Use it to see the full inbox state (e.g. deduplicating before creating a report) and read each row's status (plus dismissal_reason/dismissal_note on dismissed rows) before acting. Deleted reports are terminal and never returned. Defaults to false, which keeps the existing default exclusions. Ignored when an explicit 'status' filter is set — that filter alone decides which statuses are returned.
      */
     include_all_statuses?: boolean;
+    /**
+     * Fill `source_products` and `scout_name` on each row. These come from ClickHouse, so pass false to skip that lookup and get the page from Postgres only: rows then carry an empty `source_products` and a null `scout_name`. Load them after with `source_metadata`. Defaults to true.
+     */
+    include_source_metadata?: boolean;
     /**
      * Number of results to return per page.
      */

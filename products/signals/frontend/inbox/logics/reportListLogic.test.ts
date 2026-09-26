@@ -267,6 +267,91 @@ describe('reportListLogic', () => {
         )
     })
 
+    // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
+    // must then fill in from one follow-up request, and a refresh must ask again so new sources show.
+    describe('lazy source line', () => {
+        let logic: ReturnType<typeof reportListLogic.build>
+        let includeSourceMetadata: (string | null)[]
+        let queriedReportIds: string[][]
+        let scoutName: string
+
+        beforeEach(async () => {
+            includeSourceMetadata = []
+            queriedReportIds = []
+            scoutName = 'signals-scout-support'
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: ({ request }) => {
+                        const { searchParams } = new URL(request.url)
+                        if (searchParams.get('count_only') !== 'true') {
+                            includeSourceMetadata.push(searchParams.get('include_source_metadata'))
+                        }
+                        return [
+                            200,
+                            {
+                                count: 2,
+                                next: null,
+                                previous: null,
+                                results: ['scouted', 'no-signals'].map((id) => ({
+                                    ...makeReport(id),
+                                    source_products: [],
+                                    scout_name: null,
+                                })),
+                            },
+                        ]
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/signals/reports/source_metadata/': async ({ request }) => {
+                        const { report_ids } = (await request.json()) as { report_ids: string[] }
+                        queriedReportIds.push(report_ids)
+                        return [
+                            200,
+                            {
+                                reports: report_ids.map((id) =>
+                                    id === 'scouted'
+                                        ? { id, source_products: ['signals_scout'], scout_name: scoutName }
+                                        : { id, source_products: [], scout_name: null }
+                                ),
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+            logic.actions.ensureLoaded()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('fills the source line after the rows load and refreshes it with the rows', async () => {
+            expect(includeSourceMetadata).toEqual(['false'])
+            expect(queriedReportIds).toEqual([['scouted', 'no-signals']])
+            expect(
+                logic.values.reports.map(({ id, source_products, scout_name }) => ({ id, source_products, scout_name }))
+            ).toEqual([
+                { id: 'scouted', source_products: ['signals_scout'], scout_name: 'signals-scout-support' },
+                { id: 'no-signals', source_products: [], scout_name: null },
+            ])
+
+            scoutName = 'signals-scout-billing'
+            logic.actions.refresh()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(queriedReportIds).toEqual([
+                ['scouted', 'no-signals'],
+                ['scouted', 'no-signals'],
+            ])
+            expect(logic.values.reports[0].scout_name).toEqual('signals-scout-billing')
+        })
+    })
+
     // Which rows get a CI glyph, and which pull requests the batch endpoint is asked about. A landed
     // or dropped pull request has no CI worth reading, and asking about it spends a GitHub call.
     describe('pull requests still in flight on the page', () => {

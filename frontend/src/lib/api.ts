@@ -5026,6 +5026,8 @@ const api = {
             scout_prefix?: string
             /** true returns only the filtered total: `results` is empty and no rows are serialized. */
             count_only?: 'true' | 'false'
+            /** false skips the ClickHouse lookup for `source_products` and `scout_name`, which then come back empty. */
+            include_source_metadata?: 'true' | 'false'
         }): Promise<CountedPaginatedResponse<SignalReport>> {
             return await new ApiRequest().signalReports().withQueryString(params).get()
         },
