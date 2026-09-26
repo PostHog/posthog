@@ -89858,7 +89858,7 @@ export namespace Schemas {
          */
       session_recording_ids: string[];
       /**
-         * Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period.
+         * Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Recordings that started before this time are skipped. When omitted, the lookup has no start time limit, so it also finds recordings past their retention period.
          * @nullable
          */
       date_from?: string | null;
