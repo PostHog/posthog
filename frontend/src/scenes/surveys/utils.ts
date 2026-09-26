@@ -36,6 +36,7 @@ import {
     SurveyDisplayConditions,
     SurveyEventName,
     SurveyEventProperties,
+    SurveyMatchType,
     SurveyQuestion,
     SurveyQuestionType,
     SurveyRates,
@@ -607,6 +608,24 @@ export function getRecurringSurveyScheduleInfo(
     const totalDurationDays = effectiveCount * frequency
     const autoCloseDate = survey.start_date ? dayjs.utc(survey.start_date).add(totalDurationDays, 'day') : null
     return { totalDurationDays, autoCloseDate }
+}
+
+// Any RFC 3986 scheme, not only http and https, because an Electron app, a Capacitor webview and a
+// browser extension page each carry their own scheme and the SDK runs in all of them.
+const URL_SCHEME_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i
+
+/** The SDK compares an exact URL condition against the browser's full URL, which always carries a
+ * scheme. A value without one, such as a bare host or a bare path, can never be equal to it, so the
+ * survey never shows. */
+export function getExactUrlSchemeError(url: string | undefined, matchType: SurveyMatchType | undefined): string | null {
+    const trimmedUrl = url?.trim()
+    if (matchType !== SurveyMatchType.Exact || !trimmedUrl) {
+        return null
+    }
+    if (URL_SCHEME_PATTERN.test(trimmedUrl)) {
+        return null
+    }
+    return 'Exact match compares the whole page URL, which always starts with a protocol such as https://. Add the protocol and host, or use "contains" instead.'
 }
 
 export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boolean {

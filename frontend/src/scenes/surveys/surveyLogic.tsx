@@ -144,6 +144,7 @@ import {
     buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
+    getExactUrlSchemeError,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
     getSurveyResponseOutcomeBreakdown,
@@ -3203,7 +3204,7 @@ export const surveyLogic = kea<surveyLogicType>([
                         return e.message
                     }
                 }
-                return null
+                return getExactUrlSchemeError(survey.conditions?.url, survey.conditions?.urlMatchType)
             },
         ],
         urlSearchParams: [

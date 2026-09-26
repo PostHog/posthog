@@ -18,6 +18,7 @@ import { PropertyDefinitionType, SurveyDisplayConditions, SurveyMatchType } from
 
 import { SurveyUrlAudienceEstimate } from '../../components/SurveyUrlAudienceEstimate'
 import { surveyLogic } from '../../surveyLogic'
+import { getExactUrlSchemeError } from '../../utils'
 import { SurveyAudienceFilters } from '../SurveyAudienceFilters'
 
 const DEVICE_OPTIONS = ['Desktop', 'Mobile', 'Tablet']
@@ -54,7 +55,7 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
         conditions.urlMatchType === SurveyMatchType.Exact || conditions.urlMatchType === SurveyMatchType.Regex
             ? conditions.urlMatchType
             : SurveyMatchType.Contains
-    const isPathInputInExactMode = urlMatchMode === SurveyMatchType.Exact && urlPattern.trim().startsWith('/')
+    const exactUrlSchemeError = getExactUrlSchemeError(urlPattern, urlMatchMode)
     const regexValidationError = getRegexValidationError(urlPattern, urlMatchMode)
     const selectedDevices = conditions.deviceTypes || []
     const resolvedLinkedFlag = survey.linked_flag || (survey.linked_flag_id ? featureFlag : null)
@@ -213,17 +214,14 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                             }}
                             placeholder={urlInputPlaceholder}
                             allowCustomValues
-                            status={isPathInputInExactMode || regexValidationError ? 'danger' : undefined}
+                            status={exactUrlSchemeError || regexValidationError ? 'danger' : undefined}
                             loading={urlMatchMode !== SurveyMatchType.Regex && urlOptions?.status === 'loading'}
                             options={urlSuggestions}
                         />
                         {regexValidationError ? (
                             <p className="text-xs text-danger mt-1.5">{regexValidationError}</p>
-                        ) : isPathInputInExactMode ? (
-                            <p className="text-xs text-danger mt-1.5">
-                                Exact URL requires the full URL, including protocol and host. Use Contains path for
-                                entries like /pricing.
-                            </p>
+                        ) : exactUrlSchemeError ? (
+                            <p className="text-xs text-danger mt-1.5">{exactUrlSchemeError}</p>
                         ) : (
                             <p className="text-xs text-muted mt-1.5">
                                 {urlMatchMode === SurveyMatchType.Exact
@@ -233,7 +231,7 @@ export function WhereStep({ onOpenFullEditor }: { onOpenFullEditor?: () => void 
                                       : 'Select from your most visited pages or type a path like /pricing.'}
                             </p>
                         )}
-                        {!isPathInputInExactMode && !regexValidationError && (
+                        {!exactUrlSchemeError && !regexValidationError && (
                             <SurveyUrlAudienceEstimate className="mt-1.5" />
                         )}
                     </div>
