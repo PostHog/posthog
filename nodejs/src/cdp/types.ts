@@ -477,6 +477,9 @@ export type HogFlowInvocationContext = {
         // Set when a distinct_id's first mapping fills a parked wait's missing person anchor and wakes
         // it. A matcher wake carrying no eventMatched, so the handler consumes it like rekeyWake.
         anchorWake?: boolean
+        // Set when the matcher wakes a wait it cannot decide itself, because the condition reads data
+        // only the worker holds. Carries no eventMatched, so the worker evaluates and may re-park.
+        recheckWake?: boolean
         // The max_wait_duration this wait parked against. The timing sweep moves `scheduled` with a
         // bulk UPDATE and cannot stamp a marker the way the matcher does, so a wake that follows a
         // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the

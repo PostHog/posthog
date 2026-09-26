@@ -41,6 +41,15 @@ export const counterHogflowRekeyWake = new Counter({
     labelNames: ['outcome'],
 })
 
+// Outcome of a wait re-check that ran because the matcher woke a job it could not decide itself.
+// 'advanced' = the worker's fuller globals made the condition match; 'reparked' = they did not, so
+// the wake was wasted. A high reparked:advanced ratio means this path costs more than it recovers.
+export const counterHogflowRecheckWake = new Counter({
+    name: 'cdp_hogflow_matcher_recheck_wake_total',
+    help: 'wait_until_condition re-checks triggered by a wake the matcher could not decide, by outcome.',
+    labelNames: ['outcome'],
+})
+
 export class ConditionalBranchHandler implements ActionHandler {
     constructor(private cohortMembershipRepository: CohortMembershipRepository) {}
 
@@ -64,6 +73,13 @@ export class ConditionalBranchHandler implements ActionHandler {
             action.type === 'wait_until_condition' && invocation.state?.currentAction?.anchorWake === true
         if (anchorWoken && invocation.state.currentAction) {
             invocation.state.currentAction.anchorWake = false
+        }
+
+        // Same again for a wake the matcher could not decide: the evaluation below is the decision.
+        const recheckWoken =
+            action.type === 'wait_until_condition' && invocation.state?.currentAction?.recheckWake === true
+        if (recheckWoken && invocation.state.currentAction) {
+            invocation.state.currentAction.recheckWake = false
         }
 
         // The subscription matcher sets eventMatched when an incoming event matched this
@@ -133,15 +149,21 @@ export class ConditionalBranchHandler implements ActionHandler {
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('reparked').inc()
             }
+            if (recheckWoken) {
+                counterHogflowRecheckWake.labels('reparked').inc()
+            }
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            if (isWait && !rekeyWoken && !anchorWoken && matchedAtMaxWait(invocation, action)) {
+            if (isWait && !rekeyWoken && !anchorWoken && !recheckWoken && matchedAtMaxWait(invocation, action)) {
                 counterHogflowWaitAdvancedAtMaxWait
                     .labels({ team_id: invocation.hogFlow.team_id, hog_flow_id: invocation.hogFlow.id })
                     .inc()
             }
             if (rekeyWoken) {
                 counterHogflowRekeyWake.labels('advanced').inc()
+            }
+            if (recheckWoken) {
+                counterHogflowRecheckWake.labels('advanced').inc()
             }
             return { nextAction: conditionResult.nextAction, result: { conditionResult } }
         }
