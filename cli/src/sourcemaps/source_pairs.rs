@@ -2,12 +2,14 @@ use crate::{
     api::symbol_sets::SymbolSetUpload,
     sourcemaps::{
         args::ReleaseMode,
-        content::{get_injected_release_id, MinifiedSourceFile, SourceMapFile},
+        content::{get_injected_release_id, MinifiedSourceFile, SourceMapContent, SourceMapFile},
     },
     utils::files::content_hash,
 };
 use anyhow::{anyhow, Context, Result};
 use posthog_symbol_data::{write_symbol_data, SourceAndMap};
+use serde_json::Value;
+use std::borrow::Cow;
 use tracing::{debug, info, warn};
 use walkdir::DirEntry;
 
@@ -149,6 +151,82 @@ pub fn read_pairs(
     pairs
 }
 
+// The control characters keep the token from matching anything a bundler writes.
+const FILE_PATH_TOKEN: &str = "\u{1}file-path\u{1}";
+
+/// Replace every script file path in `text` with one token, for the event-mode content hash.
+/// With content-hashed file names every release renames every chunk, because each chunk carries
+/// the release id, and the names appear inside chunks: imports, `sourceMappingURL` and the map's
+/// `file`. A path is a run of path characters that ends in `.js`, `.mjs` or `.cjs` with no
+/// identifier character after it. The result depends only on `text`, so one chunk hashes the same
+/// way in every upload.
+///
+/// A stored symbol set that this lets the server keep resolves frames the same way: the hash still
+/// covers the mappings, so a path that changes length changes the hash. A function named after a
+/// run, such as `{"one.js"(){}}`, could only go stale if one chunk id covered two builds whose code
+/// differs inside a run. No chunk id does: `@posthog/rollup-plugin` derives its ids before imports
+/// become file names, and every other chunk id covers the final content.
+fn without_file_paths(text: &str) -> Cow<'_, str> {
+    let bytes = text.as_bytes();
+    let mut normalized = String::new();
+    let mut copied = 0;
+    let mut searched = 0;
+    while let Some(found) = text[searched..].find("js") {
+        let js = searched + found;
+        let end = js + 2;
+        searched = end;
+        let extension = if js >= 1 && bytes[js - 1] == b'.' {
+            js - 1
+        } else if js >= 2 && matches!(bytes[js - 1], b'm' | b'c') && bytes[js - 2] == b'.' {
+            js - 2
+        } else {
+            continue;
+        };
+        if text[end..].chars().next().is_some_and(is_identifier_char) {
+            continue;
+        }
+        // Walking back stops at what was already replaced, which keeps the scan linear.
+        let Some(start) = text[copied..extension]
+            .char_indices()
+            .rev()
+            .take_while(|(_, c)| is_path_char(*c))
+            .last()
+            .map(|(offset, _)| copied + offset)
+        else {
+            continue;
+        };
+        if normalized.is_empty() {
+            normalized.reserve(text.len());
+        }
+        normalized.push_str(&text[copied..start]);
+        normalized.push_str(FILE_PATH_TOKEN);
+        copied = end;
+    }
+    if normalized.is_empty() {
+        return Cow::Borrowed(text);
+    }
+    normalized.push_str(&text[copied..]);
+    Cow::Owned(normalized)
+}
+
+fn is_identifier_char(c: char) -> bool {
+    c.is_alphanumeric() || matches!(c, '_' | '$')
+}
+
+fn is_path_char(c: char) -> bool {
+    is_identifier_char(c) || matches!(c, '-' | '.' | '/' | '\\' | '~' | '@' | '+')
+}
+
+/// Replace the file path in the map's `file` field, the only field that names the chunk rather
+/// than its sources.
+fn without_file_path_in_file_field(map: &mut SourceMapContent) {
+    if let Some(Value::String(file)) = map.fields.get_mut("file") {
+        if let Cow::Owned(normalized) = without_file_paths(file) {
+            *file = normalized;
+        }
+    }
+}
+
 impl SourcePair {
     /// Turn the pair into an upload payload. The payload always carries the injected artifact;
     /// only the content hash depends on the mode.
@@ -164,6 +242,9 @@ impl SourcePair {
     /// one before a release could be resolved and one after, therefore ship different maps. Equal
     /// hashes would make the server keep the first map and resolve later frames to the wrong
     /// source positions.
+    ///
+    /// The hash also leaves out script file paths, which change with every release when the
+    /// bundler names chunks by content (see `without_file_paths`).
     ///
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
@@ -187,11 +268,13 @@ impl SourcePair {
                     b"chunk-id-only"
                 };
                 self.remove_chunk_id(chunk_id.clone())?;
+                without_file_path_in_file_field(&mut self.sourcemap.inner.content);
                 let pristine_map = serde_json::to_string(&self.sourcemap.inner.content)?;
+                let pristine_source = without_file_paths(&self.source.inner.content);
                 // JSON serialization never contains a raw NUL, so it unambiguously separates
                 // the parts (same framing as `stable_chunk_id`).
                 Some(content_hash([
-                    self.source.inner.content.as_bytes(),
+                    pristine_source.as_bytes(),
                     b"\0".as_slice(),
                     pristine_map.as_bytes(),
                     b"\0".as_slice(),
@@ -214,5 +297,72 @@ impl SourcePair {
             release_id,
             content_hash,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn normalize(text: &str) -> String {
+        without_file_paths(text).replace(FILE_PATH_TOKEN, "<path>")
+    }
+
+    #[test]
+    fn replaces_script_file_paths() {
+        assert_eq!(
+            normalize(
+                r#"import("./one-BrAf3own.js");const d=["assets/one-BrAf3own.js","https://cdn.example.com/a/b-X_1.mjs"];
+//# sourceMappingURL=index-C3e2Htc9.js.map"#
+            ),
+            r#"import("<path>");const d=["<path>","https:<path>"];
+//# sourceMappingURL=<path>.map"#
+        );
+    }
+
+    #[test]
+    fn replaces_directory_names_with_the_path() {
+        assert_eq!(
+            normalize(r#"import("../Bx9_a1c2/one.cjs")"#),
+            r#"import("<path>")"#
+        );
+        assert_eq!(
+            normalize(r#"require("C:\\ci\\Bx9_a1c2\\one.js")"#),
+            normalize(r#"require("C:\\ci\\Zq0_w9e8\\one.js")"#)
+        );
+    }
+
+    #[test]
+    fn leaves_other_extensions_and_bare_extensions_alone() {
+        let text = r#"["index.json","index.jsx","a.js_b",".js",x.jsonp,"js"]"#;
+        assert_eq!(normalize(text), text);
+        assert!(matches!(without_file_paths(text), Cow::Borrowed(_)));
+    }
+
+    #[test]
+    fn handles_repeated_extensions_and_multibyte_text() {
+        assert_eq!(normalize("a.jsx.js x.js.map"), "<path> <path>.map");
+        assert_eq!(normalize("é日.js 😀 é.mjs"), "<path> 😀 <path>");
+        // An emoji is not a path character, so the path starts after it.
+        assert_eq!(normalize("😀js.js"), "😀<path>");
+    }
+
+    #[test]
+    fn replaces_only_the_file_field_of_a_map() {
+        // A source can share a chunk's name, and frames resolve to it, so it stays.
+        let mut map: SourceMapContent = serde_json::from_value(serde_json::json!({
+            "version": 3,
+            "file": "assets/index.js",
+            "sources": ["../src/index.js"],
+            "mappings": "AAAA",
+        }))
+        .expect("Failed to build SourceMapContent");
+        without_file_path_in_file_field(&mut map);
+
+        assert_eq!(map.fields["file"], FILE_PATH_TOKEN);
+        assert_eq!(
+            map.fields["sources"],
+            serde_json::json!(["../src/index.js"])
+        );
     }
 }
