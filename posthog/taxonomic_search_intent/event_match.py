@@ -1,0 +1,155 @@
+"""
+Match a filter picker search that found no events to the PostHog core events it may mean.
+
+A person who does not know an event's name types what the event does, such as "browser capture" for
+autocapture. Fuzzy search cannot bridge that gap, so each core event becomes one yes/no question to the
+decision model, with the event's label and description as the meaning to judge.
+"""
+
+import hashlib
+from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
+
+from django.core.cache import cache
+
+from pydantic import TypeAdapter, ValidationError
+
+from posthog.llm.gateway_client import team_distinct_id
+from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneResult
+from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient, build_system_one_client
+from posthog.models import EventDefinition
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+
+from .classify import (
+    CACHE_TTL_SECONDS,
+    MAX_QUERY_CHARS,
+    MIN_QUERY_CHARS,
+    SEARCH_INTENT_MODEL,
+    SEARCH_INTENT_TIMEOUT_SECONDS,
+    is_value_shaped,
+)
+from .contracts import EventMatch, EventMatchRequest
+
+EVENT_MATCH_FEATURE_FLAG = "taxonomic-filter-event-match"
+# The picker shows a suggestion only above this probability. Tune it from the eval suite, not by feel.
+MATCH_THRESHOLD = 0.7
+MAX_MATCHES = 3
+CACHE_KEY_PREFIX = "taxonomic_search_intent:event_match:v1"
+
+_CACHED_MATCHES = TypeAdapter(list[EventMatch])
+
+
+def _candidates() -> dict[str, tuple[str, str]]:
+    """Every core event a picker can select, as name -> (label, meaning)."""
+    candidates: dict[str, tuple[str, str]] = {}
+    for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP["events"].items():
+        # "All events" is not an event, and an event hidden from query builders cannot be selected here.
+        if name == "All events" or definition.get("hidden_in_query_builders"):
+            continue
+        meaning = definition.get("description_llm") or definition.get("description") or ""
+        candidates[name] = (definition["label"], meaning)
+    return candidates
+
+
+CORE_EVENT_CANDIDATES = _candidates()
+_CANDIDATES_DIGEST = hashlib.sha256(repr(sorted(CORE_EVENT_CANDIDATES.items())).encode()).hexdigest()[:16]
+
+
+def event_match_state(query: str) -> str:
+    return "\n".join(
+        [
+            "A person searches the events list of the filter picker in PostHog, a product analytics tool.",
+            "No event name matches the search, so the person may describe an event instead of naming it.",
+            f"Search: {query}",
+        ]
+    )
+
+
+def _question(label: str, meaning: str) -> NoulQuestion:
+    return NoulQuestion(
+        instructions=f"Does the search look for the {label} event? {meaning}".strip(),
+        criteria_true="The search describes this event, uses a synonym for it, or names what it records.",
+        criteria_false="The search is about something else.",
+    )
+
+
+def _ask(client: SystemOneClient, state: str, names: Sequence[str]) -> SystemOneResult:
+    questions = {f"e{index}": _question(*CORE_EVENT_CANDIDATES[name]) for index, name in enumerate(names)}
+    return client.decide(state=state, questions=questions)
+
+
+def _probabilities(team_id: int, query: str) -> dict[str, float]:
+    """The model's probability for every core event. Raises the System One errors."""
+    names = list(CORE_EVENT_CANDIDATES)
+    # The gateway takes a bounded number of questions per request, so the candidates go out in parallel chunks.
+    chunks = [names[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(names), GATEWAY_MAX_QUESTIONS)]
+    client = build_system_one_client(
+        model=SEARCH_INTENT_MODEL,
+        ai_product="taxonomic_filter",
+        distinct_id=team_distinct_id(team_id),
+        timeout=SEARCH_INTENT_TIMEOUT_SECONDS,
+    )
+    state = event_match_state(query)
+    with ThreadPoolExecutor(max_workers=len(chunks), thread_name_prefix="event-match") as executor:
+        results = list(executor.map(lambda chunk: _ask(client, state, chunk), chunks))
+    probabilities: dict[str, float] = {}
+    for chunk, result in zip(chunks, results):
+        for index, name in enumerate(chunk):
+            answer = result.answers[f"e{index}"]
+            if isinstance(answer, NoulAnswer):
+                probabilities[name] = answer.probability
+    return probabilities
+
+
+def _cache_key(team_id: int, query: str) -> str:
+    # Keyed per team, so a fast answer cannot tell one team what another team searched.
+    digest = hashlib.sha256(f"{SEARCH_INTENT_MODEL}\n{MATCH_THRESHOLD}\n{query}".encode()).hexdigest()
+    return f"{CACHE_KEY_PREFIX}:{_CANDIDATES_DIGEST}:{team_id}:{digest}"
+
+
+def likely_core_events(team_id: int, query: str, *, use_cache: bool = True) -> list[EventMatch]:
+    """Every core event the model finds likely, strongest first, before the check against ingested events."""
+    key = _cache_key(team_id, query)
+    if use_cache:
+        cached = cache.get(key)
+        # The Django cache pickles what it stores, so matches go in as JSON text and come out schema-validated.
+        if isinstance(cached, str):
+            try:
+                return _CACHED_MATCHES.validate_json(cached)
+            except ValidationError:
+                pass
+    probabilities = _probabilities(team_id, query)
+    likely = sorted(
+        (
+            EventMatch(name=name, label=CORE_EVENT_CANDIDATES[name][0], probability=probability)
+            for name, probability in probabilities.items()
+            if probability >= MATCH_THRESHOLD
+        ),
+        key=lambda match: match.probability,
+        reverse=True,
+    )
+    if use_cache:
+        cache.set(key, _CACHED_MATCHES.dump_json(likely).decode(), CACHE_TTL_SECONDS)
+    return likely
+
+
+def _ingested(project_id: int, names: Sequence[str]) -> set[str]:
+    return set(
+        EventDefinition.objects.filter(team__project_id=project_id, name__in=names).values_list("name", flat=True)
+    )
+
+
+def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> list[EventMatch]:
+    """The core events the search most likely means, strongest first, limited to events the project has ingested.
+
+    Raises the System One errors; the caller decides whether a failed answer matters.
+    """
+    query = " ".join(request.query.split())
+    if not MIN_QUERY_CHARS <= len(query) <= MAX_QUERY_CHARS or is_value_shaped(query):
+        return []
+    likely = likely_core_events(request.team_id, query, use_cache=use_cache)
+    if not likely:
+        return []
+    # A suggestion for an event the project never sent would lead to an empty insight.
+    ingested = _ingested(request.project_id, [match.name for match in likely])
+    return [match for match in likely if match.name in ingested][:MAX_MATCHES]

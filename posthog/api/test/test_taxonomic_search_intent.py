@@ -9,6 +9,7 @@ from rest_framework import status
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import ChoiceAnswer, SystemOneNotConfigured, SystemOneRequestFailed, SystemOneResult
+from posthog.taxonomic_search_intent.contracts import EventMatch
 from posthog.taxonomic_search_intent.prompt import BUNDLED_SEARCH_INTENT_PROMPT
 
 ALL_TABS = ("suggested_filters", "events", "event_properties", "person_properties", "pageview_urls", "email_addresses")
@@ -98,3 +99,24 @@ class TestSearchIntentEndpoint(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand([("enabled", True, status.HTTP_200_OK), ("flag_off", False, status.HTTP_404_NOT_FOUND)])
+    def test_matches_events_behind_its_own_flag(self, _name, enabled, expected_status) -> None:
+        match = EventMatch(name="$autocapture", label="Autocapture", probability=0.95)
+        with (
+            patch(FLAG_CHECK, return_value=enabled) as flag,
+            patch("posthog.api.taxonomic_search_intent.match_core_events", return_value=[match]) as matcher,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/taxonomic_search_intent/match_events/",
+                {"query": "browser capture"},
+                format="json",
+            )
+
+        assert response.status_code == expected_status
+        assert flag.call_args.args[0] == "taxonomic-filter-event-match"
+        if enabled:
+            assert response.json() == {
+                "matches": [{"name": "$autocapture", "display_name": "Autocapture", "probability": 0.95}]
+            }
+            assert matcher.call_args.args[0].project_id == self.team.project_id

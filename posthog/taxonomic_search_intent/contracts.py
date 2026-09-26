@@ -31,3 +31,21 @@ class SearchIntent:
     suggests_switch: bool = False
     # The managed prompt version the model read, or None for a rule match, a skip or the bundled prompt.
     prompt_version: int | None = None
+
+
+@frozen
+class EventMatchRequest:
+    """A search in the picker's events list that found nothing, to match against the PostHog core events."""
+
+    team_id: int
+    project_id: int
+    query: str
+
+
+@frozen
+class EventMatch:
+    """A core event the search may mean. ``probability`` is the model's confidence that the search names it."""
+
+    name: str
+    label: str
+    probability: float

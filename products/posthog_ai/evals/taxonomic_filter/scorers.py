@@ -83,3 +83,52 @@ class NoWrongSwitch(Scorer):
         # A switch away from an acceptable open tab is wrong, because the person is already in the right place.
         right = spec["active"] not in spec["acceptable"] and intent.get("group_type") in spec["acceptable"]
         return Score(name=self._name(), score=1.0 if right else 0.0, metadata={"intent": intent})
+
+
+EVENT_MATCH_KEY = "event_match"
+
+
+def _event_spec(expected: dict | None) -> list[str] | None:
+    spec = (expected or {}).get(EVENT_MATCH_KEY)
+    return list(spec["acceptable"]) if isinstance(spec, dict) else None
+
+
+def _suggested(output: dict | None) -> list[str]:
+    return list((output or {}).get("suggested") or [])
+
+
+class EventMatchFound(Scorer):
+    """Recall: for a search that describes a core event, is the strongest suggestion one that it describes?"""
+
+    def _name(self) -> str:
+        return "event_match_found"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
+        acceptable = _event_spec(expected)
+        if not acceptable:
+            return Score(name=self._name(), score=None, metadata={"reason": "No core event fits this search"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+        suggested = _suggested(output)
+        found = bool(suggested) and suggested[0] in acceptable
+        return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"suggested": suggested})
+
+
+class NoWrongEventMatch(Scorer):
+    """Precision: does every suggestion the picker would show describe the search?
+
+    A search that fits no core event must get no suggestion at all, because a wrong event is worse than none.
+    """
+
+    def _name(self) -> str:
+        return "no_wrong_event_match"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
+        acceptable = _event_spec(expected)
+        if acceptable is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+        suggested = _suggested(output)
+        right = all(name in acceptable for name in suggested)
+        return Score(name=self._name(), score=1.0 if right else 0.0, metadata={"suggested": suggested})

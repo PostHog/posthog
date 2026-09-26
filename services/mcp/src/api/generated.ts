@@ -39335,6 +39335,28 @@ export namespace Schemas {
       pipelines: IngestionPipelineEnum[];
     }
 
+    export interface EventMatch {
+      /** The event name to select, such as $autocapture. */
+      name: string;
+      /** The event's display name, such as Autocapture. */
+      display_name: string;
+      /** How likely the search means this event, from 0 to 1. */
+      probability: number;
+    }
+
+    export interface EventMatchRequest {
+      /**
+         * What the person typed into the events list search box, which matched no event name.
+         * @maxLength 200
+         */
+      query: string;
+    }
+
+    export interface EventMatchResponse {
+      /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
+      matches: EventMatch[];
+    }
+
     /**
      * * `DateTime` - DateTime
      * * `String` - String

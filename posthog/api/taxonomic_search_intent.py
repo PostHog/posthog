@@ -20,7 +20,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
 from posthog.taxonomic_search_intent.classify import classify_search_intent, search_intent_enabled
-from posthog.taxonomic_search_intent.contracts import SearchIntentRequest, SearchIntentSource
+from posthog.taxonomic_search_intent.contracts import EventMatchRequest, SearchIntentRequest, SearchIntentSource
+from posthog.taxonomic_search_intent.event_match import EVENT_MATCH_FEATURE_FLAG, match_core_events
 
 logger = structlog.get_logger(__name__)
 
@@ -77,6 +78,28 @@ class SearchIntentResponseSerializer(serializers.Serializer):
             "The version of the managed search intent prompt the model read. Null for a value pattern, "
             "a skipped search, or the bundled fallback prompt."
         ),
+    )
+
+
+class EventMatchRequestSerializer(serializers.Serializer):
+    query = serializers.CharField(
+        max_length=MAX_SEARCH_QUERY_CHARS,
+        allow_blank=True,
+        trim_whitespace=True,
+        help_text="What the person typed into the events list search box, which matched no event name.",
+    )
+
+
+class EventMatchSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The event name to select, such as $autocapture.")
+    display_name = serializers.CharField(help_text="The event's display name, such as Autocapture.")
+    probability = serializers.FloatField(help_text="How likely the search means this event, from 0 to 1.")
+
+
+class EventMatchResponseSerializer(serializers.Serializer):
+    matches = serializers.ListField(
+        child=EventMatchSerializer(),
+        help_text="PostHog core events the search most likely means, strongest first. Empty when nothing is likely.",
     )
 
 
@@ -142,6 +165,40 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "suggests_switch": intent.suggests_switch,
                     "method": intent.source,
                     "prompt_version": intent.prompt_version,
+                }
+            ).data
+        )
+
+    @validated_request(
+        request_serializer=EventMatchRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=EventMatchResponseSerializer, description="The likely core events."),
+            404: OpenApiResponse(description="Event matching is not enabled for this person."),
+            503: OpenApiResponse(description="The decision model did not answer in time."),
+        },
+        summary="Match an events search to core events",
+        description="Guess which PostHog core events a search that matched no event name describes.",
+    )
+    @action(detail=False, methods=["POST"])
+    def match_events(self, request: Request, **kwargs: Any) -> Response:
+        user = cast(User, request.user)
+        if not search_intent_enabled(str(user.distinct_id), str(self.organization_id), flag=EVENT_MATCH_FEATURE_FLAG):
+            raise NotFound()
+        search = EventMatchRequest(
+            team_id=self.team_id, project_id=self.team.project_id, query=request.validated_data["query"]
+        )
+        try:
+            matches = match_core_events(search)
+        except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
+            logger.warning("taxonomic_event_match_unavailable", team_id=self.team_id, reason=type(error).__name__)
+            raise SearchIntentUnavailable() from error
+        return Response(
+            EventMatchResponseSerializer(
+                {
+                    "matches": [
+                        {"name": match.name, "display_name": match.label, "probability": match.probability}
+                        for match in matches
+                    ]
                 }
             ).data
         )

@@ -846,6 +846,50 @@ export const EmptyEventsWithStaleToggle: Story = {
     },
 }
 
+/** A search that matches no event name gets core events the decision model thinks it describes. */
+export const EmptyEventsWithEventMatch: Story = {
+    render: (args) => {
+        useMountedLogic(actionsModel)
+        const { setSearchQuery } = useActions(
+            taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: args.taxonomicFilterLogicKey as string })
+        )
+
+        useOnMountEffect(() => setSearchQuery('browser capture'))
+
+        return (
+            <div className="w-fit border rounded p-2 bg-surface-primary">
+                <TaxonomicFilter {...args} />
+            </div>
+        )
+    },
+    args: {
+        taxonomicFilterLogicKey: 'events-event-match',
+        taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/event_definitions': [],
+            },
+            post: {
+                '/api/projects/:team_id/taxonomic_search_intent/match_events/': () => [
+                    200,
+                    {
+                        matches: [
+                            { name: '$autocapture', display_name: 'Autocapture', probability: 0.95 },
+                            { name: '$rageclick', display_name: 'Rageclick', probability: 0.74 },
+                        ],
+                    },
+                ],
+            },
+        }),
+    ],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-suggestion"]' },
+    },
+}
+
 // The decision model answers "person properties" for a search of "email" in every search intent story.
 const searchIntentPersonPropertiesMock = mswDecorator({
     post: {

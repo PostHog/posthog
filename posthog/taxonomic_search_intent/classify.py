@@ -50,8 +50,8 @@ _QUESTION_ID = "tab"
 _CACHED_INTENT = TypeAdapter(SearchIntent)
 
 
-def search_intent_enabled(distinct_id: str, organization_id: str) -> bool:
-    """The flag assigns the experiment arms. Every arm asks, so any value other than off enables the endpoint.
+def search_intent_enabled(distinct_id: str, organization_id: str, flag: str = SEARCH_INTENT_FEATURE_FLAG) -> bool:
+    """Any flag value other than off enables the endpoint, because every arm of an experiment asks the model.
 
     Dark launch: only local development and the US cloud, so no flag change can bring it up in the EU or on
     self-hosted. DEBUG bypasses the flag because the analytics SDK is disabled in local development.
@@ -63,7 +63,7 @@ def search_intent_enabled(distinct_id: str, organization_id: str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                SEARCH_INTENT_FEATURE_FLAG,
+                flag,
                 distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -100,6 +100,11 @@ def rule_intent(query: str, available_group_types: tuple[str, ...]) -> SearchInt
     if _DIGIT_RUN.search(query) or any(_OPAQUE_TOKEN.match(word) for word in query.split()):
         return _skipped()
     return None
+
+
+def is_value_shaped(query: str) -> bool:
+    """Whether the query looks like a value (an email address, a URL, a path, an id), which never goes to the model."""
+    return rule_intent(query, ()) is not None
 
 
 def search_intent_state(query: str, active_group_type: str, scene: str | None) -> str:
