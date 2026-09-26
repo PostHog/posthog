@@ -623,6 +623,7 @@ the row lists both.
 | sendowl                          | HTTP                        | requests                                                        | ✅                          |
 | sentinelone                      | HTTP                        | requests                                                        | ✅                          |
 | sentry                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| sequenzy                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
@@ -1356,7 +1357,6 @@ doesn't conflict with concurrent PRs.
 - semrush
 - sendpulse
 - senseforce
-- sequenzy
 - serpstat
 - service_fusion
 - servicetitan
