@@ -484,6 +484,7 @@
     'project_id',
     'refresh_bytecode',
     'save',
+    'selector_match_changes',
     'slack_message_format',
     'steps',
     'summary',

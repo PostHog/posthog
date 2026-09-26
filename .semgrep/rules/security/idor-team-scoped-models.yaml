@@ -62,6 +62,7 @@ rules:
                               |AccountRelationshipDefinition
                               |AccountTrackRuleRun
                               |Action
+                              |ActionSelectorMatchChange
                               |AEOCitationCheck
                               |AEOPrompt
                               |AgentApplication
@@ -499,6 +500,7 @@ rules:
                         |AccountRelationshipDefinition
                         |AccountTrackRuleRun
                         |Action
+                        |ActionSelectorMatchChange
                         |AgentApplication
                         |AgentArtifact
                         |AgentIdentityCredential
