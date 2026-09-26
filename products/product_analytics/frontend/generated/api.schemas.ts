@@ -641,6 +641,8 @@ export interface HogQLQueryModifiersApi {
     /** If these are provided, the query will fail if these skip indexes are not used */
     forceClickhouseDataSkippingIndexes?: string[] | null
     formatCsvAllowDoubleQuotes?: boolean | null
+    /** Order funnel steps by `$client_capture_time`, the device's own clock reading at capture, rather than by the stored timestamp, which includes the request's delivery latency. Falls back per row to the stored timestamp when the event has no capture instant or no device. */
+    funnelUseClientCaptureOrder?: boolean | null
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null

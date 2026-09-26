@@ -539,6 +539,8 @@ export interface HogQLQueryModifiers {
     webAnalyticsFirstPageviewFilters?: boolean
     formatCsvAllowDoubleQuotes?: boolean
     convertToProjectTimezone?: boolean
+    /** Order funnel steps by `$client_capture_time`, the device's own clock reading at capture, rather than by the stored timestamp, which includes the request's delivery latency. Falls back per row to the stored timestamp when the event has no capture instant or no device. */
+    funnelUseClientCaptureOrder?: boolean
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level **/
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
