@@ -10,6 +10,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { billingSeriesKey } from './billingSeriesSelection'
 import { BillingSpendResponse, BillingSpendResponseBreakdownType, billingSpendLogic } from './billingSpendLogic'
 import { fitsOneRequest, isDayOrCoarser, SUB_DAY_DATE_FILTER_INTERVALS } from './billingUsageLogic'
 import type { BillingFilters } from './types'
@@ -357,5 +358,71 @@ describe('billingSpendLogic export', () => {
         expect(every.get('breakdowns')).toBe('["type","team"]')
         expect(every.get('interval')).toBe('day')
         expect(params(logic.values.spendChartExportUrl).get('top_projects')).toBe('20')
+    })
+})
+
+describe('billingSpendLogic series toggling', () => {
+    let logic: ReturnType<typeof billingSpendLogic.build>
+
+    const row = (id: number, data: number[], usageType = `type_${id}`): BillingSpendResponse['results'][number] => ({
+        id,
+        label: `Spend ${usageType}`,
+        data,
+        dates: ['2026-08-01', '2026-08-02'],
+        breakdown_type: BillingSpendResponseBreakdownType.TYPE,
+        breakdown_value: usageType,
+    })
+    const keyOf = (usageType: string): string => billingSeriesKey(row(0, [], usageType))
+
+    const mocksFor = (results: BillingSpendResponse['results']): Parameters<typeof useMocks>[0] => ({
+        get: {
+            '/api/billing': () => [200, billingJson],
+            '/api/billing/spend/': () => [
+                200,
+                { status: 'ok', type: 'timeseries', customer_id: 'cus_1234', results } as BillingSpendResponse,
+            ],
+        },
+    })
+
+    const mount = async (): Promise<void> => {
+        billingLogic.mount()
+        await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+        logic = billingSpendLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadBillingSpendSuccess']).toFinishAllListeners()
+    }
+
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    it('keeps the same products hidden when a new date range renumbers the series', async () => {
+        useMocks(mocksFor([row(0, [1, 1], 'events'), row(1, [2, 2], 'recordings'), row(2, [3, 3], 'exceptions')]))
+        await mount()
+
+        logic.actions.toggleSeries(keyOf('events'))
+        logic.actions.toggleSeries(keyOf('exceptions'))
+
+        useMocks(mocksFor([row(0, [2, 2], 'recordings'), row(1, [3, 3], 'exceptions')]))
+        await expectLogic(logic, () => logic.actions.setDateRange('-30d', null, false))
+            .toDispatchActions(['loadBillingSpendSuccess'])
+            .toFinishAllListeners()
+
+        const hidden = new Set(logic.values.finalHiddenSeries)
+        expect(logic.values.series.filter((s) => !hidden.has(s.key)).map((s) => s.label)).toEqual(['Spend recordings'])
+    })
+
+    it('shows every series again when the filters are reset', async () => {
+        useMocks(mocksFor([row(0, [1, 1]), row(1, [2, 2])]))
+        await mount()
+
+        logic.actions.toggleSeries(keyOf('type_1'))
+        await expectLogic(logic, () => logic.actions.resetFilters()).toFinishAllListeners()
+
+        expect(logic.values.userHiddenSeries).toEqual([])
     })
 })

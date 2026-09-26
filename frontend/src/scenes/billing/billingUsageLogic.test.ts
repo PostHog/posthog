@@ -10,6 +10,7 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { billingSeriesKey } from './billingSeriesSelection'
 import {
     BILLING_USAGE_QUERY_TOO_LARGE_CODE,
     BillingUsageResponse,
@@ -189,13 +190,25 @@ describe('billingUsageLogic loader', () => {
 describe('billingUsageLogic series toggling', () => {
     let logic: ReturnType<typeof billingUsageLogic.build>
 
-    const row = (id: number, data: number[]): BillingUsageResponse['results'][number] => ({
+    // The billing service numbers series by position in each response, so `id` and the usage type
+    // are separate inputs here.
+    const row = (id: number, data: number[], usageType = `type_${id}`): BillingUsageResponse['results'][number] => ({
         id,
-        label: `Series ${id}`,
+        label: `Series ${usageType}`,
         data,
         dates: ['2026-08-01', '2026-08-02'],
         breakdown_type: BillingUsageResponseBreakdownType.TYPE,
-        breakdown_value: `type_${id}`,
+        breakdown_value: usageType,
+    })
+    const keyOf = (usageType: string): string => billingSeriesKey(row(0, [], usageType))
+    // With a project breakdown the value is a pair: usage type and team id
+    const projectRow = (id: number, data: number[], teamId: string): BillingUsageResponse['results'][number] => ({
+        id,
+        label: `Project ${teamId}`,
+        data,
+        dates: ['2026-08-01', '2026-08-02'],
+        breakdown_type: BillingUsageResponseBreakdownType.MULTIPLE,
+        breakdown_value: ['events', teamId],
     })
 
     const mocksFor = (results: BillingUsageResponse['results']): Parameters<typeof useMocks>[0] => ({
@@ -234,7 +247,7 @@ describe('billingUsageLogic series toggling', () => {
             .toNotHaveDispatchedActions(['toggleSeries'])
             .toFinishAllListeners()
 
-        expect(logic.values.userHiddenSeries).toEqual([0, 1, 2])
+        expect(logic.values.userHiddenSeries).toEqual([keyOf('type_0'), keyOf('type_1'), keyOf('type_2')])
     })
 
     it('shows every series again on the second press', async () => {
@@ -257,12 +270,65 @@ describe('billingUsageLogic series toggling', () => {
         await mount()
 
         logic.actions.setExcludeEmptySeries(true)
-        logic.actions.toggleSeries(0)
-        expect(logic.values.userHiddenSeries).toEqual([0])
+        logic.actions.toggleSeries(keyOf('type_0'))
+        expect(logic.values.userHiddenSeries).toEqual([keyOf('type_0')])
 
         logic.actions.toggleAllSeries()
 
-        expect(logic.values.userHiddenSeries).toEqual([0, 1, 2])
+        expect(logic.values.userHiddenSeries).toEqual([keyOf('type_0'), keyOf('type_1'), keyOf('type_2')])
+    })
+
+    it('keeps the same products hidden when a new date range renumbers the series', async () => {
+        useMocks(mocksFor([row(0, [1, 1], 'events'), row(1, [2, 2], 'recordings'), row(2, [3, 3], 'exceptions')]))
+        await mount()
+
+        logic.actions.toggleSeries(keyOf('events'))
+        logic.actions.toggleSeries(keyOf('exceptions'))
+
+        // No events in the new range, so recordings is now series 0 and exceptions series 1
+        useMocks(mocksFor([row(0, [2, 2], 'recordings'), row(1, [3, 3], 'exceptions')]))
+        await expectLogic(logic, () => logic.actions.setDateRange('-30d', null, false))
+            .toDispatchActions(['loadBillingUsageSuccess'])
+            .toFinishAllListeners()
+
+        const hidden = new Set(logic.values.finalHiddenSeries)
+        expect(logic.values.series.filter((s) => !hidden.has(s.key)).map((s) => s.label)).toEqual(['Series recordings'])
+    })
+
+    it('keeps the same projects hidden when a new date range renumbers a project breakdown', async () => {
+        useMocks(mocksFor([projectRow(0, [1, 1], '11'), projectRow(1, [2, 2], '12'), projectRow(2, [3, 3], '13')]))
+        await mount()
+
+        logic.actions.toggleSeries(billingSeriesKey(projectRow(0, [], '11')))
+        logic.actions.toggleSeries(billingSeriesKey(projectRow(0, [], '13')))
+
+        useMocks(mocksFor([projectRow(0, [2, 2], '12'), projectRow(1, [3, 3], '13')]))
+        await expectLogic(logic, () => logic.actions.setDateRange('-30d', null, false))
+            .toDispatchActions(['loadBillingUsageSuccess'])
+            .toFinishAllListeners()
+
+        const hidden = new Set(logic.values.finalHiddenSeries)
+        expect(logic.values.series.filter((s) => !hidden.has(s.key)).map((s) => s.label)).toEqual(['Project 12'])
+    })
+
+    it('forgets the selection when the breakdown changes, since the series change shape', async () => {
+        useMocks(mocksFor([row(0, [1, 1]), row(1, [2, 2])]))
+        await mount()
+
+        logic.actions.toggleSeries(keyOf('type_1'))
+        await expectLogic(logic, () => logic.actions.toggleTeamBreakdown()).toFinishAllListeners()
+
+        expect(logic.values.userHiddenSeries).toEqual([])
+    })
+
+    it('shows every series again when the filters are reset', async () => {
+        useMocks(mocksFor([row(0, [1, 1]), row(1, [2, 2])]))
+        await mount()
+
+        logic.actions.toggleSeries(keyOf('type_1'))
+        await expectLogic(logic, () => logic.actions.resetFilters()).toFinishAllListeners()
+
+        expect(logic.values.userHiddenSeries).toEqual([])
     })
 })
 
