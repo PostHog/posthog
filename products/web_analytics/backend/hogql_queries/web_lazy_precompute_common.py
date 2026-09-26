@@ -48,6 +48,7 @@ from products.analytics_platform.backend.lazy_computation.stale_policy import (
     is_background_warming_request as shared_is_background_warming_request,
     resolve_stale_while_revalidate_seconds,
 )
+from products.web_analytics.backend.hogql_queries.screen_view_mode import effective_screen_view_mode
 
 logger = structlog.get_logger(__name__)
 
@@ -860,6 +861,12 @@ class SessionsV2UuidMode(LazyPrecomputeIneligible):
     pass
 
 
+class ScreenViewModeSet(LazyPrecomputeIneligible):
+    """Stored buckets count `$pageview` and `$screen` together and read paths from `$pathname` only."""
+
+    pass
+
+
 class TooManyFilters(LazyPrecomputeIneligible):
     pass
 
@@ -999,6 +1006,9 @@ def check_common_eligibility(
 
     if modifiers and getattr(modifiers, "sessionsV2JoinMode", None) == SessionsV2JoinMode.UUID:
         raise SessionsV2UuidMode()
+
+    if effective_screen_view_mode(team, modifiers) is not None:
+        raise ScreenViewModeSet()
 
     # Any event/person filter shape is accepted (any key, any operator, any number),
     # translated as a whole via `property_to_expr`; each distinct set becomes its own

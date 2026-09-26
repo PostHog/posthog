@@ -41,6 +41,7 @@ import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
 } from 'scenes/settings/environment/TaskAgentDefaultsSettings'
+import { WebAnalyticsScreenViewModeSetting } from 'scenes/settings/environment/WebAnalyticsScreenViewModeSetting'
 import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
@@ -1525,6 +1526,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <BounceRatePageViewModeSetting />,
                 flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
                 keywords: ['bounce', 'pageview', 'url', 'calculation'],
+            },
+            {
+                id: 'web-analytics-screen-view-mode',
+                title: 'Pageviews and screen views',
+                description:
+                    'Choose which events web analytics counts as views. This applies to the totals, the graphs, and the Paths table.',
+                component: <WebAnalyticsScreenViewModeSetting />,
+                keywords: ['screen', 'mobile', 'pageview', 'path', 'screen name'],
             },
             {
                 id: 'session-join-mode',

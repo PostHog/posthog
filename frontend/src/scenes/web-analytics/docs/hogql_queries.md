@@ -418,6 +418,17 @@ Refer to `posthog/schema.py` → `WebStatsBreakdown` for an up-to-date list.
 | `Timezone`                       | `properties.$timezone`                 | Event   |
 | `FrustrationMetrics`             | (computed)                             | Session |
 
+The `webAnalyticsScreenViewMode` modifier (Settings → Web analytics → Pageviews and screen views) changes which events count as views and what `Page` reads:
+
+| Mode                    | Events counted            | `Page` reads                                   |
+| ----------------------- | ------------------------- | ---------------------------------------------- |
+| unset                   | `$pageview` and `$screen` | `$pathname`                                    |
+| `pageviews`             | `$pageview`               | `$pathname`                                    |
+| `screens`               | `$screen`                 | `$screen_name`                                 |
+| `pageviews_and_screens` | `$pageview` and `$screen` | `$pathname`, or `$screen_name` when it's empty |
+
+In the last two modes, `$pathname` filters read the same fallback, so they match screen rows. Session entry and exit paths still read `$pathname` only. Lazy precompute and pre-aggregated tables serve only the unset mode, so the other modes run live.
+
 ## Common Query Patterns
 
 ### Filtering by Date Range

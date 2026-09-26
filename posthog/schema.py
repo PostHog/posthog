@@ -303,6 +303,7 @@ from posthog.schema_enums import (
     WebAnalyticsOrderByDirection as WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields as WebAnalyticsOrderByFields,
     WebAnalyticsPreComputeStrategy as WebAnalyticsPreComputeStrategy,
+    WebAnalyticsScreenViewMode as WebAnalyticsScreenViewMode,
     WebBotsBreakdown as WebBotsBreakdown,
     WebsiteBrowsingHistoryProdInterest as WebsiteBrowsingHistoryProdInterest,
     WebStatsBreakdown as WebStatsBreakdown,
@@ -5809,6 +5810,14 @@ class HogQLQueryModifiers(BaseModel):
             " (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by"
             " recomputing the value from the session's first pageview. Resolved"
             " server-side; not intended to be set by clients."
+        ),
+    )
+    webAnalyticsScreenViewMode: WebAnalyticsScreenViewMode | None = Field(
+        default=None,
+        description=(
+            "Which events web analytics counts as views. Unset keeps `$pageview` +"
+            " `$screen` for totals and `$pathname` for paths. `pageviews_and_screens`"
+            " falls back to `$screen_name` when an event has no `$pathname`."
         ),
     )
 
