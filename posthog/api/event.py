@@ -54,6 +54,8 @@ from posthog.rate_limit import (
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.utils import convert_property_value, flatten, refresh_requested_by_client, relative_date_parse
 
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
 tracer = trace.get_tracer(__name__)
 
 EVENT_VALUES_COUNTER = Counter(
@@ -674,12 +676,16 @@ class EventViewSet(
         try:
             from ee.models.property_definition import EnterprisePropertyDefinition
 
-            property_is_hidden = EnterprisePropertyDefinition.objects.filter(
-                team=team,
-                name=key,
-                type=PropertyDefinition.Type.EVENT.value,
-                hidden=True,
-            ).exists()
+            property_is_hidden = (
+                EnterprisePropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+                .filter(
+                    effective_project_id=team.project_id,
+                    name=key,
+                    type=PropertyDefinition.Type.EVENT.value,
+                    hidden=True,
+                )
+                .exists()
+            )
         except ImportError:
             # Enterprise features not available, continue normally
             pass
