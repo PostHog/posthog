@@ -640,6 +640,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPProtocolVersionBreakdownQuery]: {
+        name: 'MCP protocol version breakdown',
+        description: 'MCP tool-call activity grouped by negotiated protocol revision.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.MCPToolSampleIntentsQuery]: {
         name: 'MCP tool sample intents',
         description: 'Recent sampled intents for a single MCP tool.',
