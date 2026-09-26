@@ -43,12 +43,6 @@ _CAMEL_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 
 _IAM_ACTION_PATTERN = re.compile(r"ses:[A-Za-z0-9]+")
 
-# SESv2 declares BadRequestException with zero members, so the response carries no `message`.
-_BAD_REQUEST_EXPLANATION = (
-    "Amazon SES rejected the request and gave no reason. "
-    "This table might not be available in the AWS region this source is connected to."
-)
-
 # Codes AWS can answer with when a saved pagination token is no longer accepted. Only
 # ListSuppressedDestinations models InvalidNextTokenException; the other list operations report
 # a rejected NextToken as BadRequestException, the same code a region that cannot serve the
@@ -63,6 +57,26 @@ _CREDENTIAL_ERROR_CODES = (
     "InvalidSignatureException",
     "ExpiredTokenException",
 )
+
+
+def _bad_request_explanation(region: str) -> str:
+    """Wording for a bodyless 400.
+
+    SES gates some tables by region: `multi_region_endpoints` lists global endpoints, which a
+    region either offers or does not. A region that does not serve an operation answers 400.
+
+    The response cannot say that it is that case. SESv2 declares `BadRequestException` with zero
+    members, so the body carries no `message`, and the list operations declare no
+    `NotFoundException`. The request cannot say so either: `PageSize` is the shape `MaxItems`,
+    which declares no `min` and no `max`, on every operation this source calls except
+    `ListMultiRegionEndpoints`, so AWS can reject the page size the connector chose. Name the
+    region, and leave the cause open.
+    """
+    return (
+        "Amazon SES rejected this request and gave no reason. This table might not be available "
+        f"in AWS region {region}. Check whether Amazon SES offers it there, or connect a source "
+        "in a region that does."
+    )
 
 
 class AwsSesError(Exception):
@@ -156,16 +170,16 @@ def _error_code(response: requests.Response, body: dict[str, Any]) -> str:
     return str(raw).split("#")[-1]
 
 
-def _error_message(response: requests.Response, body: dict[str, Any], code: str) -> str:
+def _error_message(response: requests.Response, body: dict[str, Any], code: str, region: str) -> str:
     message = body.get("message") or body.get("Message") or ""
     if message:
         return str(message)[:500]
     if code == "BadRequestException":
-        return _BAD_REQUEST_EXPLANATION
+        return _bad_request_explanation(region)
     return f"Amazon SES returned HTTP {response.status_code} with no message."
 
 
-def error_for_response(response: requests.Response, endpoint: str, path: str) -> AwsSesError:
+def error_for_response(response: requests.Response, endpoint: str, path: str, region: str) -> AwsSesError:
     try:
         parsed = response.json()
     except ValueError:
@@ -178,7 +192,7 @@ def error_for_response(response: requests.Response, endpoint: str, path: str) ->
     text = "" if isinstance(parsed, dict) else response.text.strip()
     if text:
         return AwsSesError(code, text[:500], endpoint, path)
-    return AwsSesError(code, _error_message(response, body, code), endpoint, path)
+    return AwsSesError(code, _error_message(response, body, code, region), endpoint, path)
 
 
 def make_session(secret_access_key: str, session_token: Optional[str]) -> requests.Session:
@@ -206,7 +220,7 @@ def send_request(
 
     response = session.get(url, headers=dict(aws_request.headers.items()), timeout=REQUEST_TIMEOUT_SECONDS)
     if response.status_code >= 400:
-        raise error_for_response(response, endpoint, path)
+        raise error_for_response(response, endpoint, path, region)
     return response.json()
 
 
@@ -298,7 +312,14 @@ def _walk_pages(
             page_params["NextToken"] = next_token
 
         try:
-            body = send_request(session, credentials, region, endpoint_config.name, endpoint_config.path, page_params)
+            body = send_request(
+                session,
+                credentials,
+                region,
+                endpoint_config.name,
+                endpoint_config.path,
+                page_params,
+            )
         except AwsSesError as error:
             # A token saved by a previous attempt can expire; restart the walk instead of
             # failing the job. Merge on the primary key absorbs the re-read rows. The restart
@@ -378,8 +399,9 @@ def _permission_reason(error: AwsSesError) -> Optional[str]:
         return "AWS rejected the access key. Please check the access key ID and secret access key."
     if error.code == "BadRequestException":
         # A 400 on the probe is deterministic, not a blip, so reporting it keeps the table out of
-        # the picker in a region that can never load it.
-        return _BAD_REQUEST_EXPLANATION
+        # the picker in a region that can never load it. The raised message already carries
+        # either AWS's own text or the explanation the bodyless case earns.
+        return error.message
     return None
 
 
@@ -399,7 +421,14 @@ def endpoint_permission_reason(
             send_request(session, credentials, region, endpoint_config.name, endpoint_config.path)
             return None
 
-        body = send_request(session, credentials, region, endpoint_config.name, endpoint_config.path, {"PageSize": 1})
+        body = send_request(
+            session,
+            credentials,
+            region,
+            endpoint_config.name,
+            endpoint_config.path,
+            {"PageSize": 1},
+        )
         if endpoint_config.detail_path:
             for item in (body.get(endpoint_config.result_key or "") or [])[:1]:
                 name = item.get(endpoint_config.item_name_key) if isinstance(item, dict) else item
