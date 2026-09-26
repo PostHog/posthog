@@ -18,32 +18,11 @@ function redactConfig(config: ProducerGlobalConfig): Record<string, unknown> {
     return Object.fromEntries(Object.entries(config).map(([k, v]) => [k, SENSITIVE_KEYS.has(k) ? '***' : v]))
 }
 
-/**
- * Builder for `KafkaProducerRegistry` that validates config keys at compile time.
- *
- * Each `register()` call adds a named producer and accumulates its config key requirements
- * in the `CK` type parameter. `build(config)` then checks that the config object contains
- * all accumulated keys.
- *
- * @example
- * ```ts
- * const registry = await new KafkaProducerRegistryBuilder(config.KAFKA_CLIENT_RACK)
- *     .register('INGESTION_UPSTREAM', INGESTION_UPSTREAM_PRODUCER_CONFIG_MAP)
- *     .build(config)
- * // registry is KafkaProducerRegistry<'INGESTION_UPSTREAM'>
- * ```
- */
 export class KafkaProducerRegistryBuilder<P extends string = never, CK extends string = never> {
     private registrations = new Map<string, Partial<Record<AllowedConfigKey, CK>>>()
 
     constructor(private kafkaClientRack: string | undefined) {}
 
-    /**
-     * Register a producer with a name and rdkafka-to-config-key mapping.
-     *
-     * The config key names are accumulated in the `CK` type parameter and checked
-     * against the config object when `build()` is called.
-     */
     register<Name extends string, ConfigKeys extends string>(
         name: Name,
         configMap: Partial<Record<AllowedConfigKey, ConfigKeys>>
@@ -54,12 +33,6 @@ export class KafkaProducerRegistryBuilder<P extends string = never, CK extends s
         return next
     }
 
-    /**
-     * Create all registered producers and return an immutable registry.
-     *
-     * The compiler verifies that the config contains all accumulated config keys.
-     * Connects to brokers in parallel. Throws if any producer fails to connect.
-     */
     async build(config: Record<CK, string>): Promise<KafkaProducerRegistry<P>> {
         const producers: Record<string, KafkaProducerWrapper> = {}
 
