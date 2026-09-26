@@ -228,6 +228,7 @@ class DataDeletionRequestViewSet(
     @action(
         methods=["POST"],
         detail=False,
+        required_scopes=["data_deletion:write"],
         throttle_classes=[DataDeletionPreviewBurstThrottle, DataDeletionPreviewSustainedThrottle],
     )
     def preview(self, request: ValidatedRequest, **kwargs: object) -> Response:
