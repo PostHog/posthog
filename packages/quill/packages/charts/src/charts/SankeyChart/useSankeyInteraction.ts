@@ -1,5 +1,6 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 
+import { originatesInInteractiveOverlay } from '../../core/dom-events'
 import { useLatest } from '../../core/hooks/useLatest'
 import { useTooltipLifecycle } from '../../core/hooks/useTooltipLifecycle'
 import type { Series, TooltipContext } from '../../core/types'
@@ -14,6 +15,11 @@ interface UseSankeyInteractionOptions<NodeMeta, LinkMeta> {
     showTooltip: boolean
     onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void
     onLinkClick?: (link: SankeyLinkDatum<NodeMeta, LinkMeta>) => void
+    onHoverChange?: (hit: SankeyTooltipHit<NodeMeta, LinkMeta> | null) => void
+}
+
+function hitKey(hit: SankeyHit | null): string | null {
+    return hit ? `${hit.kind}:${hit.index}` : null
 }
 
 interface UseSankeyInteractionResult<NodeMeta, LinkMeta> {
@@ -79,9 +85,31 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
     showTooltip,
     onNodeClick,
     onLinkClick,
+    onHoverChange,
 }: UseSankeyInteractionOptions<NodeMeta, LinkMeta>): UseSankeyInteractionResult<NodeMeta, LinkMeta> {
     type Ctx = SankeyTooltipContext<NodeMeta, LinkMeta>
     const layoutRef = useLatest(layout)
+    const onHoverChangeRef = useLatest(onHoverChange)
+    // The last hit reported to the host, so a cursor sweep inside one ribbon reports it once.
+    const reportedHitRef = useRef<string | null>(null)
+
+    // A new layout rebuilds nodes/links with fresh objects, so a stale key can coincidentally
+    // match the next real hit and suppress the hover callback the consumer needs to update.
+    useEffect(() => {
+        reportedHitRef.current = null
+    }, [layout])
+
+    const reportHover = useCallback(
+        (hit: SankeyHit | null) => {
+            const key = hitKey(hit)
+            if (key === reportedHitRef.current) {
+                return
+            }
+            reportedHitRef.current = key
+            onHoverChangeRef.current?.(hit ? resolveHit(layoutRef.current, hit) : null)
+        },
+        [onHoverChangeRef, layoutRef]
+    )
 
     const rebuildPinnedCtx = useCallback(
         (prev: TooltipContext<NodeMeta | LinkMeta>): Ctx | null => {
@@ -112,8 +140,9 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
                 const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
                 setTooltipCtx(buildTooltipCtx(layoutRef.current, hit, cursor, canvasBounds))
             }
+            reportHover(hit)
         },
-        [layoutRef, showTooltip, setHover, setTooltipCtx, canvasRef]
+        [layoutRef, showTooltip, setHover, setTooltipCtx, canvasRef, reportHover]
     )
 
     const onMouseMove = useCallback(
@@ -122,11 +151,17 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
             if (current.nodes.length === 0) {
                 return
             }
+            if (originatesInInteractiveOverlay(e)) {
+                clearTooltip()
+                reportHover(null)
+                return
+            }
             const rect = e.currentTarget.getBoundingClientRect()
             const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
             const hit = sankeyHitAt(current, cursor)
             if (!hit) {
                 clearTooltip()
+                reportHover(null)
                 return
             }
             showHit(hit, cursor)
@@ -136,7 +171,8 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
 
     const onMouseLeave = useCallback(() => {
         clearTooltip()
-    }, [clearTooltip])
+        reportHover(null)
+    }, [clearTooltip, reportHover])
 
     // Touch devices fire no mousemove before a tap, so the click has to resolve what was tapped
     // itself. As on the cartesian charts, the first tap on a node or ribbon shows its tooltip and

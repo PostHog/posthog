@@ -15,6 +15,13 @@ export type SankeyTooltipContext<NodeMeta = unknown, LinkMeta = NodeMeta> = Tool
     total: number
 }
 
+/** A consumer-chosen part of the graph to keep at full strength while the rest dims. Nodes are
+ *  named by id; links by their index in the `links` prop, which the layout keeps. */
+export interface SankeyHighlight {
+    nodeIds: ReadonlySet<string>
+    linkIndices: ReadonlySet<number>
+}
+
 export interface SankeyChartConfig {
     /** Node rectangle width in px. Defaults to 12. */
     nodeWidth?: number
@@ -56,6 +63,13 @@ export interface SankeyChartProps<NodeMeta = unknown, LinkMeta = NodeMeta> {
     tooltip?: (ctx: SankeyTooltipContext<NodeMeta, LinkMeta>) => React.ReactNode
     onNodeClick?: (node: SankeyNodeDatum<NodeMeta>) => void
     onLinkClick?: (link: SankeyLinkDatum<NodeMeta, LinkMeta>) => void
+    /** Fires when the cursor moves onto a different node or ribbon, and with `null` when it leaves
+     *  the graph. Lets a host drive its own emphasis, for example through `highlight`. */
+    onHoverChange?: (hit: SankeyTooltipHit<NodeMeta, LinkMeta> | null) => void
+    /** Controlled emphasis. While set, the chart dims everything outside this set and the built-in
+     *  hover dimming is off, so the host decides what a hover means (the whole downstream path, a
+     *  selection). Pass `null` to hand emphasis back to the hover. */
+    highlight?: SankeyHighlight | null
     className?: string
     /** `data-attr` applied to the chart wrapper. */
     dataAttr?: string
