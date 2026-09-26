@@ -49,6 +49,17 @@ const sharedReasonSuggestions: EnrichedReviewer[] = [
     })
 )
 
+const comparisonSuggestions: EnrichedReviewer[] = [
+    ...sharedReasonSuggestions.slice(0, 2),
+    ...codeHistorySuggestions.slice(2, 3),
+    reviewer('quinn', 'Quinn Foster', 'quinn@example.com', {
+        source_skill: null,
+        source_label: 'Added by teammate',
+        reason: 'Added as a reviewer by Avery Chen on Jan 1, 2026',
+        explanation: null,
+    }),
+]
+
 const longReason =
     'These reviewers maintain the request parser and retry handling. Review the long configuration path before release because it affects several report views.'
 
@@ -107,6 +118,20 @@ export const MixedSources: Story = {
                 explanation: null,
             }),
         ],
+    },
+}
+
+export const AddedByTeammate: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: { suggestions: comparisonSuggestions },
+}
+
+export const AddedByAvery: Story = {
+    parameters: { mockupWidth: 'narrow' },
+    args: {
+        suggestions: comparisonSuggestions.map((suggestion) =>
+            suggestion.github_login === 'quinn' ? { ...suggestion, source_label: 'Added by Avery' } : suggestion
+        ),
     },
 }
 
