@@ -58,8 +58,6 @@ import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Noun } from '../../../models/groupsModel'
 import type { UserProductListItem } from '../../../queries/schema/schema-general'
 import type { GroupType, GroupTypeIndex, ProjectTreeRef, UserType } from '../../../types'
-import { panelLayoutLogic } from '../panelLayoutLogic'
-import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
 import { customProductsLogic } from './customProductsLogic'
 
 const MOVE_ALERT_LIMIT = 50
@@ -250,9 +248,6 @@ export interface projectTreeDataLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
-    setActivePanelIdentifier: (identifier: PanelLayoutNavIdentifier) => {
-        identifier: PanelLayoutNavIdentifier
-    } // panelLayoutLogic
     locationChanged: ({
         method,
         pathname,
@@ -650,14 +645,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             userLogic,
             ['user'],
         ],
-        actions: [
-            panelLayoutLogic,
-            ['setActivePanelIdentifier'],
-            featureFlagLogic,
-            ['setFeatureFlags'],
-            router,
-            ['locationChanged'],
-        ],
+        actions: [featureFlagLogic, ['setFeatureFlags'], router, ['locationChanged']],
     })),
     actions({
         setStarredNavigationRef: (ref: ProjectTreeRef | null, href?: string) => ({ ref, href }),
@@ -1071,15 +1059,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               }
                     const response = await api.fileSystemShortcuts.create(shortcutItem)
                     eventUsageLogic.actions.reportNavbarStarredItemAdded(shortcutItem.type ?? 'unknown', shortcutPath)
-                    lemonToast.success('Added to starred', {
-                        button: {
-                            label: 'View',
-                            dataAttr: 'project-tree-view-shortcuts',
-                            action: () => {
-                                actions.setActivePanelIdentifier('Shortcuts')
-                            },
-                        },
-                    })
+                    lemonToast.success('Added to starred')
                     return [...values.shortcutData, response]
                 },
                 reorderShortcuts: async ({ orderedIds }) => {
