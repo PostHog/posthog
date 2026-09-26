@@ -50,6 +50,7 @@ import {
   type BuildResult,
   type ConversationItem,
   hasSetupProgressForRun,
+  type TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import {
   ChatMarkdown,
@@ -209,6 +210,50 @@ function isThoughtItem(item: ConversationItem): boolean {
   );
 }
 
+function isTurnDecided(
+  turnContext: TurnContext,
+  erroredTurns: Set<TurnContext>,
+  supersededTurns: Set<TurnContext>,
+): boolean {
+  // A cloud turn that errors out never gets a `turn_completed` event, so `turnComplete`
+  // alone would leave a finished chart stuck collapsed forever.
+  if (erroredTurns.has(turnContext)) return true;
+  if (!turnContext.turnComplete) return false;
+  // An implicit turn is marked `turnComplete` the moment it opens, so trust that only once
+  // a later turn has taken its place and it can no longer grow.
+  return turnContext.isImplicit ? supersededTurns.has(turnContext) : true;
+}
+
+function lastRenderableIdsByTurn(
+  items: ConversationItem[],
+): Map<TurnContext, string> {
+  const erroredTurns = new Set<TurnContext>();
+  const lastIndexByTurn = new Map<TurnContext, number>();
+  items.forEach((item, index) => {
+    if (!isSessionUpdateItem(item)) return;
+    lastIndexByTurn.set(item.turnContext, index);
+    if (item.update.sessionUpdate === "error") {
+      erroredTurns.add(item.turnContext);
+    }
+  });
+  const supersededTurns = new Set(
+    [...lastIndexByTurn]
+      .filter(([, lastIndex]) => lastIndex < items.length - 1)
+      .map(([turnContext]) => turnContext),
+  );
+
+  const out = new Map<TurnContext, string>();
+  for (const item of items) {
+    if (!isToolCallItem(item)) continue;
+    if (!isTurnDecided(item.turnContext, erroredTurns, supersededTurns)) {
+      continue;
+    }
+    if (!hasUiAppResult(item)) continue;
+    out.set(item.turnContext, item.id);
+  }
+  return out;
+}
+
 /**
  * An item that must render as its own row, never folded into a `ToolGroupItem`:
  * a plan awaiting approval, a show-actions handoff, or a call whose result
@@ -222,8 +267,16 @@ function isThoughtItem(item: ConversationItem): boolean {
  * hide behind a collapsed panel. Keeping the chart outside the group is the
  * rule that fixes both.
  */
-function rendersStandalone(item: ConversationItem): boolean {
-  return isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item);
+function rendersStandalone(
+  item: ConversationItem,
+  lastRenderableIds: Map<TurnContext, string>,
+): boolean {
+  return (
+    isPlanItem(item) ||
+    isShowActionsItem(item) ||
+    (isToolCallItem(item) &&
+      lastRenderableIds.get(item.turnContext) === item.id)
+  );
 }
 
 /**
@@ -261,6 +314,7 @@ function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
 }
 
 export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
+  const lastRenderableIds = lastRenderableIdsByTurn(items);
   const out: ThreadItem[] = [];
   // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
   // items interleaved with either.
@@ -284,7 +338,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      if (rendersStandalone(item)) {
+      if (rendersStandalone(item, lastRenderableIds)) {
         flush();
         out.push(item);
         continue;
