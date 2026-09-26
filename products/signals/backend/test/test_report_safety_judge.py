@@ -2,7 +2,13 @@ import json
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+
+from django.test import override_settings
+
+from anthropic.types import Message, TextBlock, Usage
+
+from posthog.llm.gateway_client import private_scout_gateway
 
 from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionResult, NoulAnswer
 from products.signals.backend.temporal.llm import SAFETY_MODEL
@@ -172,3 +178,48 @@ async def test_typesafe_only_blocks_a_single_signal_that_cannot_fit() -> None:
         "Shorten or remove that signal, then try again."
     )
     decide.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["typesafe-shadow", "traditional-shadow", "typesafe-only"])
+@override_settings(
+    SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+    AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
+    AI_GATEWAY_API_KEY="phs_shared_test",
+    LLM_GATEWAY_URL="https://gateway.example.com",
+    LLM_GATEWAY_API_KEY="shared-test-credential",
+)
+async def test_private_report_judge_keeps_the_trial_gateway_without_rollout_capture(mode: str) -> None:
+    signal = SignalData(
+        signal_id="signal-1",
+        content="a finding",
+        source_product="error_tracking",
+        source_type="issue_created",
+        source_id="issue-1",
+        weight=1.0,
+        timestamp=datetime(2026, 9, 10, tzinfo=UTC),
+    )
+    response = Message(
+        id="msg_test",
+        content=[TextBlock(type="text", text='{"choice": true}')],
+        model=SAFETY_MODEL,
+        role="assistant",
+        type="message",
+        usage=Usage(input_tokens=1, output_tokens=1),
+    )
+    with (
+        patch(f"{DECISION_MODULE_PATH}.posthoganalytics.get_feature_flag", return_value=mode),
+        patch(f"{DECISION_MODULE_PATH}.posthoganalytics.capture") as capture,
+        patch(f"{DECISION_MODULE_PATH}.decision_api.decide_when_available") as decide,
+        patch("posthog.llm.gateway_client.AsyncAnthropic") as client,
+        private_scout_gateway("pha_trial_test_credential"),
+    ):
+        client.return_value.messages.create = AsyncMock(return_value=response)
+        result = await judge_report_safety(team_id=1, signals=[signal], report_id="report-1")
+
+    assert result.choice is True
+    assert client.call_args.kwargs["base_url"] == "https://gateway.example.com/signals"
+    assert client.call_args.kwargs["api_key"] == "pha_trial_test_credential"
+    client.return_value.messages.create.assert_awaited_once()
+    decide.assert_not_called()
+    capture.assert_not_called()

@@ -334,6 +334,10 @@ export class RequestContext {
                     ...previousContextProperties,
                     ...properties,
                     is_impersonated: apiKey?.is_impersonated === true,
+                    suppress_analytics:
+                        this.props.suppressAnalytics === true ||
+                        apiKey?.suppress_analytics === true ||
+                        (!apiKey && this.props.apiToken.startsWith('pha_')),
                 },
             })
         } catch {

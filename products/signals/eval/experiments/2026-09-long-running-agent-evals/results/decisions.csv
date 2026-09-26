@@ -1,0 +1,8 @@
+id,defect_real,covered_claim_true,decline_correct,should_have_filed
+d-projects-list,yes,yes,yes,False
+d-org-personal-api-keys,yes,yes,yes,False
+d-feature-flags-list,yes,yes,yes,False
+d-role-external-reference,yes,yes,no,True
+d-scim-request-logs,no,no,yes,False
+d-file-system-shortcut,yes,no,no,True
+d-widget-pagination,yes,yes,yes,False

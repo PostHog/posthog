@@ -39,7 +39,13 @@ from llm_gateway.rate_limiting.cost_throttles import (
 )
 from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
-from llm_gateway.request_context import RequestContext, set_request_context
+from llm_gateway.request_context import (
+    PrivateScoutLogFilter,
+    RequestContext,
+    auth_user_var,
+    drop_private_scout_log,
+    request_context_var,
+)
 from llm_gateway.services.billing_period_resolver import BillingPeriodResolver
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
 from llm_gateway.services.quota_resolver import QuotaResolver
@@ -47,9 +53,20 @@ from llm_gateway.services.quota_resolver import QuotaResolver
 
 def configure_logging(debug: bool = False) -> None:
     log_level = logging.DEBUG if debug else logging.INFO
+    private_scout_filter = PrivateScoutLogFilter()
+    # Provider libraries use stdlib logging, including handlers that bypass the root logger.
+    loggers = [logging.getLogger(), *logging.Logger.manager.loggerDict.values()]
+    for stdlib_logger in loggers:
+        if isinstance(stdlib_logger, logging.Logger):
+            stdlib_logger.addFilter(private_scout_filter)
+            for handler in stdlib_logger.handlers:
+                handler.addFilter(private_scout_filter)
+    if logging.lastResort is not None:
+        logging.lastResort.addFilter(private_scout_filter)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,
+            drop_private_scout_log,
             structlog.processors.add_log_level,
             structlog.processors.StackInfoRenderer(),
             structlog.dev.set_exc_info,
@@ -77,7 +94,8 @@ def update_db_pool_metrics(pool: asyncpg.Pool | None) -> None:
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         request_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
-        set_request_context(RequestContext(request_id=request_id))
+        request_context_token = request_context_var.set(RequestContext(request_id=request_id))
+        auth_user_token = auth_user_var.set(None)
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
         start_time = time.monotonic()
@@ -111,8 +129,10 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 # The configured processor chain has no format_exc_info, so exc_info would render as
                 # a repr of the tuple instead of a traceback. Pass the formatted text explicitly,
                 # under the key structlog's own exception renderer would use.
-                exception=traceback.format_exc(),
+                exception=None if getattr(request.state, "private_scout_capture", False) else traceback.format_exc(),
             )
+            if getattr(request.state, "private_scout_capture", False):
+                raise RuntimeError("Gateway request failed") from None
             raise
         finally:
             duration_ms = (time.monotonic() - start_time) * 1000
@@ -127,6 +147,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 )
 
             structlog.contextvars.unbind_contextvars("request_id")
+            auth_user_var.reset(auth_user_token)
+            request_context_var.reset(request_context_token)
 
 
 async def init_redis(url: str | None) -> Redis[bytes] | None:

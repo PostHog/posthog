@@ -1057,15 +1057,19 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         response = self.peer_client.get(self._mentions_url(), {"since": "not-a-date"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand([("private",), ("scout_trial",)])
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_mention_on_invisible_task_is_hidden(self, mock_delay, _flag):
+    def test_mention_on_invisible_task_is_hidden(self, kind, mock_delay, _flag):
         private_task = Task.objects.create(
             team=self.team,
             created_by=self.author,
             title="Private",
             description="d",
-            origin_product=Task.OriginProduct.USER_CREATED,
+            origin_product=(
+                Task.OriginProduct.SIGNALS_SCOUT if kind == "scout_trial" else Task.OriginProduct.USER_CREATED
+            ),
+            origin_key="scout-trial:11111111-1111-1111-1111-111111111111" if kind == "scout_trial" else None,
         )
         with self.captureOnCommitCallbacks(execute=True):
             self._post_message(self.author_client, "fyi @[Bob](peer@example.com)", task=private_task)

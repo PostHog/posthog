@@ -1,15 +1,29 @@
 import asyncio
+import json
+import logging
+import threading
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+import httpx
+import litellm
 import pytest
+from anthropic import APIStatusError, AsyncAnthropic
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
+from litellm.exceptions import MidStreamFallbackError
+from litellm.litellm_core_utils.litellm_logging import Logging
+from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
+from openai import AsyncOpenAI
 
-from llm_gateway.api.handler import ANTHROPIC_CONFIG, handle_llm_request
+from llm_gateway.anthropic_stream import IncompleteAnthropicStreamError
+from llm_gateway.api.handler import ANTHROPIC_CONFIG, OPENAI_CONFIG, OPENAI_RESPONSES_CONFIG, handle_llm_request
 from llm_gateway.auth.models import AuthenticatedUser
+from llm_gateway.callbacks import init_callbacks
+from llm_gateway.config import Settings
 from llm_gateway.metrics.prometheus import PROVIDER_ERRORS, REQUEST_COUNT
+from llm_gateway.products.config import SIGNALS_DEV_APP_ID
 
 
 class MockProviderError(Exception):
@@ -21,6 +35,243 @@ class MockProviderError(Exception):
 
 
 class TestStreamingErrorHandling:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("api", ["chat", "responses", "anthropic"])
+    @pytest.mark.parametrize("private_scout", [False, True])
+    async def test_provider_background_stream_errors_keep_capture_policy(
+        self,
+        mock_user: AuthenticatedUser,
+        api: str,
+        private_scout: bool,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        mock_user.auth_method = "oauth_access_token"
+        mock_user.application_id = SIGNALS_DEV_APP_ID
+        mock_user.sandbox_task_id = "test-task"
+        mock_user.scopes = ["llm_gateway:read", "internal_run:read"]
+        if private_scout:
+            mock_user.scopes.append("scout_experiment_internal:read")
+        finished = [threading.Event(), threading.Event()]
+        sync_failure = Logging.failure_handler
+        async_failure = Logging.async_failure_handler
+
+        def failure(logging_obj: Logging, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return sync_failure(logging_obj, *args, **kwargs)
+            finally:
+                finished[0].set()
+
+        async def afailure(logging_obj: Logging, *args: Any, **kwargs: Any) -> Any:
+            try:
+                return await async_failure(logging_obj, *args, **kwargs)
+            finally:
+                finished[1].set()
+
+        class BrokenStream(httpx.AsyncByteStream):
+            async def __aiter__(self) -> AsyncGenerator[bytes]:
+                chunk = (
+                    {
+                        "id": "synthetic-stream",
+                        "object": "chat.completion.chunk",
+                        "created": 1,
+                        "model": "gpt-4o-mini",
+                        "choices": [{"index": 0, "delta": {"content": "hello"}, "finish_reason": None}],
+                    }
+                    if api == "chat"
+                    else {
+                        "type": "response.created",
+                        "response": {"id": "resp_synthetic", "created_at": 1, "model": "gpt-4o-mini", "output": []},
+                    }
+                )
+                yield f"data: {json.dumps(chunk)}\n\n".encode()
+                if api == "anthropic":
+                    delta = {
+                        "type": "response.output_text.delta",
+                        "item_id": "msg_synthetic",
+                        "output_index": 0,
+                        "content_index": 0,
+                        "delta": "synthetic partial reply",
+                    }
+                    yield f"data: {json.dumps(delta)}\n\n".encode()
+                raise httpx.ReadError("synthetic-provider-stream-error")
+
+        def transport(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-type": "text/event-stream"}, stream=BrokenStream())
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(transport)) as client:
+            with patch.object(AsyncHTTPHandler, "create_client", return_value=client):
+                responses_client = AsyncHTTPHandler()
+            chat_client = AsyncOpenAI(api_key="synthetic-key", http_client=client)
+
+            async def provider(**kwargs: Any) -> Any:
+                if api == "chat":
+                    return await litellm.acompletion(client=chat_client, **kwargs)
+                call = litellm.aresponses if api == "responses" else litellm.anthropic_messages
+                return await call(client=responses_client, api_key="synthetic-key", **kwargs)
+
+            with (
+                patch("socket.socket.connect", side_effect=AssertionError("Unexpected network connection")) as connect,
+                patch("socket.getaddrinfo", side_effect=AssertionError("Unexpected DNS lookup")) as resolve,
+                patch.object(Logging, "failure_handler", failure),
+                patch.object(Logging, "async_failure_handler", afailure),
+                patch.multiple(
+                    litellm,
+                    callbacks=[],
+                    input_callback=[],
+                    success_callback=[],
+                    failure_callback=[],
+                    _async_success_callback=[],
+                    _async_failure_callback=[],
+                ),
+                patch("llm_gateway.callbacks.get_settings", return_value=Settings(posthog_project_token="")),
+                patch(
+                    "litellm.litellm_core_utils.litellm_logging._get_response_headers",
+                    side_effect=ValueError("synthetic-provider-bookkeeping-detail"),
+                ),
+                patch("llm_gateway.observability.error_tracking.posthoganalytics"),
+            ):
+                init_callbacks()
+                caplog.clear()
+                response = await handle_llm_request(
+                    request_data={
+                        "model": "gpt-4o-mini",
+                        "stream": True,
+                        "max_tokens": 50,
+                        **(
+                            {"messages": [{"role": "user", "content": "synthetic prompt"}]}
+                            if api != "responses"
+                            else {"input": "synthetic prompt"}
+                        ),
+                    },
+                    user=mock_user,
+                    model="gpt-4o-mini",
+                    product="signals",
+                    is_streaming=True,
+                    provider_config={
+                        "chat": OPENAI_CONFIG,
+                        "responses": OPENAI_RESPONSES_CONFIG,
+                        "anthropic": ANTHROPIC_CONFIG,
+                    }[api],
+                    llm_call=provider,
+                )
+                assert isinstance(response, StreamingResponse)
+                expected_error = (
+                    RuntimeError
+                    if private_scout
+                    else {
+                        "chat": MidStreamFallbackError,
+                        "responses": httpx.ReadError,
+                        "anthropic": IncompleteAnthropicStreamError,
+                    }[api]
+                )
+                chunks: list[bytes] = []
+                with pytest.raises(expected_error):
+                    async for chunk in response.body_iterator:
+                        assert isinstance(chunk, bytes)
+                        chunks.append(chunk)
+                assert all(await asyncio.gather(*(asyncio.to_thread(event.wait, 5) for event in finished)))
+                if api == "anthropic":
+                    async with httpx.AsyncClient(
+                        transport=httpx.MockTransport(
+                            lambda _request: httpx.Response(
+                                200, headers={"content-type": "text/event-stream"}, content=b"".join(chunks)
+                            )
+                        )
+                    ) as gateway_client:
+                        sdk = AsyncAnthropic(api_key="synthetic-key", http_client=gateway_client, max_retries=0)
+                        with pytest.raises(APIStatusError, match="Upstream stream failed") as sdk_error:
+                            async with sdk.messages.stream(
+                                model="gpt-4o-mini",
+                                max_tokens=50,
+                                messages=[{"role": "user", "content": "synthetic prompt"}],
+                            ) as sdk_stream:
+                                await sdk_stream.get_final_message()
+                        assert sdk_error.value.body == {
+                            "type": "error",
+                            "error": {"type": "api_error", "message": "Upstream stream failed"},
+                        }
+                connect.assert_not_called()
+                resolve.assert_not_called()
+
+        assert ("synthetic-provider-bookkeeping-detail" in caplog.text) is not private_scout
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("private_scout", [False, True])
+    @pytest.mark.parametrize("failure_at", ["nonstreaming", "stream_start", "stream_chunk"])
+    async def test_private_provider_errors_do_not_reach_capture_or_logs(
+        self,
+        mock_user: AuthenticatedUser,
+        private_scout: bool,
+        failure_at: str,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        mock_user.auth_method = "oauth_access_token"
+        mock_user.application_id = SIGNALS_DEV_APP_ID
+        mock_user.sandbox_task_id = "test-task"
+        mock_user.scopes = ["llm_gateway:read", "internal_run:read"]
+        if private_scout:
+            mock_user.scopes.append("scout_experiment_internal:read")
+
+        async def failing_stream() -> AsyncGenerator[bytes]:
+            yield b"data: started\n\n"
+            logging.getLogger("LiteLLM").warning("synthetic-private-provider-log")
+            raise MockProviderError("synthetic-private-error-detail", 503)
+
+        async def provider(**_kwargs: object) -> AsyncGenerator[bytes]:
+            if failure_at == "stream_chunk":
+                return failing_stream()
+            logging.getLogger("LiteLLM").warning("synthetic-private-provider-log")
+            raise MockProviderError("synthetic-private-error-detail", 503)
+
+        with (
+            patch("llm_gateway.observability.error_tracking.posthoganalytics") as capture,
+            patch(
+                "llm_gateway.observability.error_tracking.get_settings",
+                return_value=MagicMock(posthog_project_token="test-token"),
+            ),
+        ):
+            capsys.readouterr()
+            caplog.clear()
+            if failure_at == "stream_chunk":
+                response = await handle_llm_request(
+                    request_data={},
+                    user=mock_user,
+                    model="test-model",
+                    product="signals",
+                    is_streaming=True,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=provider,
+                )
+                assert isinstance(response, StreamingResponse)
+                with pytest.raises(RuntimeError if private_scout else MockProviderError) as stream_error:
+                    async for _ in response.body_iterator:
+                        pass
+                if private_scout:
+                    assert str(stream_error.value) == "Upstream stream failed"
+                    assert stream_error.value.__suppress_context__
+            else:
+                with pytest.raises(HTTPException) as error:
+                    await handle_llm_request(
+                        request_data={},
+                        user=mock_user,
+                        model="test-model",
+                        product="signals",
+                        is_streaming=failure_at == "stream_start",
+                        provider_config=ANTHROPIC_CONFIG,
+                        llm_call=provider,
+                    )
+                assert error.value.status_code == 503
+
+        assert capture.capture_exception.call_count == (0 if private_scout else 1)
+        logs = capsys.readouterr().out
+        if private_scout:
+            assert logs == ""
+            assert "synthetic-private-provider-log" not in caplog.text
+        else:
+            assert "synthetic-private-error-detail" in logs
+            assert "synthetic-private-provider-log" in caplog.text
+
     @pytest.fixture
     def mock_user(self) -> AuthenticatedUser:
         return AuthenticatedUser(

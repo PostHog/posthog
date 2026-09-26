@@ -23,7 +23,7 @@ import uuid
 import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, cast
 
@@ -230,6 +230,13 @@ from products.signals.backend.scout_harness.tools.structured_output import (
     StructuredOutputRecord,
     record_structured_output_sync,
 )
+from products.signals.backend.scout_harness.trial_access import (
+    saved_reads_for_request,
+    trial_run_for_request,
+    trial_state_errors,
+    trial_store_for_request,
+)
+from products.signals.backend.scout_harness.trial_views import ScoutTrialConfigMixin
 from products.signals.backend.scout_report import InvalidScoutReportError
 from products.skills.backend.api.skill_services import (
     LLMSkillDuplicateNameConflictError,
@@ -619,6 +626,34 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # on POSTs (emit-signal, forget) already disable pagination at the @action level.
     pagination_class = None
 
+    def initial(self, request: Request, *args: object, **kwargs: object) -> None:
+        super().initial(request, *args, **kwargs)
+        team_id = _canonical_team_id(self)
+        private = trial_store_for_request(request, team_id)
+        identifier = kwargs.get("run_id")
+        target = None
+        if identifier is not None:
+            run_id = _parse_run_id_or_404({"run_id": identifier})
+            target = (
+                SignalScoutRun.objects.for_team(team_id)
+                .filter(id=run_id, metadata__scout_trial__version=1)
+                .select_related("task_run__task")
+                .first()
+            )
+        if target is not None:
+            bound = _sandbox_bound_task_id(request)
+            if (bound is not None and bound != target.task_run.task_id) or (
+                bound is None and target.task_run.task.created_by_id != request.user.pk
+            ):
+                raise exceptions.NotFound()
+        if private is not None and request.method not in {"GET", "HEAD", "OPTIONS"}:
+            if identifier is not None and str(identifier) != str(private.run.id):
+                raise exceptions.NotFound()
+            if self.action not in {"emit_report", "edit_report"}:
+                with trial_state_errors():
+                    private.invalidate("The scout requested a write that private trials do not support.")
+                raise exceptions.ValidationError("This action is unavailable for this run.")
+
     def get_throttles(self):
         if self.action == "lighthouse_audit":
             # A browser load under throttling, tens of seconds of a Browserless session. The
@@ -654,6 +689,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         skill_name = validated.get("skill_name") or None
         skill_version = validated.get("skill_version")
         limit = validated.get("limit") or 20
+        saved = saved_reads_for_request(request, _canonical_team_id(self))
         rows = search_recent_runs(
             team_id=_canonical_team_id(self),
             date_from=date_from,
@@ -663,7 +699,19 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             skill_name=skill_name,
             skill_version=skill_version,
             limit=limit,
+            exclude_skill_name=saved.context.skill_name if saved is not None else None,
         )
+        if saved is not None:
+            rows = saved.recent_runs(
+                rows,
+                date_from=date_from,
+                date_to=date_to,
+                text=text,
+                emitted=emitted,
+                skill_name=skill_name,
+                skill_version=skill_version,
+                limit=limit,
+            )
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
@@ -701,11 +749,20 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def recent_per_scout(self, request: Request, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
+        saved = saved_reads_for_request(request, _canonical_team_id(self))
+        per_scout_limit = validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT
+        max_age_days = validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS
         rows = recent_runs_per_scout(
             team_id=_canonical_team_id(self),
-            per_scout_limit=validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT,
-            max_age_days=validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+            per_scout_limit=per_scout_limit,
+            max_age_days=max_age_days,
+            exclude_skill_name=saved.context.skill_name if saved is not None else None,
         )
+        if saved is not None:
+            rows.extend(
+                saved.recent_runs([], limit=per_scout_limit, date_from=timezone.now() - timedelta(days=max_age_days))
+            )
+            rows.sort(key=lambda row: row.created_at, reverse=True)
         return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
@@ -755,10 +812,21 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def retrieve(self, request: Request, *args, **kwargs) -> Response:
         run_id = _parse_run_id_or_404(kwargs)
+        saved = saved_reads_for_request(request, _canonical_team_id(self))
+        if saved is not None:
+            for row in saved.context.recent_runs:
+                if row.get("run_id") == str(run_id):
+                    return Response(SignalScoutRunDetailSerializer(row).data)
         detail = get_run(team_id=_canonical_team_id(self), run_id=str(run_id))
         if detail is None:
             raise exceptions.NotFound()
-        return Response(SignalScoutRunDetailSerializer(detail.as_dict()).data)
+        body = detail.as_dict()
+        private = trial_store_for_request(request, _canonical_team_id(self))
+        if private is not None and private.run.id == run_id:
+            reports = private.reports()
+            body["emitted_report_ids"] = [report.id for report in reports if report.source_report_id is None]
+            body["edited_report_ids"] = [report.id for report in reports if report.source_report_id is not None]
+        return Response(SignalScoutRunDetailSerializer(body).data)
 
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],
@@ -1902,17 +1970,20 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         keys_only = bool(validated.get("keys_only", False))
         content_max_chars = validated.get("content_max_chars")
         limit = validated.get("limit") or 20
-        rows = search_scratchpad(
-            team_id=_canonical_team_id(self),
-            text=text,
-            key=validated.get("key") or None,
-            date_from=date_from,
-            date_to=date_to,
-            limit=limit,
-            keys_only=keys_only,
-            content_max_chars=content_max_chars,
-            include_expired=bool(validated.get("include_expired", False)),
-        )
+        private = trial_store_for_request(request, _canonical_team_id(self))
+        search = private.search_memory if private is not None else search_scratchpad
+        with trial_state_errors():
+            rows = search(
+                **({} if private is not None else {"team_id": _canonical_team_id(self)}),
+                text=text,
+                key=validated.get("key") or None,
+                date_from=date_from,
+                date_to=date_to,
+                limit=limit,
+                keys_only=keys_only,
+                content_max_chars=content_max_chars,
+                include_expired=bool(validated.get("include_expired", False)),
+            )
         return Response(ScratchpadEntrySerializer([row.as_dict() for row in rows], many=True).data)
 
     @validated_request(
@@ -1936,6 +2007,16 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: Request, *args, **kwargs) -> Response:
         data = request.validated_data
         team_id = _canonical_team_id(self)
+        private = trial_store_for_request(request, team_id)
+        if private is not None:
+            try:
+                with trial_state_errors():
+                    entry = private.remember(
+                        key=data["key"], content=data["content"], expires_at=data.get("expires_at")
+                    )
+            except InvalidScratchpadError as error:
+                raise exceptions.ValidationError({"detail": str(error)}) from error
+            return Response(ScratchpadEntrySerializer(entry.as_dict()).data)
         run_id = data.get("run_id") or None
         # `run_id` only stamps best-effort `created_by_run_id` lineage — a memory write must
         # never be lost over it. So an unverifiable `run_id` is dropped, not rejected: the
@@ -1943,7 +2024,12 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # is dropped here. The project check is what keeps `run_id` from creating a cross-team
         # `created_by_run_id` reference — the agent's MCP token pins us to a team, but `run_id`
         # is a free field on the body.
-        if run_id is not None and not SignalScoutRun.objects.filter(id=run_id, team_id=team_id).exists():
+        if (
+            run_id is not None
+            and not SignalScoutRun.objects.filter(id=run_id, team_id=team_id)
+            .exclude(metadata__has_key="scout_trial")
+            .exists()
+        ):
             run_id = None
         # Nothing usable came off the body, so fall back to the run the caller's sandbox token is
         # bound to. A scout copies `run_id` out of its prompt by hand and a share of those copies
@@ -1985,7 +2071,13 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def forget(self, request: Request, **kwargs) -> Response:
         data = request.validated_data
-        removed = forget(team_id=_canonical_team_id(self), key=data["key"])
+        private = trial_store_for_request(request, _canonical_team_id(self))
+        with trial_state_errors():
+            removed = (
+                private.forget(key=data["key"])
+                if private is not None
+                else forget(team_id=_canonical_team_id(self), key=data["key"])
+            )
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
 
 
@@ -2060,8 +2152,10 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         validated = getattr(request, "validated_query_data", {}) or {}
-        rows = list_notes(
-            team_id=_canonical_team_id(self),
+        saved = saved_reads_for_request(request, _canonical_team_id(self))
+        read_notes = saved.notes if saved is not None else list_notes
+        rows = read_notes(
+            **({} if saved is not None else {"team_id": _canonical_team_id(self)}),
             skill_name=validated.get("skill_name") or None,
             include_general=bool(validated.get("include_general", True)),
             include_expired=bool(validated.get("include_expired", False)),
@@ -3067,7 +3161,7 @@ def _scout_tool_catalogue_payload() -> dict[str, Any]:
     return dict(ScoutToolCatalogueSerializer(get_scout_tool_catalogue()).data)
 
 
-class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Per-scout config: list, register, tune, and delete each scout's schedule, enablement,
     and emit posture.
 
@@ -3101,7 +3195,7 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # schema is rendered verbatim into the run prompt (its `description` fields are free prose).
         # Reads, other config edits, and clearing the schema stay on the base config scopes.
         action = getattr(view, "action", None)
-        if action == "create":
+        if action in {"create", "trial", "trial_result"}:
             return ["signal_scout:write", "llm_skill:write"]
         if action == "partial_update" and self._sets_structured_output_schema(request):
             return ["signal_scout:write", "llm_skill:write"]
@@ -3203,7 +3297,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         configs = list(queryset.order_by(Lower(Coalesce(NullIf("display_name", Value("")), "skill_name"))))
         context = scout_config_context(team, [c.skill_name for c in configs], request)
         serializer = SignalScoutConfigSerializer(configs, many=True, context=context)
-        return Response(serializer.data)
+        body = serializer.data
+        trial = trial_run_for_request(request, team_id)
+        if trial is not None:
+            for row in body:
+                if row["skill_name"] == trial.skill_name:
+                    row["emit"] = True
+                    row["model"] = (trial.metadata or {}).get("model")
+        return Response(body)
 
     @extend_schema(
         request=SignalScoutConfigCreateSerializer,

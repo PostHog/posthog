@@ -12,6 +12,7 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.utils import get_instance_region
 
@@ -22,6 +23,12 @@ PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
 logger = structlog.get_logger(__name__)
+
+
+def filter_scout_experiment_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+    if get_query_tags().is_scout_experiment is True:
+        return None
+    return message
 
 
 def feature_enabled_or_false(
@@ -209,6 +216,12 @@ def get_client(region: str = "US", **kwargs: Any):
     # under TEST, so without this a test that runs in cloud mode captures to the real
     # project. Callers can still pass `disabled` explicitly to override.
     kwargs.setdefault("disabled", bool(settings.TEST or os.environ.get("OPT_OUT_CAPTURE", False)))
+    before_send = kwargs.pop("before_send", None)
+
+    def capture_filter(message: dict[str, Any]) -> dict[str, Any] | None:
+        if filter_scout_experiment_capture(message) is None:
+            return None
+        return before_send(message) if before_send is not None else message
 
     return Posthog(
         api_key,
@@ -216,5 +229,6 @@ def get_client(region: str = "US", **kwargs: Any):
         super_properties={"region": region},
         _use_ai_lane=True,
         _enable_multimodal_capture=True,
+        before_send=capture_filter,
         **kwargs,
     )

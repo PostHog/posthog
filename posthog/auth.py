@@ -28,7 +28,7 @@ from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
-from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
+from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
@@ -980,6 +980,8 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             team_id=user.current_team_id,
             access_method=AccessMethod.OAUTH,
         )
+        if access_token.sandbox_task_id is not None and "scout_experiment_internal:read" in access_token.scope.split():
+            tag_queries(is_scout_experiment=True)
 
         # ActivityLoggingMiddleware only captures session-authenticated users (it runs
         # before DRF auth), so signal-driven activity logging would otherwise record

@@ -64,6 +64,27 @@ def _context_for_desktop_bootstrap(
     )
 
 
+@pytest.mark.parametrize("is_trial", [False, True])
+@override_settings(
+    DEBUG=False,
+    SANDBOX_AGENT_OTEL_LOGS_URL="https://telemetry.example/logs",
+    SANDBOX_AGENT_OTEL_LOGS_TOKEN="synthetic-token",
+)
+def test_private_trial_keeps_the_pinned_model_after_overload(mocker, is_trial: bool) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.state = {"scout_trial": {"version": 1}} if is_trial else {}
+    context.agent_otel_telemetry_enabled = True
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+
+    task = mocker.Mock(is_scout_experiment=is_trial)
+    environment = provision_sandbox_module._build_environment_variables(context, task, "", "fake-token")
+
+    assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if is_trial else None)
+    assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "synthetic-token")
+
+
 class _ShellSandbox:
     def __init__(self, env: dict[str, str]) -> None:
         self.config = type("Config", (), {"image_fallback": None})()

@@ -7,6 +7,7 @@ import structlog
 import temporalio
 from pydantic import BaseModel, Field, model_validator
 
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
@@ -189,7 +190,8 @@ async def judge_report_safety(
             mode_override=mode_override,
         )
 
-    mode = await model_mode(team_id)
+    # Private trials must keep their scoped gateway credential and emit no rollout telemetry.
+    mode = "traditional-only" if get_query_tags().is_scout_experiment is True else await model_mode(team_id)
     if mode != "typesafe-only":
         return await judge_once(signals, mode)
 

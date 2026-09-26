@@ -111,6 +111,7 @@ McpScopePreset = Literal[
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
     "signals_research",
     "signals_implementation",
 ]
@@ -312,6 +313,7 @@ MCP_SCOPE_PRESETS = (
     "full",
     "signals_scout",
     "signals_scout_reports",
+    "signals_scout_experiment",
     "signals_research",
     "signals_implementation",
 )
@@ -416,6 +418,14 @@ def resolve_scopes(
             # `RESEARCH_WITHHELD_SCOPES` for why `task:write` comes back out.
             reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
             resolved = [*reads, *scratchpad]
+        elif scopes == "signals_scout_experiment":
+            reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            private_writes = (
+                [*SCOUT_INTERNAL_SCOPES, *SCOUT_REPORT_SCOPES, "scout_experiment_internal:read"]
+                if include_internal_scopes
+                else []
+            )
+            resolved = [*reads, *private_writes]
         elif scopes in SCOUT_SCOPE_PRESETS:
             # The scout sandbox: reads, the scout's own internal write scope, and a narrow
             # allowlist of user-facing writes (`SCOUT_USER_WRITE_SCOPES`) for the durable
@@ -463,6 +473,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "full",
             "signals_scout",
             "signals_scout_reports",
+            "signals_scout_experiment",
             "signals_research",
             "signals_implementation",
         )

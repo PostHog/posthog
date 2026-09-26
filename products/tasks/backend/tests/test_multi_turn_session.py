@@ -1,20 +1,22 @@
 import json
 import asyncio
 from pathlib import Path
+from uuid import UUID, uuid4
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from pydantic import BaseModel
+from pydantic import BaseModel, JsonValue
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.tasks.backend.facade import agents as agents_facade
 from products.tasks.backend.logic.services.custom_prompt_internals import (
     AgentError,
     AgentTurnFailed,
@@ -22,6 +24,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     EmptyAgentTurnError,
     TurnPollResult,
     TurnPollTimeout,
+    _create_task_and_trigger,
     _extract_agent_error,
     create_task_and_trigger,
     poll_for_turn,
@@ -30,7 +33,7 @@ from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner impor
     _EMPTY_TURN_RETRY_NUDGE,
     MultiTurnSession,
 )
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_error_line,
@@ -1413,8 +1416,8 @@ class TestCreateTaskAndTriggerForwardsContext:
             posthog_mcp_scopes=ctx_scopes,
         )
 
-        mock_task = MagicMock()
-        mock_task.latest_run = MagicMock()
+        mock_task = MagicMock(id=uuid4(), team_id=team.id)
+        mock_task.latest_run = MagicMock(id=uuid4())
         with patch(
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
@@ -1439,8 +1442,8 @@ class TestCreateTaskAndTriggerForwardsContext:
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository="posthog/posthog")
 
-        mock_task = MagicMock()
-        mock_task.latest_run = MagicMock()
+        mock_task = MagicMock(id=uuid4(), team_id=team.id)
+        mock_task.latest_run = MagicMock(id=uuid4())
         with patch(
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,
@@ -1450,16 +1453,81 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert mock_create.call_args.kwargs[stamp] == value
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(("runtime", "expected_pending_message"), [("acp", None), ("pi", "prompt")])
-    async def test_pi_runtime_seeds_the_initial_prompt(self, runtime, expected_pending_message):
+    @pytest.mark.parametrize(
+        ("runtime", "expected_pending_message", "workflow_id_prefix"),
+        [("acp", None, None), ("pi", "prompt", "eval")],
+    )
+    async def test_public_run_preserves_runtime_and_can_poll(
+        self, runtime: str, expected_pending_message: str | None, workflow_id_prefix: str | None
+    ) -> None:
         team, user = await sync_to_async(self._setup_team_and_user)()
         context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, runtime=runtime)
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
-            _, task_run = await create_task_and_trigger("prompt", context)
+            task_run = await agents_facade.create_task_and_trigger(
+                "prompt", context, workflow_id_prefix=workflow_id_prefix
+            )
 
-        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
         assert persisted.state.get("pending_user_message") == expected_pending_message
+        assert task_run.workflow_id == TaskRun.get_workflow_id(persisted.task_id, persisted.id, workflow_id_prefix)
+
+        log = "\n".join([_agent_message_line("done"), _end_turn_line()])
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log) as read_log,
+            patch("asyncio.sleep", new=AsyncMock()),
+        ):
+            turn = await agents_facade.poll_for_turn(task_run, max_poll_seconds=10)
+
+        assert turn.last_message == "done"
+        assert turn.full_log == log
+        read_log.assert_called_once_with(persisted.log_url, missing_ok=True)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("fail_initialization", [False, True])
+    async def test_initialization_commits_with_task_before_dispatch(self, fail_initialization: bool) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id)
+        dispatched_states: list[dict[str, object]] = []
+
+        def initialize(run_id: UUID) -> dict[str, JsonValue]:
+            assert TaskRun.objects.filter(id=run_id).exists()
+            if fail_initialization:
+                raise ValueError("Initialization failed")
+            return {"private_ready": True}
+
+        def observe_dispatch(*args: object, **kwargs: object) -> None:
+            dispatched_states.append(TaskRun.objects.get(id=str(kwargs["run_id"])).state)
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.workflow_dispatch.execute_after_commit",
+                new=transaction.on_commit,
+            ),
+            patch(
+                "products.tasks.backend.temporal.client.execute_task_processing_workflow", side_effect=observe_dispatch
+            ) as dispatch,
+        ):
+            if fail_initialization:
+                with pytest.raises(ValueError, match="Initialization failed"):
+                    await _create_task_and_trigger(
+                        "prompt", context, origin_key="trial-example", before_task_dispatch=initialize
+                    )
+            else:
+                task, run = await _create_task_and_trigger(
+                    "prompt", context, origin_key="trial-example", before_task_dispatch=initialize
+                )
+                assert task.origin_key == "trial-example"
+                assert run.state["private_ready"] is True
+
+        persisted_tasks = await sync_to_async(Task.objects.filter(team=team).count)()
+        persisted_runs = await sync_to_async(TaskRun.objects.filter(team=team).count)()
+        assert persisted_tasks == persisted_runs == (0 if fail_initialization else 1)
+        if fail_initialization:
+            dispatch.assert_not_called()
+            assert dispatched_states == []
+        else:
+            assert dispatched_states[0]["private_ready"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1487,8 +1555,8 @@ class TestCreateTaskAndTriggerForwardsContext:
             initial_permission_mode=initial_permission_mode,
         )
 
-        mock_task = MagicMock()
-        mock_task.latest_run = MagicMock()
+        mock_task = MagicMock(id=uuid4(), team_id=team.id)
+        mock_task.latest_run = MagicMock(id=uuid4())
         with patch(
             "products.tasks.backend.logic.services.custom_prompt_internals.Task.create_and_run",
             return_value=mock_task,

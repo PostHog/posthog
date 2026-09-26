@@ -126,6 +126,7 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
                 team: 'posthog_ai',
                 source: 'mcp_hono_request',
                 mcp_transport: props.transport,
+                suppress_analytics: props.suppressAnalytics === true,
             })
         }
     } catch {}

@@ -2,7 +2,8 @@ import re
 import hashlib
 from collections.abc import Sequence
 from difflib import get_close_matches
-from typing import Any, Literal, Protocol, cast
+from functools import cached_property
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 from urllib.parse import urlencode
 from uuid import UUID
 
@@ -18,7 +19,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.permissions import BasePermission
 from rest_framework.renderers import BaseRenderer
@@ -47,6 +48,7 @@ from posthog.renderers import SafeJSONRenderer
 
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.signals.backend.facade.api import get_scout_trial_skill_override
 
 from ..marketplace.adapters import (
     MARKETPLACE_NAME,
@@ -149,6 +151,9 @@ from .skill_services import (
     skill_names_owned_by,
     team_skills_version,
 )
+
+if TYPE_CHECKING:
+    from products.signals.backend.facade.api import ScoutTrialSkill
 
 
 @frozen
@@ -683,12 +688,40 @@ class LLMSkillViewSet(
         skill = get_skill_by_name_from_db(self.team, skill_name, version, version_id)
         if skill is not None:
             self.check_object_permissions(request, skill)
+            skill = self._apply_trial_skill(request, skill)
         return skill
 
     def _guard_object_access(self, request: Request, skill_name: str) -> Response | None:
         if self._load_skill_with_object_access(request, skill_name) is None:
             return self._skill_not_found_response(skill_name)
         return None
+
+    @cached_property
+    def _trial_skill(self) -> "ScoutTrialSkill | None":
+        authenticator = self.request.successful_authenticator
+        if not isinstance(authenticator, OAuthAccessTokenAuthentication):
+            return None
+        token = authenticator.access_token
+        if "scout_experiment_internal:read" not in (token.scope or "").split():
+            return None
+        if token.sandbox_task_id is None:
+            raise PermissionDenied()
+        trial_skill = get_scout_trial_skill_override(team_id=self.team.id, task_id=token.sandbox_task_id)
+        if trial_skill is None:
+            raise PermissionDenied()
+        return trial_skill
+
+    def _apply_trial_skill(self, request: Request, skill: LLMSkill) -> LLMSkill:
+        trial_skill = self._trial_skill
+        if trial_skill is None or trial_skill.name != skill.name:
+            return skill
+        pinned = get_skill_by_name_from_db(self.team, skill.name, trial_skill.version)
+        if pinned is None:
+            raise NotFound()
+        self.check_object_permissions(request, pinned)
+        pinned.body = trial_skill.body
+        pinned.stamp_digest()
+        return pinned
 
     def _handle_skill_write_error(self, err: Exception, skill_name: str) -> Response | None:
         """Render the error responses shared by create_file / delete_file / rename_file.
@@ -1332,6 +1365,16 @@ class LLMSkillViewSet(
         """One zip of the requesting user's store skills, for unpacking into a skills directory."""
         query = LLMSkillBundleQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
+        authenticator = request.successful_authenticator
+        if (
+            query.validated_data["content"] == "full"
+            and isinstance(authenticator, OAuthAccessTokenAuthentication)
+            and "scout_experiment_internal:read" in (authenticator.access_token.scope or "").split()
+        ):
+            # Full bundles load rows independently and cannot apply a run's pinned candidate.
+            raise PermissionDenied(
+                "Scout trials must fetch individual skills or use a stub bundle instead of a full bundle."
+            )
         user = cast(User, request.user)
         flag_value = posthog_feature_flag_value(
             SANDBOX_SKILLS_FEATURE_FLAG,
@@ -2155,11 +2198,12 @@ class LLMSkillViewSet(
         queryset = self.filter_queryset(self._get_list_queryset(request))
         page = self.paginate_queryset(queryset)
         if page is not None:
+            page = [self._apply_trial_skill(request, skill) for skill in page]
             context = self._list_context_with_owners(page)
             serializer = self.get_serializer(page, many=True, context=context)
             return self.get_paginated_response(serializer.data)
 
-        skills = list(queryset)
+        skills = [self._apply_trial_skill(request, skill) for skill in queryset]
         context = self._list_context_with_owners(skills)
         serializer = self.get_serializer(skills, many=True, context=context)
         data = serializer.data

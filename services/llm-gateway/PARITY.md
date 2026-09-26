@@ -20,6 +20,19 @@ Bug, security, and reliability fixes for blocked callers are valid reasons. Conv
 
 When a gap closes, new work uses the Go gateway and affected callers should migrate. Do not add the same feature to both gateways by default.
 
+### Live scout comparison capture
+
+Live scout comparisons retain the Python route because their model overrides include Python-only models listed below.
+Restricting comparisons to another model catalog would prevent testing the same models as the source scout.
+The capture change is limited to authenticated, task-bound Signals experiment credentials, including gateway-only credentials used for backend report validation.
+It suppresses generation, exception, and denial events while keeping rate limits and cost counters active.
+Its request context also suppresses provider-library logs, including stdlib logging handlers.
+Chat, Responses, and translated Anthropic stream callbacks retain this context when LiteLLM starts background threads.
+Signals streams on the standard Anthropic route must include a complete `message_stop` event; premature EOF produces a generic protocol error instead of a successful partial scout response.
+Exception events from ordinary comparison-control traffic use the configured capture host.
+Other products retain their existing capture and billing behavior.
+Deploy this gateway support before enabling live trials; the backend capture setting is an operator attestation, not automatic capability detection.
+
 ## Choose by use case
 
 ### ✅ Use the Go gateway
@@ -104,6 +117,9 @@ Last verified on 2026-09-08 against:
 
 - `PostHog/posthog` working tree compared with master at `5d1154d4f2d93613a5d9875e9c11d66778958a79`
 - `PostHog/ai-gateway` main at `7f61cfe690a855d465e362297ff76b98d6526314`
+
+The live scout capture contract was reviewed on 2026-09-23 against this working tree, PostHog master `a4f460bfdae3ea50b9a654de72e45f5ee26d9d9d`, and Go main `77bbc94258c23c07281ee611ca844091b8fe6fa6`.
+This focused review does not refresh the other contracts above.
 
 ## References
 

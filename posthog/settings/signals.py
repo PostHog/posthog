@@ -3,6 +3,9 @@ import os
 from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import get_list, get_set
 
+SCOUT_LIVE_TRIALS_ENABLED = os.getenv("SCOUT_LIVE_TRIALS_ENABLED", "false").lower() == "true"
+SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE = os.getenv("SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE", "false").lower() == "true"
+
 # Signs the per-delivery map of already-rendered chart assets that scout Slack delivery keeps in the
 # shared Redis, so a process able to write that Redis cannot swap in another asset id. Dedicated and
 # rotatable rather than SECRET_KEY, which is fleet-wide and backs session/CSRF signing: give this

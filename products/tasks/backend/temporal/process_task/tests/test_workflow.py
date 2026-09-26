@@ -125,6 +125,25 @@ def _build_context(
     )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("is_trial", [False, True])
+async def test_private_trial_workflow_keeps_metrics_without_analytics(
+    monkeypatch: pytest.MonkeyPatch, is_trial: bool
+) -> None:
+    workflow_instance = ProcessTaskWorkflow()
+    workflow_instance._context = _build_context(
+        github_integration_id=None, state={"scout_trial": {"version": 1}} if is_trial else {}
+    )
+    execute = AsyncMock()
+    monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute)
+
+    await workflow_instance._track_workflow_event("sandbox_started", {"task_id": "task-id"})
+
+    execute.assert_awaited_once()
+    assert execute.call_args.args[0] == track_workflow_event
+    assert execute.call_args.args[1].capture_analytics is not is_trial
+
+
 def test_activity_error_properties_includes_failed_activity_context():
     error = ActivityError(
         "Activity task timed out",

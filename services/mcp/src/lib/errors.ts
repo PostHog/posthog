@@ -488,7 +488,13 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
  *
  * @returns A structured error message.
  */
-export function handleToolError(error: any, tool?: string, distinctId?: string, sessionUuid?: string): CallToolResult {
+export function handleToolError(
+    error: any,
+    tool?: string,
+    distinctId?: string,
+    sessionUuid?: string,
+    suppressAnalytics = false
+): CallToolResult {
     const toolName = tool || 'unknown'
 
     // Recoverable: expected agent or user state, not a bug — no project picked,
@@ -543,6 +549,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             team: 'growth',
             tool: toolName,
             is_permission_error: true,
+            suppress_analytics: suppressAnalytics,
             missing_scope: permissionError.missingScope,
             $exception_fingerprint: `posthog-permission-error:${toolName}:${permissionError.missingScope ?? 'unknown'}`,
         }
@@ -577,6 +584,7 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
         team: 'growth',
         tool: mcpError.tool,
         is_mcp_tool_error: error instanceof MCPToolError,
+        suppress_analytics: suppressAnalytics,
         $exception_fingerprint: mcpError.tool,
     }
 

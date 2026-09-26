@@ -10,6 +10,7 @@ from posthoganalytics.client import Client
 
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.organization_caching import connect_signal_handlers as connect_organization_cache_signal_handlers
+from posthog.ph_client import filter_scout_experiment_capture
 from posthog.utils import (
     _build_flag_provider,
     get_available_timezones_with_offsets,
@@ -76,6 +77,7 @@ class PostHogConfig(AppConfig):
         }
         posthoganalytics._use_ai_lane = True  # ty: ignore[invalid-assignment]
         posthoganalytics._enable_multimodal_capture = True  # ty: ignore[invalid-assignment]
+        posthoganalytics.before_send = filter_scout_experiment_capture  # ty: ignore[invalid-assignment]
 
         # Config for the SDK's `client.metrics` API. The pinned SDK version predates
         # the metrics API and ignores this attr; once posthoganalytics is bumped to

@@ -1,11 +1,18 @@
 from __future__ import annotations
 
-from contextvars import ContextVar
+import asyncio
+import logging
+from collections.abc import Awaitable, Callable
+from contextvars import Context, ContextVar, copy_context
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from functools import wraps
+from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 import structlog
+from structlog.types import EventDict, WrappedLogger
+
+from llm_gateway.products.config import INTERNAL_RUN_SCOPE, get_product_config
 
 if TYPE_CHECKING:
     from fastapi import Request
@@ -23,6 +30,7 @@ POSTHOG_USE_BEDROCK_FALLBACK_HEADER = "x-posthog-use-bedrock-fallback"
 TRACEPARENT_HEADER = "traceparent"
 
 _VALID_PROVIDERS = ("anthropic", "bedrock", "cloudflare")
+_PRIVATE_LOGGING_BOUND = "_gateway_private_logging_bound"
 
 
 @dataclass
@@ -40,6 +48,22 @@ throttle_context_var: ContextVar[ThrottleContext | None] = ContextVar("throttle_
 auth_user_var: ContextVar[AuthenticatedUser | None] = ContextVar("auth_user", default=None)
 time_to_first_token_var: ContextVar[float | None] = ContextVar("time_to_first_token", default=None)
 effort_var: ContextVar[str | None] = ContextVar("effort", default=None)
+
+
+def is_private_scout_request(user: AuthenticatedUser | None, product: str) -> bool:
+    config = get_product_config(product)
+    return bool(
+        product == "signals"
+        and config is not None
+        and config.credit_bucket is None
+        and user is not None
+        and user.auth_method == "oauth_access_token"
+        and user.sandbox_task_id
+        and user.team_id is not None
+        and user.application_id in (config.allowed_application_ids or frozenset())
+        and INTERNAL_RUN_SCOPE in (user.scopes or [])
+        and "scout_experiment_internal:read" in (user.scopes or [])
+    )
 
 
 def get_request_context() -> RequestContext | None:
@@ -195,6 +219,65 @@ def set_throttle_context(runner: ThrottleRunner, context: ThrottleContext) -> No
 
 def get_auth_user() -> AuthenticatedUser | None:
     return auth_user_var.get()
+
+
+def drop_private_scout_log(_logger: WrappedLogger, _method_name: str, event: EventDict) -> EventDict:
+    if is_private_scout_request(get_auth_user(), get_product()):
+        raise structlog.DropEvent
+    return event
+
+
+class PrivateScoutLogFilter(logging.Filter):
+    def filter(self, _record: logging.LogRecord) -> bool:
+        return not is_private_scout_request(get_auth_user(), get_product())
+
+
+def _bind_logging_callback[**P, R](callback: Callable[P, R], context: Context) -> Callable[P, R]:
+    @wraps(callback)
+    def bound(*args: P.args, **kwargs: P.kwargs) -> R:
+        return context.copy().run(callback, *args, **kwargs)
+
+    return bound
+
+
+def _bind_async_logging_callback[**P, R](
+    callback: Callable[P, Awaitable[R]], context: Context
+) -> Callable[P, Awaitable[R]]:
+    @wraps(callback)
+    async def bound(*args: P.args, **kwargs: P.kwargs) -> R:
+        async def invoke() -> R:
+            return await callback(*args, **kwargs)
+
+        return await asyncio.create_task(invoke(), context=context.copy())
+
+    return bound
+
+
+def bind_private_logging_context(logging_obj: object | None) -> None:
+    if not is_private_scout_request(get_auth_user(), get_product()):
+        return
+    if logging_obj is None or getattr(logging_obj, _PRIVATE_LOGGING_BOUND, False):
+        return
+
+    # LiteLLM stream handlers start threads without copying the authenticated request context.
+    context = copy_context()
+    for name in ("success_handler", "failure_handler"):
+        callback = getattr(logging_obj, name, None)
+        if callable(callback):
+            setattr(logging_obj, name, _bind_logging_callback(cast(Callable[..., object], callback), context))
+    for name in ("async_success_handler", "async_failure_handler"):
+        callback = getattr(logging_obj, name, None)
+        if callable(callback):
+            setattr(
+                logging_obj,
+                name,
+                _bind_async_logging_callback(cast(Callable[..., Awaitable[object]], callback), context),
+            )
+    setattr(logging_obj, _PRIVATE_LOGGING_BOUND, True)
+
+
+def bind_private_stream_logging(stream: object) -> None:
+    bind_private_logging_context(getattr(stream, "logging_obj", None) or getattr(stream, "litellm_logging_obj", None))
 
 
 def set_auth_user(user: AuthenticatedUser) -> None:

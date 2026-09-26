@@ -13,6 +13,7 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -1330,7 +1331,7 @@ def build_sandbox_environment_variables(
     env_vars.update(run_gateway_env_vars(ctx, task))
     env_vars.update(mcp_exec_skills_env_vars(ctx))
 
-    if otel_telemetry_enabled:
+    if otel_telemetry_enabled and task.is_scout_experiment is not True:
         env_vars.update(get_sandbox_otel_env_vars())
 
     return env_vars
@@ -1354,7 +1355,7 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
-def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, str]:
     """The gateway routing/mint env for one run, derived from its server-side context.
 
     Every sandbox provisioning path calls this rather than spelling out the kwargs, so
@@ -1362,6 +1363,19 @@ def run_gateway_env_vars(ctx, task) -> dict[str, str]:
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
+    if task.is_scout_experiment is True:
+        ensure_scout_trial_capture_ready()
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
+            raise GatewayNotConfiguredError("Scout trials require gateway OAuth instead of subscription credentials")
+        return {
+            **({"LLM_GATEWAY_URL": settings.SANDBOX_LLM_GATEWAY_URL} if settings.SANDBOX_LLM_GATEWAY_URL else {}),
+            "AI_GATEWAY_URL": "",
+            "AI_GATEWAY_PRODUCTS": "",
+            "AI_GATEWAY_TOKEN": "",
+            "AI_GATEWAY_TOKEN_CAP_USD": "",
+            "AI_GATEWAY_PRODUCT": "",
+            "AI_GATEWAY_AI_STAGE": "",
+        }
     if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
         return {}
     try:

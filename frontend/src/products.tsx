@@ -243,6 +243,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
     '/inbox/scouts/findings': ['Inbox', 'inbox'],
     '/inbox/scouts/runs': ['Inbox', 'inbox'],
+    '/inbox/scouts/comparisons': ['ScoutTrials', 'scoutTrials'],
     '/inbox/reports/triage': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName': ['Inbox', 'inbox'],
     '/inbox/scouts/:skillName/:findingId': ['Inbox', 'inbox'],
@@ -988,6 +989,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'code_review',
         docsHref: 'https://posthog.com/docs/posthog-desktop/code-review',
     },
+    ScoutTrials: { name: 'Scout comparisons', projectBased: true },
     Inbox: {
         name: 'Self-driving inbox',
         projectBased: true,
@@ -1629,6 +1631,7 @@ export const productUrls = {
     inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
     inboxFindings: (): string => '/inbox/scouts/findings',
     inboxRuns: (): string => '/inbox/scouts/runs',
+    inboxScoutTrials: (): string => '/inbox/scouts/comparisons',
     skills: (): string => '/skills',
     skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (

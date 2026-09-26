@@ -4,6 +4,7 @@ import posthoganalytics
 import structlog
 
 from llm_gateway.config import get_settings
+from llm_gateway.request_context import get_auth_user, get_product, is_private_scout_request
 
 logger = structlog.get_logger(__name__)
 
@@ -20,6 +21,7 @@ def _ensure_initialized() -> bool:
         return False
 
     posthoganalytics.api_key = settings.posthog_project_token  # ty: ignore[invalid-assignment]
+    posthoganalytics.host = settings.posthog_host  # ty: ignore[invalid-assignment]
     _initialized = True
     return True
 
@@ -28,6 +30,8 @@ def capture_exception(
     error: Exception | None = None,
     additional_properties: dict[str, Any] | None = None,
 ) -> None:
+    if is_private_scout_request(get_auth_user(), get_product()):
+        return
     properties = additional_properties or {}
 
     if not _ensure_initialized():

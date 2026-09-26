@@ -11181,6 +11181,34 @@
             "readOnlyHint": true
         }
     },
+    "scout-trial-create": {
+        "description": "Launch one prompt, model, or effort variant of an existing scout against live data. Memory changes and authored reports stay private to the run. The source scout is unchanged. Requires a deployment configured for private trial capture and skill editor access. Reuse launch_id only to retry the exact same request. Reuse the returned context_id for other variants and repetitions so their initial memory, notes, and source settings match. Poll scout-trial-get for results. Unsupported write actions invalidate the comparison.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run a private scout variant",
+        "title": "Run a private scout variant",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "scout-trial-get": {
+        "description": "Read an operator-owned trial's status, privately captured report payloads, proposed edits, and memory changes. These combine saved context with protected execution state and are available only through this API, not SQL. A null cost means unknown. Sandbox agents cannot use this tool to inspect trials. Use the returned task and run IDs with ordinary log tools.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Read a private scout result",
+        "title": "Read a private scout result",
+        "required_scopes": ["signal_scout:write", "llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "session-recording-bulk-delete": {
         "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
         "category": "Session replays",

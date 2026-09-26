@@ -190,6 +190,7 @@ def search_recent_runs(
     skill_name: str | None = None,
     skill_version: int | None = None,
     limit: int = DEFAULT_RUN_SEARCH_LIMIT,
+    exclude_skill_name: str | None = None,
 ) -> list[RunSummary]:
     """Return the most recent runs for a team, newest first.
 
@@ -208,9 +209,16 @@ def search_recent_runs(
     are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
-    qs = SignalScoutRun.objects.filter(team_id=team_id).select_related("task_run").order_by("-created_at")
+    qs = (
+        SignalScoutRun.objects.filter(team_id=team_id)
+        .exclude(metadata__has_key="scout_trial")
+        .select_related("task_run")
+        .order_by("-created_at")
+    )
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
+    if exclude_skill_name is not None:
+        qs = qs.exclude(skill_name=exclude_skill_name)
     if date_to is not None:
         qs = qs.filter(created_at__lt=date_to)
     if text:
@@ -300,6 +308,7 @@ def _probe_run_ids(
             WHERE run.team_id = %s
               AND run.skill_name = scout.skill_name
               AND run.created_at >= scout.cutoff
+              AND NOT (COALESCE(run.metadata, '{{}}'::jsonb) ? 'scout_trial')
             ORDER BY run.created_at DESC
             LIMIT %s
         ) probe
@@ -314,6 +323,7 @@ def recent_runs_per_scout(
     team_id: int,
     per_scout_limit: int = DEFAULT_RUNS_PER_SCOUT,
     max_age_days: int = DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS,
+    exclude_skill_name: str | None = None,
 ) -> list[RunSummary]:
     """Return each configured scout's most recent runs, newest first across the fleet.
 
@@ -341,6 +351,7 @@ def recent_runs_per_scout(
     # nobody is watching run. Ordered within each group for a deterministic cut.
     configs = list(
         SignalScoutConfig.objects.filter(team_id=team_id)
+        .exclude(skill_name=exclude_skill_name or "")
         .order_by("-enabled", "skill_name")
         .only("skill_name", "run_interval_minutes", "run_cron_schedule", "enabled")
     )
@@ -421,7 +432,11 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     window_start = timezone.now() - timedelta(hours=window_hours)
     # Every run in the window, quiet ones included, so the roster's runs headline sits on the same
     # span as its report tallies instead of a per-scout depth that doesn't sum across a fleet.
-    run_count = SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start).count()
+    run_count = (
+        SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
+        .exclude(metadata__has_key="scout_trial")
+        .count()
+    )
     touched_a_report = (~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)) | (
         ~Q(edited_report_ids=[]) & ~Q(edited_report_ids__isnull=True)
     )
@@ -429,6 +444,7 @@ def fleet_findings_summary(*, team_id: int, window_hours: int = DEFAULT_FINDINGS
     # matching the frontend's `completed_at ?? created_at` sort; `-id` tie-breaks on the time-ordered PK.
     rows = (
         SignalScoutRun.objects.filter(team_id=team_id, created_at__gte=window_start)
+        .exclude(metadata__has_key="scout_trial")
         .filter(Q(emitted_count__gt=0) | touched_a_report)
         .annotate(_emitted_at=Coalesce("task_run__completed_at", "created_at"))
         .order_by("-_emitted_at", "-id")
@@ -516,6 +532,9 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
     task_id = str(task_run.task_id) if task_run is not None else None
     task_run_id = str(task_run.id) if task_run is not None else None
     error, failure_reason = _derive_failure(task_run)
+    metadata = dict(row.metadata or {})
+    if metadata.pop("scout_trial", None) is not None:
+        metadata.pop("triggered_by", None)
     return RunSummary(
         run_id=str(row.id),
         skill_name=row.skill_name,
@@ -534,7 +553,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),
         error=error,
         failure_reason=failure_reason,
-        metadata=dict(row.metadata or {}),
+        metadata=metadata,
     )
 
 

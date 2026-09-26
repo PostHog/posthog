@@ -36,7 +36,8 @@ from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.utils import timezone
 
-from pydantic import ValidationError
+from pydantic import JsonValue, TypeAdapter, ValidationError
+from rest_framework.renderers import JSONRenderer
 
 from posthog.schema import EmbeddingModelName
 
@@ -215,7 +216,7 @@ def create_scout_report(
     pipeline buffer drops unsafe signals before grouping. The report row still records the authored
     `signal_count`/`total_weight`; it just stays invisible with no indexed evidence.
     """
-    _validate_create_inputs(title, summary, signals)
+    validate_scout_report(title, summary, signals)
     if batch_error := chart_batch_error(charts):
         raise InvalidScoutReportError(batch_error)
     if batch_error := metric_batch_error(metrics):
@@ -259,7 +260,7 @@ def create_scout_report(
             SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
-                content=NoteArtefact(note=_provenance_note_text(run), author=_provenance_author(run)),
+                content=scout_report_provenance(run),
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
@@ -271,7 +272,7 @@ def create_scout_report(
                 SignalReportArtefact.add_log(
                     team_id=team_id,
                     report_id=report_id,
-                    content=_scout_task_run_content(run, attribution.task_id),
+                    content=scout_task_run_content(run, attribution.task_id),
                     attribution=attribution,
                 )
             # The judge verdicts that set `status`, recorded as the report's status artefacts so the
@@ -385,6 +386,23 @@ def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", flat=True).first()
 
 
+def get_scout_report_capture_snapshot(*, team_id: int, report_id: str) -> dict[str, JsonValue] | None:
+    from products.signals.backend.serializers import (  # noqa: PLC0415 -- report serializers import the scout service
+        SignalReportSerializer,
+    )
+
+    _validate_report_id(report_id)
+    report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
+    if report is None:
+        return None
+    document = TypeAdapter(dict[str, JsonValue]).validate_json(
+        JSONRenderer().render(SignalReportSerializer(report).data)
+    )
+    document["corroboration_count"] = report.corroboration_count or 0
+    document["content_revision_count"] = report.content_revision_count or 0
+    return document
+
+
 def scout_report_exists(*, team_id: int, report_id: str) -> bool:
     """Team-scoped existence check for the edit path's pre-judge gate. Validates the id shape the way
     the write paths do, so a malformed id is a caller error rather than an uncaught 500. A cost gate
@@ -469,8 +487,8 @@ def update_scout_report(
     if title is None and summary is None:
         return []
     _validate_report_id(report_id)
-    _validate_optional_text("title", title)
-    _validate_optional_text("summary", summary)
+    validate_scout_report_text("title", title)
+    validate_scout_report_text("summary", summary)
 
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
@@ -1425,7 +1443,7 @@ def record_scout_run_task_artefact(*, team_id: int, report_id: str, run: SignalS
             SignalReportArtefact.add_log(
                 team_id=team_id,
                 report_id=report_id,
-                content=_scout_task_run_content(run, task_id),
+                content=scout_task_run_content(run, task_id),
                 attribution=ArtefactAttribution.from_task(task_id),
             )
     except Exception:
@@ -1435,7 +1453,7 @@ def record_scout_run_task_artefact(*, team_id: int, report_id: str, run: SignalS
         )
 
 
-def _scout_task_run_content(run: SignalScoutRun, task_id: str) -> TaskRunArtefact:
+def scout_task_run_content(run: SignalScoutRun, task_id: str) -> TaskRunArtefact:
     return TaskRunArtefact(
         task_id=task_id,
         run_id=str(run.task_run_id) if run.task_run_id else None,
@@ -1444,17 +1462,18 @@ def _scout_task_run_content(run: SignalScoutRun, task_id: str) -> TaskRunArtefac
     )
 
 
-def _provenance_note_text(run: SignalScoutRun | None) -> str:
-    if run is not None:
-        return f"Authored directly by the `{run.skill_name}` Signals scout via emit_report."
-    return "Authored directly by a Signals scout via emit_report."
+def scout_report_provenance(run: SignalScoutRun | None) -> NoteArtefact:
+    return NoteArtefact(
+        note=(
+            f"Authored directly by the `{run.skill_name}` Signals scout via emit_report."
+            if run
+            else "Authored directly by a Signals scout via emit_report."
+        ),
+        author=run.skill_name if run else "signals_scout",
+    )
 
 
-def _provenance_author(run: SignalScoutRun | None) -> str:
-    return run.skill_name if run is not None else "signals_scout"
-
-
-def _validate_create_inputs(title: str, summary: str, signals: Sequence[ScoutReportSignal]) -> None:
+def validate_scout_report(title: str, summary: str, signals: Sequence[ScoutReportSignal]) -> None:
     if not title or not title.strip():
         raise InvalidScoutReportError("title must not be empty")
     if not summary or not summary.strip():
@@ -1476,7 +1495,7 @@ def _validate_create_inputs(title: str, summary: str, signals: Sequence[ScoutRep
         raise InvalidScoutReportError("backing signals must have unique document_ids")
 
 
-def _validate_optional_text(field_name: str, value: str | None) -> None:
+def validate_scout_report_text(field_name: str, value: str | None) -> None:
     if value is not None and not value.strip():
         raise InvalidScoutReportError(f"{field_name} must not be empty when provided")
 

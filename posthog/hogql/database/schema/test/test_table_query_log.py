@@ -1,12 +1,46 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+
+
+class TestPrivateQueryLogVisibility(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("friendly", "SELECT query_id FROM query_log", 1),
+            ("raw", "SELECT query_id FROM raw_query_log", 1),
+            ("alias", "SELECT q.query_id FROM raw_query_log AS q", 1),
+            ("join", "SELECT a.query_id FROM raw_query_log a LEFT JOIN raw_query_log b ON a.query_id = b.query_id", 2),
+            ("subquery", "SELECT * FROM (SELECT query_id FROM raw_query_log)", 1),
+        ]
+    )
+    def test_every_scan_excludes_private_activity(self, _name: str, query: str, scans: int) -> None:
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            sql, _ = prepare_and_print_ast(
+                parse_select(query),
+                HogQLContext(
+                    team_id=123,
+                    database=Database(),
+                    enable_select_queries=True,
+                    restricted_properties=set(),
+                    use_new_events_schema=False,
+                ),
+                "clickhouse",
+            )
+        self.assertEqual(sql.count("NOT JSONExtractBool(toString(log_comment), 'is_scout_experiment')"), scans)
+        self.assertIn("team_id, 123", sql)
 
 
 class TestQueryLogTable(ClickhouseTestMixin, APIBaseTest):
@@ -29,7 +63,7 @@ FROM
     (SELECT
         toTimeZone(query_log_archive.query_start_time, %(hogql_val_0)s) AS query_start_time
     FROM
-        query_log_archive
+        (SELECT * FROM query_log_archive WHERE NOT JSONExtractBool(toString(log_comment), 'is_scout_experiment') SETTINGS asterisk_include_alias_columns = 1) AS query_log_archive
     WHERE
         and(equals(query_log_archive.team_id, {self.team.pk}), not(query_log_archive.lc_is_impersonated))) AS query_log
 LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0"""

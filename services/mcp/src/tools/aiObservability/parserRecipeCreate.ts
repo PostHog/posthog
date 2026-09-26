@@ -173,7 +173,12 @@ export const parserRecipeCreateHandler: ToolBase<typeof schema, ParserRecipeCrea
         // Capture before the soft return: the graceful result bypasses `handleToolError`,
         // the path that normally surfaces 5xx-class failures to observability.
         try {
-            getPostHogClient().captureException(error, undefined, { tag: 'mcp', tool: 'llma-parser-recipe-create' })
+            const apiKey = await context.stateManager.getApiKey()
+            getPostHogClient().captureException(error, undefined, {
+                tag: 'mcp',
+                tool: 'llma-parser-recipe-create',
+                suppress_analytics: apiKey.suppress_analytics === true,
+            })
         } catch {
             // Observability must never break the request.
         }
