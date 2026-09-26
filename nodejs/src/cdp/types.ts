@@ -477,6 +477,11 @@ export type HogFlowInvocationContext = {
         // Set when a distinct_id's first mapping fills a parked wait's missing person anchor and wakes
         // it. A matcher wake carrying no eventMatched, so the handler consumes it like rekeyWake.
         anchorWake?: boolean
+        // The max_wait_duration this wait parked against. The timing sweep moves `scheduled` with a
+        // bulk UPDATE and cannot stamp a marker the way the matcher does, so a wake that follows a
+        // shortened ceiling is otherwise indistinguishable from the deadline arriving. Comparing the
+        // parked ceiling with the action's current one tells the two apart.
+        parkedMaxWaitDuration?: string
         // Set by hog-function action handler when it returns `finished: false` without an
         // explicit `queueScheduledAt` — i.e. the reschedule is purely to move the job onto a
         // dedicated queue (e.g. 'email' for SES rate-limit gating) and the next dequeue will
@@ -492,11 +497,6 @@ export type HogFlowInvocationContext = {
         //     debug line *and clears the flag* so any subsequent actions on the same dequeue
         //     (the email handler's `nextAction: exit`, etc.) log normally.
         routingOnlyReschedule?: boolean
-        // Set when a wait_until_condition re-parks on its polling interval. Lets the handler
-        // attribute a later condition match to the periodic poll (vs evaluate-on-entry) and emit
-        // the cdp_hogflow_wait_poll_only_advance metric — the signal that proves whether the poll
-        // ever catches a wake the subscription streams missed, gating its eventual removal.
-        pollReparked?: boolean
         // A step parked on an external run: cleared when the matcher writes a matching `resumeResult`.
         awaitingResume?: {
             key: string
