@@ -20,6 +20,12 @@ export const HogFunctionsListQueryParams = () => zod.object({
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.number().optional(),
     enabled: zod.boolean().optional(),
+    filters: zod
+        .string()
+        .optional()
+        .describe(
+            'Object (or pre-encoded JSON string) matched against each function\'s stored `filters` by JSON containment, so a partial value matches. Use it to select functions by trigger instead of reading every row: `{\"events\": [{\"id\": \"$error_tracking_issue_created\"}]}` returns only the functions that trigger on that event. Combines with the other query params.'
+        ),
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
