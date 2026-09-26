@@ -2973,10 +2973,10 @@ Today (12): `asset_stocks`, `assets`, `checked_out_assets`, `custom_fields`, `gr
 
 Diffed against: <https://ezo.io/ezofficeinventory/developers/>
 
-- [ ] `GET /assets/{id}/history.api and /members/{id}/checkin_checkout_history.api (+ checkin_checkout_history_for_stock.api)` — check-in/check-out transition history - the utilization fact table; the source only has the point-in-time checked_out_assets snapshot (high)
-- [ ] `GET /tasks.api (work orders) and /tasks/filter` — work orders with state, assignee and duration - a core analytical object with no coverage at all (high)
-- [ ] `GET /services.api` — service/maintenance records per asset, the basis for downtime and maintenance-cost reporting (high)
-- [ ] `GET /teams.api` — team lookup resolving the team IDs carried on members and assignments (high)
+- [x] `GET /assets/{id}/history.api and /members/{id}/checkin_checkout_history.api (+ checkin_checkout_history_for_stock.api)` — check-in/check-out transition history - the utilization fact table; the source only has the point-in-time checked_out_assets snapshot (high) — added as `asset_checkout_history` (fan-out over assets) and `member_stock_histories`. `members/{id}/checkin_checkout_history.api` returns the same transition records as the asset history, keyed by member instead of asset, so it was not added as a third table.
+- [x] `GET /tasks.api (work orders) and /tasks/filter` — work orders with state, assignee and duration - a core analytical object with no coverage at all (high) — added as `work_orders`. `/tasks/filter` does not exist; the list endpoint takes a `filter` query param, and the table syncs the unfiltered list.
+- [ ] `GET /services.api` — service/maintenance records per asset, the basis for downtime and maintenance-cost reporting (high). Not readable: `assets/{id}/services.api` is POST/PUT only and v2 has no services resource, so there is no list endpoint to sync. The closest GET returns assets being serviced, not service records.
+- [x] `GET /teams.api` — team lookup resolving the team IDs carried on members and assignments (high) — added as `teams`
 - [ ] `GET /custom_roles.api` — role lookup resolving the role reference on every member row already synced (medium)
 - [ ] `GET /task_types.api` — work order type lookup, the primary breakdown dimension for work orders (medium)
 - [ ] `GET /reservation_requests.api and /checkout_requests/filter.api` — reservations and booking requests - forward-looking demand against the asset pool (medium)

@@ -1,7 +1,15 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.types import IncrementalField
+
+# v2 list endpoints cap page size at 100. Only the fan-out parents send it, to keep the number of
+# requests down against the account's ~60 req/min fair-use limit.
+PAGE_SIZE = 100
 
 # Vendor API version labels. v1 is the legacy `*.api` interface (token header, page-number
 # pagination); v2 is the GA `/api/v2/` REST interface (bearer token, next-URL pagination).
@@ -26,6 +34,43 @@ class EZOfficeInventoryEndpointConfig:
     # Extra static query params (e.g. the `status=checked_out` filter on /assets/filter.api).
     extra_params: dict[str, str] = field(default_factory=dict)
     should_sync_default: bool = True
+    # When set, the endpoint is a per-parent sub-resource fetched once per row of another
+    # endpoint rather than a flat list.
+    fanout: Optional[DependentEndpointConfig] = None
+    # The three below exist so the config satisfies the shared FanoutEndpointLike protocol.
+    # Nothing on this source reads them: page sizes are set per fan-out through
+    # `parent_params`, and every EZOfficeInventory table is full refresh.
+    page_size: int = PAGE_SIZE
+    incremental_fields: list[IncrementalField] = field(default_factory=list)
+    default_incremental_field: Optional[str] = None
+
+
+# A parent row retired or deleted between the parent listing and its child fetch answers 404.
+# Ignoring it keeps the fan-out going instead of failing the whole table.
+_PARENT_GONE: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
+# The history sub-resources are keyed on the record id (`id`), not the user-facing identification
+# number, so the parent id is what binds the child path. It is also injected onto every child row,
+# because a history row carries no reference back to the item or member it belongs to.
+_ASSET_HISTORY_FANOUT = DependentEndpointConfig(
+    parent_name="assets",
+    resolve_param="asset_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "asset_id"},
+    parent_params={"per_page": PAGE_SIZE},
+    child_response_actions=_PARENT_GONE,
+)
+
+_MEMBER_STOCK_HISTORY_FANOUT = DependentEndpointConfig(
+    parent_name="members",
+    resolve_param="member_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "member_id"},
+    parent_params={"per_page": PAGE_SIZE},
+    child_response_actions=_PARENT_GONE,
+)
 
 
 # EZOfficeInventory exposes no general server-side `updated_after`/`created_after` cursor on its
@@ -68,6 +113,12 @@ EZOFFICEINVENTORY_ENDPOINTS: dict[str, EZOfficeInventoryEndpointConfig] = {
         data_selector="members",
         primary_keys=["id"],
         partition_key="created_at",
+    ),
+    "teams": EZOfficeInventoryEndpointConfig(
+        name="teams",
+        path="teams.api",
+        data_selector="teams",
+        primary_keys=["id"],
     ),
     "locations": EZOfficeInventoryEndpointConfig(
         name="locations",
@@ -128,6 +179,12 @@ ENDPOINTS = tuple(EZOFFICEINVENTORY_ENDPOINTS.keys())
 # `created_at`, so that table can't be datetime-partitioned under v2. The v1-only endpoints
 # (`checked_out_assets`, `subgroups`, `labels`, `custom_fields`) have no flat v2 list equivalent
 # and stay v1-only — pinned v1 sources keep serving them.
+#
+# Work orders and the two history tables are v2-only. v1 reaches the same records through
+# `tasks.api`, `assets/<id>/history_paginate.api` and `members/<id>/checkin_checkout_history*.api`,
+# but the v1 docs give no response envelope for any of them, and a guessed `data_selector` yields
+# an empty table rather than an error. The v2 OpenAPI spec names all three, so they are wired
+# there only.
 EZOFFICEINVENTORY_V2_ENDPOINTS: dict[str, EZOfficeInventoryEndpointConfig] = {
     "assets": EZOfficeInventoryEndpointConfig(
         name="assets",
@@ -156,6 +213,41 @@ EZOFFICEINVENTORY_V2_ENDPOINTS: dict[str, EZOfficeInventoryEndpointConfig] = {
         data_selector="members",
         primary_keys=["id"],
         partition_key="created_at",
+    ),
+    "teams": EZOfficeInventoryEndpointConfig(
+        name="teams",
+        path="api/v2/teams",
+        data_selector="teams",
+        primary_keys=["id"],
+    ),
+    "work_orders": EZOfficeInventoryEndpointConfig(
+        name="work_orders",
+        path="api/v2/work_orders",
+        data_selector="work_orders",
+        primary_keys=["id"],
+        partition_key="created_at",
+    ),
+    "asset_checkout_history": EZOfficeInventoryEndpointConfig(
+        name="asset_checkout_history",
+        path="api/v2/assets/{asset_id}/history",
+        data_selector="histories",
+        # The history id is only documented as unique within its asset, so the parent id is part
+        # of the key. It stays correct if the id turns out to be unique account-wide.
+        primary_keys=["asset_id", "id"],
+        partition_key="created_at",
+        fanout=_ASSET_HISTORY_FANOUT,
+        # One request per asset, so it is opt-in rather than on by default.
+        should_sync_default=False,
+    ),
+    "member_stock_histories": EZOfficeInventoryEndpointConfig(
+        name="member_stock_histories",
+        path="api/v2/members/{member_id}/stock_histories",
+        data_selector="stock_histories",
+        primary_keys=["member_id", "id"],
+        partition_key="created_at",
+        fanout=_MEMBER_STOCK_HISTORY_FANOUT,
+        # One request per member, so it is opt-in rather than on by default.
+        should_sync_default=False,
     ),
     "locations": EZOfficeInventoryEndpointConfig(
         name="locations",
