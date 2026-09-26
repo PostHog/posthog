@@ -30,7 +30,6 @@ from posthog.session_recordings.queries.sub_queries.base_query import SessionRec
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import resolved_group_key_expr
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
-    NEGATIVE_OPERATORS,
     SessionRecordingQueryResult,
     _entity_to_expr,
     _node_from_entity,
@@ -38,6 +37,7 @@ from posthog.session_recordings.queries.utils import (
     is_cohort_property,
     is_event_property,
     is_group_property,
+    is_negative_prop,
     is_person_property,
 )
 from posthog.types import AnyPropertyFilter
@@ -91,18 +91,6 @@ def get_negative_entity_properties(
             if is_negative_prop(prop):
                 negative_props.append(prop)
     return negative_props
-
-
-def is_negative_prop(prop: AnyPropertyFilter) -> bool:
-    if not hasattr(prop, "operator"):
-        return False
-    if prop.operator in NEGATIVE_OPERATORS:
-        return True
-    # NOT_IN is intentionally omitted from NEGATIVE_OPERATORS for event/person filters
-    # (it has different semantics there), but for cohort filters it IS the negative form.
-    if is_cohort_property(prop) and prop.operator == PropertyOperator.NOT_IN:
-        return True
-    return False
 
 
 class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
