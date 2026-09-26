@@ -244,6 +244,14 @@ const platformStylesheet = `
 .recharts-pie .recharts-sector {
   stroke: none;
 }
+
+/* Stacked bar segments are separate rectangles that share an edge. Each one antialiases against
+   the page behind it rather than against its neighbour, so about a quarter of the background
+   stays visible in the shared pixel column and reads as a dark hairline between segments.
+   Snapping the edges to whole pixels removes the partial coverage that causes it. */
+.recharts-bar-rectangle path {
+  shape-rendering: crispEdges;
+}
 `
 
 // Entry references (module scripts, stylesheets) parsed attribute-order-
