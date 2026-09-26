@@ -1520,7 +1520,7 @@ class TestValidateCredentialsResolvedPin:
     def test_class_probe_threads_resolved_pin(self, pin: str | None, expected: str) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source.validate_klaviyo_credentials",
-            return_value=True,
+            return_value=(True, None),
         ) as mock_validate:
             KlaviyoSource().validate_credentials(KlaviyoSourceConfig(api_key="pk_test"), 1, api_version=pin)
 
@@ -1532,7 +1532,30 @@ class TestValidateCredentialsResolvedPin:
         with patch.object(klaviyo, "make_tracked_session") as session_factory:
             response = MagicMock(status_code=200)
             session_factory.return_value.get.return_value = response
-            assert klaviyo.validate_credentials("pk_test", api_version) is True
+            assert klaviyo.validate_credentials("pk_test", api_version) == (True, None)
 
         headers = session_factory.return_value.get.call_args.kwargs["headers"]
         assert headers["revision"] == api_version
+
+    @parameterized.expand(
+        [
+            (401, klaviyo._KLAVIYO_INVALID_KEY_ERROR),
+            (403, klaviyo._KLAVIYO_MISSING_SCOPE_ERROR),
+            (503, klaviyo._KLAVIYO_UNREACHABLE_ERROR),
+        ]
+    )
+    def test_failure_status_picks_the_matching_message(self, status: int, expected: str) -> None:
+        with patch.object(klaviyo, "make_tracked_session") as session_factory:
+            session_factory.return_value.get.return_value = MagicMock(status_code=status)
+            ok, error = klaviyo.validate_credentials("pk_test")
+
+        assert ok is False
+        assert error == expected
+
+    def test_unreachable_klaviyo_does_not_blame_the_key(self) -> None:
+        with patch.object(klaviyo, "make_tracked_session") as session_factory:
+            session_factory.return_value.get.side_effect = requests.ConnectionError("boom")
+            ok, error = klaviyo.validate_credentials("pk_test")
+
+        assert ok is False
+        assert error == klaviyo._KLAVIYO_UNREACHABLE_ERROR
