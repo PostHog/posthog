@@ -25,7 +25,8 @@ export const scene: SceneExport = {
 
 // accelerationIncludingGravity sits near 9.8 at rest; a deliberate shake goes well past this.
 const SHAKE_THRESHOLD = 25
-const SHAKE_COOLDOWN_MS = 1500
+// One shake is a burst of force peaks. The detector rearms only after the force stays below the threshold this long.
+const SHAKE_QUIET_MS = 1000
 const HAZY_ANSWER = 'Reply hazy, try again'
 
 /** iOS Safari only fires devicemotion after this is granted from a tap. */
@@ -46,7 +47,8 @@ function useShake(onShake: () => void, enabled: boolean): void {
         if (!enabled) {
             return
         }
-        let lastShake = 0
+        let armed = true
+        let lastPeak = 0
         const handleMotion = (event: DeviceMotionEvent): void => {
             const acceleration = event.accelerationIncludingGravity
             if (!acceleration) {
@@ -55,9 +57,14 @@ function useShake(onShake: () => void, enabled: boolean): void {
             const { x, y, z } = acceleration
             const force = Math.sqrt((x ?? 0) ** 2 + (y ?? 0) ** 2 + (z ?? 0) ** 2)
             const now = Date.now()
-            if (force > SHAKE_THRESHOLD && now - lastShake > SHAKE_COOLDOWN_MS) {
-                lastShake = now
-                onShakeRef.current()
+            if (force > SHAKE_THRESHOLD) {
+                lastPeak = now
+                if (armed) {
+                    armed = false
+                    onShakeRef.current()
+                }
+            } else if (now - lastPeak > SHAKE_QUIET_MS) {
+                armed = true
             }
         }
         window.addEventListener('devicemotion', handleMotion)
