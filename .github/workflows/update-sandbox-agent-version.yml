@@ -9,6 +9,10 @@ on:
                 description: 'Agent version to pin. Defaults to the npm "latest" dist-tag.'
                 required: false
                 type: string
+            tarball_sha256:
+                description: 'sha256 of the release tarball for that version. The release workflow sets it; leave it empty to install from npm.'
+                required: false
+                type: string
             slack_thread_ts:
                 description: 'Slack thread of the release post to reply in. The release workflow sets it.'
                 required: false
@@ -69,6 +73,7 @@ jobs:
               id: resolve
               env:
                   REQUESTED_VERSION: ${{ inputs.version }}
+                  REQUESTED_SHA256: ${{ inputs.tarball_sha256 }}
               run: |
                   latest="$REQUESTED_VERSION"
                   for attempt in 1 2 3; do
@@ -84,6 +89,16 @@ jobs:
                   fi
                   echo "latest=$latest" >> "$GITHUB_OUTPUT"
                   echo "BRANCH=${BRANCH_PREFIX}${latest}" >> "$GITHUB_ENV"
+
+                  sha="$REQUESTED_SHA256"
+                  if [ -n "$sha" ] && ! printf '%s' "$sha" | grep -qE '^[0-9a-f]{64}$'; then
+                    echo "tarball_sha256 input '$sha' is not a sha256 digest" >&2
+                    exit 1
+                  fi
+                  if [ -z "$sha" ]; then
+                    echo "no tarball digest was passed, so the image installs from npm"
+                  fi
+                  echo "tarball_sha256=$sha" >> "$GITHUB_OUTPUT"
 
                   pinned=$(sed -n 's/^ARG AGENT_VERSION=//p' "$DOCKERFILE")
                   if [ -z "$pinned" ]; then
@@ -146,8 +161,10 @@ jobs:
               if: steps.state.outputs.action == 'bump'
               env:
                   LATEST: ${{ steps.resolve.outputs.latest }}
+                  TARBALL_SHA256: ${{ steps.resolve.outputs.tarball_sha256 }}
               run: |
                   sed -i "s/^ARG AGENT_VERSION=.*/ARG AGENT_VERSION=${LATEST}/" "$DOCKERFILE"
+                  sed -i "s/^ARG AGENT_TARBALL_SHA256=.*/ARG AGENT_TARBALL_SHA256=${TARBALL_SHA256}/" "$DOCKERFILE"
                   if git diff --quiet "$DOCKERFILE"; then
                     echo "could not rewrite ARG AGENT_VERSION in $DOCKERFILE" >&2
                     exit 1
@@ -256,7 +273,13 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   LATEST: ${{ steps.resolve.outputs.latest }}
                   PINNED: ${{ steps.resolve.outputs.pinned }}
+                  TARBALL_SHA256: ${{ steps.resolve.outputs.tarball_sha256 }}
               run: |
+                  if [ -n "$TARBALL_SHA256" ]; then
+                    digest_note="\`AGENT_TARBALL_SHA256\` set to the digest of the \`agent-v${LATEST}\` release tarball"
+                  else
+                    digest_note="\`AGENT_TARBALL_SHA256\` cleared, because no release tarball digest was passed for \`agent-v${LATEST}\`, so the image installs from npm"
+                  fi
                   {
                     cat <<BODY
                   ## Problem
@@ -265,9 +288,9 @@ jobs:
 
                   ## Changes
 
-                  - \`Dockerfile.sandbox-base\`: \`AGENT_VERSION\` \`${PINNED}\` to \`${LATEST}\`.
+                  - \`Dockerfile.sandbox-base\`: \`AGENT_VERSION\` \`${PINNED}\` to \`${LATEST}\`; ${digest_note}.
 
-                  The sandbox image workflow waits for npm to serve \`${LATEST}\`, builds this image and smokes it on both architectures. This workflow then runs one Claude turn and one Codex turn with that image through the production Go ai-gateway. When both checks pass, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
+                  The sandbox image workflow waits for \`${LATEST}\` to be published, builds this image and smokes it on both architectures. This workflow then runs one Claude turn and one Codex turn with that image through the production Go ai-gateway. When both checks pass, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
 
                   BODY
                     cat delta.md
