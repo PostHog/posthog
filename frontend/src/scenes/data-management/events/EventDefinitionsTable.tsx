@@ -15,6 +15,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { DefinitionHeader, getEventDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { EventDefinitionModal } from 'scenes/data-management/events/EventDefinitionModal'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -123,6 +124,7 @@ export function EventDefinitionsTable(): JSX.Element {
 
     return (
         <SceneContent data-attr="manage-events-table">
+            <DefinitionsSceneTabs activeKey="events" />
             <SceneTitleSection
                 name={sceneConfigurations[Scene.EventDefinition].name}
                 description={sceneConfigurations[Scene.EventDefinition].description}
