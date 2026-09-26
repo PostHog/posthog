@@ -146,7 +146,7 @@ def build_query(
             j.name AS job_name,
             j.run_id AS run_id,
             j.run_attempt AS run_attempt,
-            j.head_branch AS head_branch,
+            {workflow_jobs.branch("j", "r")} AS head_branch,
             r.head_sha AS head_sha,
             j.status AS status,
             j.conclusion AS conclusion,
@@ -186,7 +186,7 @@ def build_team_view(team: "Team") -> str | None:
             jobs_table=source.jobs_source,
             runs_table=source.runs_source,
             pull_requests_table=source.pull_requests,
-            head_commit_runs_table=source.workflow_runs,
+            head_commit_runs_table=source.github_workflow_runs,
         )
         for source in sources
     ]

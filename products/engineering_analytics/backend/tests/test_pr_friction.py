@@ -2,6 +2,8 @@ from collections import Counter, defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from parameterized import parameterized
+
 from posthog.hogql.query import execute_hogql_query
 
 from products.engineering_analytics.backend.facade.contracts import (
@@ -19,7 +21,12 @@ from products.engineering_analytics.backend.logic.views.source_schema import (
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
-from products.engineering_analytics.backend.tests._github_fixtures import _issue_event_row, _pr_row, _run_row
+from products.engineering_analytics.backend.tests._github_fixtures import (
+    _depot_attempt_row,
+    _issue_event_row,
+    _pr_row,
+    _run_row,
+)
 from products.engineering_analytics.backend.tests._logic_helpers import (
     _ago,
     _ago_offset_with_duration,
@@ -177,7 +184,30 @@ class TestPRFrictionView(_WarehouseMixin):
         assert response.columns == list(pr_friction.FIELDS)
         return {row[2]: dict(zip(response.columns, row)) for row in response.results}
 
-    def test_view_matches_the_timeline_replay(self) -> None:
+    def _seed_depot_ci(self) -> None:
+        start, end = _span(0, 15)
+        self._create_depot_table(
+            [
+                _depot_attempt_row(
+                    ref="refs/pull/36/merge",
+                    head_sha="sha36",
+                    workflow_name="Backend CI on Depot",
+                    workflow_status="failed",
+                    workflow_created_at=start,
+                    workflow_started_at=start,
+                    workflow_finished_at=end,
+                    job_key="ci-backend.yml:lint",
+                    attempt_status="failed",
+                    attempt_started_at=start,
+                    attempt_finished_at=end,
+                )
+            ]
+        )
+
+    @parameterized.expand([("github_ci", False), ("depot_ci", True)])
+    def test_view_matches_the_timeline_replay(self, _name: str, with_depot_ci: bool) -> None:
+        if with_depot_ci:
+            self._seed_depot_ci()
         self._seed()
         rows = self._view_rows()
         timelines = query_pull_request_timelines(
@@ -216,6 +246,8 @@ class TestPRFrictionView(_WarehouseMixin):
 
         assert set(timeline_figures) == {31, 32, 33, 34, 35, 36, 37, 39}
         assert view_figures == timeline_figures
+        if with_depot_ci:
+            assert view_figures[36]["ci_running"] > 0
 
     def test_view_counts_what_the_author_went_through(self) -> None:
         self._seed()
