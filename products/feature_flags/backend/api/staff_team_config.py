@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Count
 
 import structlog
@@ -9,6 +10,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.mixins import validated_request
 from posthog.helpers.impersonation import is_impersonated
@@ -17,6 +19,12 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.permissions import IsStaffUser
 
 from products.feature_flags.backend.api.staff_cache import _team_ids_field
+from products.feature_flags.backend.flag_evaluations_mode import (
+    OrganizationModeChange,
+    UnknownIdsError,
+    get_organizations_of_teams,
+    set_organization_flag_evaluations_mode,
+)
 from products.feature_flags.backend.flag_limits import (
     get_max_feature_flags_override_for_team,
     resolve_max_feature_flags,
@@ -36,11 +44,14 @@ logger = structlog.get_logger(__name__)
 # value today by coincidence, not by requirement.
 MAX_TEAM_IDS_PER_QUERY = 50
 
+# Caps the team ids of one flag_evaluations_mode write. The write runs in one transaction with one
+# savepoint per organization, and each team id adds at most one organization.
+MAX_IDS_PER_MODE_WRITE = 50
+
 MUTABLE_SETTINGS = (
     "minimal_flag_called_events",
     "property_matching_version",
     "max_feature_flags_override",
-    "flag_evaluations_mode",
 )
 
 
@@ -149,18 +160,6 @@ class StaffTeamConfigMutationSerializer(serializers.Serializer):
             "unchanged."
         ),
     )
-    flag_evaluations_mode = serializers.ChoiceField(
-        choices=FlagEvaluationsMode.choices,
-        required=False,
-        help_text=(
-            "New flag_evaluations mode for this team. Omit to leave it unchanged. Environments of one "
-            "project and projects of one organization are expected to share a mode, so prefer the "
-            "set_flag_evaluations_mode management command for more than one team. Ingestion ignores 2 "
-            "until its support for 2 deploys, so 2 acts as 1 until then, and a team already on 2 stops "
-            "writing $feature_flag_called to events when that support deploys. After that, lowering the "
-            "mode from 2 leaves a gap in the events table for the time the team spent on mode 2."
-        ),
-    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if not attrs.keys() & MUTABLE_SETTINGS:
@@ -168,14 +167,89 @@ class StaffTeamConfigMutationSerializer(serializers.Serializer):
         return attrs
 
 
+class StaffFlagEvaluationsModeMutationSerializer(serializers.Serializer):
+    flag_evaluations_mode = serializers.ChoiceField(
+        choices=FlagEvaluationsMode.choices,
+        help_text=(
+            "Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing "
+            "$feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts "
+            "as 1 until then."
+        ),
+    )
+    team_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        max_length=MAX_IDS_PER_MODE_WRITE,
+        help_text=(
+            f"Teams to move (max {MAX_IDS_PER_MODE_WRITE}). Other teams of their organizations keep their "
+            "mode unless whole_organizations is set."
+        ),
+    )
+    whole_organizations = serializers.BooleanField(
+        default=False,
+        help_text="Also move every other team of each organization that owns one of the teams.",
+    )
+    allow_downgrade = serializers.BooleanField(
+        default=False,
+        help_text=(
+            "Also lower teams that are above the target mode. Once ingestion acts on mode 2, lowering a "
+            "team from 2 leaves a gap in the events table for the time the team spent on 2."
+        ),
+    )
+    dry_run = serializers.BooleanField(
+        default=False,
+        help_text="Report what the write would change, and write nothing.",
+    )
+
+
+@extend_schema_serializer(component_name="StaffOrganizationModeChange")
+class StaffOrganizationModeChangeSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = OrganizationModeChange
+        exclude = ["organization_created_at"]
+        extra_kwargs = {
+            "organization_id": {"help_text": "Organization id."},
+            "organization_name": {"help_text": "Organization name."},
+            "organization_team_count": {
+                "help_text": "Every team of the organization, including teams the request does not cover."
+            },
+            "team_count": {
+                "help_text": "Teams of this organization that the request covers. The counts below are over these teams."
+            },
+            "teams_below_mode": {"help_text": "Covered teams below the target mode."},
+            "teams_at_mode": {"help_text": "Covered teams already on the target mode."},
+            "teams_above_mode": {
+                "help_text": "Covered teams above the target mode. They move only when allow_downgrade is set."
+            },
+            "teams_changed": {"help_text": "Teams the write moved to the target mode, or would move on a dry run."},
+            "teams_left_above_mode": {
+                "help_text": "Covered teams above the target mode that the write leaves there, because allow_downgrade is not set."
+            },
+        }
+
+
+class StaffFlagEvaluationsModeResponseSerializer(serializers.Serializer):
+    flag_evaluations_mode = serializers.ChoiceField(
+        choices=FlagEvaluationsMode.choices, help_text="The target mode of the request."
+    )
+    dry_run = serializers.BooleanField(help_text="True when the request wrote nothing.")
+    organizations = StaffOrganizationModeChangeSerializer(
+        many=True, help_text="One entry per organization the request covers, oldest organization first."
+    )
+
+
 class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
     """
     Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
     per-team feature-flag count override.
 
-    Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+    set() writes one team only, by design. Rollout settings are changed after staff verify SDK
     compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
-    bulk operation, unlike the cache tools' rebuild and clear.
+    bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode is meant to be
+    uniform across an organization, so only set_flag_evaluations_mode() writes it, for many teams or
+    whole organizations at once. It uses the same helpers as the set_flag_evaluations_mode command,
+    including the guard against lowering a team, and it writes every organization of a request in
+    one transaction.
 
     set() takes partial updates: omit a setting to leave it unchanged, and send
     max_feature_flags_override as null to clear the override.
@@ -278,7 +352,6 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         old_minimal_flag_called_events = config.minimal_flag_called_events
         old_property_matching_version = config.property_matching_version
         old_max_feature_flags_override = config.max_feature_flags_override
-        old_flag_evaluations_mode = config.flag_evaluations_mode
 
         # Saving only the fields actually sent keeps two staff editing different settings on the
         # same team from overwriting each other.
@@ -315,9 +388,6 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
         if "max_feature_flags_override" in validated:
             changed_values["old_max_feature_flags_override"] = old_max_feature_flags_override
             changed_values["new_max_feature_flags_override"] = config.max_feature_flags_override
-        if "flag_evaluations_mode" in validated:
-            changed_values["old_flag_evaluations_mode"] = old_flag_evaluations_mode
-            changed_values["new_flag_evaluations_mode"] = config.flag_evaluations_mode
 
         logger.info(
             "flags_staff_team_config_updated",
@@ -344,4 +414,54 @@ class FeatureFlagsStaffTeamConfigViewSet(viewsets.ViewSet):
                 flag_evaluations_mode=config.flag_evaluations_mode,
                 feature_flag_count=FeatureFlag.objects.filter(team_id=team.id).count(),
             )
+        )
+
+    @validated_request(
+        request_serializer=StaffFlagEvaluationsModeMutationSerializer,
+        responses={200: OpenApiResponse(response=StaffFlagEvaluationsModeResponseSerializer)},
+    )
+    @action(methods=["POST"], detail=False)
+    def set_flag_evaluations_mode(self, request: request.Request, **kwargs) -> response.Response:
+        validated = request.validated_data
+        mode = FlagEvaluationsMode(validated["flag_evaluations_mode"])
+        allow_downgrade: bool = validated["allow_downgrade"]
+        dry_run: bool = validated["dry_run"]
+
+        team_ids: list[int] = validated["team_ids"]
+        whole_organizations: bool = validated["whole_organizations"]
+        try:
+            organizations = get_organizations_of_teams(team_ids)
+        except UnknownIdsError as error:
+            raise NotFound(str(error)) from error
+
+        # One transaction across organizations, so the request applies in full or not at all.
+        with transaction.atomic():
+            changes = [
+                set_organization_flag_evaluations_mode(
+                    organization,
+                    mode,
+                    allow_downgrade=allow_downgrade,
+                    dry_run=dry_run,
+                    team_ids=None if whole_organizations else team_ids,
+                )
+                for organization in organizations
+            ]
+
+        if not dry_run:
+            logger.info(
+                "flags_staff_flag_evaluations_mode_updated",
+                staff_user_id=request.user.id,
+                was_impersonated=is_impersonated(request),
+                flag_evaluations_mode=mode.value,
+                allow_downgrade=allow_downgrade,
+                team_ids=team_ids,
+                whole_organizations=whole_organizations,
+                organization_ids=[str(organization.id) for organization in organizations],
+                teams_changed=sum(change.teams_changed for change in changes),
+            )
+
+        return response.Response(
+            StaffFlagEvaluationsModeResponseSerializer(
+                {"flag_evaluations_mode": mode.value, "dry_run": dry_run, "organizations": changes}
+            ).data
         )

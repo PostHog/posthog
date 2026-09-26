@@ -71,9 +71,13 @@ export const FeatureFlagsStaffCacheRebuildCreateBody = /* @__PURE__ */ zod.objec
  * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
  * per-team feature-flag count override.
  *
- * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
  * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
- * bulk operation, unlike the cache tools' rebuild and clear.
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode is meant to be
+ * uniform across an organization, so only set_flag_evaluations_mode() writes it, for many teams or
+ * whole organizations at once. It uses the same helpers as the set_flag_evaluations_mode command,
+ * including the guard against lowering a team, and it writes every organization of a request in
+ * one transaction.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -106,12 +110,59 @@ export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.obje
         .describe(
             'New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.'
         ),
+})
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
+ *
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode is meant to be
+ * uniform across an organization, so only set_flag_evaluations_mode() writes it, for many teams or
+ * whole organizations at once. It uses the same helpers as the set_flag_evaluations_mode command,
+ * including the guard against lowering a team, and it writes every organization of a request in
+ * one transaction.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyTeamIdsMax = 50
+
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyWholeOrganizationsDefault = false
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault = false
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyDryRunDefault = false
+
+export const FeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBody = /* @__PURE__ */ zod.object({
     flag_evaluations_mode: zod
         .union([zod.literal(0), zod.literal(1), zod.literal(2)])
-        .optional()
         .describe(
-            'New flag_evaluations mode for this team. Omit to leave it unchanged. Environments of one project and projects of one organization are expected to share a mode, so prefer the set_flag_evaluations_mode management command for more than one team. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then, and a team already on 2 stops writing $feature_flag_called to events when that support deploys. After that, lowering the mode from 2 leaves a gap in the events table for the time the team spent on mode 2.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only'
+            'Target flag_evaluations mode. 0 reads events, 1 reads flag_evaluations, 2 also stops writing $feature_flag_called to events. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only'
         ),
+    team_ids: zod
+        .array(zod.number())
+        .min(1)
+        .max(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyTeamIdsMax)
+        .describe(
+            'Teams to move (max 50). Other teams of their organizations keep their mode unless whole_organizations is set.'
+        ),
+    whole_organizations: zod
+        .boolean()
+        .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyWholeOrganizationsDefault)
+        .describe('Also move every other team of each organization that owns one of the teams.'),
+    allow_downgrade: zod
+        .boolean()
+        .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyAllowDowngradeDefault)
+        .describe(
+            'Also lower teams that are above the target mode. Once ingestion acts on mode 2, lowering a team from 2 leaves a gap in the events table for the time the team spent on 2.'
+        ),
+    dry_run: zod
+        .boolean()
+        .default(featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateBodyDryRunDefault)
+        .describe('Report what the write would change, and write nothing.'),
 })
 
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50

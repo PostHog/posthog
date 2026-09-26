@@ -58,6 +58,8 @@ import type {
     StaffCacheMutationApi,
     StaffCacheMutationResponseApi,
     StaffCacheStatusResponseApi,
+    StaffFlagEvaluationsModeMutationApi,
+    StaffFlagEvaluationsModeResponseApi,
     StaffTeamConfigApi,
     StaffTeamConfigListResponseApi,
     StaffTeamConfigMutationApi,
@@ -265,9 +267,13 @@ export const getFeatureFlagsStaffTeamConfigListUrl = (params: FeatureFlagsStaffT
  * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
  * per-team feature-flag count override.
  *
- * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
  * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
- * bulk operation, unlike the cache tools' rebuild and clear.
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode is meant to be
+ * uniform across an organization, so only set_flag_evaluations_mode() writes it, for many teams or
+ * whole organizations at once. It uses the same helpers as the set_flag_evaluations_mode command,
+ * including the guard against lowering a team, and it writes every organization of a request in
+ * one transaction.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -293,9 +299,13 @@ export const getFeatureFlagsStaffTeamConfigSetCreateUrl = () => {
  * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
  * per-team feature-flag count override.
  *
- * Single-team writes only, by design. Rollout settings are changed after staff verify SDK
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
  * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
- * bulk operation, unlike the cache tools' rebuild and clear.
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode is meant to be
+ * uniform across an organization, so only set_flag_evaluations_mode() writes it, for many teams or
+ * whole organizations at once. It uses the same helpers as the set_flag_evaluations_mode command,
+ * including the guard against lowering a team, and it writes every organization of a request in
+ * one transaction.
  *
  * set() takes partial updates: omit a setting to leave it unchanged, and send
  * max_feature_flags_override as null to clear the override.
@@ -313,6 +323,43 @@ export const featureFlagsStaffTeamConfigSetCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(staffTeamConfigMutationApi),
     })
+}
+
+export const getFeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateUrl = () => {
+    return `/api/feature_flags_staff_team_config/set_flag_evaluations_mode/`
+}
+
+/**
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: behavior rollout gates and the
+ * per-team feature-flag count override.
+ *
+ * set() writes one team only, by design. Rollout settings are changed after staff verify SDK
+ * compatibility, and max_feature_flags_override is a per-customer capacity grant. Neither is a
+ * bulk operation, unlike the cache tools' rebuild and clear. flag_evaluations_mode is meant to be
+ * uniform across an organization, so only set_flag_evaluations_mode() writes it, for many teams or
+ * whole organizations at once. It uses the same helpers as the set_flag_evaluations_mode command,
+ * including the guard against lowering a team, and it writes every organization of a request in
+ * one transaction.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
+ *
+ * Registered on the root router so it is not team-nested; staff act on teams they do not
+ * belong to, same as staff_cache.py / staff_teams.py.
+ */
+export const featureFlagsStaffTeamConfigSetFlagEvaluationsModeCreate = async (
+    staffFlagEvaluationsModeMutationApi: StaffFlagEvaluationsModeMutationApi,
+    options?: RequestInit
+): Promise<StaffFlagEvaluationsModeResponseApi> => {
+    return apiMutator<StaffFlagEvaluationsModeResponseApi>(
+        getFeatureFlagsStaffTeamConfigSetFlagEvaluationsModeCreateUrl(),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(staffFlagEvaluationsModeMutationApi),
+        }
+    )
 }
 
 export const getFeatureFlagsStaffTeamsListUrl = (params: FeatureFlagsStaffTeamsListParams) => {
