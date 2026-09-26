@@ -42,6 +42,7 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
         duplicateEditorComponent,
         removeEditorComponent,
         reorderEditorComponent,
+        setEditorComponentSpan,
         saveEditor,
         reloadEditor,
         deleteView,
@@ -191,6 +192,9 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
                                                         component={component}
                                                         label={component.title ?? definition?.label ?? component.kind}
                                                         disabled={editorSaving}
+                                                        onSpanChange={(span) =>
+                                                            setEditorComponentSpan(component.nodeId, span)
+                                                        }
                                                         onDuplicate={() => duplicateEditorComponent(component.nodeId)}
                                                         onRemove={() => removeEditorComponent(component.nodeId)}
                                                     />

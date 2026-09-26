@@ -25,7 +25,7 @@ ACCOUNT_VIEW_COMPONENT_LABELS = {
     "Meetings": "Meetings",
     "EventStream": "Event stream",
 }
-ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "title"}
+ACCOUNT_VIEW_ALLOWED_PROPS = {"config", "nodeId", "span", "title"}
 ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
 ACCOUNT_VIEW_CONFIG_MAX_BYTES = 16_384
 ACCOUNT_VIEW_IDENTITY_PROPS = {
@@ -118,6 +118,10 @@ def validate_account_view_content(content: dict[str, Any]) -> tuple[dict[str, An
             errors.append(f"Component {index} duplicates nodeId {node_id}.")
         else:
             node_ids.add(node_id)
+
+        span = component.props.get("span", 12)
+        if isinstance(span, bool) or not isinstance(span, int) or not 1 <= span <= 12:
+            errors.append(f"Component {index} span must be an integer from 1 to 12.")
 
         config = component.props.get("config")
         if config is not None:

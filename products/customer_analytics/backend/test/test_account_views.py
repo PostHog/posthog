@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -8,6 +10,10 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.customer_analytics.backend.logic.account_views import (
+    InvalidAccountViewContent,
+    validate_account_view_content,
+)
 from products.customer_analytics.backend.models import Account, AccountView
 
 
@@ -21,6 +27,14 @@ def account_view_content(*components: str) -> dict:
             }
         ],
     }
+
+
+class TestAccountViewContentValidation(SimpleTestCase):
+    def test_rejects_span_outside_twelve_columns(self) -> None:
+        with self.assertRaises(InvalidAccountViewContent) as context:
+            validate_account_view_content(account_view_content('<Usage nodeId="usage-one" span={13} />'))
+
+        self.assertEqual(context.exception.errors, ["Component 1 span must be an integer from 1 to 12."])
 
 
 class TestAccountViews(APIBaseTest):
