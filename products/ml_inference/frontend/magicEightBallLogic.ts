@@ -118,14 +118,18 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
                     if (values.currentTeamId === null) {
                         throw new Error('No project selected')
                     }
-                    const [decision] = await Promise.all([
+                    // Promise.all rejects on the first error, which cuts the shake short when the request fails fast.
+                    const [decision] = await Promise.allSettled([
                         mlInferenceDecisionsDecideCreate(
                             String(values.currentTeamId),
                             buildEightBallRequest(values.question)
                         ),
                         wait(MIN_SHAKE_MS),
                     ])
-                    return decision
+                    if (decision.status === 'rejected') {
+                        throw decision.reason
+                    }
+                    return decision.value
                 },
             },
         ],
