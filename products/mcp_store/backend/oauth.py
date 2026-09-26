@@ -30,6 +30,8 @@ logger = structlog.get_logger(__name__)
 TIMEOUT = 10
 SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
 DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
+# Shared template clients are set up for client_secret_post. Some providers, such as HubSpot, reject HTTP Basic.
+SHARED_TEMPLATE_DEFAULT_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_post"
 TOKEN_REFRESH_REJECTION_ERRORS = frozenset({"invalid_client", "invalid_grant"})
 
 
@@ -138,7 +140,12 @@ def requested_oauth_grant_types(metadata: dict) -> list[str]:
     return grant_types
 
 
-def select_token_endpoint_auth_method(metadata: dict, *, has_client_secret: bool = False) -> str:
+def select_token_endpoint_auth_method(
+    metadata: dict,
+    *,
+    has_client_secret: bool = False,
+    confidential_default: str = DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD,
+) -> str:
     """Pick the token endpoint auth method we can actually use.
 
     Prefer public PKCE clients when the provider allows them. Otherwise use a
@@ -152,7 +159,7 @@ def select_token_endpoint_auth_method(metadata: dict, *, has_client_secret: bool
         else SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS
     )
     if not supported_methods:
-        return DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if has_client_secret else "none"
+        return confidential_default if has_client_secret else "none"
     for method in preferred_methods:
         if method in supported_methods:
             return method
@@ -465,12 +472,18 @@ class TokenRefreshRejectedError(TokenRefreshError):
 
 
 def _credential_auth_method(
-    credentials: Mapping[str, object], auth_method_key: str, client_secret: str | None, metadata: dict
+    credentials: Mapping[str, object],
+    auth_method_key: str,
+    client_secret: str | None,
+    metadata: dict,
+    confidential_default: str = DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD,
 ) -> str:
     method = credentials.get(auth_method_key)
     if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
         return method
-    return select_token_endpoint_auth_method(metadata, has_client_secret=bool(client_secret))
+    return select_token_endpoint_auth_method(
+        metadata, has_client_secret=bool(client_secret), confidential_default=confidential_default
+    )
 
 
 @frozen
@@ -518,7 +531,13 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
             if not metadata:
                 raise ValueError("Template missing OAuth metadata")
             client_secret = credentials.get("client_secret") or None
-            auth_method = _credential_auth_method(credentials, "token_endpoint_auth_method", client_secret, metadata)
+            auth_method = _credential_auth_method(
+                credentials,
+                "token_endpoint_auth_method",
+                client_secret,
+                metadata,
+                confidential_default=SHARED_TEMPLATE_DEFAULT_TOKEN_ENDPOINT_AUTH_METHOD,
+            )
             return InstallationOAuthContext(
                 metadata=metadata,
                 client_id=shared_client_id,
