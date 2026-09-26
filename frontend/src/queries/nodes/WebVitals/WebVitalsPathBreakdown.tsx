@@ -2,6 +2,9 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
+import { IconSearch } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -26,6 +29,8 @@ import {
     computePositionInBand,
     getValueWithUnit,
 } from './definitions'
+import { hasWebVitalsAttribution } from './webVitalsAttribution'
+import { WebVitalsAttributionModal } from './WebVitalsAttributionModal'
 
 let uniqueNode = 0
 export function WebVitalsPathBreakdown(props: {
@@ -49,32 +54,50 @@ export function WebVitalsPathBreakdown(props: {
     useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading } = useValues(logic)
+    const [attributionPath, setAttributionPath] = useState<string | null>(null)
 
     // Properly type it before passing to Content
     const webVitalsQueryResponse = response as WebVitalsPathBreakdownQueryResponse | undefined
 
     return (
-        <div className="relative border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
-            {webVitalsQueryResponse?.preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute && (
-                <PreAggregatedBadge variant="precomputed" onDisable={props.context.onDisableWebAnalyticsPrecompute} />
-            )}
-            <div className="p-4">
-                <Header band="good" label="Good" />
-                <Content band="good" response={webVitalsQueryResponse} responseLoading={responseLoading} />
+        <>
+            <div className="relative border rounded bg-surface-primary grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x min-h-60 h-full">
+                {webVitalsQueryResponse?.preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute && (
+                    <PreAggregatedBadge
+                        variant="precomputed"
+                        onDisable={props.context.onDisableWebAnalyticsPrecompute}
+                    />
+                )}
+                <div className="p-4">
+                    <Header band="good" label="Good" />
+                    <Content
+                        band="good"
+                        response={webVitalsQueryResponse}
+                        responseLoading={responseLoading}
+                        onOpenAttribution={setAttributionPath}
+                    />
+                </div>
+                <div className="p-4">
+                    <Header band="needs_improvements" label="Needs Improvements" />
+                    <Content
+                        band="needs_improvements"
+                        response={webVitalsQueryResponse}
+                        responseLoading={responseLoading}
+                        onOpenAttribution={setAttributionPath}
+                    />
+                </div>
+                <div className="p-4">
+                    <Header band="poor" label="Poor" />
+                    <Content
+                        band="poor"
+                        response={webVitalsQueryResponse}
+                        responseLoading={responseLoading}
+                        onOpenAttribution={setAttributionPath}
+                    />
+                </div>
             </div>
-            <div className="p-4">
-                <Header band="needs_improvements" label="Needs Improvements" />
-                <Content
-                    band="needs_improvements"
-                    response={webVitalsQueryResponse}
-                    responseLoading={responseLoading}
-                />
-            </div>
-            <div className="p-4">
-                <Header band="poor" label="Poor" />
-                <Content band="poor" response={webVitalsQueryResponse} responseLoading={responseLoading} />
-            </div>
-        </div>
+            <WebVitalsAttributionModal path={attributionPath} onClose={() => setAttributionPath(null)} />
+        </>
     )
 }
 
@@ -142,10 +165,12 @@ const Content = ({
     band,
     response,
     responseLoading,
+    onOpenAttribution,
 }: {
     band: WebVitalsMetricBand
     response: WebVitalsPathBreakdownQueryResponse | undefined
     responseLoading: boolean
+    onOpenAttribution: (path: string) => void
 }): JSX.Element => {
     const { webVitalsTab, isPathCleaningEnabled } = useValues(webAnalyticsLogic)
     const { togglePropertyFilter } = useActions(webAnalyticsLogic)
@@ -189,6 +214,16 @@ const Content = ({
                                     {parsedValue}
                                     {unit}
                                 </span>
+                                {hasWebVitalsAttribution(webVitalsTab) && (
+                                    <LemonButton
+                                        className="relative z-10 ml-1"
+                                        size="xsmall"
+                                        icon={<IconSearch />}
+                                        tooltip="Show which elements caused this"
+                                        onClick={() => onOpenAttribution(path)}
+                                        data-attr="web-vitals-path-attribution"
+                                    />
+                                )}
                             </div>
                         )
                     })
