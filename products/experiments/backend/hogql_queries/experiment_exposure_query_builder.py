@@ -34,6 +34,15 @@ def _optimize_and_chain(expr: ast.Expr) -> ast.Expr:
         return ast.And(exprs=filtered)
 
 
+# Surfaces past the busiest few carry too little volume to diagnose anything, and the cap is
+# what keeps a high-cardinality path set from returning thousands of rows.
+SURFACE_SPLIT_QUERY_LIMIT = 50
+
+# Stands in for an exposure event that carries neither `$pathname` nor `$screen_name`, so
+# backend and server-side exposures still group into one bucket instead of dropping out.
+UNKNOWN_SURFACE = "(no surface)"
+
+
 class ExposureQueryBuilder:
     """
     Builds exposure queries shared across aggregate results, the exposures tab,
@@ -147,6 +156,76 @@ class ExposureQueryBuilder:
                     "exposure_predicate": self.build_exposure_predicate(),
                 },
             )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def surface_split_query(self) -> ast.SelectQuery:
+        """
+        Per-surface first-exposure counts with the variant that takes most of them, for the
+        busiest surfaces.
+
+        Diagnoses a sample ratio mismatch: a surface that one variant reaches and the others
+        structurally cannot shows up here as a near-single-variant split, while the surfaces
+        both variants reach stay near the configured rollout.
+
+        Returns:
+            SelectQuery with columns: surface, exposures, dominant_variant, dominant_exposures
+        """
+        query = parse_select(
+            """
+            SELECT
+                surface_variants.surface AS surface,
+                sum(surface_variants.exposed_count) AS exposures,
+                argMax(surface_variants.variant, surface_variants.exposed_count) AS dominant_variant,
+                max(surface_variants.exposed_count) AS dominant_exposures
+            FROM (
+                SELECT
+                    first_exposures.surface AS surface,
+                    first_exposures.variant AS variant,
+                    count(first_exposures.entity_id) AS exposed_count
+                FROM ({first_exposures_select}) AS first_exposures
+                WHERE notEmpty(first_exposures.variant)
+                GROUP BY first_exposures.surface, first_exposures.variant
+            ) AS surface_variants
+            GROUP BY surface_variants.surface
+            ORDER BY exposures DESC
+            LIMIT {surface_limit}
+            """,
+            placeholders={
+                "first_exposures_select": self._build_first_exposures_surface_select(),
+                "surface_limit": ast.Constant(value=SURFACE_SPLIT_QUERY_LIMIT),
+            },
+        )
+
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _build_first_exposures_surface_select(self) -> ast.SelectQuery:
+        """Per-entity (entity_id, variant, surface-of-first-exposure) select feeding the surface split."""
+        query = parse_select(
+            """
+            SELECT
+                {entity_key} AS entity_id,
+                {variant_expr} AS variant,
+                argMin(
+                    coalesce(
+                        nullIf(toString(properties.$pathname), ''),
+                        nullIf(toString(properties.$screen_name), ''),
+                        {unknown_surface}
+                    ),
+                    timestamp
+                ) AS surface
+            FROM events
+            WHERE {exposure_predicate}
+            GROUP BY entity_id
+            """,
+            placeholders={
+                "entity_key": parse_expr(self.context.entity_key),
+                "variant_expr": self.build_variant_expr_for_mean(),
+                "exposure_predicate": self.build_exposure_predicate(),
+                "unknown_surface": ast.Constant(value=UNKNOWN_SURFACE),
+            },
+        )
         assert isinstance(query, ast.SelectQuery)
         return query
 
