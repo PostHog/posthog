@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { ApiRequest } from 'lib/api'
+import { ApiRequest, requireQueryResponse } from 'lib/api'
 import { AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -112,7 +112,7 @@ function usageQuery(range: UsageRange, granularity: UsageGranularity): string {
 }
 
 async function queryUsage(teamId: number, query: string): Promise<HogQLQueryResponse> {
-    return await new ApiRequest().query(teamId, NodeKind.HogQLQuery).create({
+    const response = await new ApiRequest().query(teamId, NodeKind.HogQLQuery).create({
         data: {
             query: {
                 kind: NodeKind.HogQLQuery,
@@ -122,6 +122,8 @@ async function queryUsage(teamId: number, query: string): Promise<HogQLQueryResp
             refresh: 'force_blocking',
         },
     })
+
+    return requireQueryResponse(response, NodeKind.HogQLQuery)
 }
 
 export function parseUsageData(
