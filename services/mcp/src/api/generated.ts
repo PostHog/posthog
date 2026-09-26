@@ -114676,13 +114676,17 @@ export namespace Schemas {
      */
     created_by?: string;
     /**
-     * Filter for notebooks created after this date & time
+     * Filter for notebooks last modified after this date & time
      */
     date_from?: string;
     /**
-     * Filter for notebooks created before this date & time
+     * Filter for notebooks last modified before this date & time
      */
     date_to?: string;
+    /**
+     * The UUID of the user who last modified the Notebook
+     */
+    last_modified_by?: string;
     /**
      * Number of results to return per page.
      */
@@ -114691,6 +114695,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter for notebooks whose title or text content matches this full-text search term
+     */
+    search?: string;
     /**
      * If any value is provided for this parameter, return notebooks created by the logged in user.
      */
