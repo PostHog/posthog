@@ -194,7 +194,17 @@ export const ConversationsTicketsPartialUpdateBody = () => zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
-        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe('Tag names to apply to the ticket. How they combine with the current tags depends on tags_mode.'),
+        tags_mode: zod
+            .enum(['add', 'remove', 'set'])
+            .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+            .optional()
+            .describe(
+                "How tags apply: 'set' replaces all current tags, 'add' keeps the current tags and adds these, 'remove' deletes only these. Defaults to 'set'.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
