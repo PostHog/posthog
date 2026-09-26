@@ -1,6 +1,8 @@
 import { delay } from 'lib/utils/async'
 
-import { TOOLBAR_ID } from '~/toolbar/utils'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { TOOLBAR_ID, toError } from '~/toolbar/utils'
 import { captureElementScreenshot } from '~/toolbar/utils/screenshot'
 
 export const RESPONSIVE_CAPTURE_WIDTHS = [320, 375, 425, 768, 1024, 1440, 1920]
@@ -120,14 +122,33 @@ export async function captureResponsiveScreenshots(
     onProgress?: (done: number, total: number) => void
 ): Promise<WidthCapture[]> {
     const captures: WidthCapture[] = []
+    const failures: { width: number; error: Error }[] = []
     let attempted = 0
     for (const width of widths) {
         try {
             const blob = await captureWidth(width)
             captures.push({ width, blob })
-        } catch {}
+        } catch (e) {
+            const error = toError(e, `Responsive heatmap capture failed at ${width}px`)
+            failures.push({ width, error })
+            toolbarLogger.warn('responsive_screenshot', 'Width capture failed', {
+                width,
+                error: error.message,
+            })
+        }
         attempted++
         onProgress?.(attempted, widths.length)
     }
+
+    // One exception per run, not one per width, so the occurrence count equals the number of
+    // partly-failed captures rather than the number of widths a page happens to fail at.
+    if (failures.length > 0) {
+        captureToolbarException(failures[0].error, 'responsive_screenshot', {
+            failed_widths: failures.map((failure) => failure.width),
+            captured_count: captures.length,
+            requested_count: widths.length,
+        })
+    }
+
     return captures
 }
