@@ -395,6 +395,7 @@ export type ProjectSecretAPIKeyScopePreset = {
 export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePreset[] = [
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
     { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
+    { value: 'loop_triggering', label: 'Loop triggering', scopes: ['loop:write'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
 

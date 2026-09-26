@@ -95,22 +95,14 @@ function EditKeyModal(): JSX.Element {
                         {filteredScopes.length === 0 ? (
                             <div className="text-muted text-sm py-2">No scopes match "{searchTerm}"</div>
                         ) : (
-                            filteredScopes.map(({ key, label, disabledActions }) => (
+                            filteredScopes.map(({ key, label, info, disabledActions }) => (
                                 <ScopeAccessRow
                                     key={key}
                                     label={label}
+                                    info={info}
                                     value={formScopeRadioValues[key] ?? 'none'}
                                     onChange={(value) => setScopeRadioValue(key, value)}
-                                    readDisabledReason={
-                                        disabledActions?.includes('read')
-                                            ? 'Not available for project secret API keys'
-                                            : undefined
-                                    }
-                                    writeDisabledReason={
-                                        disabledActions?.includes('write')
-                                            ? 'Not available for project secret API keys'
-                                            : undefined
-                                    }
+                                    hiddenActions={disabledActions}
                                 />
                             ))
                         )}
