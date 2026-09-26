@@ -62,7 +62,7 @@ class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise EmojiSearchUnavailable() from error
         response = Response(
             EmojiSearchResponseSerializer({"suggestions": suggestions}).data,
-            headers={"Cache-Control": "private, max-age=86400"},
+            headers={"Cache-Control": "private, max-age=604800"},
         )
         patch_vary_headers(response, ["Cookie", "Authorization"])
         return response

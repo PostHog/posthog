@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 from unittest.mock import patch
@@ -27,6 +28,20 @@ def answer_questions(questions, selected):
 
 
 class TestSuggestEmojis(SimpleTestCase):
+    @patch("posthog.emoji_search.match.build_system_one_client")
+    def test_catalog_change_invalidates_cached_results(self, build_client) -> None:
+        cache.clear()
+        catalog = load_catalog()
+        build_client.return_value.decide.side_effect = lambda *, state, questions: answer_questions(questions, ())
+
+        with patch(
+            "posthog.emoji_search.match.load_catalog", side_effect=[catalog, replace(catalog, fingerprint="updated")]
+        ):
+            suggest_emojis("made up place", team_id=4)
+            suggest_emojis("made up place", team_id=4)
+
+        assert build_client.return_value.decide.call_count == 2
+
     def test_every_picker_emoji_is_available_to_jev(self) -> None:
         catalog = load_catalog()
         assert len(catalog.emojis) == 1923

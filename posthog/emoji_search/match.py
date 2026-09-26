@@ -12,7 +12,7 @@ from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
 
 MODEL = "posthog/hogference/jevk5-fp8-0.2"
-CACHE_SECONDS = 24 * 60 * 60
+CACHE_SECONDS = 30 * 24 * 60 * 60
 OPTIONS_PER_QUESTION = 15
 
 
@@ -39,12 +39,14 @@ class CatalogSubgroup:
 class EmojiCatalog:
     emojis: dict[str, CatalogEmoji]
     subgroups: dict[str, CatalogSubgroup]
+    fingerprint: str
 
 
 @lru_cache(maxsize=1)
 def load_catalog() -> EmojiCatalog:
     source = Path(__file__).with_name("catalog.json")
-    raw = json.loads(source.read_text())
+    contents = source.read_bytes()
+    raw = json.loads(contents)
     labels = {
         f"{group}-{subgroup}": f"{group_label} / {subgroup_label}"
         for group, subgroup, group_label, subgroup_label in raw["subgroups"]
@@ -57,7 +59,7 @@ def load_catalog() -> EmojiCatalog:
         subgroup: CatalogSubgroup(label, tuple(key for key, emoji in emojis.items() if emoji.subgroup == subgroup))
         for subgroup, label in labels.items()
     }
-    return EmojiCatalog(emojis, subgroups)
+    return EmojiCatalog(emojis, subgroups, hashlib.sha256(contents).hexdigest()[:16])
 
 
 def _chunks(items: list[str] | tuple[str, ...]) -> list[list[str]]:
@@ -116,7 +118,7 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
         return []
 
     catalog = load_catalog()
-    cache_key = f"emoji_search:v3:{team_id}:{hashlib.sha256(query.lower().encode()).hexdigest()}"
+    cache_key = f"emoji_search:v3:{catalog.fingerprint}:{team_id}:{hashlib.sha256(query.lower().encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, str):
         try:
