@@ -148,7 +148,7 @@ class TestReusableWidgets(APIBaseTest):
     def _publish(self):
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.node_id}/publish/"
         with patch(
-            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
             return_value=[self._canvas_version()],
         ):
             return self.client.post(
@@ -189,7 +189,7 @@ class TestReusableWidgets(APIBaseTest):
         with (
             self.captureOnCommitCallbacks(execute=True),
             patch(
-                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                "products.canvas.backend.facade.notebooks.get_canvas_generation_state",
                 return_value=CanvasGenerationState(
                     current_source_version_id=self.version.canvas_source_version_id,
                     artifact_url="https://example.com/widget.html",
@@ -233,7 +233,7 @@ class TestReusableWidgets(APIBaseTest):
 
         source = "export default function Widget() { return <div>Preview</div> }"
         with patch(
-            "products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value=source
+            "products.canvas.backend.facade.notebooks.get_notebook_canvas_source", return_value=source
         ) as read_source:
             response = self.client.get(
                 f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/source/",
@@ -496,7 +496,7 @@ class TestReusableWidgets(APIBaseTest):
     def test_catalog_detail_and_demo_frame_start_without_notebook_rows(self) -> None:
         self._publish()
         with patch(
-            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
             return_value=[self._canvas_version()],
         ):
             detail = self.client.get(f"/api/projects/{self.team.id}/notebook_widgets/{self.widget.id}/")
@@ -575,7 +575,7 @@ class TestReusableWidgets(APIBaseTest):
         )
 
         with patch(
-            "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+            "products.canvas.backend.facade.notebooks.get_canvas_generation_state",
             return_value=selected_state,
         ):
             pinned = set_widget_instance_version(
@@ -585,7 +585,7 @@ class TestReusableWidgets(APIBaseTest):
                 version_id=self.version.id,
             )
         with patch(
-            "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+            "products.canvas.backend.facade.notebooks.get_canvas_generation_state",
             return_value=latest_state,
         ):
             unpinned = set_widget_instance_version(
@@ -643,7 +643,7 @@ class TestReusableWidgets(APIBaseTest):
         with (
             self.captureOnCommitCallbacks(execute=True),
             patch(
-                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                "products.canvas.backend.facade.notebooks.get_canvas_generation_state",
                 return_value=state,
             ),
         ):
@@ -723,11 +723,11 @@ class TestReusableWidgets(APIBaseTest):
             patch("products.notebooks.backend.widgets._is_ai_usage_limited", return_value=False),
             patch("products.notebooks.backend.widgets.start_widget_generation_workflow") as start_workflow,
             patch(
-                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
                 return_value=[self._canvas_version()],
             ),
             patch(
-                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                "products.canvas.backend.facade.notebooks.get_canvas_generation_state",
                 return_value=state,
             ),
             self.captureOnCommitCallbacks(execute=True),
@@ -787,17 +787,17 @@ class TestReusableWidgets(APIBaseTest):
                     review_version="2",
                 ),
             ),
-            patch("products.canvas.backend.notebook_integration.get_notebook_canvas_source", return_value="source"),
-            patch("products.canvas.backend.notebook_integration.prepare_notebook_canvas_source", return_value=object()),
+            patch("products.canvas.backend.facade.notebooks.get_notebook_canvas_source", return_value="source"),
+            patch("products.canvas.backend.facade.notebooks.prepare_notebook_canvas_source", return_value=object()),
             patch(
-                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                "products.canvas.backend.facade.notebooks.notebook_canvas_source_transaction",
                 side_effect=lambda **kwargs: transaction.atomic(),
             ),
             patch(
-                "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_draft",
+                "products.canvas.backend.facade.notebooks.publish_prepared_notebook_canvas_draft",
                 return_value=draft_source_version_id,
             ) as stage_draft,
-            patch("products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source") as publish,
+            patch("products.canvas.backend.facade.notebooks.publish_prepared_notebook_canvas_source") as publish,
         ):
             run_widget_generation_job(job.id, self.team.id)
 
@@ -809,7 +809,7 @@ class TestReusableWidgets(APIBaseTest):
         assert self.widget.pending_version is not None
         assert self.widget.pending_version.canvas_source_version_id == draft_source_version_id
         with patch(
-            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
             return_value=[self._canvas_version()],
         ):
             history = list_widget_versions(notebook=active_instance.notebook, node_id=self.node_id)
@@ -842,7 +842,7 @@ class TestReusableWidgets(APIBaseTest):
             phase="failed_generating_source" if job_status == "failed" else job_status,
         )
         with patch(
-            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
             return_value=[self._canvas_version()],
         ):
             result = get_reusable_widget_status(team_id=self.team.id, widget_id=self.widget.id)
@@ -888,10 +888,10 @@ class TestReusableWidgets(APIBaseTest):
         with (
             self.captureOnCommitCallbacks(execute=True),
             patch(
-                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
                 side_effect=canvas_versions,
             ),
-            patch("products.canvas.backend.notebook_integration.promote_notebook_canvas_draft") as promote,
+            patch("products.canvas.backend.facade.notebooks.promote_notebook_canvas_draft") as promote,
         ):
             response = self.client.post(
                 url,
@@ -925,7 +925,7 @@ class TestReusableWidgets(APIBaseTest):
         assert entry.detail["context"]["operation"] == "save_version"
         assert entry.detail["context"]["version_id"] == str(candidate.id)
 
-    @patch("products.canvas.backend.notebook_integration.discard_notebook_canvas_draft")
+    @patch("products.canvas.backend.facade.notebooks.discard_notebook_canvas_draft")
     def test_discarding_a_review_draft_keeps_the_published_version(self, discard) -> None:
         self._publish()
         candidate = GeneratedWidgetVersion.objects.for_team(self.team.id).create(
@@ -947,7 +947,7 @@ class TestReusableWidgets(APIBaseTest):
         with (
             self.captureOnCommitCallbacks(execute=True),
             patch(
-                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
                 return_value=[self._canvas_version()],
             ),
         ):
@@ -1011,7 +1011,7 @@ class TestReusableWidgets(APIBaseTest):
             ),
         ]
         with patch(
-            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=canvas_versions
+            "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=canvas_versions
         ):
             response = self.client.get(url, {"limit": 1})
             older = self.client.get(url, {"offset": 1, "limit": 1})
@@ -1043,20 +1043,20 @@ class TestReusableWidgets(APIBaseTest):
         with (
             self.captureOnCommitCallbacks(execute=True),
             patch(
-                "products.canvas.backend.notebook_integration.get_notebook_canvas_source",
+                "products.canvas.backend.facade.notebooks.get_notebook_canvas_source",
                 return_value="export default function Widget() { return null }",
             ),
-            patch("products.canvas.backend.notebook_integration.prepare_notebook_canvas_source", return_value=object()),
+            patch("products.canvas.backend.facade.notebooks.prepare_notebook_canvas_source", return_value=object()),
             patch(
-                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                "products.canvas.backend.facade.notebooks.notebook_canvas_source_transaction",
                 side_effect=lambda **kwargs: transaction.atomic(),
             ),
             patch(
-                "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
+                "products.canvas.backend.facade.notebooks.publish_prepared_notebook_canvas_source",
                 return_value=source_version_id,
             ),
             patch(
-                "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+                "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
                 return_value=[self._canvas_version()],
             ),
         ):
@@ -1189,29 +1189,29 @@ class TestReusableWidgets(APIBaseTest):
         url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widgets/{self.node_id}/fork/"
         with (
             patch(
-                "products.canvas.backend.notebook_integration.get_notebook_canvas_source",
+                "products.canvas.backend.facade.notebooks.get_notebook_canvas_source",
                 return_value="export default function Widget() { return null }",
             ) as read_source,
             patch("products.tasks.backend.facade.api.ensure_personal_channel_id", return_value=uuid4()),
             patch(
-                "products.canvas.backend.notebook_integration.create_notebook_canvas",
+                "products.canvas.backend.facade.notebooks.create_notebook_canvas",
                 autospec=True,
                 return_value=forked_canvas_id,
             ),
             patch(
-                "products.canvas.backend.notebook_integration.prepare_notebook_canvas_source",
+                "products.canvas.backend.facade.notebooks.prepare_notebook_canvas_source",
                 return_value=object(),
             ),
             patch(
-                "products.canvas.backend.notebook_integration.notebook_canvas_source_transaction",
+                "products.canvas.backend.facade.notebooks.notebook_canvas_source_transaction",
                 side_effect=lambda **kwargs: transaction.atomic(),
             ),
             patch(
-                "products.canvas.backend.notebook_integration.publish_prepared_notebook_canvas_source",
+                "products.canvas.backend.facade.notebooks.publish_prepared_notebook_canvas_source",
                 side_effect=publish_source,
             ),
             patch(
-                "products.canvas.backend.notebook_integration.get_canvas_generation_state",
+                "products.canvas.backend.facade.notebooks.get_canvas_generation_state",
                 return_value=state,
             ),
             self.captureOnCommitCallbacks(execute=True),
@@ -1295,7 +1295,7 @@ class TestConcurrentReusableWidgetAttach(NonAtomicBaseTest):
         pre_save.connect(synchronize_inserts, sender=NotebookWidgetInstance)
         try:
             with (
-                patch("products.canvas.backend.notebook_integration.get_canvas_generation_state", return_value=None),
+                patch("products.canvas.backend.facade.notebooks.get_canvas_generation_state", return_value=None),
                 ThreadPoolExecutor(max_workers=2) as executor,
             ):
                 futures = [executor.submit(attach) for _ in range(2)]

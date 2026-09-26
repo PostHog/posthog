@@ -331,7 +331,22 @@ def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
         if args is None:
             replacement = f'@shared_task(name="{pinned_name}")'
         else:
-            inner = args[1:-1].strip().rstrip(",").rstrip()
+            inner_text = args[1:-1].strip()
+            # Handle inline comments: split by '#' and take the code part, then process
+            if "#" in inner_text:
+                # Extract the code before the comment, preserving the comment for later
+                lines = inner_text.split("\n")
+                processed_lines = []
+                for line in lines:
+                    if "#" in line:
+                        code_part = line.split("#")[0].rstrip()
+                        if code_part:
+                            processed_lines.append(code_part)
+                    else:
+                        processed_lines.append(line)
+                inner = "\n".join(processed_lines).rstrip(",").rstrip()
+            else:
+                inner = inner_text.rstrip(",").rstrip()
             joined = f'{inner}, name="{pinned_name}"' if inner else f'name="{pinned_name}"'
             replacement = f"@shared_task({joined})"
         text = text[: dec.start()] + replacement + text[args_end:]

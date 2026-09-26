@@ -13,7 +13,7 @@ from products.canvas.backend.models import Canvas
 
 def searchable_canvas(*, team_id: int, canvas_id: UUID) -> CanvasSearchRecord | None:
     """The canvas as the tasks search index sees it, or None when search must not show it."""
-    canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id).first()
+    canvas = Canvas.objects.for_team(team_id, canonical=True).filter(id=canvas_id).first()
     if canvas is None or canvas.deleted or canvas.source_policy != Canvas.SOURCE_POLICY_STANDARD:
         return None
     return CanvasSearchRecord(
