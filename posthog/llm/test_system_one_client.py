@@ -119,6 +119,38 @@ class TestBuildSystemOneClient(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("user_distinct_id", "user-abc", "user-abc"),
+            ("team_fallback", None, "team-42"),
+        ]
+    )
+    def test_gateway_request_names_the_customer_team(
+        self, _name: str, distinct_id: str | None, expected_distinct_id: str
+    ) -> None:
+        with override_settings(**{**NOTHING, **GATEWAY}):
+            client = build_system_one_client(
+                model=GATEWAY_MODEL,
+                ai_product="test_product",
+                team_id=42,
+                distinct_id=distinct_id,
+                properties={"source": "cmdk", "team_id": "2"},
+            )
+        assert isinstance(client, GatewaySystemOneClient)
+
+        assert client.headers["X-PostHog-Product"] == "test_product"
+        assert client.headers["X-PostHog-Distinct-Id"] == expected_distinct_id
+        assert json.loads(client.headers["X-PostHog-Properties"]) == {
+            "source": "cmdk",
+            "team_id": "42",
+            "ai_product": "test_product",
+        }
+
+    @parameterized.expand([("no_product", "", 42), ("zero_team", "test_product", 0)])
+    def test_refuses_an_unlabelled_call(self, _name: str, ai_product: str, team_id: int) -> None:
+        with override_settings(**{**NOTHING, **GATEWAY}), self.assertRaises(ValueError):
+            build_system_one_client(model=GATEWAY_MODEL, ai_product=ai_product, team_id=team_id)
+
+    @parameterized.expand(
+        [
             ("http_error", httpx.Response(404, json={"error": "not found"}), 404),
             ("unparseable_answer", httpx.Response(200, json={"model": GATEWAY_MODEL, "answers": {}}), None),
             ("unreachable", httpx.ConnectError("refused"), None),

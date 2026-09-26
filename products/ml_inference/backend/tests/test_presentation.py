@@ -126,6 +126,7 @@ class TestDecideEndpoint(APIBaseTest):
         assert body["latency_ms"] == 31.5
         sent = decide.call_args.args[0]
         assert sent.team_id == self.team.id
+        assert sent.distinct_id == self.user.distinct_id
         assert sent.questions["queue"].criteria == {"billing": "money", "support": "product"}
 
     @patch("products.ml_inference.backend.presentation.views.api.decide", side_effect=DecisionsDisabledError(1))

@@ -19,7 +19,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.typesafe.client import system_one
-from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config
+from posthog.llm.gateway_client import AIGatewayConfig, ai_gateway_headers, resolve_ai_gateway_config, team_distinct_id
 from posthog.llm.system_one import (
     SYSTEM_ONE_PATH,
     ChoiceQuestion,
@@ -135,6 +135,7 @@ def build_system_one_client(
     *,
     model: str,
     ai_product: str,
+    team_id: int | None = None,
     typesafe_fallback: TypeSafeFallback | None = None,
     distinct_id: str | None = None,
     trace_id: str | None = None,
@@ -144,16 +145,26 @@ def build_system_one_client(
     """A client for ``model`` on the Go ai-gateway when it is configured, else for TypeSafe when the
     caller passes ``typesafe_fallback``.
 
-    ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event. Raises
+    ``ai_product``, ``distinct_id``, ``trace_id`` and ``properties`` label the gateway's event. ``team_id``
+    is the customer team the gateway bills, and labels the event when ``distinct_id`` is unset. Raises
     :class:`SystemOneNotConfigured` when no server the caller allows is configured.
     """
+    if not ai_product:
+        raise ValueError("A System One client needs the product that asks")
+    if team_id is not None and team_id <= 0:
+        raise ValueError("team_id must name a real team")
     gateway = _usable_gateway()
     if gateway is not None:
+        labels = dict(properties or {})
+        if team_id is not None:
+            labels["team_id"] = str(team_id)
+        if not distinct_id and team_id is not None:
+            distinct_id = team_distinct_id(team_id)
         return GatewaySystemOneClient(
             url=_system_one_url(gateway.url),
             api_key=gateway.api_key,
             headers=ai_gateway_headers(
-                ai_product=ai_product, trace_id=trace_id, properties=properties, distinct_id=distinct_id
+                ai_product=ai_product, trace_id=trace_id, properties=labels, distinct_id=distinct_id
             )
             or {},
             model=model,
