@@ -13,11 +13,12 @@ export function isOneTimeSchedule(rruleStr: string): boolean {
     }
 }
 
-export type FrequencyOption = 'daily' | 'weekly' | 'monthly' | 'yearly'
+export type FrequencyOption = 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
 export type MonthlyMode = 'day_of_month' | 'nth_weekday' | 'last_day'
 export type EndType = 'never' | 'on_date' | 'after_count'
 
 export const FREQUENCY_OPTIONS: { value: FrequencyOption; label: string }[] = [
+    { value: 'hourly', label: 'Hour' },
     { value: 'daily', label: 'Day' },
     { value: 'weekly', label: 'Week' },
     { value: 'monthly', label: 'Month' },
@@ -35,6 +36,8 @@ export const NTH_LABELS = ['1st', '2nd', '3rd', '4th', '5th']
 const DEFAULT_PREVIEW_COUNT = 6
 /** Max preview occurrences for finite schedules (after count / on date) to avoid rendering huge lists */
 const MAX_PREVIEW_COUNT = 200
+/** Max occurrences to walk through when skipping past ones (about 6 years of hourly runs) */
+const MAX_PREVIEW_SCAN = 50000
 
 export interface ScheduleState {
     interval: number
@@ -44,6 +47,12 @@ export interface ScheduleState {
     endType: EndType
     endDate: string | null
     endCount: number
+    /**
+     * The saved rule, kept when the picker controls cannot express it (for example a
+     * minutely rule, or a rule with BYHOUR). The schedule then stays as it is until the
+     * user changes a control, which drops this and rebuilds the rule from the controls.
+     */
+    rawRRule: string | null
 }
 
 export const DEFAULT_STATE: ScheduleState = {
@@ -54,10 +63,13 @@ export const DEFAULT_STATE: ScheduleState = {
     endType: 'never',
     endDate: null,
     endCount: 10,
+    rawRRule: null,
 }
 
 export function frequencyToRRule(freq: FrequencyOption): Frequency {
     switch (freq) {
+        case 'hourly':
+            return RRule.HOURLY
         case 'daily':
             return RRule.DAILY
         case 'weekly':
@@ -78,13 +90,16 @@ export function getNthWeekdayOfMonth(date: dayjs.Dayjs): { n: number; weekday: n
     return { n, weekday }
 }
 
-export function parseRRuleToState(rruleStr: string): ScheduleState {
+export function parseRRuleToState(rruleStr: string, startsAt?: string | null): ScheduleState {
     try {
         const rule = RRule.fromString(rruleStr)
         const opts = rule.options
 
         let frequency: FrequencyOption = 'weekly'
         switch (opts.freq) {
+            case RRule.HOURLY:
+                frequency = 'hourly'
+                break
             case RRule.DAILY:
                 frequency = 'daily'
                 break
@@ -99,7 +114,10 @@ export function parseRRuleToState(rruleStr: string): ScheduleState {
                 break
         }
 
-        const weekdays = opts.byweekday ? (opts.byweekday as number[]) : []
+        // RRule fills byweekday from dtstart when the rule declares no BYDAY, and a saved rule
+        // carries no DTSTART, so the filled value is the weekday the picker opened on. Read the
+        // days the rule declares, because a weekly rule without BYDAY runs on its start day.
+        const weekdays = rule.origOptions.byweekday && opts.byweekday ? (opts.byweekday as number[]) : []
 
         let monthlyMode: MonthlyMode = 'day_of_month'
         if (frequency === 'monthly') {
@@ -124,7 +142,20 @@ export function parseRRuleToState(rruleStr: string): ScheduleState {
             endCount = opts.count
         }
 
-        return { interval: opts.interval || 1, frequency, weekdays, monthlyMode, endType, endDate, endCount }
+        const state: ScheduleState = {
+            interval: opts.interval || 1,
+            frequency,
+            weekdays,
+            monthlyMode,
+            endType,
+            endDate,
+            endCount,
+            rawRRule: null,
+        }
+
+        // Keep the rule as it is when the controls cannot rebuild it exactly, so that
+        // loading a schedule never rewrites it and never reports an unsaved change.
+        return stateToRRule(state, startsAt ?? null) === rruleStr ? state : { ...state, rawRRule: rruleStr }
     } catch {
         return { ...DEFAULT_STATE }
     }
@@ -134,6 +165,10 @@ function buildRRuleOptions(
     state: ScheduleState,
     startsAt: string | null
 ): Partial<ConstructorParameters<typeof RRule>[0]> {
+    if (state.rawRRule) {
+        return RRule.parseString(state.rawRRule)
+    }
+
     const options: Partial<ConstructorParameters<typeof RRule>[0]> = {
         freq: frequencyToRRule(state.frequency),
         interval: state.interval,
@@ -168,6 +203,9 @@ function buildRRuleOptions(
 }
 
 export function stateToRRule(state: ScheduleState, startsAt: string | null): string {
+    if (state.rawRRule) {
+        return state.rawRRule
+    }
     const options = buildRRuleOptions(state, startsAt)
     const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
     return rule.toString().replace('RRULE:', '')
@@ -213,13 +251,24 @@ export function computePreviewOccurrences(
         const isFinite = state.endType !== 'never'
 
         // Occurrences are "fake UTC" (their UTC fields encode local time in the schedule
-        // timezone), so convert each to a real moment before comparing against now —
+        // timezone), so now has to move into the same coordinate before the comparison —
         // otherwise an occurrence still pending today is wrongly treated as already past.
-        const now = dayjs()
-        if (fakeUtcToReal(dtstart, timezone).isBefore(now)) {
-            const all = rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit * 50))
-            const future = all.filter((d) => fakeUtcToReal(d, timezone).isAfter(now))
-            return isFinite ? future : future.slice(0, limit)
+        // Move it once, because a timezone parse for every past occurrence of an hourly
+        // schedule that started months ago holds the main thread for about a second.
+        const nowInFakeUtc = realToFakeUtc(dayjs(), timezone).getTime()
+        if (dtstart.getTime() < nowInFakeUtc) {
+            // Scan forward from the start until enough future occurrences are found. A
+            // fixed multiple of the limit is not enough for short intervals: an hourly
+            // schedule that started months ago has thousands of past occurrences.
+            const wanted = isFinite ? MAX_PREVIEW_COUNT : limit
+            const future: Date[] = []
+            rule.all((date, i) => {
+                if (date.getTime() > nowInFakeUtc) {
+                    future.push(date)
+                }
+                return future.length < wanted && i < MAX_PREVIEW_SCAN
+            })
+            return future
         }
         return rule.all((_, i) => i < (isFinite ? MAX_PREVIEW_COUNT : limit))
     } catch {
@@ -241,7 +290,18 @@ export function fakeUtcToReal(date: Date, timezone?: string): dayjs.Dayjs {
     return timezone ? dayjs.tz(utcStr, timezone) : dayjs.utc(utcStr)
 }
 
+/** The reverse of fakeUtcToReal: a real moment as the "fake UTC" date the rrule expansion uses. */
+function realToFakeUtc(moment: dayjs.Dayjs, timezone?: string): Date {
+    const local = timezone ? moment.tz(timezone) : moment.utc()
+    return new Date(Date.UTC(local.year(), local.month(), local.date(), local.hour(), local.minute(), local.second()))
+}
+
 export function buildSummary(state: ScheduleState, startsAt: string | null): string {
+    if (state.rawRRule) {
+        const base = `Runs ${scheduleToText(state, startsAt) || 'on a custom schedule'}`
+        return startsAt ? `${base}, starting ${dayjs(startsAt).format('MMMM D')}.` : `${base}.`
+    }
+
     const freqLabel = state.frequency === 'daily' ? 'day' : state.frequency.replace('ly', '')
     const intervalStr = state.interval > 1 ? `${state.interval} ${freqLabel}s` : freqLabel
 
@@ -277,21 +337,41 @@ export function buildSummary(state: ScheduleState, startsAt: string | null): str
 }
 
 /** Parse natural language like "every week on Monday and Wednesday" into a ScheduleState. */
-export function parseNaturalLanguage(text: string): ScheduleState | null {
+export function parseNaturalLanguage(text: string, startsAt?: string | null): ScheduleState | null {
     const trimmed = text.trim().toLowerCase()
     if (!trimmed || !trimmed.includes('every')) {
         return null
     }
     try {
         const rule = RRule.fromText(text)
-        if (!rule || rule.options.freq == null) {
+        // A frequency above HOURLY runs more often than once per hour, which the API
+        // rejects, so text such as "every minute" has no schedule the user can save.
+        if (!rule || rule.options.freq == null || rule.options.freq > RRule.HOURLY) {
             return null
         }
         const rruleStr = rule.toString().replace('RRULE:', '')
-        return parseRRuleToState(rruleStr)
+        return parseRRuleToState(rruleStr, startsAt)
     } catch {
         return null
     }
+}
+
+/** A canonical form of a rule string, so that two spellings of the same rule compare equal. */
+function canonicalRRule(rruleStr: string): string {
+    return Object.entries(RRule.parseString(rruleStr))
+        .filter(([, value]) => value !== null && value !== undefined)
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .sort()
+        .join(';')
+}
+
+/**
+ * True when RRule reads the text back into the same rule. RRule.toText() drops the clauses
+ * it cannot say, for example BYHOUR on an hourly rule, and puts no marker in the text, so
+ * the text alone does not show that part of the rule is missing.
+ */
+function textRebuildsRule(text: string, rruleStr: string): boolean {
+    return canonicalRRule(RRule.fromText(text).toString()) === canonicalRRule(rruleStr)
 }
 
 /** Convert a ScheduleState to a human-readable text like "every week on Monday, Wednesday". */
@@ -299,7 +379,13 @@ export function scheduleToText(state: ScheduleState, startsAt: string | null): s
     try {
         const options = buildRRuleOptions(state, startsAt)
         const rule = new RRule(options as ConstructorParameters<typeof RRule>[0])
-        return rule.toText()
+        const text = rule.toText()
+        // A kept rule has no other description in the picker, and the text also prefills the
+        // natural language field, so state the rule in words only when the words hold it all.
+        if (state.rawRRule && !textRebuildsRule(text, state.rawRRule)) {
+            return ''
+        }
+        return text
     } catch {
         return ''
     }

@@ -282,7 +282,7 @@ function NaturalLanguageScheduleInput({
                 setHasError(false)
                 return
             }
-            const parsed = parseNaturalLanguage(value)
+            const parsed = parseNaturalLanguage(value, startsAt)
             if (parsed) {
                 setHasError(false)
                 onStateChange(parsed)
@@ -290,7 +290,7 @@ function NaturalLanguageScheduleInput({
                 setHasError(true)
             }
         },
-        [onStateChange]
+        [onStateChange, startsAt]
     )
 
     // Sync text from picker changes when not focused
@@ -358,6 +358,7 @@ export function RecurringSchedulePicker({
         scheduleState.endType,
         scheduleState.endDate,
         scheduleState.endCount,
+        scheduleState.rawRRule,
     ])
 
     const summary = isScheduleRepeating ? buildSummary(scheduleState, scheduleStartsAt) : null
@@ -435,6 +436,11 @@ export function RecurringSchedulePicker({
 
             {scheduleStartsAt && isScheduleRepeating && (
                 <>
+                    {scheduleState.rawRRule && (
+                        <div className="text-xs text-muted">
+                            The saved rule stays as it is until you change a field below.
+                        </div>
+                    )}
                     <div className="flex items-center gap-2 flex-wrap">
                         <FrequencyPicker state={scheduleState} onStateChange={setScheduleState} />
                         {scheduleState.frequency === 'weekly' && (
