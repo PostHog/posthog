@@ -5359,6 +5359,7 @@ export type FileSystemIconType =
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
     | 'marketing_analytics'
+    | 'customer_analytics'
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
@@ -5375,6 +5376,7 @@ export type FileSystemIconType =
     | 'experiment'
     | 'feature_flag'
     | 'feature_flag_off'
+    | 'data_modeling'
     | 'data_pipeline'
     | 'data_pipeline_metadata'
     | 'data_warehouse'
@@ -5432,6 +5434,24 @@ export type FileSystemIconType =
     | 'llm_clusters'
     | 'mcp_analytics'
     | 'exports'
+    | 'pulse'
+    | 'skill'
+    | 'wizard'
+    | 'data_catalog'
+    | 'warehouse_destination'
+    | 'warehouse_property'
+    | 'data_source'
+    | 'data_destination'
+    | 'data_transformation'
+    | 'event_filter'
+    | 'managed_migration'
+    | 'web_script'
+    | 'core_event'
+    | 'property_group'
+    | 'mcp_server'
+    | 'streamlit_app'
+    | 'sql_variable'
+    | 'business_knowledge'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -8855,15 +8875,14 @@ export interface ProductItem {
 
 export enum ProductItemCategory {
     ANALYTICS = 'Analytics',
+    DATA = 'Data',
     AI_ENGINEERING = 'AI engineering',
-    BEHAVIOR = 'Behavior',
+    PRODUCT_ENGINEERING = 'Product engineering',
     MESSAGING = 'Messaging',
-    APP_MONITORING = 'App monitoring',
-    FEATURES = 'Features',
+    MONITORING = 'Monitoring',
     TOOLS = 'Tools',
     SCHEMA = 'Schema',
-    PIPELINE = 'Pipeline',
-    METADATA = 'Metadata',
+    CDP = 'CDP',
     UNRELEASED = 'Unreleased',
 }
 

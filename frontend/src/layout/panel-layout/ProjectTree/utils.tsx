@@ -16,10 +16,10 @@ import { FolderState } from './types'
 export const CATEGORY_ORDER = [
     'Analytics',
     'AI engineering',
-    'Behavior',
+    'Data',
+    'Monitoring',
+    'Product engineering',
     'Messaging',
-    'App monitoring',
-    'Features',
     'Tools',
     'Unreleased',
 ]
@@ -34,11 +34,10 @@ export function getCategoryOrder(category: string | undefined): number {
 
 // Define the order of categories in the data management panel
 export const DATA_MANAGEMENT_PANEL_ORDER: Record<string, number> = {
-    Pipeline: 1,
+    CDP: 1,
     Schema: 2,
-    Tools: 3,
-    Metadata: 4,
-    Unreleased: 5,
+    Data: 3,
+    Unreleased: 4,
 }
 
 export interface ConvertProps {
