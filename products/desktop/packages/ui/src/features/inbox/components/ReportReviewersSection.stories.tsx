@@ -90,11 +90,11 @@ export const AddedByTeammate: Story = {
   args: { reviewers: withTeammateReviewers },
 };
 
-export const AddedByAvery: Story = {
+export const AddedByFullName: Story = {
   args: {
     reviewers: withTeammateReviewers.map((reviewer) =>
       reviewer.github_login === "quinn"
-        ? { ...reviewer, source_label: "Added by Avery" }
+        ? { ...reviewer, explanation: "Added by Avery Chen" }
         : reviewer,
     ),
   },

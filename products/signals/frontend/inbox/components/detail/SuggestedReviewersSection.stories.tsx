@@ -126,11 +126,11 @@ export const AddedByTeammate: Story = {
     args: { suggestions: comparisonSuggestions },
 }
 
-export const AddedByAvery: Story = {
+export const AddedByFullName: Story = {
     parameters: { mockupWidth: 'narrow' },
     args: {
         suggestions: comparisonSuggestions.map((suggestion) =>
-            suggestion.github_login === 'quinn' ? { ...suggestion, source_label: 'Added by Avery' } : suggestion
+            suggestion.github_login === 'quinn' ? { ...suggestion, explanation: 'Added by Avery Chen' } : suggestion
         ),
     },
 }

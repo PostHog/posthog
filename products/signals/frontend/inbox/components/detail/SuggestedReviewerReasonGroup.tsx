@@ -25,7 +25,7 @@ export function SuggestedReviewerReasonGroup({
         const sourceLabel = getReviewerSourceLabel(reviewer)
         if (isScoutReviewer(reviewer)) {
             scoutNames.add(sourceLabel)
-        } else {
+        } else if (sourceLabel !== 'Added by teammate' || !reason.startsWith('Added by ')) {
             otherSourceLabels.add(sourceLabel)
         }
     }

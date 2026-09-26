@@ -98,4 +98,26 @@ describe('Suggested reviewer presentation', () => {
         await userEvent.click(removeButton)
         expect(onRemove).toHaveBeenCalledWith([maya])
     })
+    it('shows a manual addition as a reason without a source badge', () => {
+        const quinn: EnrichedReviewer = {
+            github_login: 'quinn',
+            github_name: 'Quinn Foster',
+            relevant_commits: [],
+            user: { id: 2, uuid: 'quinn', first_name: 'Quinn', last_name: 'Foster', email: 'quinn@example.com' },
+            source_skill: null,
+            source_label: 'Added by teammate',
+            reason: 'Added as a reviewer by Avery Chen on Jan 1, 2026',
+            explanation: 'Added by Avery Chen',
+        }
+
+        render(
+            <SuggestedReviewersSectionMockup suggestions={[quinn]} onAdd={() => undefined} onRemove={() => undefined} />
+        )
+
+        const reason = screen.getByText('Added by Avery Chen')
+        const reviewer = screen.getByText('Quinn Foster')
+        expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        expect(reviewer.closest('.pl-3')).toBeInTheDocument()
+        expect(screen.queryByText('Added by teammate')).not.toBeInTheDocument()
+    })
 })
