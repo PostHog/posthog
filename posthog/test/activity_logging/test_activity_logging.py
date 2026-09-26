@@ -20,9 +20,11 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     ProjectSecretAPIKeyAuthentication,
     ScopedServiceJWTAuthentication,
+    SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
 from posthog.jwt import PosthogJwtAudience, encode_jwt
-from posthog.models import User
+from posthog.models import SharePassword, SharingConfiguration, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
     Change,
@@ -455,36 +457,62 @@ class _ServiceJWTAuthentication(ScopedServiceJWTAuthentication):
     INTERNAL_API_SECRET_FALLBACKS=[],
 )
 class TestBearerAuthenticationReplacesSessionActor(BaseTest):
-    def _authenticator_and_headers(
+    def _authenticator_and_request(
         self, credential_type: str
-    ) -> tuple[BaseAuthentication, dict[str, str], User | None, str | None]:
+    ) -> tuple[BaseAuthentication, Request, User | None, str | None]:
+        factory = APIRequestFactory()
         if credential_type == "project_secret_key":
             psak, token = create_project_secret_api_key(self.team, scopes=["endpoint:read"])
-            return ProjectSecretAPIKeyAuthentication(), {"Authorization": f"Bearer {token}"}, None, psak.id
+            request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
+            return ProjectSecretAPIKeyAuthentication(), Request(request), None, psak.id
         if credential_type == "personal_api_key":
             token = generate_random_token_personal()
             pak = PersonalAPIKey.objects.create(
                 label="pak", user=self.user, secure_value=hash_key_value(token), scopes=["*"]
             )
-            return PersonalAPIKeyAuthentication(), {"Authorization": f"Bearer {token}"}, self.user, pak.id
+            request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
+            return PersonalAPIKeyAuthentication(), Request(request), self.user, pak.id
         if credential_type == "service_jwt":
             token = _ServiceJWTAuthentication.purpose.mint({"team_id": self.team.id})
-            headers = {"Authorization": f"Bearer {token}"}
-            return _ServiceJWTAuthentication(), headers, None, PosthogJwtAudience.RECORDING_API.value
-        headers = {"X-Internal-Api-Secret": "activity-log-test-internal-secret"}
-        return InternalAPIAuthentication(), headers, None, None
+            request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
+            return _ServiceJWTAuthentication(), Request(request), None, PosthogJwtAudience.RECORDING_API.value
+        if credential_type == "sharing_access_token":
+            sharing_configuration = SharingConfiguration.objects.create(team=self.team, enabled=True)
+            request = factory.get("/", {"sharing_access_token": sharing_configuration.access_token})
+            return SharingAccessTokenAuthentication(), Request(request), None, str(sharing_configuration.id)
+        if credential_type == "sharing_password":
+            sharing_configuration = SharingConfiguration.objects.create(
+                team=self.team, enabled=True, password_required=True
+            )
+            share_password = SharePassword.objects.create(
+                sharing_configuration=sharing_configuration, created_by=self.user, password_hash="unused"
+            )
+            token = sharing_configuration.generate_password_protected_token(share_password)
+            request = factory.get("/", headers={"Authorization": f"Bearer {token}"})
+            return SharingPasswordProtectedAuthentication(), Request(request), None, str(share_password.id)
+        request = factory.get("/", headers={"X-Internal-Api-Secret": "activity-log-test-internal-secret"})
+        return InternalAPIAuthentication(), Request(request), None, None
 
-    @parameterized.expand([("project_secret_key",), ("personal_api_key",), ("service_jwt",), ("internal_api_secret",)])
+    @parameterized.expand(
+        [
+            ("project_secret_key",),
+            ("personal_api_key",),
+            ("service_jwt",),
+            ("internal_api_secret",),
+            ("sharing_access_token",),
+            ("sharing_password",),
+        ]
+    )
     def test_rows_name_the_bearer_credential_not_an_impersonated_session(self, credential_type: str) -> None:
         session_user = User.objects.create_and_join(self.organization, "session-user@example.com", None)
-        authenticator, headers, expected_user, expected_id = self._authenticator_and_headers(credential_type)
+        authenticator, request, expected_user, expected_id = self._authenticator_and_request(credential_type)
         # ActivityLoggingMiddleware has already recorded an impersonated session on the same request.
         activity_storage.mark_request_scoped()
         activity_storage.set_user(session_user)
         activity_storage.set_was_impersonated(True)
         activity_storage.set_credential(ActivityCredential(type="session", id="session-id", impersonated_by_id=1))
         try:
-            authenticator.authenticate(Request(APIRequestFactory().get("/", headers=headers)))
+            authenticator.authenticate(request)
             log = log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team.id,

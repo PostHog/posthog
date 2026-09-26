@@ -44,9 +44,8 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ErrorResponseSerializer
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication, TeamSecretTokenAuthentication
 from posthog.models import Team
-from posthog.models.activity_logging.utils import ActivityCredential, record_activity_actor
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
@@ -138,6 +137,8 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
     key for a disabled team is indistinguishable from an unknown token and the response
     cannot reveal that the key exists or which scopes it carries."""
 
+    activity_credential_type = "project_secret_key"
+
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         result = super().authenticate(request)
         if result is None or not _customer_analytics_enabled(self.project_secret_api_key.team):
@@ -146,6 +147,8 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
 
 
 class ExternalAccountPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    activity_credential_type = "personal_api_key"
+
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
         try:
             return super().authenticate(request)
@@ -191,7 +194,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     if not _customer_analytics_enabled(team):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
-    record_activity_actor(None, ActivityCredential(type="team_secret_token"))
+    TeamSecretTokenAuthentication.record_activity_actor(None)
     return team, None
 
 

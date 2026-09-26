@@ -37,11 +37,9 @@ from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_mat
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
 from posthog.models.activity_logging.utils import (
-    ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
-    ActivityCredential,
+    ActivityCredentialMixin,
+    DeclaredCredentialType,
     activity_storage,
-    oauth_activity_credential,
-    record_activity_actor,
     record_agent_intent,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
@@ -172,7 +170,7 @@ class ZxcvbnValidator:
             )
 
 
-class SessionAuthentication(authentication.SessionAuthentication):
+class SessionAuthentication(ActivityCredentialMixin, authentication.SessionAuthentication):
     """
     This class is needed, because REST Framework's default SessionAuthentication does never return 401's,
     because they cannot fill the WWW-Authenticate header with a valid value in the 401 response. As a
@@ -184,6 +182,10 @@ class SessionAuthentication(authentication.SessionAuthentication):
 
     This class is also used to enforce Two-Factor Authentication for session-based authentication.
     """
+
+    # ActivityLoggingMiddleware records the session credential, not this class, so that views
+    # outside DRF get it too.
+    activity_credential_type = "session"
 
     def authenticate(self, request):
         with tracer.start_as_current_span("posthog.auth.session"):
@@ -214,7 +216,7 @@ class SessionAuthentication(authentication.SessionAuthentication):
         return "Session"
 
 
-class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
+class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """A way of authenticating with personal API keys.
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
@@ -223,6 +225,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    activity_credential_type = "personal_api_key"
     personal_api_key: PersonalAPIKey
     personal_api_key_source: Optional[str] = None
     # Set once the key is validated, so rate limiting can identify the key without re-reading the
@@ -361,10 +364,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
             # DRF auth), so signal-driven activity logging would otherwise record bearer-token
             # requests as system actions.
-            record_activity_actor(
-                personal_api_key_object.user,
-                ActivityCredential(type="personal_api_key", id=personal_api_key_object.id),
-            )
+            self.record_activity_actor(personal_api_key_object.user, personal_api_key_object.id)
             record_agent_intent(request)
 
             self.personal_api_key = personal_api_key_object
@@ -404,7 +404,7 @@ class TeamSecretTokenUser(SyntheticUser):
         super().__init__(team, distinct_id=f"team-secret-token-{team.id}")
 
 
-class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
+class TeamSecretTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates using the legacy team-level Team.secret_api_token field.
 
@@ -420,6 +420,7 @@ class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    activity_credential_type = "team_secret_token"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         secret_api_token = _extract_phs_token(request)
@@ -439,7 +440,7 @@ class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
                 team_id=team.id,
                 access_method=AccessMethod.TEAM_SECRET_TOKEN,
             )
-            record_activity_actor(None, ActivityCredential(type="team_secret_token"))
+            self.record_activity_actor(None)
 
             return (TeamSecretTokenUser(team), None)
         except Team.DoesNotExist:
@@ -467,7 +468,7 @@ class ProjectSecretAPIKeyUser(SyntheticUser):
         return {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
 
 
-class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates a ProjectSecretAPIKey (PSAK) model record via its SHA256 hash.
 
@@ -479,6 +480,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    activity_credential_type = "project_secret_key"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         token = _extract_phs_token(request)
@@ -504,7 +506,7 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             api_key_mask=psak.mask_value,
             api_key_label=psak.label,
         )
-        record_activity_actor(None, ActivityCredential(type="project_secret_key", id=psak.id))
+        self.record_activity_actor(None, psak.id)
 
         return (ProjectSecretAPIKeyUser(psak), None)
 
@@ -513,12 +515,13 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class JwtAuthentication(authentication.BaseAuthentication):
+class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     A way of authenticating with a JWT, primarily by background jobs impersonating a User
     """
 
     keyword = "Bearer"
+    activity_credential_type = "internal_jwt"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.jwt"):
@@ -529,7 +532,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
                         user = User.objects.get(pk=info["id"])
-                        record_activity_actor(user, ActivityCredential(type="internal_jwt"))
+                        self.record_activity_actor(user)
                         return (user, None)
                     except AuthenticationFailed:
                         raise
@@ -549,7 +552,7 @@ class JwtAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
+class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates inbound API requests using an access token minted by the
     ID-JAG (XAA) JWT Bearer grant served from the OAuth token endpoint
@@ -566,6 +569,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
     _ID_JAG_ACCESS_TOKEN_TYPE = "at+jwt"
 
     keyword = "Bearer"
+    activity_credential_type = "id_jag"
 
     id_jag_claims: dict[str, Any]
     scopes: list[str]
@@ -723,10 +727,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                 access_method=AccessMethod.ID_JAG,
             )
 
-            record_activity_actor(
-                user,
-                ActivityCredential(type="id_jag", id=str(claims["client_id"])[:ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH]),
-            )
+            self.record_activity_actor(user, str(claims["client_id"]))
             record_agent_intent(request)
 
             return user, None
@@ -753,12 +754,13 @@ def mint_export_renderer_token(*, user_id: int, team_id: int, exported_asset_id:
     )
 
 
-class ExportRendererAuthentication(authentication.BaseAuthentication):
+class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Scoped JWT auth for the export renderer. Only accepted on viewsets that opt in.
     """
 
     keyword = "Bearer"
+    activity_credential_type = "export_renderer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         if request.method not in ("GET", "HEAD"):
@@ -796,6 +798,7 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
             self.exported_asset_id = exported_asset_id
             self.export_context = export_context
             user = User.objects.get(pk=user_id)
+            self.record_activity_actor(user, str(exported_asset_id))
             return user, None
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
@@ -820,11 +823,12 @@ def _organization_disallows_public_sharing(sharing_configuration: SharingConfigu
     )
 
 
-class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
+class SharingAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
     Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
     """
 
+    activity_credential_type = "sharing_access_token"
     sharing_configuration: SharingConfiguration
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
@@ -848,17 +852,19 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                     raise AuthenticationFailed(detail="Sharing access token is invalid.")
 
                 self.sharing_configuration = sharing_configuration
+                self.record_activity_actor(None, str(sharing_configuration.id))
                 return (SharedLinkUser(sharing_configuration), None)
         return None
 
 
-class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
+class SharingPasswordProtectedAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     JWT-based authentication for password-protected shared resources.
     Supports both Bearer token (for API calls) and cookie (for rendering decisions).
     """
 
     keyword = "Bearer"
+    activity_credential_type = "sharing_password"
     sharing_configuration: SharingConfiguration
     share_password: "SharePassword"
 
@@ -910,6 +916,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
+            self.record_activity_actor(None, str(share_password.id))
             return (SharedLinkUser(sharing_configuration), None)
 
         except jwt.InvalidTokenError:
@@ -946,12 +953,13 @@ def _record_agent_attribution(request: Union[HttpRequest, Request], access_token
     record_agent_intent(request)
 
 
-class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
+class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     OAuth 2.0 Bearer token authentication using access tokens
     """
 
     keyword = "Bearer"
+    activity_credential_type = "oauth"
     access_token: OAuthAccessToken
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
@@ -1002,7 +1010,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         # before DRF auth), so signal-driven activity logging would otherwise record
         # bearer-token requests as system actions. A token minted during staff
         # impersonation keeps the impersonation marker through `impersonated_by_id`.
-        record_activity_actor(user, oauth_activity_credential(access_token))
+        self.record_activity_actor(user, str(access_token.application_id), access_token.impersonated_by_id)
         if activity_storage.is_request_scoped():
             _record_agent_attribution(request, access_token)
             self._set_scout_activity_client(access_token)
@@ -1112,6 +1120,8 @@ def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[s
 
 
 class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    activity_credential_type = "personal_api_key"
+
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)
         if claims is None:
@@ -1136,14 +1146,14 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             api_key_mask=personal_api_key.mask_value,
             api_key_label=personal_api_key.label,
         )
-        record_activity_actor(
-            personal_api_key.user, ActivityCredential(type="personal_api_key", id=personal_api_key.id)
-        )
+        self.record_activity_actor(personal_api_key.user, personal_api_key.id)
         record_agent_intent(request)
         return personal_api_key.user, None
 
 
 class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
+    activity_credential_type = "oauth"
+
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)
         if claims is None:
@@ -1165,12 +1175,14 @@ class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
         return self._authenticate_access_token(request, access_token)
 
 
-class WidgetAuthentication(authentication.BaseAuthentication):
+class WidgetAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticate widget requests via conversations_settings.widget_public_token.
     This provides team-level authentication only. User-level scoping
     is enforced via widget_session_id validation in each endpoint.
     """
+
+    activity_credential_type = "widget_token"
 
     def authenticate(self, request: Request) -> Optional[tuple[None, Any]]:
         """
@@ -1187,6 +1199,7 @@ class WidgetAuthentication(authentication.BaseAuthentication):
         except Team.DoesNotExist:
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
+        self.record_activity_actor(None)
         return (None, team)
 
 
@@ -1209,10 +1222,11 @@ class InternalAPIUser:
         return False
 
 
-class InternalAPIAuthentication(authentication.BaseAuthentication):
+class InternalAPIAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """DRF authentication backend for internal API calls."""
 
     keyword = "InternalApiSecret"
+    activity_credential_type = "internal_api_secret"
     HEADER_NAME = "X-Internal-Api-Secret"
 
     def _get_team_id_from_request(self, request: Request) -> str | None:
@@ -1284,14 +1298,14 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Invalid internal API authentication.")
 
-        record_activity_actor(None, ActivityCredential(type="internal_api_secret"))
+        self.record_activity_actor(None)
         return (self._get_internal_api_user(request), None)
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword
 
 
-class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
+class ScopedServiceJWTAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """DRF authentication for internal routes called by other PostHog services, verifying the
     scoped per-purpose JWTs of posthog.scoped_service_jwt (the blessed replacement for
     INTERNAL_API_SECRET). Subclass per purpose:
@@ -1310,6 +1324,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     claim fails closed instead of authenticating unscoped.
     """
 
+    activity_credential_type = "service_jwt"
     purpose: ClassVar[ScopedServiceJwtPurpose]
     require_team: ClassVar[bool] = True
 
@@ -1345,7 +1360,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Invalid or expired service token.")
 
         principal, verified_claims = self._authenticate_claims(request, claims)
-        record_activity_actor(None, ActivityCredential(type="service_jwt", id=self.purpose.audience.value))
+        self.record_activity_actor(None, self.purpose.audience.value)
         return principal, verified_claims
 
     def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
@@ -1526,7 +1541,7 @@ class WebauthnBackend(BaseBackend):
             return None
 
 
-class WebhookSignatureAuthentication(authentication.BaseAuthentication):
+class WebhookSignatureAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Base HMAC-SHA256 webhook signature authentication.
 
@@ -1538,6 +1553,8 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
       - Stripe:      signature header "Stripe-Signature",  input format "{ts}.{body}"
     """
 
+    # Annotated so that a subclass can declare another type. Without it, mypy infers `Literal["webhook"]`.
+    activity_credential_type: ClassVar[DeclaredCredentialType] = "webhook"
     timestamp_tolerance: int = 300  # seconds
 
     @abstractmethod
@@ -1610,6 +1627,7 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         if abs(time.time() - ts) > self.timestamp_tolerance:
             raise AuthenticationFailed("Webhook timestamp too old.")
 
+        self.record_activity_actor(None)
         # Return AnonymousUser (not None) so DRF throttles can safely access request.user.is_authenticated.
         return (AnonymousUser(), self.get_auth_context(request))
 
