@@ -21,6 +21,7 @@ from products.replay_vision.backend.jev_watch_feed import (
     WINDOW_CHUNK_SIZE,
     judge_scanner_window,
     load_judged_ids,
+    load_scanner_watch_ranks,
     load_watch_ranks,
     rank_watch_feed_by_jev,
     store_watch_ranks,
@@ -276,6 +277,20 @@ class TestWatchRankCache(SimpleTestCase):
         # Another team's cache never leaks in.
         assert load_watch_ranks(team_id + 1, [scanner_id]) == {}
 
+    def test_a_read_failure_raises_for_the_sweep_and_stays_soft_for_the_feed(self) -> None:
+        # An unreachable cache must not read as an empty one: the sweep would re-buy the scanner's
+        # judgments and its write would replace entries it never saw. The feed only degrades.
+        scanner_id = uuid4()
+        with patch(
+            "products.replay_vision.backend.jev_watch_feed.get_client",
+            side_effect=ConnectionError("redis down"),
+        ):
+            with self.assertRaises(ConnectionError):
+                load_judged_ids(1, scanner_id)
+            with self.assertRaises(ConnectionError):
+                load_scanner_watch_ranks(1, scanner_id)
+            assert load_watch_ranks(1, [scanner_id]) == {}
+
 
 class TestJevWatchRankSweep(BaseTest):
     def _succeeded_observation(self, scanner: ReplayScanner, session_id: str, summary: str) -> ReplayObservation:
@@ -372,3 +387,31 @@ class TestJevWatchRankSweep(BaseTest):
             str(second.id): 0.7,
             str(third.id): 0.9,
         }
+
+    def test_an_unreadable_cache_skips_the_scanner_without_judging_or_writing(self) -> None:
+        # A transient Redis failure must not read as an empty cache: judging over it would re-buy
+        # rows, and the write would replace the scanner's entries with only the current batch.
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        scanner = ReplayScanner.objects.create(
+            team=self.team,
+            name="s",
+            scanner_type=ScannerType.SUMMARIZER,
+            scanner_config={"prompt": "p", "length": "short"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        self._succeeded_observation(scanner, "s1", "The user hit an error at checkout.")
+        store_watch_ranks(self.team.id, scanner.id, {"judged-earlier"}, {"judged-earlier": 0.9}, "jevk5")
+
+        activities = "products.replay_vision.backend.temporal.jev_watch_rank.activities"
+        with (
+            patch(f"{activities}.watch_feed_ranker", return_value="jev-shadow"),
+            patch(f"{activities}.decision_api.decisions_available_here", return_value=True),
+            patch(f"{activities}.load_judged_ids", side_effect=ConnectionError("redis down")),
+            patch(_API) as api,
+        ):
+            result = async_to_sync(_judge_watch_ranks)(JevWatchRankSweepInputs())
+        api.decide_when_available.assert_not_called()
+        assert result.cache_errors == 1
+        assert result.scanners_judged == 0
+        assert load_watch_ranks(self.team.id, [scanner.id]) == {"judged-earlier": 0.9}
