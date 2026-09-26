@@ -103,6 +103,8 @@ and `time_records` on its own record id. Partition keys are `created_at` where t
 - **`timeoff/allowance_stats`** is a computed snapshot, not a stored record: it recalculates against a
   `reference_date` that defaults to today, so each full-refresh sync replaces the table with the balances as
   of that run. Its `id` embeds the reference date and the docs state it cannot be used to re-fetch the row.
+  The source pins one `reference_date` for the whole walk and carries it in the resume state, so a run that
+  crosses midnight or resumes the next day cannot write two as-of dates into the same table.
 
 ## Verification status
 

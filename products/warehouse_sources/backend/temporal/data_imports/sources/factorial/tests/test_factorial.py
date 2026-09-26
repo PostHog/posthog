@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
@@ -25,9 +26,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.
     FACTORIAL_ENDPOINTS,
 )
 
-_SESSION_FACTORY = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial.make_tracked_session"
-)
+_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.factorial.factorial"
+_SESSION_FACTORY = f"{_MODULE}.make_tracked_session"
 
 # Paginator logic ignores the request URL (it only touches params), so any supported base is fine here.
 _BASE_URL = base_url(API_VERSION_2026_04_01)
@@ -313,6 +313,40 @@ class TestEndpointParams:
         sent_params, _ = _drive("time_records", manager, responses)
 
         assert sent_params == [{"limit": PAGE_SIZE}]
+
+    def test_allowance_stats_pins_one_reference_date_across_pages(self) -> None:
+        # Factorial recomputes allowance_stats against the date it receives, defaulting to today,
+        # so a walk that crosses midnight would otherwise mix two as-of dates into one table.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        responses = [
+            _make_http_response(_page_body(_full_page(), {"has_next_page": True, "end_cursor": "Mjc="})),
+            _make_http_response(_page_body([{"id": "1/2/x"}], {"has_next_page": False, "end_cursor": None})),
+        ]
+        with patch(f"{_MODULE}.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(2026, 5, 4, 23, 59, tzinfo=UTC)
+            sent_params, _ = _drive("allowance_stats", manager, responses)
+
+        assert [p["reference_date"] for p in sent_params] == ["2026-05-04", "2026-05-04"]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved == [FactorialResumeConfig(after_id="Mjc=", reference_date="2026-05-04")]
+
+    def test_allowance_stats_resume_reuses_the_saved_reference_date(self) -> None:
+        # A resumed walk must keep the earlier pages' as-of date, not the day it resumes on.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = FactorialResumeConfig(after_id="MTY=", reference_date="2026-05-04")
+
+        responses = [
+            _make_http_response(_page_body([{"id": "1/2/x"}], {"has_next_page": False, "end_cursor": None})),
+        ]
+        with patch(f"{_MODULE}.datetime") as mock_datetime:
+            mock_datetime.now.return_value = datetime(2026, 5, 5, 0, 1, tzinfo=UTC)
+            sent_params, _ = _drive("allowance_stats", manager, responses)
+
+        assert sent_params[0]["reference_date"] == "2026-05-04"
+        assert sent_params[0]["after_id"] == "MTY="
 
 
 class TestValidateCredentials:

@@ -4,7 +4,7 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class FactorialEndpointConfig:
     name: str
     # Path under the versioned base URL (e.g. "/resources/employees/employees"). Factorial groups
@@ -19,6 +19,9 @@ class FactorialEndpointConfig:
     # Static query params sent on every page. Booleans are serialized as the strings Factorial
     # expects, since `requests` would otherwise render Python's `True` as the literal "True".
     params: dict[str, str] = field(default_factory=dict)
+    # Query param naming the date the endpoint computes against, for resources that default it to
+    # today. Set it and the whole walk is pinned to one date (see `factorial.py`).
+    date_param: Optional[str] = None
     should_sync_default: bool = True
 
 
@@ -72,6 +75,7 @@ FACTORIAL_ENDPOINTS: dict[str, FactorialEndpointConfig] = {
     "allowance_stats": FactorialEndpointConfig(
         name="allowance_stats",
         path="/resources/timeoff/allowance_stats",
+        date_param="reference_date",
     ),
     "attendance_shifts": FactorialEndpointConfig(
         name="attendance_shifts",
