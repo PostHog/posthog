@@ -12,6 +12,7 @@ from requests.exceptions import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear import (
+    _ENDPOINTS,
     _date_only,
     _flatten_page_metrics_item,
     _flatten_rum_metrics,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.
     debugbear_source,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.settings import ENDPOINTS
 
 
 def _response(json_body: Any, status_code: int = 200) -> MagicMock:
@@ -490,6 +492,11 @@ class TestDebugbearSourceRouting:
         assert response.primary_keys == primary_keys
         assert response.sort_mode == sort_mode
         assert response.partition_keys == partition_keys
+
+    def test_every_configured_endpoint_routes(self) -> None:
+        assert set(_ENDPOINTS) == set(ENDPOINTS)
+        for endpoint in ENDPOINTS:
+            assert debugbear_source(api_key="key", endpoint=endpoint).name
 
     def test_unknown_endpoint_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown DebugBear endpoint"):
