@@ -151,7 +151,7 @@ def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Te
     properties: dict[str, Any] = {
         "analytics_version": 1,
         "action_type": action_type,
-        "scope": canonical_comment_scope(comment.scope),
+        "scope": comment.scope,
         "anchor_kind": anchor_kind if anchor_kind in {"text", "region", "document"} else "unknown",
         "task_id": raw_task_id if isinstance(raw_task_id, str) else None,
         "item_id": comment.item_id,
@@ -958,7 +958,6 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
         scope = params.get("scope")
         if scope:
-            scope = canonical_comment_scope(scope)
             queryset = (
                 queryset.filter(scope__in=CANVAS_COMMENT_SCOPES)
                 if scope in CANVAS_COMMENT_SCOPES

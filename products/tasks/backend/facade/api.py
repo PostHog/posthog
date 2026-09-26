@@ -49,7 +49,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
-from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES, canonical_comment_scope
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -10429,9 +10429,7 @@ def list_task_activity(
                 ),
                 latest_message_id=None if isinstance(row, TaskCommentActivity) else row.message_id,
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
-                latest_comment_scope=canonical_comment_scope(row.comment.scope)
-                if isinstance(row, TaskCommentActivity)
-                else None,
+                latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
                 is_unread=row.read_at is None,
             )
@@ -10720,7 +10718,7 @@ def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
         payload: dict = {
             "comment_id": str(comment.id),
             "root_comment_id": str(comment.source_comment_id or comment.id),
-            "scope": canonical_comment_scope(comment.scope),
+            "scope": comment.scope,
             "item_id": str(comment.item_id) if comment.item_id else None,
             "target_name": _comment_target_name(task, scope=comment.scope, item_id=comment.item_id),
         }
