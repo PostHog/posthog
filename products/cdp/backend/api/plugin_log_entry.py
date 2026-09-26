@@ -21,16 +21,22 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = PluginLogEntrySerializer
     permission_classes = [PluginsAccessLevelPermission]
 
+    @staticmethod
+    def _parse_count_param(request, name: str) -> Optional[int]:
+        raw = request.GET.get(name)
+        if not raw:
+            return None
+        try:
+            value = int(raw)
+        except ValueError:
+            raise exceptions.ValidationError(f"Query param {name} must be omitted or an integer!")
+        if value < 0:
+            raise exceptions.ValidationError(f"Query param {name} must not be negative!")
+        return value
+
     def list(self, request, *args, **kwargs):
-        limit_raw = request.GET.get("limit")
-        limit: Optional[int]
-        if limit_raw:
-            try:
-                limit = int(limit_raw)
-            except ValueError:
-                raise exceptions.ValidationError("Query param limit must be omitted or an integer!")
-        else:
-            limit = None
+        limit = self._parse_count_param(request, "limit")
+        offset = self._parse_count_param(request, "offset") or 0
 
         after_raw: Optional[str] = request.GET.get("after")
         after: Optional[datetime] = None
@@ -42,6 +48,11 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if before_raw is not None:
             before = datetime.fromisoformat(before_raw.replace("Z", "+00:00"))
 
+        # The paginator slices this list, so ClickHouse must return every row up to the end of the
+        # requested page. The extra row tells the paginator that a next page exists.
+        page_size = limit if limit is not None else self.paginator.default_limit
+        fetch_limit = offset + page_size + 1
+
         type_filter = [PluginLogEntryType[t] for t in (request.GET.getlist("type_filter", []))]
         data = fetch_plugin_log_entries(
             team_id=self.team_id,
@@ -49,7 +60,7 @@ class PluginLogEntryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             after=after,
             before=before,
             search=request.GET.get("search"),
-            limit=limit,
+            limit=fetch_limit,
             type_filter=type_filter,
         )
 

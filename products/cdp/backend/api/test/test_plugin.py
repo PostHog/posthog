@@ -22,13 +22,21 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import UUIDT
 from posthog.plugins.access import can_configure_plugins, can_globally_manage_plugins, can_install_plugins
 from posthog.plugins.test.mock import mocked_plugin_github_request, mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP, HELLO_WORLD_PLUGIN_GITHUB_ZIP
+from posthog.test.test_plugin_log_entry import create_plugin_log_entry
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.models.plugin import Plugin, PluginConfig, PluginSourceFile
+from products.cdp.backend.models.plugin import (
+    Plugin,
+    PluginConfig,
+    PluginLogEntrySource,
+    PluginLogEntryType,
+    PluginSourceFile,
+)
 
 
 def mocked_plugin_reload(*args, **kwargs):
@@ -1058,6 +1066,33 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"count": 0, "next": None, "previous": None, "results": []})
+
+    def test_retrieving_plugin_config_logs_across_pages(self, mock_get, mock_reload):
+        plugin = Plugin.objects.create(organization=self.organization)
+        plugin_config = PluginConfig.objects.create(plugin=plugin, enabled=True, team=self.team, order=0)
+        instance_id = str(UUIDT())
+        for second in range(5):
+            create_plugin_log_entry(
+                team_id=self.team.pk,
+                plugin_id=plugin.pk,
+                plugin_config_id=plugin_config.pk,
+                source=PluginLogEntrySource.CONSOLE,
+                type=PluginLogEntryType.INFO,
+                message=f"Message {second}",
+                instance_id=instance_id,
+                timestamp=datetime(2021, 12, 5, 13, 23, second, tzinfo=ZoneInfo("UTC")),
+            )
+
+        url = f"/api/environments/{self.team.pk}/plugin_configs/{plugin_config.id}/logs/?limit=2"
+        first_page = self.client.get(url).json()
+        second_page = self.client.get(f"{url}&offset=2").json()
+        last_page = self.client.get(f"{url}&offset=4").json()
+
+        self.assertEqual([entry["message"] for entry in first_page["results"]], ["Message 4", "Message 3"])
+        self.assertEqual([entry["message"] for entry in second_page["results"]], ["Message 2", "Message 1"])
+        self.assertEqual([entry["message"] for entry in last_page["results"]], ["Message 0"])
+        self.assertIsNotNone(second_page["next"])
+        self.assertIsNone(last_page["next"])
 
     @time_machine.travel("2021-12-05T13:23:00Z", tick=False)
     def test_plugin_config_list(self, mock_get, mock_reload):
