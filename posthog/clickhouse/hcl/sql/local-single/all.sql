@@ -2464,6 +2464,28 @@ CREATE TABLE posthog.sharded_performance_events (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/posthog.performance_events', '{replica}') ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalWeek(3) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.sharded_platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  expires_at DateTime64(6, 'UTC') DEFAULT now64(6) + toIntervalDay(90),
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64(6)
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.platform_alert_events', '{replica}-{shard}', inserted_at) ORDER BY (team_id, configuration_id, alert_id, occurred_at, evaluation_key) PARTITION BY toYYYYMM(occurred_at) TTL toDateTime(expires_at) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_posthog_document_embeddings_buffer (
   team_id Int64,
   product LowCardinality(String),
@@ -7085,6 +7107,28 @@ CREATE TABLE posthog.person_property_mutation_log (
   properties String,
   ingested_at DateTime('UTC')
 ) ENGINE = Distributed('aux', 'posthog', 'person_property_mutation_log_data');
+CREATE TABLE posthog.platform_alert_events (
+  team_id Int64,
+  configuration_id UUID,
+  alert_id UUID,
+  grouping_key String,
+  evaluation_key String,
+  kind LowCardinality(String),
+  alert_name String,
+  previous_state LowCardinality(String),
+  state LowCardinality(String),
+  value Nullable(Float64),
+  labels Map(String, String),
+  condition_snapshot String,
+  source_config_snapshot String,
+  query_duration_ms Nullable(UInt32),
+  error_message String,
+  consecutive_failures UInt32,
+  muted_notification LowCardinality(String),
+  occurred_at DateTime64(6, 'UTC'),
+  expires_at DateTime64(6, 'UTC') DEFAULT now64(6) + toIntervalDay(90),
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64(6)
+) ENGINE = Distributed('aux', 'posthog', 'sharded_platform_alert_events', cityHash64(team_id));
 CREATE TABLE posthog.preaggregation_results (
   team_id Int64,
   job_id UUID,
