@@ -122,6 +122,16 @@ class TeamAdminForm(ModelForm):
             raise ValidationError("test_account_filters must be a JSON list (e.g. `[]`).")
         return value
 
+    def clean_data_attributes(self):
+        value = self.cleaned_data.get("data_attributes")
+        if value is None:
+            return []
+        # The API serializer holds this shape, and a staff edit writes the same column, so the two
+        # must agree. A value that is not a list of strings breaks the autocapture settings page.
+        if not isinstance(value, list) or not all(isinstance(attribute, str) for attribute in value):
+            raise ValidationError('data_attributes must be a JSON list of strings (e.g. `["data-attr"]`).')
+        return value
+
     def clean_llm_gateway_overspend_allowance_usd(self):
         value = self.cleaned_data.get("llm_gateway_overspend_allowance_usd")
         if value is None:

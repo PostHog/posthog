@@ -1096,6 +1096,10 @@ class ProjectBackwardCompatSerializer(
     def validate_path_cleaning_filters(value: object) -> object:
         return TeamSerializer.validate_path_cleaning_filters(value)
 
+    @staticmethod
+    def validate_data_attributes(value: object) -> list[str]:
+        return TeamSerializer.validate_data_attributes(value)
+
     def validate_proactive_tasks_enabled(self, value: bool | None) -> bool | None:
         return TeamSerializer.validate_proactive_tasks_enabled(cast(TeamSerializer, self), value)
 
