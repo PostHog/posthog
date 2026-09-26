@@ -37,6 +37,7 @@ import {
     SyncMethodForm,
     SyncMethodFormHandle,
 } from 'products/data_warehouse/frontend/shared/components/forms/SyncMethodForm'
+import { NoTableYetLabel } from 'products/data_warehouse/frontend/shared/components/NoTableYetLabel'
 import {
     SchemaEditorAction,
     useSchemaEditorAccess,
@@ -48,6 +49,7 @@ import {
     SyncTypeLabelMap,
     allowedSyncFrequencies,
     defaultQuery,
+    schemaHasNoTableYet,
     syncAnchorIntervalToHumanReadable,
 } from 'products/data_warehouse/frontend/utils'
 import { externalDataSourcesBulkUpdateSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
@@ -109,6 +111,7 @@ export function ConfigurationTab({
             return (
                 <DetailsSection
                     schema={schema}
+                    source={source}
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
@@ -172,6 +175,7 @@ function SectionHeader({ title, description }: { title: string; description?: st
 
 function DetailsSection({
     schema,
+    source,
     reloadSchema,
     cancelSchema,
     updateSchema,
@@ -179,6 +183,7 @@ function DetailsSection({
     syncHistoryUrl,
 }: {
     schema: ExternalDataSourceSchema
+    source: SchemaSceneSource | null
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
@@ -306,6 +311,8 @@ function DetailsSection({
                         >
                             <code>{syncedTableName}</code>
                         </Link>
+                    ) : schemaHasNoTableYet(schema) ? (
+                        <NoTableYetLabel sourceType={source?.source_type} schemaName={schema.name} />
                     ) : (
                         <span className="text-muted">Not yet synced</span>
                     )}
