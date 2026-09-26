@@ -443,6 +443,7 @@ export interface ISessionStore {
         ? Omit<T, "id">
         : never
       : never,
+    messageId?: string,
   ): void;
   clearOptimisticItems(taskRunId: string): void;
   clearTailOptimisticItems(taskRunId: string): void;
@@ -4952,7 +4953,12 @@ export class SessionService {
   private async sendCloudPrompt(
     session: AgentSession,
     prompt: string | ContentBlock[],
-    options?: { skipQueueGuard?: boolean; steer?: boolean },
+    options?: {
+      skipQueueGuard?: boolean;
+      steer?: boolean;
+      messageId?: string;
+      submittedAt?: number;
+    },
   ): Promise<{ stopReason: string }> {
     const normalizedPrompt = await this.resolveCloudPrompt(prompt);
     const transport = this.d.h.getCloudPromptTransport(normalizedPrompt);
@@ -4963,6 +4969,8 @@ export class SessionService {
     ) {
       return { stopReason: "empty" };
     }
+    const messageId = options?.messageId ?? globalThis.crypto.randomUUID();
+    const submittedAt = options?.submittedAt ?? Date.now();
 
     if (isTerminalStatus(session.cloudStatus)) {
       // `/clear` is handled by the agent, not the model, so resuming would spin a
@@ -4992,7 +5000,10 @@ export class SessionService {
             "Cloud run couldn't start. Check that GitHub is connected for this project, then try again.",
         );
       }
-      return this.resumeCloudRun(session, normalizedPrompt);
+      return this.resumeCloudRun(session, normalizedPrompt, {
+        messageId,
+        submittedAt,
+      });
     }
 
     if (session.cloudStatus !== "in_progress") {
@@ -5062,12 +5073,16 @@ export class SessionService {
       return { stopReason: "queued" };
     }
 
-    this.d.store.appendOptimisticItem(session.taskRunId, {
-      type: "user_message",
-      content: transport.promptText,
-      timestamp: Date.now(),
-      pinToTop: false,
-    });
+    this.d.store.appendOptimisticItem(
+      session.taskRunId,
+      {
+        type: "user_message",
+        content: transport.promptText,
+        timestamp: submittedAt,
+        pinToTop: false,
+      },
+      messageId,
+    );
 
     const authStatus = await this.getAuthCredentialsStatus().catch((error) => {
       this.d.store.clearTailOptimisticItems(session.taskRunId);
@@ -5141,6 +5156,7 @@ export class SessionService {
     if (transport.messageText) {
       params.content = transport.messageText;
     }
+    params.submitted_at = submittedAt;
     if (artifactIds.length > 0) {
       params.artifact_ids = artifactIds;
     }
@@ -5172,6 +5188,7 @@ export class SessionService {
 
     try {
       const result = await this.d.trpc.cloudTask.sendCommand.mutate({
+        id: messageId,
         taskId: session.taskId,
         runId: session.taskRunId,
         apiHost: cloudCommandAuth.apiHost,
@@ -5183,7 +5200,10 @@ export class SessionService {
       if (!result.success) {
         if (result.status === 409 && !options?.steer) {
           this.d.store.clearTailOptimisticItems(session.taskRunId);
-          return this.resumeCloudRun(session, normalizedPrompt);
+          return this.resumeCloudRun(session, normalizedPrompt, {
+            messageId,
+            submittedAt,
+          });
         }
         throw new Error(result.error ?? "Failed to send cloud command");
       }
@@ -5316,6 +5336,8 @@ export class SessionService {
       try {
         await this.sendCloudPrompt(session, combined, {
           skipQueueGuard: true,
+          messageId: drained[0].id,
+          submittedAt: drained[0].queuedAt,
         });
       } catch (err) {
         this.d.log.warn("Cloud queue dispatch failed; re-enqueueing", {
@@ -5388,6 +5410,7 @@ export class SessionService {
   private async resumeCloudRun(
     session: AgentSession,
     prompt: string | ContentBlock[],
+    options?: { messageId?: string; submittedAt?: number },
   ): Promise<{ stopReason: string }> {
     const normalizedPrompt = await this.resolveCloudPrompt(prompt);
     const authStatus = await this.getAuthCredentialsStatus();
@@ -5421,12 +5444,18 @@ export class SessionService {
       promptStartedAt: Date.now(),
       pausedDurationMs: 0,
     });
-    this.d.store.appendOptimisticItem(session.taskRunId, {
-      type: "user_message",
-      content: transport.promptText,
-      timestamp: Date.now(),
-      pinToTop: false,
-    });
+    const messageId = options?.messageId ?? globalThis.crypto.randomUUID();
+    const submittedAt = options?.submittedAt ?? Date.now();
+    this.d.store.appendOptimisticItem(
+      session.taskRunId,
+      {
+        type: "user_message",
+        content: transport.promptText,
+        timestamp: submittedAt,
+        pinToTop: false,
+      },
+      messageId,
+    );
 
     const rollbackOptimisticPrompt = () => {
       this.d.store.updateSession(session.taskRunId, {

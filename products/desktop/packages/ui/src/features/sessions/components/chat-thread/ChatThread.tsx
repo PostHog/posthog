@@ -89,6 +89,7 @@ import {
   copyFromContextMenu,
   getSelectionWithin,
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
+import { FailedMessageResend } from "@posthog/ui/features/sessions/components/FailedMessageResend";
 import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitActionMessage";
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
@@ -108,6 +109,10 @@ import {
 } from "@posthog/ui/features/sessions/constants";
 import { useAgentConversationItems } from "@posthog/ui/features/sessions/hooks/useAgentConversationItems";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
+import {
+  type FailedFollowupMessage,
+  useFailedFollowupMessages,
+} from "@posthog/ui/features/sessions/hooks/useFailedFollowupMessages";
 import {
   useOptimisticItemsForTask,
   useSessionIsCloud,
@@ -305,8 +310,8 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
 /**
  * Collapse each contiguous run of non-user rows into one {@link AgentTurn}, broken only by a
- * user-initiated row (which stays standalone so it remains the scroll anchor for the sticky header
- * and auto-follow). The turn block renders as a single muted card, tightening the spacing between
+ * user-initiated row or failed message (which stays standalone without opening an agent turn).
+ * The turn block renders as a single muted card, tightening the spacing between
  * the agent's successive replies and tool calls. Each turn records the user-initiated row that
  * opened it, so "Copy turn" can lead with the prompt the turn answered.
  */
@@ -321,6 +326,11 @@ function groupIntoTurns(rows: ThreadItem[]): TurnRow[] {
     }
   };
   for (const row of rows) {
+    if (row.type === "user_message" && row.deliveryFailed) {
+      flush();
+      out.push(row);
+      continue;
+    }
     // git_action and skill_button_action stand in for the user's message when the prompt was a
     // git operation or a skill button click (see handlePromptRequest) — they open a turn just
     // like a user message, so they break the agent card too rather than render inside it as if
@@ -528,11 +538,17 @@ function UserBubble({
   timestamp,
   attachments = NO_ATTACHMENTS,
   keyboardFocused = false,
+  deliveryFailed = false,
+  deliveryTruncated = false,
+  deliveryResendable = true,
 }: {
   content: string;
   timestamp?: number;
   attachments?: UserMessageAttachment[];
   keyboardFocused?: boolean;
+  deliveryFailed?: boolean;
+  deliveryTruncated?: boolean;
+  deliveryResendable?: boolean;
 }) {
   // A message relayed from another agent run renders as an incoming agent
   // message (start-aligned, outlined, provenance chip) instead of masquerading
@@ -588,6 +604,14 @@ function UserBubble({
                 <UserMessageBody content={displayContent} />
               </ChatBubbleContent>
             </ChatBubble>
+          )}
+          {deliveryFailed && taskId && (
+            <FailedMessageResend
+              taskId={taskId}
+              content={content}
+              truncated={deliveryTruncated}
+              resendable={deliveryResendable}
+            />
           )}
           {timestamp != null && (
             <ChatMessageFooter className="min-h-5 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -737,6 +761,9 @@ function ThreadItemBody({
         timestamp={item.timestamp}
         attachments={item.attachments}
         keyboardFocused={keyboardFocused}
+        deliveryFailed={item.deliveryFailed}
+        deliveryTruncated={item.deliveryTruncated}
+        deliveryResendable={item.deliveryResendable}
       />
     );
   }
@@ -1235,6 +1262,7 @@ const FlatRowView = memo(
  * (`ChatMessageFooter`) — see `UserBubble`.
  */
 interface SharedChatThreadProps {
+  failedMessages?: FailedFollowupMessage[];
   /**
    * Fold each run of tool calls into one collapsible row. Defaults to true.
    *
@@ -1365,6 +1393,7 @@ interface ChatThreadRendererProps extends SharedChatThreadProps {
 
 function ChatThreadRenderer({
   conversationItems,
+  failedMessages: storyFailedMessages,
   groupToolCalls = true,
   isPromptPending,
   promptStartedAt,
@@ -1382,11 +1411,23 @@ function ChatThreadRenderer({
 }: ChatThreadRendererProps) {
   const optimisticItems = useOptimisticItemsForTask(taskId);
   const isCloud = useSessionIsCloud(taskId);
+  const runId = useSessionSelector(taskId, (session) => session?.taskRunId);
+  const storedFailedMessages = useFailedFollowupMessages(
+    taskId,
+    runId,
+    isCloud && !storyFailedMessages,
+  );
+  const failedMessages = storyFailedMessages ?? storedFailedMessages;
 
   const items = useMemo<ConversationItem[]>(
     () =>
-      mergeConversationItems({ conversationItems, optimisticItems, isCloud }),
-    [conversationItems, optimisticItems, isCloud],
+      mergeConversationItems({
+        conversationItems,
+        optimisticItems,
+        isCloud,
+        failedMessages,
+      }),
+    [conversationItems, optimisticItems, isCloud, failedMessages],
   );
 
   const rows = useMemo<TurnRow[]>(

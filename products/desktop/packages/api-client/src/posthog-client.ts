@@ -1199,6 +1199,16 @@ interface StartTaskRunOptions {
   pendingUserArtifactIds?: string[];
 }
 
+type FailedTaskRunMessagesResponse = {
+  messages: Array<{
+    id: string;
+    content: string;
+    ts: string;
+    truncated: boolean;
+    resendable: boolean;
+  }>;
+};
+
 function buildCloudRunRequestBody(
   options?: CloudRunOptions & {
     branch?: string | null;
@@ -4737,6 +4747,25 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
+  }
+
+  async getFailedTaskRunMessages(
+    taskId: string,
+    runId: string,
+  ): Promise<FailedTaskRunMessagesResponse> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/failed_messages/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch message delivery failures: ${response.statusText}`,
+      );
+    }
+    return (await response.json()) as FailedTaskRunMessagesResponse;
   }
 
   async createTaskRun(

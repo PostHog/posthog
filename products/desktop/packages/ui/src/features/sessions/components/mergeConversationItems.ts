@@ -3,12 +3,14 @@ import {
   hasInjectedBlocks,
   stripInjectedBlocks,
 } from "@posthog/core/editor/injectedBlocks";
+import type { FailedFollowupMessage } from "../hooks/useFailedFollowupMessages";
 import type { ConversationItem } from "./buildConversationItems";
 
 interface MergeConversationItemsArgs {
   conversationItems: ConversationItem[];
   optimisticItems: ConversationItem[];
   isCloud: boolean;
+  failedMessages?: FailedFollowupMessage[];
 }
 
 type UserMessageItem = Extract<ConversationItem, { type: "user_message" }>;
@@ -52,6 +54,59 @@ function reconcileInitialPromptEcho(
   return items;
 }
 
+function mergeFailedMessages(
+  items: ConversationItem[],
+  failedMessages: FailedFollowupMessage[],
+): ConversationItem[] {
+  if (failedMessages.length === 0) return items;
+
+  const failedIds = new Set(failedMessages.map((message) => message.id));
+  const merged = items.filter((item) => {
+    const group =
+      item.type === "session_update" &&
+      item.update.sessionUpdate === "progress_group"
+        ? item.progressGroup
+        : undefined;
+    if (!group) {
+      return true;
+    }
+    return !Array.from(failedIds).some(
+      (id) =>
+        group === `followup-delivery:${id}` ||
+        group.startsWith(`followup-delivery:${id}:`),
+    );
+  });
+
+  for (const message of failedMessages) {
+    const timestamp = Date.parse(message.ts);
+    if (!Number.isFinite(timestamp)) continue;
+    const failedItem: UserMessageItem = {
+      type: "user_message",
+      id: message.id,
+      content: message.content,
+      timestamp,
+      deliveryFailed: true,
+      deliveryTruncated: message.truncated,
+      deliveryResendable: message.resendable,
+    };
+    const existingIndex = merged.findIndex((item) => item.id === message.id);
+    if (existingIndex >= 0) {
+      if (merged[existingIndex].type === "user_message") {
+        merged[existingIndex] = failedItem;
+      }
+      continue;
+    }
+    const nextIndex = merged.findIndex(
+      (item) =>
+        "timestamp" in item &&
+        typeof item.timestamp === "number" &&
+        item.timestamp > timestamp,
+    );
+    merged.splice(nextIndex === -1 ? merged.length : nextIndex, 0, failedItem);
+  }
+  return merged;
+}
+
 // Cloud's initial optimistic is pinned to the top so the user's prompt stays
 // visible above setup progress. Follow-up optimistics render at the tail, but
 // before trailing progress cards, to match where the streamed `session/prompt`
@@ -63,12 +118,19 @@ export function mergeConversationItems({
   conversationItems,
   optimisticItems,
   isCloud,
+  failedMessages = [],
 }: MergeConversationItemsArgs): ConversationItem[] {
   if (isCloud) {
     conversationItems = reconcileInitialPromptEcho(conversationItems);
   }
+  if (failedMessages.length > 0 && isCloud) {
+    const failedIds = new Set(failedMessages.map((message) => message.id));
+    optimisticItems = optimisticItems.filter((item) => !failedIds.has(item.id));
+  }
   if (optimisticItems.length === 0) {
-    return conversationItems;
+    return isCloud
+      ? mergeFailedMessages(conversationItems, failedMessages)
+      : conversationItems;
   }
 
   if (!isCloud) {
@@ -159,10 +221,11 @@ export function mergeConversationItems({
     }
   }
 
-  return [
+  const merged = [
     ...resolvedPinnedItems,
     ...dedupedConversation.slice(0, tailInsertionIndex),
     ...tailOptimisticItems,
     ...dedupedConversation.slice(tailInsertionIndex),
   ];
+  return mergeFailedMessages(merged, failedMessages);
 }

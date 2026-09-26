@@ -18,6 +18,7 @@ import type { PromptRecallHandler } from "@posthog/ui/features/sessions/componen
 import { MessageJumpPicker } from "@posthog/ui/features/sessions/components/chat-thread/MessageJumpPicker";
 import { THREAD_HOTKEY_OPTIONS } from "@posthog/ui/features/sessions/components/chat-thread/threadHotkeys";
 import { usePromptRecallSource } from "@posthog/ui/features/sessions/components/chat-thread/usePromptRecallSource";
+import { FailedMessageResend } from "@posthog/ui/features/sessions/components/FailedMessageResend";
 import { GitActionMessage } from "@posthog/ui/features/sessions/components/GitActionMessage";
 import { GitActionResult } from "@posthog/ui/features/sessions/components/GitActionResult";
 import {
@@ -45,6 +46,10 @@ import {
 import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useConversationItems } from "@posthog/ui/features/sessions/hooks/useConversationItems";
 import { useConversationSearch } from "@posthog/ui/features/sessions/hooks/useConversationSearch";
+import {
+  type FailedFollowupMessage,
+  useFailedFollowupMessages,
+} from "@posthog/ui/features/sessions/hooks/useFailedFollowupMessages";
 import {
   useOptimisticItemsForTask,
   usePendingPermissionsForTask,
@@ -79,6 +84,7 @@ export interface ConversationViewProps {
   repoPath?: string | null;
   taskId?: string;
   task?: Task;
+  failedMessages?: FailedFollowupMessage[];
   slackThreadUrl?: string;
   compact?: boolean;
   /**
@@ -105,6 +111,7 @@ export function ConversationView({
   repoPath,
   taskId,
   task,
+  failedMessages: storyFailedMessages,
   slackThreadUrl,
   compact = false,
   scrollX = true,
@@ -161,6 +168,12 @@ export function ConversationView({
   const pausedDurationMs = session?.pausedDurationMs ?? 0;
 
   const isCloud = session?.isCloud ?? false;
+  const storedFailedMessages = useFailedFollowupMessages(
+    taskId,
+    session?.taskRunId,
+    isCloud && !storyFailedMessages,
+  );
+  const failedMessages = storyFailedMessages ?? storedFailedMessages;
 
   const items = useMemo<ConversationItem[]>(
     () =>
@@ -168,8 +181,9 @@ export function ConversationView({
         conversationItems,
         optimisticItems,
         isCloud,
+        failedMessages,
       }),
-    [conversationItems, optimisticItems, isCloud],
+    [conversationItems, optimisticItems, isCloud, failedMessages],
   );
 
   // Fold each completed turn's tool-call work into a collapsible chip, and emit
@@ -352,19 +366,29 @@ export function ConversationView({
       switch (item.type) {
         case "user_message":
           return (
-            <UserMessage
-              content={item.content}
-              attachments={item.attachments}
-              timestamp={item.timestamp}
-              animate={!initialItemIds.has(item.id)}
-              taskId={taskId}
-              keyboardFocused={item.id === keyboardFocusedMessageId}
-              sourceUrl={
-                slackThreadUrl && item.id === firstUserMessageId
-                  ? slackThreadUrl
-                  : undefined
-              }
-            />
+            <>
+              <UserMessage
+                content={item.content}
+                attachments={item.attachments}
+                timestamp={item.timestamp}
+                animate={!initialItemIds.has(item.id)}
+                taskId={taskId}
+                keyboardFocused={item.id === keyboardFocusedMessageId}
+                sourceUrl={
+                  slackThreadUrl && item.id === firstUserMessageId
+                    ? slackThreadUrl
+                    : undefined
+                }
+              />
+              {item.deliveryFailed && taskId && (
+                <FailedMessageResend
+                  taskId={taskId}
+                  content={item.content}
+                  truncated={item.deliveryTruncated}
+                  resendable={item.deliveryResendable}
+                />
+              )}
+            </>
           );
         case "git_action":
           return <GitActionMessage actionType={item.actionType} />;

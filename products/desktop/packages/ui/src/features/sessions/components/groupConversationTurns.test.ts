@@ -23,6 +23,15 @@ function userAction(
 }
 
 describe("groupRowsIntoTurns", () => {
+  it("does not start an agent turn for a failed message", () => {
+    const failedMessage = { ...userMessage("failed"), deliveryFailed: true };
+    const result = groupRowsIntoTurns([
+      row(userMessage("sent")),
+      row(failedMessage),
+      row(cancelled("reply")),
+    ]);
+    expect(result.turns).toHaveLength(1);
+  });
   it("keeps each prompt and its response in one virtual row", () => {
     const result = groupRowsIntoTurns([
       row(userMessage("user-1")),

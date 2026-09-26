@@ -53,6 +53,9 @@ export type ConversationItem =
       timestamp: number;
       attachments?: UserMessageAttachment[];
       pinToTop?: boolean;
+      deliveryFailed?: boolean;
+      deliveryTruncated?: boolean;
+      deliveryResendable?: boolean;
     }
   | { type: "git_action"; id: string; actionType: GitActionType }
   | { type: "skill_button_action"; id: string; buttonId: SkillButtonId }
@@ -63,6 +66,7 @@ export type ConversationItem =
       turnContext: TurnContext;
       thoughtComplete?: boolean;
       timestamp?: number;
+      progressGroup?: string;
     }
   | {
       type: "git_action_result";
@@ -1030,6 +1034,10 @@ function ensureProgressCardForGroup(
   };
   b.progressCards.set(group, card);
   pushItem(b, renderItem);
+  const item = b.items[card.itemIndex];
+  if (item?.type === "session_update") {
+    item.progressGroup = group;
+  }
   return card;
 }
 
