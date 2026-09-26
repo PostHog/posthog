@@ -54229,6 +54229,33 @@ export namespace Schemas {
       legacy: number;
     }
 
+    export interface InsightMetadataSuggestionRequest {
+      /** The insight's query as a JSON object with kind `InsightVizNode`. The model sees only a plain-language outline of it, never the raw query. */
+      query: unknown;
+      /**
+         * The current name. Given to the model as context.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * The current description. Given to the model as context.
+         * @maxLength 2000
+         */
+      description?: string;
+    }
+
+    /**
+     * The model's probability that each considered tag applies, keyed by tag name.
+     */
+    export type InsightTagSuggestionScores = {[key: string]: number};
+
+    export interface InsightTagSuggestion {
+      /** The project's existing tags the model judged to apply, most likely first. */
+      tags: string[];
+      /** The model's probability that each considered tag applies, keyed by tag name. */
+      scores: InsightTagSuggestionScores;
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel

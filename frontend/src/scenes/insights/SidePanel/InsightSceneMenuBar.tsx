@@ -94,9 +94,18 @@ export function InsightSceneMenuBar({
 
 function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     const theInsightLogic = insightLogic(insightLogicProps)
-    const { insightProps, insight, hasDashboardItemId, canEditInsight, isSavingTags, insightDuplicating } =
-        useValues(theInsightLogic)
-    const { duplicateInsight, deleteInsight, setInsightMetadata } = useActions(theInsightLogic)
+    const {
+        insightProps,
+        insight,
+        hasDashboardItemId,
+        canEditInsight,
+        isSavingTags,
+        insightDuplicating,
+        tagSuggestionLoading,
+        metadataSuggestionsAvailable,
+        metadataSuggestionQuery,
+    } = useValues(theInsightLogic)
+    const { duplicateInsight, deleteInsight, setInsightMetadata, suggestTags } = useActions(theInsightLogic)
 
     const theInsightDataLogic = insightDataLogic(insightProps)
     const {
@@ -441,6 +450,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                         dataAttrKey={RESOURCE_TYPE}
                         canEdit={canEditInsight}
                         loading={isSavingTags}
+                        onSuggest={metadataSuggestionsAvailable && metadataSuggestionQuery ? suggestTags : undefined}
+                        suggesting={tagSuggestionLoading}
                     />
                     <SceneActivityIndicator
                         at={insight.last_modified_at}
