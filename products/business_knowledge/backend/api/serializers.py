@@ -677,12 +677,6 @@ class EightBallQuestionSerializer(serializers.Serializer):
         help_text="The product question to ask. Business knowledge search finds what the team has written about it.",
     )
 
-    def validate_question(self, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise serializers.ValidationError("Question cannot be blank.")
-        return value
-
 
 class EightBallSourceSerializer(serializers.Serializer):
     source_id = serializers.UUIDField(read_only=True, help_text="ID of a knowledge source the answer drew on.")

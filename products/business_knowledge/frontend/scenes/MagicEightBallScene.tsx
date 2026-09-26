@@ -21,6 +21,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { Region } from '~/types'
 
+import { EightBallAnswerApi } from '../api'
 import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs'
 import { magicEightBallLogic } from './magicEightBallLogic'
 
@@ -186,28 +187,7 @@ function MagicEightBall(): JSX.Element {
                     {askError ? (
                         <span>The ball couldn't answer: {askError}</span>
                     ) : showResult ? (
-                        <>
-                            <span>
-                                The ball was <span translate="no">{Math.round(result.confidence * 100)}%</span> sure.
-                            </span>
-                            {result.sources.length > 0 ? (
-                                <span className="text-sm">
-                                    Drawn from{' '}
-                                    {result.sources.map((source, index) => (
-                                        <Fragment key={`${source.source_id}:${index}`}>
-                                            {index > 0 && ', '}
-                                            <Link to={urls.businessKnowledgeSource(source.source_id)}>
-                                                {source.document_title || source.source_name}
-                                            </Link>
-                                        </Fragment>
-                                    ))}
-                                </span>
-                            ) : (
-                                <span className="text-sm">
-                                    Nothing in your business knowledge matched, so the ball cannot answer.
-                                </span>
-                            )}
-                        </>
+                        <EightBallResult result={result} />
                     ) : (
                         <span>Type a question, then shake your phone, tap the ball or press Enter.</span>
                     )}
@@ -224,5 +204,30 @@ function MagicEightBall(): JSX.Element {
                 )}
             </div>
         </SceneContent>
+    )
+}
+
+function EightBallResult({ result }: { result: EightBallAnswerApi }): JSX.Element {
+    return (
+        <>
+            <span>
+                The ball was <span translate="no">{Math.round(result.confidence * 100)}%</span> sure.
+            </span>
+            {result.sources.length > 0 ? (
+                <span className="text-sm">
+                    Drawn from{' '}
+                    {result.sources.map((source, index) => (
+                        <Fragment key={`${source.source_id}:${index}`}>
+                            {index > 0 && ', '}
+                            <Link to={urls.businessKnowledgeSource(source.source_id)}>
+                                {source.document_title || source.source_name}
+                            </Link>
+                        </Fragment>
+                    ))}
+                </span>
+            ) : (
+                <span className="text-sm">Nothing in your business knowledge matched, so the ball cannot answer.</span>
+            )}
+        </>
     )
 }
