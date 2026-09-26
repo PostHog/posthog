@@ -128,6 +128,7 @@ from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import (
     HogFlowBatchJobCancelResponseSerializer,
     HogFlowBatchJobSerializer,
+    HogFlowBatchJobStatusUpdateResponseSerializer,
 )
 from products.workflows.backend.api.message_assets import (
     MessageAssetContentRequestSerializer,
@@ -147,7 +148,11 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
 )
-from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
+from products.workflows.backend.models.hog_flow_batch_job import (
+    NON_TERMINAL_BATCH_JOB_STATES,
+    HogFlowBatchJob,
+    cancel_batch_jobs_for_inactive_flow,
+)
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -4515,6 +4520,13 @@ class HogFlowViewSet(
         log_activity_from_viewset(self, serializer.instance, name=serializer.instance.name, previous=before_update)
         self._emit_resource_edited(serializer.instance)
 
+        if (
+            before_update
+            and before_update.status == HogFlow.State.ACTIVE
+            and serializer.instance.status != HogFlow.State.ACTIVE
+        ):
+            cancel_batch_jobs_for_inactive_flow(serializer.instance.id)
+
         # PostHog capture for hog_flow activated (draft -> active)
         if (
             before_update
@@ -5815,11 +5827,7 @@ class HogFlowViewSet(
             # as 404 rather than a 500 reported to error tracking.
             raise exceptions.NotFound("Batch job not found")
 
-        non_terminal = {
-            HogFlowBatchJob.State.WAITING,
-            HogFlowBatchJob.State.QUEUED,
-            HogFlowBatchJob.State.ACTIVE,
-        }
+        non_terminal = NON_TERMINAL_BATCH_JOB_STATES
         if batch_job.status not in non_terminal:
             return Response({"status": batch_job.status, "marked": 0, "remaining": 0, "done": True})
 
@@ -6364,22 +6372,28 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         if batch_job.status in terminal_states:
             # Idempotent no-op: already in a terminal state.
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": True,
-                }
+                HogFlowBatchJobStatusUpdateResponseSerializer(
+                    {"id": batch_job.id, "status": batch_job.status, "no_op": True}
+                ).data
             )
 
         try:
-            batch_job.status = new_status
-            batch_job.save(update_fields=["status", "updated_at"])
+            updated = (
+                HogFlowBatchJob.objects.filter(id=batch_job.id)
+                .exclude(status__in=terminal_states)
+                .update(status=new_status, updated_at=timezone.now())
+            )
+            if not updated:
+                batch_job.refresh_from_db()
+                return Response(
+                    HogFlowBatchJobStatusUpdateResponseSerializer(
+                        {"id": batch_job.id, "status": batch_job.status, "no_op": True}
+                    ).data
+                )
             return Response(
-                {
-                    "id": str(batch_job.id),
-                    "status": batch_job.status,
-                    "no_op": False,
-                }
+                HogFlowBatchJobStatusUpdateResponseSerializer(
+                    {"id": batch_job.id, "status": new_status, "no_op": False}
+                ).data
             )
         except Exception as e:
             logger.exception(
