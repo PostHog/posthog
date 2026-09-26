@@ -124,6 +124,12 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
                 "PostHog couldn't find this table in your Convex deployment. It was likely deleted, so "
                 "turn off syncing for this table, then re-enable the sync."
             ),
+            # The deployment answers every discovery request with the same 400 until the user
+            # changes something on the Convex side, so a retry can never succeed.
+            "Convex rejected schema discovery": (
+                "Your Convex deployment rejected the request for its table list. Check your deployment "
+                "URL, deploy key, and streaming export settings in Convex, then try again."
+            ),
             "StreamingExportNotEnabled": "Streaming export requires the Convex Professional plan. See https://www.convex.dev/plans to upgrade.",
             # A deploy key that cannot be encoded into an Authorization header is rejected before
             # any request leaves PostHog, so every retry rebuilds the same unsendable request. The
