@@ -20,7 +20,7 @@ class EmojiSearchRequestSerializer(serializers.Serializer):
 
 class EmojiSuggestionSerializer(serializers.Serializer):
     emoji = serializers.CharField(help_text="The suggested emoji character.")
-    label = serializers.CharField(help_text="The emoji's English name.")
+    label = serializers.CharField(help_text="The emoji's English name.")  # type: ignore[assignment]
 
 
 class EmojiSearchResponseSerializer(serializers.Serializer):

@@ -74,7 +74,7 @@ describe('EmojiPickerPanel', () => {
                 { signal: expect.any(AbortSignal) }
             )
         )
-        screen.getByRole('button', { name: 'T-Rex' }).click()
+        screen.getByLabelText('T-Rex').click()
         expect(onEmojiSelect).toHaveBeenCalledWith('🦖')
     })
 })
