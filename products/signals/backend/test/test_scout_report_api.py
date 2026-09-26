@@ -605,6 +605,37 @@ class TestScoutReportAPI(APIBaseTest):
         judge_mock.assert_not_awaited()
         embed_mock.assert_not_called()
 
+    def test_an_edit_of_nothing_but_unrecognized_fields_is_rejected_by_name(self) -> None:
+        # Nothing is left to apply, so the caller needs the names rather than a silent no-op.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge() as judge_mock, patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "collapse_after_four": True},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "collapse_after_four" in json.dumps(response.json())
+        judge_mock.assert_not_awaited()
+
+    def test_an_edit_left_empty_by_ignored_fields_names_them(self) -> None:
+        # A declared field can be present and still leave nothing to apply, so the serializer lets the
+        # edit through and the emptiness check refuses it. Its generic wording cannot tell the caller
+        # a skew apart from its own mistake unless the ignored names ride along.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "title": None, "collapse_after_four": True},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "collapse_after_four" in json.dumps(response.json())
+
     @parameterized.expand([("corroboration_only",), ("supersedes_implementation",)])
     def test_an_omitted_edit_flag_stays_out_of_the_request_body(self, field: str) -> None:
         # A DRF default renders as a default on the generated client, which sends an explicit `false`
@@ -1552,16 +1583,17 @@ class TestScoutReportAPI(APIBaseTest):
         assert selection is not None
         assert json.loads(selection.content)["repository"] == "acme/widgets"
 
-    def test_edit_report_rejects_a_field_this_backend_does_not_know(self) -> None:
+    def test_edit_report_names_a_field_this_backend_does_not_know(self) -> None:
         # The tool definition a scout reads and this endpoint ship separately, so a scout can name a
-        # field a running backend has yet to learn. Dropping it silently would apply the rest of the
-        # edit and report success, which is how a correction disappears without anyone seeing it.
+        # field a running backend has yet to learn. Dropping it silently is how a correction
+        # disappears without anyone seeing it, and failing the whole edit loses the note sent beside
+        # it. The endpoint applies what it understood and hands the name back instead.
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             created = self.client.post(
                 self._emit_url(str(run.id)), data=self._payload(repository="acme/widgets"), format="json"
             ).json()
-        with _safe_judge() as judge:
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={
@@ -1571,10 +1603,46 @@ class TestScoutReportAPI(APIBaseTest):
                 },
                 format="json",
             )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        judge.assert_not_awaited()
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ignored_fields"] == ["repo"]
+        assert response.json()["repository"] == "acme/widgets"
         note = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.NOTE)
-        assert note is None or "gadgets service" not in note.content
+        assert note is not None and "gadgets service" in note.content
+        # The call now answers 200, so the response is the only place the names reach the caller. An
+        # operator measuring how long a deploy skew lasted reads the event stream instead, which needs
+        # a partly applied edit to be separable from a clean one.
+        event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited")
+        assert event.kwargs["properties"]["ignored_fields"] == ["repo"]
+        assert event.kwargs["properties"]["has_ignored_fields"] is True
+
+    @parameterized.expand(
+        [
+            # Restating the stored title applies cleanly and mutates nothing, so the edit is suppressed.
+            ("no_op_edit", "Checkout p99 regressed after 4.2", status.HTTP_200_OK),
+            # Nothing is left to apply once the ignored field is set aside, so the edit is rejected.
+            ("rejected_edit", None, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_skewed_request_records_the_ignored_fields_whatever_the_edit_does(
+        self, _name: str, title: str | None, expected_status: int
+    ) -> None:
+        # A skew belongs to the request, not to the edit, so it must not be counted off the edited
+        # event: neither of these writes one, and an operator measuring how long a skew lasted would
+        # see only the calls that happened to change something.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with _safe_judge(), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "title": title, "collapse_after_four": True},
+                format="json",
+            )
+        assert response.status_code == expected_status, response.json()
+        assert not [c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_edited"]
+        skew = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_edit_fields_ignored")
+        assert skew.kwargs["properties"]["ignored_fields"] == ["collapse_after_four"]
+        assert skew.kwargs["properties"]["run_id"] == str(run.id)
 
     @parameterized.expand(
         [
@@ -1893,6 +1961,9 @@ class TestScoutReportAPI(APIBaseTest):
         # The edit event carries the content the edit applied; an untouched field (summary) stays None.
         assert props["title"] == "new title"
         assert props["note"] == "re-validated"
+        # The empty state, so "no ignored fields" is a fact on the event rather than an absent property.
+        assert props["ignored_fields"] == []
+        assert props["has_ignored_fields"] is False
         assert props["summary"] is None
         assert props["is_self_improvement_report"] is False
         # The edit also fans out to the team's own project, deep-linking the edited report.
