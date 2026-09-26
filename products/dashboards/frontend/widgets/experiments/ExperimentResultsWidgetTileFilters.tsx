@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { experimentPickerLogic } from 'lib/components/ExperimentPicker/experimentPickerLogic'
+import { ExperimentPickerSelect } from 'lib/components/ExperimentPicker/ExperimentPickerSelect'
+
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
 import { WidgetTileFilterReadOnlyValue, WidgetTileFiltersBar } from '../widgetTileFiltersReadOnly'
-import { experimentPickerLogic } from './experimentPickerLogic'
-import { ExperimentPickerSelect } from './ExperimentPickerSelect'
 import {
     parseExperimentResultsWidgetConfig,
     patchExperimentResultsWidgetConfig,

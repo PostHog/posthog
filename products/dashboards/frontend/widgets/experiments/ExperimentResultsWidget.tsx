@@ -5,6 +5,7 @@ import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { ExperimentPickerSelect } from 'lib/components/ExperimentPicker/ExperimentPickerSelect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
@@ -18,7 +19,6 @@ import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { ExperimentPickerSelect } from './ExperimentPickerSelect'
 import { patchExperimentResultsWidgetConfig } from './experimentsWidgetConfigValidation'
 import { NotebookCompactTable } from './LazyNotebookCompactTable'
 

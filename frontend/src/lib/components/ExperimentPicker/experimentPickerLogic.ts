@@ -91,7 +91,7 @@ export type experimentPickerLogicType = MakeLogicType<
 >
 
 export const experimentPickerLogic = kea<experimentPickerLogicType>([
-    path((key) => ['products', 'dashboards', 'widgets', 'experiments', 'experimentPickerLogic', key]),
+    path((key) => ['lib', 'components', 'ExperimentPicker', 'experimentPickerLogic', key]),
     props({} as ExperimentPickerLogicProps),
     key((props) => props.pickerKey),
 
