@@ -130,7 +130,7 @@ def _evaluation_output_enabled(serializer: serializers.BaseSerializer, flag_key:
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.",
+                        "description": "Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.",
                         "minLength": 1,
                     }
                 },
@@ -923,7 +923,9 @@ class TestHogRequestSerializer(serializers.Serializer):
         required=True,
         min_length=1,
         help_text=(
-            "Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. "
+            "Hog source code to test. Return a boolean, finite number, or category keys matching output_type. "
+            "Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. "
+            "Return null only for allowed N/A. "
             "Output settings determine which boolean counts as a failure."
         ),
     )  # type: ignore[assignment]

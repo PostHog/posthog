@@ -1135,7 +1135,7 @@ type RawEvaluationRunRow = [
     score?: number | string | null,
     score_min?: number | string | null,
     score_max?: number | string | null,
-    categories?: string[] | null,
+    categories?: string[] | string | null,
 ]
 
 export function normalizeEvaluationType(value: unknown): EvaluationType | undefined {
@@ -1218,6 +1218,18 @@ export function normalizeEvaluationResultProperties({
     const resultType =
         normalizeEvaluationOutputType(rawResultType) ??
         (evaluationType === 'sentiment' || sentimentLabel ? 'sentiment' : 'boolean')
+
+    if (resultType === 'categorical') {
+        if (rawCategories == null && isExplicitEvaluationPass(rawApplicable)) {
+            rawCategories = []
+        } else if (typeof rawCategories === 'string') {
+            try {
+                rawCategories = JSON.parse(rawCategories)
+            } catch {
+                rawCategories = null
+            }
+        }
+    }
 
     const result =
         resultType === 'sentiment' ||
@@ -1333,7 +1345,7 @@ export async function queryEvaluationRuns(params: {
             properties.$ai_evaluation_numeric_result as score,
             properties.$ai_evaluation_numeric_result_min as score_min,
             properties.$ai_evaluation_numeric_result_max as score_max,
-            if(properties.$ai_evaluation_categorical_result IS NULL, NULL, JSONExtract(properties.$ai_evaluation_categorical_result, 'Array(String)')) as categories
+            properties.$ai_evaluation_categorical_result as categories
         FROM events
         WHERE
             event = '$ai_evaluation'

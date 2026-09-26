@@ -121,7 +121,7 @@ SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric", "categor
 def _categorical_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
     config = CategoricalOutputConfig.model_validate(output_config) if output_config else None
     categories = "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
-    graded = "properties.$ai_evaluation_categorical_result IS NOT NULL AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false')"
+    graded = "properties.$ai_evaluation_applicable = 'true'"
     passed = failed = "false"
     if config is not None and config.passing_rule is not None:
         condition = f"hasAll({{passing_categories}}, {categories})"

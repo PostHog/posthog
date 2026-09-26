@@ -106,7 +106,7 @@ export function numericScorePasses(
 
 export const EVALUATION_CATEGORIES_HOGQL =
     "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
-export const EVALUATION_CATEGORICAL_GRADED_HOGQL = `properties.$ai_evaluation_result_type = 'categorical' AND properties.$ai_evaluation_categorical_result IS NOT NULL AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+export const EVALUATION_CATEGORICAL_GRADED_HOGQL = `properties.$ai_evaluation_result_type = 'categorical' AND properties.$ai_evaluation_applicable = 'true' AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
 
 export function categoricalResultPasses(
     categories: string[] | null | undefined,

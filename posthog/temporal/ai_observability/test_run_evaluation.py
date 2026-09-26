@@ -2578,12 +2578,15 @@ class TestExecuteSentimentEvalActivity:
 
 
 class TestEvalResultModels:
-    @pytest.mark.parametrize("categories", [["resolved"], [], None, ["unknown"]])
-    def test_categorical_judge_emits_only_valid_labels(self, categories: list[str] | None) -> None:
+    @pytest.mark.parametrize(
+        "categories,allows_na",
+        [(["resolved"], True), ([], True), (None, True), (["unknown"], True), ([], False), (["unknown"], False)],
+    )
+    def test_categorical_judge_emits_only_valid_labels(self, categories: list[str] | None, allows_na: bool) -> None:
         config = {
             "options": [{"key": "resolved", "label": "Resolved"}],
             "selection_mode": "multiple",
-            "allows_na": True,
+            "allows_na": allows_na,
         }
         evaluation = {
             "id": "categorical-eval",
@@ -2594,7 +2597,7 @@ class TestEvalResultModels:
             "output_type": "categorical",
             "output_config": config,
         }
-        schema = get_output_type_config(True, output_type="categorical", output_config=config).response_format
+        schema = get_output_type_config(allows_na, output_type="categorical", output_config=config).response_format
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as model_spec,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
@@ -2617,12 +2620,15 @@ class TestEvalResultModels:
             assert result["skipped"] is True
             assert "terminal_user_error" not in result
             assert "$ai_evaluation_categorical_result" not in properties
+            assert properties["$ai_evaluation_applicable"] is False
         elif categories is None:
             assert result["applicable"] is False
             assert "$ai_evaluation_categorical_result" not in properties
+            assert properties["$ai_evaluation_applicable"] is False
         else:
             assert result["categories"] == categories
-            assert result["applicable"] is True
+            assert result.get("applicable", True) is True
+            assert properties["$ai_evaluation_applicable"] is True
             assert properties["$ai_evaluation_categorical_result"] == categories
 
     @pytest.mark.parametrize("score", [0, 0.25, 1, None, -0.1, 1.1])

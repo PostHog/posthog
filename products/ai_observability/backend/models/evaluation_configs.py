@@ -137,6 +137,10 @@ class CategoricalPassingRule(BaseModel):
         return set(categories) <= set(self.categories)
 
 
+class UnknownEvaluationCategory(ValueError):
+    pass
+
+
 class CategoricalOutputConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -165,7 +169,7 @@ class CategoricalOutputConfig(BaseModel):
             raise ValueError("Single selection must return exactly one category")
         keys = {option.key for option in self.options}
         if not set(value) <= keys:
-            raise ValueError("Return only configured category keys")
+            raise UnknownEvaluationCategory("Return only configured category keys")
         if len(value) != len(set(value)):
             raise ValueError("Return each category only once")
         return value

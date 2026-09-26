@@ -860,9 +860,9 @@ class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
             PropertyDefinition.objects.create(team=self.team, name="$ai_evaluation_applicable", property_type="Boolean")
         start = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
         results: list[dict[str, object]] = [
-            {"$ai_evaluation_categorical_result": ["resolved"]},
-            {"$ai_evaluation_categorical_result": []},
-            {"$ai_evaluation_categorical_result": ["resolved", "incorrect"]},
+            {"$ai_evaluation_categorical_result": ["resolved"], "$ai_evaluation_applicable": True},
+            {"$ai_evaluation_categorical_result": [], "$ai_evaluation_applicable": True},
+            {"$ai_evaluation_categorical_result": ["resolved", "incorrect"], "$ai_evaluation_applicable": True},
             {"$ai_evaluation_applicable": False},
             {"$ai_evaluation_skipped": True},
         ]

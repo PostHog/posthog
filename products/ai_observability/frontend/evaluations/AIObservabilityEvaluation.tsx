@@ -394,12 +394,6 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                                     <div className="font-semibold text-lg">{runsSummary.total}</div>
                                                     <div className="text-muted">Total runs</div>
                                                 </div>
-                                                {evaluation.output_type === 'categorical' && (
-                                                    <CategoricalEvaluationConfig
-                                                        config={evaluation.output_config}
-                                                        onChange={patchOutputConfig}
-                                                    />
-                                                )}
                                                 {evaluation.output_type === 'numeric' && (
                                                     <div className="text-center">
                                                         <div className="font-semibold text-lg">

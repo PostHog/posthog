@@ -22,6 +22,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
     CategoricalOutputConfig,
     NumericOutputConfig,
     NumericScoreOutOfBounds,
+    UnknownEvaluationCategory,
 )
 
 from common.hogvm.python.execute import execute_bytecode
@@ -205,6 +206,8 @@ def execute_hog_eval_bytecode(
     if output_type == "categorical":
         try:
             categories = CategoricalOutputConfig.model_validate(output_config or {}).validate_result(response.result)
+        except UnknownEvaluationCategory as error:
+            return {"verdict": None, "reasoning": reasoning, "error": str(error), "user_input_error": True}
         except ValueError as error:
             return {"verdict": None, "reasoning": reasoning, "error": str(error)}
         return {"categories": categories, "reasoning": reasoning, "error": None, "applicable": True}

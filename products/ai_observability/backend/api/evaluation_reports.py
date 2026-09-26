@@ -479,7 +479,7 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
     pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Pass percentage for boolean, numeric, or categorical results, excluding N/A. Null when no applicable results were produced.",
+        help_text="Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.",
     )
     previous_pass_rate = serializers.FloatField(
         required=False,

@@ -76,9 +76,11 @@ Keep keys stable when changing labels so historical results retain their meaning
 Hog returns a list of keys, or a single key string for single selection.
 The LLM judge returns `categories` and `reasoning`.
 Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
+Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
 `null` means N/A only when `allows_na` is enabled.
 Unknown or duplicate keys are invalid results.
-Invalid model responses skip the run; invalid Hog return values follow the existing return-contract error path.
+Invalid model responses and unknown category keys from Hog skip the run.
+Wrong Hog return types follow the existing return-contract error path.
 
 An optional `passing_rule: {categories: [key]}` marks the passing categories.
 Every returned category must be marked as passing; `[]` passes, and N/A is excluded from pass rates.

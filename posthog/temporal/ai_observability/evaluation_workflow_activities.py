@@ -305,8 +305,8 @@ def build_evaluation_event_properties(
 
     if result["result_type"] == "categorical":
         properties["$ai_evaluation_allows_na"] = allows_na
-        if allows_na:
-            properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
+        # Native JSON property reads turn [] into NULL, so applicability preserves empty results.
+        properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
         if not result.get("skipped") and result.get("applicable", True) and "categories" in result:
             properties["$ai_evaluation_categorical_result"] = result["categories"]
     elif result["result_type"] == "numeric":

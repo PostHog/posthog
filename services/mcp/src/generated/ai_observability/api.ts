@@ -616,7 +616,7 @@ export const EvaluationsCreateBody = () => zod
                         .string()
                         .min(1)
                         .describe(
-                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
                         ),
                 }),
                 zod.object({
@@ -907,7 +907,7 @@ export const EvaluationsPartialUpdateBody = () => zod
                         .string()
                         .min(1)
                         .describe(
-                            'Hog source code. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+                            'Hog source code. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
                         ),
                 }),
                 zod.object({
@@ -1248,7 +1248,7 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
         .string()
         .min(1)
         .describe(
-            'Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N\/A. Output settings determine which boolean counts as a failure.'
+            'Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N\/A. Output settings determine which boolean counts as a failure.'
         ),
     sample_count: zod
         .number()
