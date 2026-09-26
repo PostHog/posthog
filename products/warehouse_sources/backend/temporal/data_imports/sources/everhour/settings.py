@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -12,7 +14,7 @@ ASSIGNMENTS_DAYS_AHEAD = 5 * 365
 FanOut = Literal["none", "project"]
 
 
-@dataclass
+@frozen
 class EverhourEndpointConfig:
     name: str
     fan_out: FanOut
