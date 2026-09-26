@@ -18,9 +18,11 @@ decisions — deliberately stays with the engineer or agent.
 
 from __future__ import annotations
 
+import io
 import re
 import ast
 import shutil
+import tokenize
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -298,6 +300,33 @@ def _args_span(text: str, open_idx: int) -> int | None:
     return None
 
 
+def _strip_inline_comment(line: str) -> str:
+    """Strip inline comments while preserving '#' inside quoted strings.
+
+    Returns the code part of the line, with comments removed.
+    If the line cannot be safely parsed, returns the whole line unchanged.
+    """
+    try:
+        # Use tokenize to identify strings and comments accurately
+        tokens = list(tokenize.generate_tokens(io.StringIO(line).readline))
+        code_part = ""
+        for tok in tokens:
+            if tok.type == tokenize.COMMENT:
+                # Stop processing at comment start
+                break
+            if tok.type in (tokenize.STRING, tokenize.NAME, tokenize.OP, tokenize.NUMBER):
+                code_part += tok.string
+            elif tok.type == tokenize.INDENT or tok.type == tokenize.DEDENT:
+                continue
+            elif tok.type == tokenize.ERRORTOKEN:
+                # If tokenization fails, return the line unchanged
+                return line
+        return code_part.rstrip()
+    except tokenize.TokenError:
+        # If tokenization fails, return the line unchanged as a safe fallback
+        return line
+
+
 def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
     """Pin ``@shared_task`` registration names to their pre-move dotted path.
 
@@ -332,14 +361,14 @@ def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
             replacement = f'@shared_task(name="{pinned_name}")'
         else:
             inner_text = args[1:-1].strip()
-            # Handle inline comments: split by '#' and take the code part, then process
+            # Handle inline comments: use tokenization to preserve '#' inside strings
             if "#" in inner_text:
-                # Extract the code before the comment, preserving the comment for later
+                # Extract the code before the comment, preserving '#' inside quoted strings
                 lines = inner_text.split("\n")
                 processed_lines = []
                 for line in lines:
                     if "#" in line:
-                        code_part = line.split("#")[0].rstrip()
+                        code_part = _strip_inline_comment(line)
                         if code_part:
                             processed_lines.append(code_part)
                     else:

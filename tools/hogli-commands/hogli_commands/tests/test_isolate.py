@@ -193,6 +193,16 @@ def test_pin_task_names_warns_when_not_directly_above_def() -> None:
     assert len(warnings) == 1
 
 
+def test_pin_task_names_preserves_hash_in_quoted_arguments() -> None:
+    # Test that '#' inside quoted decorator arguments is preserved correctly
+    source = '@shared_task(queue="jobs#priority", time_limit=3600)\ndef prioritized_task():\n    pass\n'
+    result, warnings = pin_task_names(source, "products.logs.backend.tasks")
+    # The hash should be preserved in the queue argument, not treated as a comment
+    assert 'queue="jobs#priority"' in result
+    assert 'name="products.logs.backend.tasks.prioritized_task"' in result
+    assert warnings == []
+
+
 # ---------------------------------------------------------------------------
 # viewset detection and thin/thick signal
 # ---------------------------------------------------------------------------
