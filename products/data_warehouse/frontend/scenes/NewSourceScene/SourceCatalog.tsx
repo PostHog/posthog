@@ -62,6 +62,11 @@ const SourceTile = memo(function SourceTile({
                     </>
                 ) : (
                     <div className="flex flex-wrap items-center gap-1">
+                        {item.existingSource && (
+                            <Tooltip title="You already have a source of this type. Connecting another one needs a table name prefix so its tables don't clash.">
+                                <LemonTag type="completion">Already connected</LemonTag>
+                            </Tooltip>
+                        )}
                         {item.selfManaged && (
                             <Tooltip title="Self-managed: your files stay in your own bucket and PostHog queries them there. The managed version copies the data into PostHog on a schedule.">
                                 <LemonTag type="muted">Self-managed</LemonTag>
