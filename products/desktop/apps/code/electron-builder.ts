@@ -95,10 +95,9 @@ const config: Configuration = {
     entitlementsInherit: "build/entitlements.mac.inherit.plist",
     extendInfo: {
       CFBundleIconName: "Icon",
-      // Shown in the macOS microphone-permission prompt when a user records a
-      // custom notification sound.
+      // Shown in the macOS microphone-permission prompt.
       NSMicrophoneUsageDescription:
-        "PostHog uses the microphone to record custom notification sounds.",
+        "PostHog uses the microphone for voice conversations and custom notification sounds.",
     },
     notarize: !skipNotarize,
   },

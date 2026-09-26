@@ -37,5 +37,6 @@
   "TASKS_PREWARM_SANDBOX_FLAG": "tasks-prewarm-sandbox",
   "TRIAGE_FOCUS_FLAG": "posthog-desktop-triage-focus",
   "TWIG_CLOUD_MODE_FLAG": "twig-cloud-mode-toggle",
+  "VOICE_CONVERSATION_FLAG": "posthog-desktop-voice",
   "USER_SPEND_LIMIT_FLAG": "ai-gateway-user-spend-limit"
 }

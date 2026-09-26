@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getNewAttachments } from "./SessionView";
+import { getNewAttachments } from "./submitComposerPrompt";
 
 describe("getNewAttachments", () => {
   it("returns only attachments that were not already present", () => {

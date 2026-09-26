@@ -146,6 +146,7 @@ import {
   type ContextWikiProposalApplyResult,
   contextWikiProposalApplyResultSchema,
   contextWikiProposalsSchema,
+  voiceSessionResponseSchema,
 } from "./schemas";
 import type { SpendAnalysisResponse } from "./spend-analysis";
 import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
@@ -3323,6 +3324,26 @@ export class PostHogAPIClient {
     );
 
     return normalizeTaskResponse(data, { teamId });
+  }
+
+  async createTaskVoiceSession(
+    taskId: string,
+    sdp: string,
+    context: string,
+    signal: AbortSignal,
+  ): Promise<string> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${encodeURIComponent(taskId)}/voice/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify({ sdp, context, structured_tools: true }),
+        signal,
+      },
+    });
+    return voiceSessionResponseSchema.parse(await response.json()).sdp;
   }
 
   async createSignalReportTask(options: {

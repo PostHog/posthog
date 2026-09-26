@@ -120,3 +120,5 @@ export const CUSTOM_IMAGES_FEATURE_FLAG =
 export const PI_HARNESS_FLAG = featureFlagKeys.PI_HARNESS_FLAG;
 export const TWIG_CLOUD_MODE_FLAG = featureFlagKeys.TWIG_CLOUD_MODE_FLAG;
 export const USER_SPEND_LIMIT_FLAG = featureFlagKeys.USER_SPEND_LIMIT_FLAG;
+
+export const VOICE_CONVERSATION_FLAG = featureFlagKeys.VOICE_CONVERSATION_FLAG;

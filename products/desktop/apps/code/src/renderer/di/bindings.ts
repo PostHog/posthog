@@ -146,6 +146,10 @@ import {
   type ShellProcessReader,
 } from "@posthog/core/terminal/identifiers";
 import {
+  VOICE_SESSION_FACTORY,
+  type VoiceSessionFactory,
+} from "@posthog/core/voice/conversationVoiceSession";
+import {
   WORKSPACE_SETUP_GIT_CLIENT,
   WORKSPACE_SETUP_SERVICE,
   type WorkspaceSetupGitClient,
@@ -384,6 +388,7 @@ export interface RendererBindings {
   [NOTIFICATION_SETTINGS_PROVIDER]: INotificationSettings;
   [ACTIVE_VIEW_PROVIDER]: IActiveView;
   [SPEECH_SERVICE]: ISpeech;
+  [VOICE_SESSION_FACTORY]: VoiceSessionFactory;
   [SPEECH_SETTINGS_PROVIDER]: SpeechSettingsProvider;
   [SPEECH_USER_NAME_PROVIDER]: UserNameProvider;
   [SPEECH_NOTIFY_SETTINGS]: ISpeechNotifySettings;

@@ -55,6 +55,10 @@ import {
   type SpeechSettingsProvider,
   type UserNameProvider,
 } from "@posthog/core/speech/identifiers";
+import {
+  ConversationVoiceSession,
+  VOICE_SESSION_FACTORY,
+} from "@posthog/core/voice/conversationVoiceSession";
 import { resolveService } from "@posthog/di/container";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
 import { DISK_CACHE_IMAGES } from "@posthog/platform/disk-cache";
@@ -135,6 +139,7 @@ import { ELEVENLABS_API_KEY_STORE_KEY } from "@posthog/workspace-server/services
 import { container } from "@renderer/di/container";
 import { RendererAuthSideEffects } from "@renderer/platform-adapters/auth-side-effects";
 import { desktopDiskCacheImages } from "@renderer/platform-adapters/desktop-disk-cache-images";
+import { DesktopVoiceTransport } from "@renderer/platform-adapters/desktop-voice-transport";
 import { gitCacheKeyProvider } from "@renderer/platform-adapters/git-cache-keys";
 import { RendererHedgehogModeHost } from "@renderer/platform-adapters/hedgehog-mode-host";
 import { setupStore } from "@renderer/platform-adapters/setup";
@@ -370,6 +375,13 @@ container.bind<FileWatcherClient>(FILE_WATCHER_CLIENT).toConstantValue({
 // play in the renderer from a blob URL (host-neutral). Fall back to the system
 // voice when no key is set or synthesis fails. speak() resolves when playback
 // ends, so the core queue serializes utterances.
+container
+  .bind(VOICE_SESSION_FACTORY)
+  .toConstantValue(
+    (conversation) =>
+      new ConversationVoiceSession(new DesktopVoiceTransport(), conversation),
+  );
+
 const speechLog = logger.scope("speech-adapter");
 container.bind<ISpeech>(SPEECH_SERVICE).toConstantValue({
   isSupported: () => isSpeechSupported(),
