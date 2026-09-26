@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import date
+from datetime import UTC, date, datetime
 from types import TracebackType
 from typing import Any, Literal
+from uuid import uuid4
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, call, patch
 
+from django.db import connection
+
 import psycopg
+from psycopg.conninfo import make_conninfo
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
@@ -309,9 +314,13 @@ class _FakePgConn:
     in ``dropped``.
     """
 
-    def __init__(self, partitions: dict[str, list[str]] | None = None) -> None:
+    def __init__(
+        self, partitions: dict[str, list[str]] | None = None, *, denied_drops: frozenset[str] = frozenset()
+    ) -> None:
         self.partitions = partitions or {}
+        self.denied_drops = denied_drops
         self.dropped: list[str] = []
+        self.deleted: list[tuple[str, datetime]] = []
 
     def __enter__(self) -> _FakePgConn:
         return self
@@ -322,10 +331,16 @@ class _FakePgConn:
     def execute(self, sql: Any, params: Any = None) -> MagicMock:
         cursor = MagicMock()
         cursor.fetchall.return_value = []
+        cursor.rowcount = 0
         if "pg_inherits" in sql and params:
             cursor.fetchall.return_value = [(name,) for name in self.partitions.get(params[0], [])]
         elif sql.startswith("DROP TABLE IF EXISTS "):
-            self.dropped.append(sql.removeprefix("DROP TABLE IF EXISTS "))
+            partition_name = sql.removeprefix("DROP TABLE IF EXISTS ")
+            if partition_name in self.denied_drops:
+                raise psycopg.errors.InsufficientPrivilege(f"must be owner of table {partition_name}")
+            self.dropped.append(partition_name)
+        elif sql.strip().startswith("DELETE FROM "):
+            self.deleted.append((sql.split()[2], params["created_before"]))
         return cursor
 
 
@@ -357,13 +372,28 @@ async def test_activity_result_includes_s3_deleted(activity_environment) -> None
 
 
 @pytest.mark.asyncio
-async def test_activity_s3_failure_marks_success_false_and_triggers_slack(activity_environment) -> None:
+@pytest.mark.parametrize(
+    ("ls_raises", "delete_raises", "expected_error"),
+    [
+        (
+            None,
+            {f"{BASE}/dt=2000-01-01": OSError("kaboom")},
+            "Failed to delete S3 partition dt=2000-01-01: kaboom",
+        ),
+        (PermissionError("Access Denied"), None, "Failed to list S3 extraction partitions: Access Denied"),
+    ],
+)
+async def test_activity_s3_failure_marks_success_false_and_triggers_slack(
+    activity_environment,
+    ls_raises: Exception | None,
+    delete_raises: dict[str, Exception] | None,
+    expected_error: str,
+) -> None:
     entries = [f"{BASE}/dt=2000-01-01"]
-    delete_raises: dict[str, Exception] = {f"{BASE}/dt=2000-01-01": OSError("kaboom")}
 
     with (
         _patched_pg(),
-        _patched_s3(entries, delete_raises=delete_raises),
+        _patched_s3(entries, ls_raises=ls_raises, delete_raises=delete_raises),
         patch.object(
             activities_module.settings, "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", "https://hooks/x"
         ),
@@ -373,7 +403,7 @@ async def test_activity_s3_failure_marks_success_false_and_triggers_slack(activi
         result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
 
     assert result["success"] is False
-    assert result["errors"] == ["Failed to delete S3 partition dt=2000-01-01: kaboom"]
+    assert result["errors"] == [expected_error]
     assert result["s3_deleted"] == []
     post.assert_called_once()
 
@@ -501,6 +531,100 @@ async def test_activity_keeps_partition_when_terminalization_fails(activity_envi
     assert OLD_STATUS_PART in result["dropped"]
     assert result["success"] is False
     assert any(OLD_BATCH_PART in e for e in result["errors"])
+
+
+PARTITION_ROLE_URL = "postgres://migrator@db.example.com/queue"
+WORKER_ROLE_URL = "postgres://worker@db.example.com/queue"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("partition_url", "expected_urls", "expect_dropped"),
+    [
+        (PARTITION_ROLE_URL, [PARTITION_ROLE_URL, WORKER_ROLE_URL], True),
+        ("", [WORKER_ROLE_URL], False),
+    ],
+)
+async def test_activity_uses_partition_role_and_drops_worker_owned_partitions_as_worker(
+    activity_environment, partition_url: str, expected_urls: list[str], expect_dropped: bool
+) -> None:
+    ddl_conn = _FakePgConn({"sourcebatchstatus": [OLD_STATUS_PART]}, denied_drops=frozenset({OLD_STATUS_PART}))
+    owner_conn = _FakePgConn()
+
+    with (
+        patch.object(activities_module.settings, "WAREHOUSE_SOURCES_QUEUE_PARTITION_DATABASE_URL", partition_url),
+        patch.object(activities_module.settings, "WAREHOUSE_SOURCES_DATABASE_URL", WORKER_ROLE_URL),
+        patch.object(activities_module.psycopg.Connection, "connect", side_effect=[ddl_conn, owner_conn]) as connect,
+        patch.object(activities_module, "_verify_partitions"),
+        _patched_s3([]),
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert [c.args[0] for c in connect.call_args_list] == expected_urls
+    assert (OLD_STATUS_PART in result["dropped"]) is expect_dropped
+    assert owner_conn.dropped == ([OLD_STATUS_PART] if expect_dropped else [])
+    assert result["success"] is expect_dropped
+
+
+@pytest.mark.asyncio
+async def test_activity_expires_old_default_partition_rows_instead_of_dropping(activity_environment) -> None:
+    partitions = {"sourcebatch": ["sourcebatch_default"], "sourcebatchstatus": ["sourcebatchstatus_default"]}
+    cutoff = datetime(2026, 9, 15, tzinfo=UTC)
+
+    with (
+        time_machine.travel("2026-09-22T12:00:00Z", tick=False),
+        _patched_pg(partitions) as conn,
+        _patched_s3([]),
+        patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    terminalize.assert_called_once_with(conn, "sourcebatch_default", created_before=cutoff)
+    assert conn.deleted == [("sourcebatch_default", cutoff), ("sourcebatchstatus_default", cutoff)]
+    assert conn.dropped == []
+    assert result["success"] is True
+
+
+def _test_database_conninfo() -> str:
+    settings_dict = connection.settings_dict
+    params = {
+        "host": settings_dict["HOST"],
+        "port": str(settings_dict["PORT"] or ""),
+        "user": settings_dict["USER"],
+        "password": settings_dict["PASSWORD"],
+        "dbname": settings_dict["NAME"],
+    }
+    return make_conninfo(**{key: value for key, value in params.items() if value})
+
+
+@pytest.mark.django_db
+def test_expire_default_partition_rows_deletes_only_rows_older_than_cutoff_in_batches() -> None:
+    table = f"expiry_test_{uuid4().hex[:12]}"
+    cutoff = date(2026, 9, 15)
+    errors: list[str] = []
+
+    with psycopg.Connection.connect(_test_database_conninfo(), autocommit=True) as conn:
+        try:
+            conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
+            conn.execute(f"CREATE TABLE {table}_default PARTITION OF {table} DEFAULT")
+            conn.execute(
+                f"""
+                INSERT INTO {table}
+                SELECT g, timestamptz '2026-09-14 23:59:59+00' - g * interval '1 hour' FROM generate_series(1, 5) g
+                UNION ALL
+                SELECT 100 + g, timestamptz '2026-09-15 00:00:00+00' + g * interval '1 hour' FROM generate_series(0, 1) g
+                """
+            )
+
+            with patch.object(activities_module, "DEFAULT_PARTITION_DELETE_BATCH_SIZE", 2):
+                activities_module._expire_default_partition_rows(conn, table, f"{table}_default", cutoff, errors)
+
+            remaining = [row[0] for row in conn.execute(f"SELECT id FROM {table} ORDER BY id").fetchall()]
+        finally:
+            conn.execute(f"DROP TABLE IF EXISTS {table}")
+
+    assert errors == []
+    assert remaining == [100, 101]
 
 
 @pytest.mark.asyncio
