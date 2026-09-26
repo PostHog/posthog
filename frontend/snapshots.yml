@@ -2932,6 +2932,10 @@ snapshots:
         hash: v1.k794b7964.8747f893c33a7965b9dca08aaee8b69da0057cc5e47d12766cd91d7c39b51b3a.anQcEhSmgooKf7awO46Qxfz9Ukw7x9jiso_P42Nq7II
     filters-action-filter--funnels-group-default-name--light:
         hash: v1.k794b7964.8e11329af3ee072662872001361b0e3d8bdaa396426bbc8af5f2e4c803fc0f47._Z9O_8LADc1XwJTtPVJRxuCcaMQxI2nJV9avyBQ2Slw
+    filters-action-filter--legacy-filters--dark:
+        hash: v1.k794b7964.8420820626238986e318165d50507951f50c8649d6ef1bb7911c277dcd0ec7f0.zjvEwdrJv6Ieyv5fbOKbZVgq1Lw6xJUnl1a_5OoFrY0
+    filters-action-filter--legacy-filters--light:
+        hash: v1.k794b7964.ebb564a39df01d9bb6509152d11c060895cb4e8898ac402b123692bea9c5d00f.HBgV8H3NfkJN4VG_xEdWCSYUYq9s-JiuFjm1MC3PzqQ
     filters-action-filter--property-filters-with-popover--dark:
         hash: v1.k794b7964.1194666b4cd343bab53f1c5dd7b8d1b8cf3fa4c90806d6c4281bce552e7d0b5e.qDNv_aIBmjN16RPEpOADICxO1r41Few01iN_njZ93lg
     filters-action-filter--property-filters-with-popover--light:

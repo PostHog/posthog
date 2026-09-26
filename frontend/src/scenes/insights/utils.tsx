@@ -13,6 +13,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import { isWarehouseSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -22,6 +23,7 @@ import { examples } from '~/queries/examples'
 import {
     AnyDataWarehouseNode,
     AnyEntityNode,
+    ExperimentDataWarehouseNode,
     BreakdownFilter,
     DashboardFilter,
     FileSystemIconType,
@@ -39,14 +41,7 @@ import {
     ResultCustomizationByValue,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import {
-    containsHogQLQuery,
-    isDataTableNode,
-    isAnyDataWarehouseNode,
-    isEventsNode,
-    isGroupNode,
-    isInsightVizNode,
-} from '~/queries/utils'
+import { containsHogQLQuery, isDataTableNode, isEventsNode, isGroupNode, isInsightVizNode } from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
@@ -119,7 +114,7 @@ export const getDisplayNameFromEntityFilter = (
 }
 
 export const getDisplayNameFromEntityNode = (
-    node: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
+    node: AnyEntityNode<AnyDataWarehouseNode | ExperimentDataWarehouseNode> | GroupNode,
     isCustom = true
 ): string | null => {
     // Make sure names aren't blank strings
@@ -141,7 +136,7 @@ export const getDisplayNameFromEntityNode = (
         name = 'All events'
     }
 
-    const id = isAnyDataWarehouseNode(node)
+    const id = isWarehouseSeriesNode(node)
         ? node.table_name
         : isEventsNode(node)
           ? node.event
