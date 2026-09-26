@@ -646,6 +646,7 @@ the row lists both.
 | sleekplan                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smaily                           | HTTP                        | requests                                                        | ✅                          |
 | smartengage                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| smartlead                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smartreach                       | HTTP                        | requests                                                        | ✅                          |
 | smartsheet                       | HTTP                        | requests                                                        | ✅                          |
 | smartwaiver                      | HTTP                        | requests                                                        | ✅                          |
@@ -1385,7 +1386,6 @@ doesn't conflict with concurrent PRs.
 - slash
 - sleuth
 - smaily
-- smartlead
 - smartlook
 - smartrecruiters
 - smartwaiver
