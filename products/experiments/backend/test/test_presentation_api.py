@@ -7627,13 +7627,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(metadata_change["after"], {"type": "primary", "breakdowns": [{"property": "country"}]})
 
     def test_saved_metric_add_remove_does_not_log_ordering_changes(self):
-        """Adding/removing saved metrics should not create redundant ordering activity logs.
-
-        When a saved metric is added or removed and the user did not supply an explicit
-        ordering, the auto-synced ordering write is persisted via a muted
-        ``experiment.save(update_fields=...)`` so the only log entry is the
-        ``saved_metric_config`` add/remove.
-        """
         # Create a saved metric
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -7649,7 +7642,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
-        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         # Create experiment without saved metrics
         experiment_response = self.client.post(
@@ -7674,9 +7666,9 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        # Verify ordering was updated in the database
+        # Adding a metric leaves the ordering alone: it is a display hint the client sends only on reorder.
         experiment = Experiment.objects.get(id=experiment_id)
-        self.assertIn(saved_metric_uuid, experiment.secondary_metrics_ordered_uuids or [])
+        self.assertIsNone(experiment.secondary_metrics_ordered_uuids)
 
         # Exactly 1 new log should be created (the saved_metric_config, not ordering changes)
         logs_after_add = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
@@ -7715,9 +7707,8 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
 
-        # Verify ordering was updated
         experiment.refresh_from_db()
-        self.assertNotIn(saved_metric_uuid, experiment.secondary_metrics_ordered_uuids or [])
+        self.assertIsNone(experiment.secondary_metrics_ordered_uuids)
 
         # Exactly 1 new log should be created (the saved_metric_config deletion)
         logs_after_remove = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
@@ -7731,6 +7722,48 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             detail__type="saved_metric_config",
         )
         self.assertEqual(delete_logs.count(), 1)
+
+    @parameterized.expand(
+        [
+            ("duplicates_deduped", ["uuid-a", "uuid-a", "uuid-b"], status.HTTP_200_OK, ["uuid-a", "uuid-b"]),
+            ("missing_metric_uuid_accepted", ["not-a-metric"], status.HTTP_200_OK, ["not-a-metric"]),
+            ("null_stored", None, status.HTTP_200_OK, None),
+            ("blank_entry_rejected", ["uuid-a", ""], status.HTTP_400_BAD_REQUEST, ["uuid-a"]),
+            ("non_list_rejected", "uuid-a", status.HTTP_400_BAD_REQUEST, ["uuid-a"]),
+        ]
+    )
+    def test_ordering_field_is_normalized_not_checked_against_metrics(
+        self, _name: str, payload: object, expected_status: int, expected_stored: list[str] | None
+    ):
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": "Ordering Normalization",
+                "feature_flag_key": "ordering-normalization",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "uuid": "uuid-a",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    },
+                ],
+                "primary_metrics_ordered_uuids": ["uuid-a"],
+            },
+            format="json",
+        )
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = experiment_response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {"primary_metrics_ordered_uuids": payload},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(Experiment.objects.get(id=experiment_id).primary_metrics_ordered_uuids, expected_stored)
 
     def test_user_initiated_metric_reorder_is_logged(self):
         """A standalone reorder (no add/remove) must produce an activity log entry."""
@@ -7881,16 +7914,9 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             ("secondary", "secondary_metrics_ordered_uuids", "primary_metrics_ordered_uuids"),
         ]
     )
-    def test_bulk_remove_shared_metrics_does_not_log_ordering_change(
+    def test_bulk_remove_shared_metrics_does_not_touch_ordering(
         self, metric_type: str, ordering_field: str, other_ordering_field: str
     ):
-        """Bulk-remove via the reorder dialog (saved_metrics_ids=[] + ordering=[]) must not log a reorder.
-
-        The frontend sends the now-empty ordering array alongside the empty
-        saved_metrics_ids on bulk remove. That mirrors auto-sync, so the ordering
-        write is bookkeeping and must be muted. Only the per-link `saved_metric_config`
-        deleted entries should appear.
-        """
         saved_metric_uuids: list[str] = []
         saved_metric_ids: list[int] = []
         for index in range(2):
@@ -7928,14 +7954,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         logs_before = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
 
-        # Mirrors the curl payload from the reorder dialog: clear inline metrics,
-        # clear the ordering array, and clear saved_metrics_ids in the same PATCH.
+        # A removal sends no ordering: the stale entries match nothing and are ignored on read.
         inline_metrics_field = "metrics" if metric_type == "primary" else "metrics_secondary"
         remove_response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
                 inline_metrics_field: [],
-                ordering_field: [],
                 "saved_metrics_ids": [],
             },
             format="json",
@@ -7943,7 +7967,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(remove_response.status_code, status.HTTP_200_OK)
 
         experiment = Experiment.objects.get(id=experiment_id)
-        self.assertEqual(getattr(experiment, ordering_field) or [], [])
+        self.assertEqual(getattr(experiment, ordering_field), saved_metric_uuids)
 
         # Two new logs expected: one saved_metric_config deleted per removed link.
         new_logs = list(
@@ -8015,688 +8039,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         self.assertEqual(update_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("does not exist or does not belong to this project", str(update_response.json()))
-
-    def test_update_auto_syncs_ordering_when_inline_metric_added_with_empty_ordering(self):
-        """Test that adding a metric with an empty ordering array auto-populates the ordering"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-ordering-validation",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a metric with an empty ordering array - backend should auto-populate
-        metric_uuid = "test-metric-uuid-123"
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-                "primary_metrics_ordered_uuids": [],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(metric_uuid, update_response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_auto_syncs_ordering_when_saved_metric_added_with_empty_ordering(self):
-        """Test that adding a saved metric with empty ordering auto-populates the ordering"""
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-saved-metric-ordering",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a saved metric with empty ordering - backend should auto-populate
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-                "primary_metrics_ordered_uuids": [],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(saved_metric_uuid, update_response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_succeeds_when_ordering_arrays_are_correct(self):
-        """Test that updating an experiment succeeds when ordering arrays contain all metric UUIDs"""
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-correct-ordering",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        inline_metric_uuid = "inline-metric-uuid-abc"
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": inline_metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-                "primary_metrics_ordered_uuids": [inline_metric_uuid, saved_metric_uuid],
-            },
-            format="json",
-        )
-
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-
-    def test_create_auto_syncs_ordering_when_inline_metric_added_with_empty_ordering(self):
-        """Test that creating an experiment with metrics and empty ordering auto-populates the ordering"""
-        metric_uuid = "create-metric-uuid-123"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-ordering-validation",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-                "primary_metrics_ordered_uuids": [],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(metric_uuid, response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_auto_syncs_ordering_when_inline_metric_added_without_ordering(self):
-        """Test that adding a metric without sending ordering at all auto-populates the ordering"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-ordering-auto-sync",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a metric WITHOUT sending ordering - backend should auto-populate
-        metric_uuid = "auto-sync-metric-uuid-123"
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(metric_uuid, update_response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_removes_uuid_from_ordering_when_metric_removed(self):
-        """Test that removing a metric also removes its UUID from the ordering array"""
-        metric_uuid_1 = "remove-test-uuid-1"
-        metric_uuid_2 = "remove-test-uuid-2"
-
-        # Create experiment with two metrics
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-remove-sync",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid_1,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                    {
-                        "uuid": metric_uuid_2,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                    },
-                ],
-                "primary_metrics_ordered_uuids": [metric_uuid_1, metric_uuid_2],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Remove one metric - backend should auto-remove from ordering
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid_1,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed, only metric_uuid_1 should remain in ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        ordering = update_response.json()["primary_metrics_ordered_uuids"]
-        self.assertIn(metric_uuid_1, ordering)
-        self.assertNotIn(metric_uuid_2, ordering)
-
-    def test_update_auto_syncs_secondary_metrics_ordering(self):
-        """Test that adding a secondary metric auto-populates the secondary ordering array"""
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-secondary-sync",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a secondary metric without ordering
-        metric_uuid = "secondary-metric-uuid-123"
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics_secondary": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the secondary ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(metric_uuid, update_response.json()["secondary_metrics_ordered_uuids"])
-
-    def test_update_ordering_unchanged_when_no_metrics_change(self):
-        """Test that ordering arrays are not modified when only name is updated"""
-        metric_uuid = "unchanged-metric-uuid"
-
-        # Create experiment with a metric
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-unchanged-ordering",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-                "primary_metrics_ordered_uuids": [metric_uuid],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-        original_ordering = response.json()["primary_metrics_ordered_uuids"]
-
-        # Update only the name - ordering should remain unchanged
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "name": "Updated Experiment Name",
-            },
-            format="json",
-        )
-
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(update_response.json()["primary_metrics_ordered_uuids"], original_ordering)
-
-    def test_update_preserves_existing_order_when_adding_metrics(self):
-        """Test that existing metric order is preserved when adding new metrics"""
-        metric_uuid_1 = "preserve-order-uuid-1"
-        metric_uuid_2 = "preserve-order-uuid-2"
-        metric_uuid_3 = "preserve-order-uuid-3"
-
-        # Create experiment with two metrics in specific order
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-preserve-order",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid_1,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                    {
-                        "uuid": metric_uuid_2,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                    },
-                ],
-                "primary_metrics_ordered_uuids": [metric_uuid_2, metric_uuid_1],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a third metric - existing order should be preserved, new one appended
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "allow_unknown_events": True,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid_1,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    },
-                    {
-                        "uuid": metric_uuid_2,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                    },
-                    {
-                        "uuid": metric_uuid_3,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$custom"}],
-                    },
-                ],
-            },
-            format="json",
-        )
-
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        ordering = update_response.json()["primary_metrics_ordered_uuids"]
-        # Original order preserved, new metric appended
-        self.assertEqual(ordering, [metric_uuid_2, metric_uuid_1, metric_uuid_3])
-
-    def test_update_auto_syncs_ordering_when_saved_metric_added_without_ordering(self):
-        """Test that adding a saved metric without sending ordering auto-populates the ordering"""
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-saved-metric-no-ordering",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a saved metric WITHOUT sending ordering - backend should auto-populate
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(saved_metric_uuid, update_response.json()["primary_metrics_ordered_uuids"])
-
-    def test_update_removes_saved_metric_uuid_from_ordering_when_removed(self):
-        """Test that removing a saved metric also removes its UUID from the ordering array"""
-
-        # Create two saved metrics
-        saved_metric_response_1 = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Saved Metric 1",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        saved_metric_id_1 = saved_metric_response_1.json()["id"]
-        saved_metric_uuid_1 = saved_metric_response_1.json()["query"]["uuid"]
-
-        saved_metric_response_2 = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Saved Metric 2",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                },
-            },
-            format="json",
-        )
-        saved_metric_id_2 = saved_metric_response_2.json()["id"]
-        saved_metric_uuid_2 = saved_metric_response_2.json()["query"]["uuid"]
-
-        # Create experiment with both saved metrics
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-remove-saved-metric",
-                "parameters": None,
-                "saved_metrics_ids": [
-                    {"id": saved_metric_id_1, "metadata": {"type": "primary"}},
-                    {"id": saved_metric_id_2, "metadata": {"type": "primary"}},
-                ],
-                "primary_metrics_ordered_uuids": [saved_metric_uuid_1, saved_metric_uuid_2],
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Remove one saved metric - backend should auto-remove from ordering
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "saved_metrics_ids": [{"id": saved_metric_id_1, "metadata": {"type": "primary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed, only saved_metric_uuid_1 should remain in ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        ordering = update_response.json()["primary_metrics_ordered_uuids"]
-        self.assertIn(saved_metric_uuid_1, ordering)
-        self.assertNotIn(saved_metric_uuid_2, ordering)
-
-    def test_update_auto_syncs_secondary_saved_metric_ordering(self):
-        """Test that adding a secondary saved metric auto-populates the secondary ordering array"""
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Secondary Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-secondary-saved-metric",
-                "parameters": None,
-            },
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        experiment_id = response.json()["id"]
-
-        # Add a secondary saved metric without ordering
-        update_response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
-            {
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "secondary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the secondary ordering
-        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
-        self.assertIn(saved_metric_uuid, update_response.json()["secondary_metrics_ordered_uuids"])
-
-    def test_create_auto_syncs_ordering_when_inline_metric_added_without_ordering(self):
-        """Test that creating an experiment with metrics but no ordering auto-populates the ordering"""
-        metric_uuid = "create-no-ordering-uuid"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-no-ordering",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(metric_uuid, response.json()["primary_metrics_ordered_uuids"])
-
-    def test_create_auto_syncs_ordering_for_secondary_inline_metrics(self):
-        """Test that creating an experiment with secondary metrics auto-populates secondary ordering"""
-        metric_uuid = "create-secondary-uuid"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-secondary",
-                "parameters": None,
-                "metrics_secondary": [
-                    {
-                        "uuid": metric_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    }
-                ],
-            },
-            format="json",
-        )
-
-        # Should succeed and the UUID should be in the secondary ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(metric_uuid, response.json()["secondary_metrics_ordered_uuids"])
-
-    def test_create_auto_syncs_ordering_for_saved_metrics(self):
-        """Test that creating an experiment with saved metrics auto-populates ordering"""
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
-        saved_metric_id = saved_metric_response.json()["id"]
-        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
-
-        # Create experiment with saved metric but no ordering
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-saved-metric",
-                "parameters": None,
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed and the saved metric UUID should be in the ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(saved_metric_uuid, response.json()["primary_metrics_ordered_uuids"])
-
-    def test_create_auto_syncs_ordering_for_mixed_metrics(self):
-        """Test that creating an experiment with both inline and saved metrics auto-populates ordering"""
-        inline_uuid = "create-mixed-inline-uuid"
-
-        saved_metric_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
-            {
-                "name": "Test Saved Metric",
-                "query": {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
-            format="json",
-        )
-        saved_metric_id = saved_metric_response.json()["id"]
-        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
-
-        # Create experiment with both inline and saved metrics, no ordering
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/",
-            {
-                "allow_unknown_events": True,
-                "name": "Test Experiment",
-                "feature_flag_key": "test-create-mixed",
-                "parameters": None,
-                "metrics": [
-                    {
-                        "uuid": inline_uuid,
-                        "kind": "ExperimentMetric",
-                        "metric_type": "funnel",
-                        "series": [{"kind": "EventsNode", "event": "$pageleave"}],
-                    }
-                ],
-                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-            },
-            format="json",
-        )
-
-        # Should succeed and both UUIDs should be in the ordering
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        ordering = response.json()["primary_metrics_ordered_uuids"]
-        self.assertIn(inline_uuid, ordering)
-        self.assertIn(saved_metric_uuid, ordering)
 
 
 class TestExperimentParametersFieldMutation(APILicensedTest):
@@ -9699,10 +9041,6 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(stale_delete.status_code, status.HTTP_200_OK, stale_delete.json())
         result = stale_delete.json()
         self.assertEqual(self._events(result["metrics_secondary"]), {"e2", "e3", "e4", "e5", "e6", "e7"})
-        self.assertEqual(
-            set(result["secondary_metrics_ordered_uuids"]),
-            {metric["uuid"] for metric in result["metrics_secondary"]},
-        )
 
     def test_concurrent_additions_of_different_metrics_both_survive(self) -> None:
         snapshot = self._create_experiment("both-add", metrics=[self._metric("base")])
@@ -9957,11 +9295,10 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(result["parameters"]["variant_notes"], {"control": "baseline notes"})
         self.assertEqual(result["running_time_calculation"]["recommended_running_time"], 9)
 
-    def test_stale_reorder_keeps_relative_order_and_appends_concurrent_addition(self) -> None:
+    def test_stale_reorder_is_stored_as_sent_and_keeps_the_concurrent_addition(self) -> None:
         snapshot = self._create_experiment("reorder", metrics=[self._metric("m1"), self._metric("m2")])
         added = self._patch(snapshot["id"], {"metrics": [*snapshot["metrics"], self._metric("m3")]})
         self.assertEqual(added.status_code, status.HTTP_200_OK)
-        added_uuid = next(m["uuid"] for m in added.json()["metrics"] if m["source"]["event"] == "m3")
 
         uuid_1, uuid_2 = (metric["uuid"] for metric in snapshot["metrics"])
         stale_reorder = self._patch(
@@ -9975,7 +9312,9 @@ class TestExperimentConcurrency(_HoistFlagConfigClientMixin, APILicensedTest):
         )
 
         self.assertEqual(stale_reorder.status_code, status.HTTP_200_OK, stale_reorder.json())
-        self.assertEqual(stale_reorder.json()["primary_metrics_ordered_uuids"], [uuid_2, uuid_1, added_uuid])
+        # The ordering is a display hint, so the unlisted m3 renders last without an entry.
+        self.assertEqual(stale_reorder.json()["primary_metrics_ordered_uuids"], [uuid_2, uuid_1])
+        self.assertEqual(self._events(stale_reorder.json()["metrics"]), {"m1", "m2", "m3"})
 
     def test_stale_shared_metric_removal_keeps_concurrently_linked_metric(self) -> None:
         saved_1 = ExperimentSavedMetric.objects.create(

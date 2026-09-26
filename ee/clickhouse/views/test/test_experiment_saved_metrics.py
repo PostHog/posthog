@@ -216,7 +216,6 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
-        self.assertEqual(Experiment.objects.get(pk=exp_id).secondary_metrics_ordered_uuids, [saved_metric_uuid])
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
         assert experiment_to_saved_metric is not None
         self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
@@ -355,7 +354,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["results"][0]["linked_experiments"], [])
 
-    def test_create_saved_metric_without_uuid_added_to_experiment_is_ordered(self) -> None:
+    def test_create_saved_metric_without_uuid_gets_one_and_can_be_attached(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             data={
@@ -386,7 +385,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         )
 
         self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
-        self.assertIn(saved_metric_uuid, experiment_response.json()["primary_metrics_ordered_uuids"])
+        self.assertEqual(Experiment.objects.get(pk=experiment_response.json()["id"]).saved_metrics.count(), 1)
 
     def test_update_saved_metric_tags(self) -> None:
         response = self.client.post(

@@ -68,15 +68,15 @@ class TestExperimentMigrateEndpoint(APILicensedTest):
         assert self.shared_metric.metadata is not None
         assert self.shared_metric.metadata["migrated_to"] == link.saved_metric_id
 
-    def test_migrated_metrics_are_reachable_through_the_ordering_arrays(self) -> None:
-        # The UI renders only what the ordering arrays list, so a metric missing from them is invisible.
+    def test_migrated_metrics_get_uuids_and_fingerprints(self) -> None:
         migrated = Experiment.objects.get(pk=self._migrate().json()["id"])
-        link = ExperimentToSavedMetric.objects.get(experiment=migrated)
 
         assert migrated.metrics is not None
-        assert migrated.primary_metrics_ordered_uuids == [migrated.metrics[0]["uuid"]]
-        assert migrated.secondary_metrics_ordered_uuids == [link.saved_metric.query["uuid"]]
+        assert migrated.metrics[0]["uuid"]
         assert migrated.metrics[0]["fingerprint"]
+        # No ordering is written: the results page renders stored order until someone reorders.
+        assert migrated.primary_metrics_ordered_uuids is None
+        assert migrated.secondary_metrics_ordered_uuids is None
 
     def test_the_copy_starts_unlinked_from_the_source_flag_rule(self) -> None:
         rule_id = uuid4()
