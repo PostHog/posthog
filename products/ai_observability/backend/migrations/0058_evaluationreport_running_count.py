@@ -24,4 +24,9 @@ class Migration(migrations.Migration):
             name="counted_results",
             field=models.IntegerField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="evaluationreport",
+            name="count_predicates_hash",
+            field=models.CharField(blank=True, max_length=64, null=True),
+        ),
     ]

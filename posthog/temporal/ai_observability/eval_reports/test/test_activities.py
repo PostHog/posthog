@@ -1190,8 +1190,9 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
     def test_trace_target_reports_exclude_generation_events(self):
         # The batched countIf must carry the evaluation's target predicate like the
         # single-report query does: after an evaluation switches to the trace target,
-        # stale generation-target events must not keep counting toward the threshold.
-        switched = self._create_report(self.team, threshold=2, since=self.T0, name="switched", target="trace")
+        # stale generation-target events must not keep counting toward the threshold,
+        # neither through the scan nor through a running count saved before the switch.
+        switched = self._create_report(self.team, threshold=2, since=self.T0, name="switched", target="generation")
         for index, (ts, target_type) in enumerate(
             [
                 # Two generation-shaped events (tagged + untagged legacy) and one trace event:
@@ -1222,7 +1223,12 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
             properties={"$ai_evaluation_id": str(trace_only.evaluation_id), "$ai_target_type": "trace_id"},
         )
 
-        results = _check_count_triggered_eval_reports_batch([str(switched.id), str(trace_only.id)], self.NOW)
+        self.assertTrue(_check_count_triggered_eval_reports_batch([str(switched.id)], self.NOW)[0].due)
+        Evaluation.objects.filter(id=switched.evaluation_id).update(target="trace")
+
+        results = _check_count_triggered_eval_reports_batch(
+            [str(switched.id), str(trace_only.id)], self.NOW + dt.timedelta(hours=1)
+        )
 
         by_id = {r.report_id: r for r in results}
         self.assertFalse(by_id[str(switched.id)].due)

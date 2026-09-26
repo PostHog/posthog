@@ -1,6 +1,7 @@
 """Activities for evaluation reports workflow."""
 
 import time
+import hashlib
 import datetime as dt
 from collections import defaultdict
 from dataclasses import replace
@@ -302,8 +303,8 @@ def _check_count_triggered_eval_reports_batch(
                         key=candidate.report_id,
                         evaluation_id=str(candidate.report.evaluation_id),
                         since=candidate.cursor,
-                        event_predicate=get_outcome_definition(candidate.report.evaluation.output_type).event_predicate,
-                        target_predicate=target_event_predicate(candidate.report.evaluation.target),
+                        event_predicate=candidate.event_predicate,
+                        target_predicate=candidate.target_predicate,
                     )
                     for candidate in chunk
                 ],
@@ -332,33 +333,54 @@ class _CountCandidate(NamedTuple):
     report_id: str
     report: "EvaluationReport"
     anchor: dt.datetime
+    event_predicate: str
+    target_predicate: str
+    predicates_hash: str
     # The check counts from here; `counted_results` already covers anchor..cursor.
     cursor: dt.datetime
     counted_results: int
 
     @classmethod
     def start(cls, report_id: str, report: "EvaluationReport", anchor: dt.datetime) -> "_CountCandidate":
+        event_predicate = get_outcome_definition(report.evaluation.output_type).event_predicate
+        target_predicate = target_event_predicate(report.evaluation.target)
+        predicates_hash = hashlib.sha256(f"{event_predicate}\n{target_predicate}".encode()).hexdigest()
+        cursor, counted_results = anchor, 0
+        # A saved count only holds while the rows it counted still match the evaluation's predicates.
         if (
             report.count_anchor_at == anchor
+            and report.count_predicates_hash == predicates_hash
             and report.count_cursor_at is not None
             and report.counted_results is not None
         ):
-            return cls(report_id, report, anchor, report.count_cursor_at, report.counted_results)
-        return cls(report_id, report, anchor, anchor, 0)
+            cursor, counted_results = report.count_cursor_at, report.counted_results
+        return cls(
+            report_id, report, anchor, event_predicate, target_predicate, predicates_hash, cursor, counted_results
+        )
 
 
 def _save_running_count(candidate: _CountCandidate, cursor: dt.datetime, counted_results: int) -> None:
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
 
     report = candidate.report
-    if report.count_anchor_at == candidate.anchor and report.count_cursor_at == cursor:
+    if (
+        report.count_anchor_at == candidate.anchor
+        and report.count_predicates_hash == candidate.predicates_hash
+        and report.count_cursor_at == cursor
+    ):
         return
     # Match the values this check read, so a concurrent check or a reset does not get overwritten.
     EvaluationReport.objects.filter(
         id=report.id,
         count_anchor_at=report.count_anchor_at,
+        count_predicates_hash=report.count_predicates_hash,
         count_cursor_at=report.count_cursor_at,
-    ).update(count_anchor_at=candidate.anchor, count_cursor_at=cursor, counted_results=counted_results)
+    ).update(
+        count_anchor_at=candidate.anchor,
+        count_predicates_hash=candidate.predicates_hash,
+        count_cursor_at=cursor,
+        counted_results=counted_results,
+    )
 
 
 def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetime) -> int:

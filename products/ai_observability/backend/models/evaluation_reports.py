@@ -114,10 +114,12 @@ class EvaluationReport(UUIDTModel):
     # Running count for count-triggered reports, so each check reads only the rows after the
     # cursor instead of the whole window. `counted_results` covers results from
     # `count_anchor_at` up to, but not including, `count_cursor_at`. A check resets it when the
-    # report's window anchor moves away from `count_anchor_at`.
+    # report's window anchor moves away from `count_anchor_at`, or when the evaluation's count
+    # predicates no longer match `count_predicates_hash`.
     count_anchor_at = models.DateTimeField(null=True, blank=True)
     count_cursor_at = models.DateTimeField(null=True, blank=True)
     counted_results = models.IntegerField(null=True, blank=True)
+    count_predicates_hash = models.CharField(max_length=64, null=True, blank=True)
 
     # Optional per-report custom guidance appended to the agent's system prompt.
     # Lets users steer focus/scope/section choices without touching the base prompt.
