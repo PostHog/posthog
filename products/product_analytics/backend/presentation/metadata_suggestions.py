@@ -34,8 +34,9 @@ JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 
 # A tag with a lower probability is more likely wrong than right for the person to have to remove.
 TAG_THRESHOLD = 0.6
-# Each tag is one yes/no question and the gateway takes GATEWAY_MAX_QUESTIONS questions per call,
-# so this caps one click at three calls. The view offers the most used tags first.
+# The gateway batches questions per call. MAX_TAGS is set to 3 times GATEWAY_MAX_QUESTIONS to limit
+# one suggestion request to 3 gateway calls. The view offers the most used tags first, so increasing
+# MAX_TAGS requires increasing the 3x multiplier. Note: if GATEWAY_MAX_QUESTIONS changes, update this.
 MAX_TAGS = 3 * GATEWAY_MAX_QUESTIONS
 # A tag name holds up to 255 characters, and a full chunk of long names would push the state past MAX_STATE_CHARS.
 MAX_TAG_NAME_CHARS = 60
