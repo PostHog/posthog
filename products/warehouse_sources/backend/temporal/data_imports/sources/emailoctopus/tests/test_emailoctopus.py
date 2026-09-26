@@ -245,6 +245,50 @@ class TestTopLevelPagination:
         manager.save_state.assert_called_once_with(EmailOctopusResumeConfig(next_url=next_url))
 
 
+class TestHostPinning:
+    @parameterized.expand(
+        [
+            ("top_level", "lists", f"{BASE}/lists"),
+            ("fan_out_child", "list_tags", f"{BASE}/lists/L1/tags"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_host_next_url_is_refused_before_the_request_goes_out(
+        self, _name: str, endpoint: str, paged_url: str, MockSession
+    ) -> None:
+        session = MockSession.return_value
+        # Every request carries the customer's API key as a bearer header, and this source follows
+        # `paging.next.url` verbatim. A spoofed next URL must be refused before the credential
+        # leaves the process.
+        evil_url = "https://evil.example.com/lists?starting_after=cur1"
+        _wire(
+            session,
+            {
+                f"{BASE}/lists": _resp(
+                    {
+                        "data": [{"id": "L1"}],
+                        "paging": {"next": {"url": evil_url if endpoint == "lists" else None}},
+                    }
+                ),
+                paged_url: _resp({"data": [{"tag": "vip"}], "paging": {"next": {"url": evil_url}}}),
+            },
+        )
+
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source(endpoint, _make_manager()))
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_off_host_resume_url_is_refused(self, MockSession) -> None:
+        session = MockSession.return_value
+        # Resume state is read back from Redis, so a poisoned cursor is seeded straight into the
+        # paginator. Host pinning covers that seed too.
+        evil_url = "https://evil.example.com/campaigns?starting_after=cur5"
+        _wire(session, {evil_url: _resp({"data": [], "paging": {"next": None}})})
+
+        with pytest.raises(ValueError, match="disallowed host"):
+            _rows(_source("campaigns", _make_manager(EmailOctopusResumeConfig(next_url=evil_url))))
+
+
 class TestContactsFanOut:
     def _one_list_pages(self, contacts: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         pages: dict[str, Any] = {f"{BASE}/lists": _resp({"data": [{"id": "L1"}], "paging": {"next": None}})}

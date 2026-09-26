@@ -52,7 +52,7 @@ def _base_url_for_version(api_version: str) -> str:
     return _BASE_URL_BY_VERSION.get(api_version, EMAILOCTOPUS_BASE_URL)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class EmailOctopusResumeConfig:
     # Full next-page URL returned by the API (`paging.next.url`). Followed verbatim so the original
     # query string — including any incremental time filter — is preserved across a resume. None means
@@ -109,6 +109,12 @@ def _client_config(api_key: str, base_url: str) -> ClientConfig:
         "base_url": base_url,
         "headers": _HEADERS,
         "auth": {"type": "bearer", "token": api_key},
+        # Pin every request to the API host and refuse redirects: the bearer header carries the
+        # customer's API key, so a spoofed `paging.next.url` or a cross-origin 3xx must not carry
+        # that credential off-host (SSRF). `allowed_hosts=[]` means "same host as base_url only",
+        # and covers paginator and resume URLs, both of which this source follows verbatim.
+        "allowed_hosts": [],
+        "allow_redirects": False,
     }
 
 

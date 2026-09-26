@@ -29,7 +29,7 @@ class EmailOctopusFanOut:
     parent_statuses: tuple[str, ...] = ()
 
 
-@dataclass
+@dataclass(frozen=True)
 class EmailOctopusEndpointConfig:
     name: str
     # Path on the v2 API. For fan-out endpoints this is a template with a `{list_id}` or
