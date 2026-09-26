@@ -29,6 +29,13 @@ const toolCall = (eventId: string): any => ({
     duration_ms: null,
 })
 
+const TOOL_FILTER: AnyPropertyFilter = {
+    key: '$mcp_tool_name',
+    value: ['create_insight'],
+    operator: PropertyOperator.Exact,
+    type: PropertyFilterType.Event,
+}
+
 describe('mcpSessionsLogic', () => {
     let logic: ReturnType<typeof mcpSessionsLogic.build>
 
@@ -80,6 +87,18 @@ describe('mcpSessionsLogic', () => {
 
         expect(router.values.searchParams).not.toHaveProperty('has_errors')
         expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: undefined }))
+    })
+
+    it.each([
+        ['nothing', () => {}, false],
+        ['search', () => logic.actions.setFilters({ search: 'abc' }), true],
+        ['has errors', () => logic.actions.setFilters({ hasErrors: false }), true],
+        ['date range', () => logic.actions.setDateFilter('-30d', null), true],
+        ['property filter', () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER]), true],
+        ['test accounts', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true), true],
+    ])('hasActiveFilters with %s', (_name, apply, expected) => {
+        apply()
+        expect(logic.values.hasActiveFilters).toBe(expected)
     })
 
     it('ignores a failed request for a previously selected session', async () => {
@@ -176,13 +195,6 @@ describe('mcpSessionsLogic', () => {
     })
 
     describe('shared filters', () => {
-        const TOOL_FILTER: AnyPropertyFilter = {
-            key: '$mcp_tool_name',
-            value: ['create_insight'],
-            operator: PropertyOperator.Exact,
-            type: PropertyFilterType.Event,
-        }
-
         it.each([
             [
                 'restored URL filters',

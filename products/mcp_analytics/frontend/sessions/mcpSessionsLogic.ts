@@ -111,6 +111,7 @@ export interface mcpSessionsLogicValues {
     generatedIntent: MCPSessionIntentApi | null
     generatedIntentLoading: boolean
     generatingSessionId: string | null
+    hasActiveFilters: boolean
     hasNext: boolean
     intentOverrides: Record<string, string>
     isSelectedSessionGenerating: boolean
@@ -528,6 +529,20 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         ],
     }),
     selectors({
+        hasActiveFilters: [
+            (s) => [s.filters, s.dateFilter, s.sharedQueryFilters],
+            (
+                filters: MCPSessionsFilters,
+                dateFilter: MCPSessionsDateFilter,
+                sharedQueryFilters: MCPSharedQueryFilters
+            ): boolean =>
+                !!filters.search ||
+                filters.hasErrors !== null ||
+                dateFilter.dateFrom !== DEFAULT_DATE_FILTER.dateFrom ||
+                dateFilter.dateTo !== DEFAULT_DATE_FILTER.dateTo ||
+                sharedQueryFilters.properties.length > 0 ||
+                sharedQueryFilters.filterTestAccounts,
+        ],
         selectedSession: [
             (s) => [s.sessions, s.selectedSessionId],
             (sessions: MCPSessionApi[], selectedSessionId: string | null): MCPSessionApi | null => {
