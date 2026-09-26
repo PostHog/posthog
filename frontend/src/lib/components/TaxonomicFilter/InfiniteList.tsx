@@ -46,6 +46,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EntityFilter, EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
+import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
@@ -801,6 +802,9 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
+                    {!emptySearchQuery && listGroupType === TaxonomicFilterGroupType.Events && (
+                        <TaxonomicEventMatchSuggestions />
+                    )}
                     {canOfferStaleToggle && (
                         <LemonButton
                             type="secondary"

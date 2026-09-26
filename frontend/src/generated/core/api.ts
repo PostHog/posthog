@@ -24,6 +24,8 @@ import type {
     DomainsScimLogsRetrieveParams,
     EnterprisePropertyDefinitionApi,
     EventIngestionRestrictionApi,
+    EventMatchRequestApi,
+    EventMatchResponseApi,
     ExportedAssetApi,
     ExportedAssetCreateApi,
     ExportsListParams,
@@ -2566,6 +2568,27 @@ export const taxonomicSearchIntentClassifyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(searchIntentRequestApi),
+    })
+}
+
+export const getTaxonomicSearchIntentMatchEventsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/taxonomic_search_intent/match_events/`
+}
+
+/**
+ * Guess which PostHog core events a search that matched no event name describes.
+ * @summary Match an events search to core events
+ */
+export const taxonomicSearchIntentMatchEventsCreate = async (
+    projectId: string,
+    eventMatchRequestApi: EventMatchRequestApi,
+    options?: RequestInit
+): Promise<EventMatchResponseApi> => {
+    return apiMutator<EventMatchResponseApi>(getTaxonomicSearchIntentMatchEventsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eventMatchRequestApi),
     })
 }
 

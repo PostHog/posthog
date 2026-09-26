@@ -536,6 +536,9 @@ tools:
     taxonomic-search-intent-classify-create:
         operation: taxonomic_search_intent_classify_create
         enabled: false
+    taxonomic-search-intent-match-events-create:
+        operation: taxonomic_search_intent_match_events_create
+        enabled: false
     uploaded-media-create:
         operation: uploaded_media_create
         enabled: false
