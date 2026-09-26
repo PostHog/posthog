@@ -1849,6 +1849,297 @@ database "posthog" {
       type = "AggregateFunction(argMin, Nullable(Float64), DateTime64(6, 'UTC'))"
     }
   }
+  materialized_view "raw_sessions_v3_mv" {
+    to_table = "posthog.writable_raw_sessions_v3"
+    query    = file("sql/raw_sessions_v3_mv.sql")
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "session_id_v7" {
+      type = "Nullable(UInt128)"
+    }
+    column "distinct_id" {
+      type = "AggregateFunction(argMax, String, DateTime64(6, 'UTC'))"
+    }
+    column "distinct_ids" {
+      type = "AggregateFunction(groupUniqArray, String)"
+    }
+    column "min_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_timestamp" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "max_inserted_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
+    column "urls" {
+      type = "Array(Nullable(String))"
+    }
+    column "entry_url" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "end_url" {
+      type = "AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "last_external_click_url" {
+      type = "AggregateFunction(argMax, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "browser" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "browser_version" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "os" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "os_version" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "device_type" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "viewport_width" {
+      type = "AggregateFunction(argMin, Nullable(Int64), DateTime64(6, 'UTC'))"
+    }
+    column "viewport_height" {
+      type = "AggregateFunction(argMin, Nullable(Int64), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_country_code" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_subdivision_1_code" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_subdivision_1_name" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_subdivision_city_name" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "geoip_time_zone" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_referring_domain" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_campaign" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_medium" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_term" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_utm_content" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_gclid" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_gad_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_fbclid" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_has_gclid" {
+      type = "AggregateFunction(argMin, UInt8, DateTime64(6, 'UTC'))"
+    }
+    column "entry_has_fbclid" {
+      type = "AggregateFunction(argMin, UInt8, DateTime64(6, 'UTC'))"
+    }
+    column "entry_ad_ids_set" {
+      type = "AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC'))"
+    }
+    column "entry_channel_type_properties" {
+      type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), UInt8, UInt8, Nullable(String)), DateTime64(6, 'UTC'))"
+    }
+    column "pageview_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "autocapture_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "screen_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "page_screen_uniq_up_to" {
+      type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
+    }
+    column "has_autocapture" {
+      type = "UInt8"
+    }
+    column "flag_key_values" {
+      type = "Array(String)"
+    }
+    column "event_names" {
+      type = "Array(String)"
+    }
+    column "hosts" {
+      type = "Array(Nullable(String))"
+    }
+    column "emails" {
+      type = "Array(String)"
+    }
+    column "has_replay_events" {
+      type = "Bool"
+    }
+  }
+
+  materialized_view "raw_sessions_v3_recordings_mv" {
+    to_table = "posthog.writable_raw_sessions_v3"
+    query    = file("sql/raw_sessions_v3_recordings_mv.sql")
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "session_id_v7" {
+      type = "UInt128"
+    }
+    column "session_timestamp" {
+      type = "DateTime64(3)"
+    }
+    column "distinct_id" {
+      type = "AggregateFunction(argMax, String, DateTime64(6))"
+    }
+    column "distinct_ids" {
+      type = "AggregateFunction(groupUniqArray, String)"
+    }
+    column "min_timestamp" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "max_timestamp" {
+      type = "SimpleAggregateFunction(min, DateTime64(6, 'UTC'))"
+    }
+    column "max_inserted_at" {
+      type = "DateTime"
+    }
+    column "urls" {
+      type = "Array(String)"
+    }
+    column "entry_url" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "end_url" {
+      type = "AggregateFunction(argMax, Nullable(String), DateTime64(6))"
+    }
+    column "last_external_click_url" {
+      type = "AggregateFunction(argMax, Nullable(String), DateTime64(6))"
+    }
+    column "browser" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "browser_version" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "os" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "os_version" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "device_type" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "viewport_width" {
+      type = "AggregateFunction(argMin, Nullable(Int64), DateTime64(6))"
+    }
+    column "viewport_height" {
+      type = "AggregateFunction(argMin, Nullable(Int64), DateTime64(6))"
+    }
+    column "geoip_country_code" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "geoip_subdivision_1_code" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "geoip_subdivision_1_name" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "geoip_subdivision_city_name" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "geoip_time_zone" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_referring_domain" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_campaign" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_medium" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_term" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_utm_content" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_gclid" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_gad_source" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_fbclid" {
+      type = "AggregateFunction(argMin, Nullable(String), DateTime64(6))"
+    }
+    column "entry_has_gclid" {
+      type = "AggregateFunction(argMin, Bool, DateTime64(6))"
+    }
+    column "entry_has_fbclid" {
+      type = "AggregateFunction(argMin, Bool, DateTime64(6))"
+    }
+    column "entry_ad_ids_set" {
+      type = "AggregateFunction(argMin, Array(String), DateTime64(6))"
+    }
+    column "entry_channel_type_properties" {
+      type = "AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6))"
+    }
+    column "pageview_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "autocapture_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "screen_uniq" {
+      type = "AggregateFunction(uniq, Nullable(UUID))"
+    }
+    column "page_screen_uniq_up_to" {
+      type = "AggregateFunction(uniqUpTo(1), Nullable(UUID))"
+    }
+    column "has_autocapture" {
+      type = "Bool"
+    }
+    column "flag_key_values" {
+      type = "Array(String)"
+    }
+    column "event_names" {
+      type = "Array(String)"
+    }
+    column "hosts" {
+      type = "Array(String)"
+    }
+    column "emails" {
+      type = "Array(String)"
+    }
+    column "has_replay_events" {
+      type = "Bool"
+    }
+  }
+
   materialized_view "sessions_mv" {
     to_table = "posthog.writable_sessions"
     query    = file("sql/sessions_mv.sql")
