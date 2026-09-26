@@ -21,6 +21,12 @@ TABLE = f"model_{MODEL_ID.hex}"
 SCHEMA = '"catalog"."posthog_data_modeling_team_42"'
 
 
+def view_definition(name: str, comment: str | None) -> str:
+    quoted_name = name.replace('"', '""')
+    comment_sql = " COMMENT '" + comment.replace("'", "''") + "'" if comment is not None else ""
+    return f'CREATE VIEW {SCHEMA}."{quoted_name}"{comment_sql} SECURITY INVOKER AS\nSELECT * FROM {SCHEMA}."{TABLE}"'
+
+
 def reconcile(
     models: list[ModelAlias],
     *,
@@ -31,7 +37,11 @@ def reconcile(
     cursor = MagicMock()
     cursor.fetchall.side_effect = [
         relations if relations is not None else [(TABLE, "BASE TABLE")],
-        comments or [],
+        *[
+            [(view_definition(name, dict(comments or []).get(name)),)]
+            for name, kind in sorted(relations or [])
+            if kind == "VIEW"
+        ],
         columns if columns is not None else [(TABLE, "amount", "bigint")],
         *([[]] * 10),
     ]
@@ -106,14 +116,14 @@ def test_does_not_overwrite_conflicting_relations(conflict: str) -> None:
             )
         )
     cursor, result = reconcile(models, relations=relations, comments=comments)
-    assert len(cursor.execute.call_args_list) == 3
+    assert len(cursor.execute.call_args_list) == (3 if conflict in {"view", "other_team"} else 2)
     assert result.errors
     assert result.published == 0
 
 
 def test_legacy_physical_name_already_serves_as_logical_name() -> None:
     cursor, result = reconcile([alias(TABLE)])
-    assert len(cursor.execute.call_args_list) == 3
+    assert len(cursor.execute.call_args_list) == 2
     assert result.errors == ()
 
 
@@ -164,7 +174,7 @@ class TestModelAliasScoping(BaseTest):
             cursor = connect.return_value.__enter__.return_value.cursor.return_value
             cursor.fetchall.side_effect = [
                 [("old_alias", "VIEW")],
-                [("old_alias", f"posthog:model-alias:{self.team.pk}:old")],
+                [(view_definition("old_alias", f"posthog:model-alias:{self.team.pk}:old"),)],
                 [],
                 [],
             ]
@@ -180,7 +190,7 @@ def test_targeted_refresh_reads_only_requested_metadata_and_leaves_other_aliases
     cursor = MagicMock()
     cursor.fetchall.side_effect = [
         [(TABLE, "BASE TABLE"), *(([("daily_revenue", "VIEW")]) if exists else [])],
-        *([[("daily_revenue", published_comment())]] if exists else []),
+        *([[(view_definition("daily_revenue", published_comment()),)]] if exists else []),
         [("amount", "bigint", "", "")],
         [],
     ]
@@ -191,6 +201,31 @@ def test_targeted_refresh_reads_only_requested_metadata_and_leaves_other_aliases
     assert cursor.execute.call_args_list[0].args[1] == ["posthog_data_modeling_team_42", "daily_revenue", TABLE]
     assert not any("information_schema.columns" in sql or "DROP VIEW" in sql for sql in statements)
     assert f'SHOW COLUMNS FROM {SCHEMA}."{TABLE}"' in statements
+    assert not any("system.metadata" in sql for sql in statements)
+    if exists:
+        assert f'SHOW CREATE VIEW {SCHEMA}."daily_revenue"' in statements
     assert (
         result == ModelAliasReconciliation(unchanged=1) if exists else result == ModelAliasReconciliation(published=1)
     )
+
+
+@pytest.mark.parametrize("marker_location", ["comment", "body", "identifier"])
+def test_ownership_requires_a_view_comment(marker_location: str) -> None:
+    comment = published_comment()
+    name = 'reporting.daily_"revenue'
+    definition = view_definition(name, comment if marker_location == "comment" else None)
+    if marker_location == "body":
+        definition += f" WHERE 'COMMENT ''{comment}'' SECURITY INVOKER AS ' <> ''"
+    elif marker_location == "identifier":
+        name = f"COMMENT '{comment}' SECURITY INVOKER AS "
+        definition = view_definition(name, None)
+    cursor = MagicMock()
+    cursor.fetchall.side_effect = [
+        [(TABLE, "BASE TABLE"), (name, "VIEW")],
+        [(definition,)],
+        [(TABLE, "amount", "bigint")],
+    ]
+    result = ModelAliasPublisher(cursor, "catalog", 42, lambda: None).reconcile([alias(name)])
+    assert result.unchanged == (1 if marker_location == "comment" else 0)
+    assert bool(result.errors) is (marker_location != "comment")
+    assert not any("system.metadata" in call.args[0] for call in cursor.execute.call_args_list)
