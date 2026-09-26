@@ -21,7 +21,12 @@ from django.conf import settings
 from posthog.dataclasses import frozen
 
 from products.tasks.backend.constants import POSTHOG_EXEC_PERMISSION_REGEX, SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
-from products.tasks.backend.exceptions import ProcessTaskFatalError, SandboxExecutionError, SandboxTimeoutError
+from products.tasks.backend.exceptions import (
+    ProcessTaskFatalError,
+    SandboxExecutionError,
+    SandboxProcessKilledError,
+    SandboxTimeoutError,
+)
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
     BASH_ENV_SCRIPT,
@@ -49,6 +54,11 @@ from products.tasks.backend.logic.services.sandbox import (
     build_subscription_flags,
     health_check_timeout_seconds,
     wait_for_health_check,
+)
+from products.tasks.backend.logic.services.sandbox_wedge import (
+    increment_sandbox_wedge_probe,
+    killing_signal_name,
+    probe_sandbox_wedge,
 )
 
 if TYPE_CHECKING:
@@ -256,18 +266,43 @@ class AgentServerLaunchMixin(SandboxBase):
 
     def _write_required_file(self, path: str, payload: bytes) -> None:
         result = self.write_file(path, payload)
-        if result.exit_code != 0:
-            write_stage = (result.error or "unknown")[:100]
-            raise SandboxExecutionError(
-                "Failed to write required sandbox file",
-                {
-                    "sandbox_id": self.id,
-                    "path": path,
-                    "exit_code": str(result.exit_code),
-                    "write_stage": write_stage,
-                },
-                cause=RuntimeError(f"write_file returned {result.exit_code} during {write_stage}"),
+        if result.exit_code == 0:
+            return
+
+        write_stage = (result.error or "unknown")[:100]
+        signal_name = killing_signal_name(result.exit_code)
+        verdict, probe = probe_sandbox_wedge(self)
+        increment_sandbox_wedge_probe(verdict, write_stage)
+        logger.warning(
+            "sandbox_required_file_write_failed",
+            extra={
+                "sandbox_id": self.id,
+                "path": path,
+                "exit_code": result.exit_code,
+                "write_stage": write_stage,
+                "signal": signal_name,
+                "verdict": verdict,
+                "probe": probe,
+            },
+        )
+        context = {
+            "sandbox_id": self.id,
+            "path": path,
+            "exit_code": str(result.exit_code),
+            "write_stage": write_stage,
+            "signal": signal_name or "none",
+            "wedge_verdict": verdict,
+        }
+        if signal_name:
+            raise SandboxProcessKilledError(
+                f"Sandbox exec was killed by {signal_name} while writing a required sandbox file",
+                context,
             )
+        raise SandboxExecutionError(
+            "Failed to write required sandbox file",
+            context,
+            cause=RuntimeError(f"write_file returned {result.exit_code} during {write_stage}"),
+        )
 
     def _build_agent_server_command(
         self,
