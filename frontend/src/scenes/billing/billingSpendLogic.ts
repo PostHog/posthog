@@ -8,7 +8,6 @@ import sortBy from 'lodash.sortby'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -461,8 +460,7 @@ export const billingSpendLogic = kea<billingSpendLogicType>([
                         // itself when there is a cap, and reads every project on every product in
                         // one pass when there is not, so nothing is asked per product or per page.
                         // Past what it can hold it refuses with guidance, which the catch below shows.
-                        // nosemgrep: prefer-codegen-api -- billingReads builds the URL for the source the organization-billing-api flag picks, and the response goes to this page's own parser. Remove with the legacy source.
-                        return await api.get<BillingSpendResponse>(values.billingReads.spendSeriesUrl(params))
+                        return await values.billingReads.spendSeries(params)
                     } catch (error) {
                         // An actionable error names something the person can change, so it is
                         // shown in the page rather than as a toast that says contact support.

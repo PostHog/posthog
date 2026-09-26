@@ -6,18 +6,24 @@ import { toParams } from 'lib/utils/url'
 
 import {
     billingProjectList,
+    billingSpendRetrieve,
+    billingSpendTimeseriesRetrieve,
+    billingUsageRetrieve,
     billingUsageTeamOptionsRetrieve,
+    billingUsageTimeseriesRetrieve,
     getBillingSpendExportDownloadUrl,
-    getBillingSpendTimeseriesRetrieveUrl,
     getBillingUsageExportDownloadUrl,
-    getBillingUsageTimeseriesRetrieveUrl,
 } from 'products/billing/frontend/generated/api'
 import type {
     BillingSpendExportDownloadParams,
     BillingSpendTimeseriesRetrieveParams,
+    BillingTimeSeriesPointApi,
     BillingUsageExportDownloadParams,
     BillingUsageTimeseriesRetrieveParams,
 } from 'products/billing/frontend/generated/api.schemas'
+
+import type { BillingSpendResponse } from './billingSpendLogic'
+import type { BillingUsageResponse } from './billingUsageLogic'
 
 /**
  * The billing reads the usage and spend pages make, one set per source. The pages never name a route.
@@ -26,17 +32,38 @@ import type {
  * source takes the other's shape.
  */
 export interface BillingReads {
-    usageSeriesUrl(params: BillingUsageTimeseriesRetrieveParams): string
-    spendSeriesUrl(params: BillingSpendTimeseriesRetrieveParams): string
+    usageSeries(params: BillingUsageTimeseriesRetrieveParams): Promise<BillingUsageResponse>
+    spendSeries(params: BillingSpendTimeseriesRetrieveParams): Promise<BillingSpendResponse>
     usageExportUrl(params: BillingUsageExportDownloadParams): string
     spendExportUrl(params: BillingSpendExportDownloadParams): string
     /** The ids of the projects that reported usage, live and deleted. */
     reportedProjectIds(): Promise<number[]>
 }
 
+// Both sources describe a series with every field optional, and the charts draw only complete ones.
+// The pages' breakdown enums hold the same strings as the generated one.
+function chartSeries<Response extends BillingUsageResponse | BillingSpendResponse>(
+    points: BillingTimeSeriesPointApi[]
+): Response['results'] {
+    return points.map((point) => ({
+        id: point.id ?? 0,
+        label: point.label ?? '',
+        data: point.data ?? [],
+        dates: point.dates ?? [],
+        breakdown_type: point.breakdown_type ?? null,
+        breakdown_value: (point.breakdown_value as string | string[] | null | undefined) ?? null,
+    })) as Response['results']
+}
+
 export const organizationBillingReads: BillingReads = {
-    usageSeriesUrl: (params) => getBillingUsageTimeseriesRetrieveUrl('@current', params),
-    spendSeriesUrl: (params) => getBillingSpendTimeseriesRetrieveUrl('@current', params),
+    usageSeries: async (params) => {
+        const { count, next, previous, results } = await billingUsageTimeseriesRetrieve('@current', params)
+        return { count, next, previous, results: chartSeries<BillingUsageResponse>(results) }
+    },
+    spendSeries: async (params) => {
+        const { count, next, previous, results } = await billingSpendTimeseriesRetrieve('@current', params)
+        return { count, next, previous, results: chartSeries<BillingSpendResponse>(results) }
+    },
     usageExportUrl: (params) => getBillingUsageExportDownloadUrl('@current', params),
     spendExportUrl: (params) => getBillingSpendExportDownloadUrl('@current', params),
     reportedProjectIds: async () => (await billingProjectList('@current')).results.map((project) => project.id),
@@ -45,8 +72,24 @@ export const organizationBillingReads: BillingReads = {
 // The legacy routes, for organizations the organization billing API is not on for yet. Delete this
 // and the switch below when the flag is at 100%.
 export const legacyBillingReads: BillingReads = {
-    usageSeriesUrl: (params) => `api/billing/usage/?${toParams(params)}`,
-    spendSeriesUrl: (params) => `api/billing/spend/?${toParams(params)}`,
+    usageSeries: async (params) => {
+        const { results, next } = await billingUsageRetrieve(params)
+        return {
+            count: results.length,
+            next: next ?? null,
+            previous: null,
+            results: chartSeries<BillingUsageResponse>(results),
+        }
+    },
+    spendSeries: async (params) => {
+        const { results, next } = await billingSpendRetrieve(params)
+        return {
+            count: results.length,
+            next: next ?? null,
+            previous: null,
+            results: chartSeries<BillingSpendResponse>(results),
+        }
+    },
     usageExportUrl: (params) => `/api/billing/usage/export/?${toParams(params)}`,
     spendExportUrl: (params) => `/api/billing/spend/export/?${toParams(params)}`,
     reportedProjectIds: async () => (await billingUsageTeamOptionsRetrieve()).team_id_options,

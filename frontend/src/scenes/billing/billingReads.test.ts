@@ -8,6 +8,13 @@ import { billingReadsLogic } from './billingReads'
 
 describe('billingReadsLogic', () => {
     const SERIES = { start_date: '2026-08-01', end_date: '2026-08-31', breakdowns: '["type"]' }
+    const point = (label: string): Record<string, unknown> => ({
+        id: 1,
+        label,
+        data: [3],
+        dates: ['2026-08-01'],
+        breakdown_type: 'type',
+    })
 
     beforeEach(() => {
         initKeaTests()
@@ -18,6 +25,24 @@ describe('billingReadsLogic', () => {
                     { results: [{ id: 7, name: null, deleted: true }] },
                 ],
                 '/api/billing/usage/team_options/': () => [200, { team_id_options: [7, 8] }],
+                '/api/organizations/@current/billing/usage/timeseries/': ({ request }) => [
+                    200,
+                    {
+                        count: 1,
+                        next: null,
+                        previous: null,
+                        results: [point(`organization usage ${new URL(request.url).searchParams.get('breakdowns')}`)],
+                    },
+                ],
+                '/api/organizations/@current/billing/spend/timeseries/': () => [
+                    200,
+                    { count: 1, next: null, previous: null, results: [point('organization spend')] },
+                ],
+                '/api/billing/usage/': ({ request }) => [
+                    200,
+                    { results: [point(`legacy usage ${new URL(request.url).searchParams.get('breakdowns')}`)] },
+                ],
+                '/api/billing/spend/': () => [200, { results: [point('legacy spend')] }],
             },
         })
         featureFlagLogic.mount()
@@ -27,16 +52,16 @@ describe('billingReadsLogic', () => {
     it.each([
         {
             flag: true,
-            usageSeries: '/api/organizations/@current/billing/usage/timeseries/',
-            spendSeries: '/api/organizations/@current/billing/spend/timeseries/',
+            usageLabel: 'organization usage ["type"]',
+            spendLabel: 'organization spend',
             usageExport: '/api/organizations/@current/billing/usage/export/',
             spendExport: '/api/organizations/@current/billing/spend/export/',
             projectIds: [7],
         },
         {
             flag: false,
-            usageSeries: 'api/billing/usage/',
-            spendSeries: 'api/billing/spend/',
+            usageLabel: 'legacy usage ["type"]',
+            spendLabel: 'legacy spend',
             usageExport: '/api/billing/usage/export/',
             spendExport: '/api/billing/spend/export/',
             projectIds: [7, 8],
@@ -47,11 +72,20 @@ describe('billingReadsLogic', () => {
         })
         const reads = billingReadsLogic.values.billingReads
 
-        expect(reads.usageSeriesUrl(SERIES).split('?')[0]).toEqual(expected.usageSeries)
-        expect(reads.spendSeriesUrl(SERIES).split('?')[0]).toEqual(expected.spendSeries)
+        const usage = await reads.usageSeries(SERIES)
+        expect(usage.results).toEqual([
+            {
+                id: 1,
+                label: expected.usageLabel,
+                data: [3],
+                dates: ['2026-08-01'],
+                breakdown_type: 'type',
+                breakdown_value: null,
+            },
+        ])
+        expect((await reads.spendSeries(SERIES)).results[0].label).toEqual(expected.spendLabel)
         expect(reads.usageExportUrl(SERIES).split('?')[0]).toEqual(expected.usageExport)
         expect(reads.spendExportUrl(SERIES).split('?')[0]).toEqual(expected.spendExport)
-        expect(reads.usageSeriesUrl(SERIES)).toContain('breakdowns=')
         expect(await reads.reportedProjectIds()).toEqual(expected.projectIds)
     })
 })
