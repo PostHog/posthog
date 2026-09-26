@@ -181,6 +181,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
     describe('global logic', () => {
         beforeEach(() => {
+            router.actions.push('/replay')
             logic = sessionRecordingsPlaylistLogic({
                 logicKey: 'tests',
                 updateSearchParams: true,
@@ -764,6 +765,32 @@ describe('sessionRecordingsPlaylistLogic', () => {
                 })
         })
 
+        describe('filters param owned by another page', () => {
+            const webAnalyticsFilters = [{ key: '$pathname', operator: 'exact', type: 'event', value: ['/pricing'] }]
+
+            it('ignores a filters array in the URL', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+                const filtersBefore = logic.values.filters
+
+                router.actions.push('/replay', { filters: webAnalyticsFilters })
+
+                await expectLogic(logic).toNotHaveDispatchedActions(['setFilters'])
+                expect(logic.values.filters).toEqual(filtersBefore)
+                expect(router.values.searchParams.filters).toEqual(webAnalyticsFilters)
+            })
+
+            it('does not read or write the URL on a page it was not mounted on', async () => {
+                await expectLogic(logic).toDispatchActions(['loadSessionRecordingsSuccess'])
+
+                router.actions.push('/web', { filters: { date_from: '-30d' } })
+                await expectLogic(logic).toNotHaveDispatchedActions(['setFilters'])
+
+                router.actions.push('/web', { filters: webAnalyticsFilters })
+                logic.actions.setFilters({ date_from: '-7d' })
+                expect(router.values.searchParams.filters).toEqual(webAnalyticsFilters)
+            })
+        })
+
         describe('session_ids filter', () => {
             const emptyFilterGroup = {
                 type: FilterLogicalOperator.And,
@@ -773,7 +800,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             it('reads session_ids from the URL, layers them over defaults and passes them to the query', async () => {
                 const listSpy = jest.spyOn(api.recordings, 'list')
 
-                router.actions.push('/replay/home', {
+                router.actions.push('/replay', {
                     filters: {
                         session_ids: ['s1', 's2'],
                         date_from: '-7d',
@@ -800,7 +827,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             })
 
             it('clears session_ids via setFilters and reloads the list', async () => {
-                router.actions.push('/replay/home', {
+                router.actions.push('/replay', {
                     filters: {
                         session_ids: ['s1', 's2'],
                         date_from: '-7d',
@@ -1136,6 +1163,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
     describe('person specific logic', () => {
         beforeEach(() => {
+            router.actions.push('/person/123')
             logic = sessionRecordingsPlaylistLogic({
                 logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
@@ -1162,6 +1190,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
     describe('total filters count', () => {
         beforeEach(() => {
+            router.actions.push('/person/123')
             logic = sessionRecordingsPlaylistLogic({
                 logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
@@ -1287,6 +1316,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
     describe('resetting filters', () => {
         beforeEach(() => {
+            router.actions.push('/person/123')
             logic = sessionRecordingsPlaylistLogic({
                 logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
@@ -1996,6 +2026,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
     describe('set filters', () => {
         beforeEach(() => {
+            router.actions.push('/person/123')
             logic = sessionRecordingsPlaylistLogic({
                 logicKey: 'cool_user_99',
                 personUUID: 'cool_user_99',
