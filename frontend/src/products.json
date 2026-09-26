@@ -264,6 +264,13 @@
             "intents": ["visual_review"]
         },
         {
+            "path": "ETL",
+            "category": "Tools",
+            "iconType": "data_pipeline",
+            "type": null,
+            "intents": ["data_warehouse"]
+        },
+        {
             "path": "Web analytics",
             "category": "Analytics",
             "iconType": "web_analytics",

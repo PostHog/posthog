@@ -1011,12 +1011,13 @@ class TestPostgresSections(APIBaseTest):
 
     def test_the_outcome_describes_a_primary_metric_whose_samples_are_exposures(self) -> None:
         now = timezone.now()
-        # Declared metric-z first, but ordered so the results page leads with metric-a.
+        # Declared metric-z first, but ordered so the results page leads with metric-a. metric-z is
+        # left out of the ordering on purpose: an unlisted metric ranks last, it does not disappear.
         ordered = self._experiment(
             "ordered",
             start_date=now - timedelta(days=10),
             metrics=[_mean_metric("metric-z"), _mean_metric("metric-a")],
-            primary_metrics_ordered_uuids=["metric-a", "metric-z"],
+            primary_metrics_ordered_uuids=["metric-a"],
             days_ago=1,
         )
         # A second experiment whose first primary is metric-z, so metric-z rows for `ordered` come

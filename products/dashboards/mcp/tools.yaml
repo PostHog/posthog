@@ -323,21 +323,6 @@ tools:
             each tile's `layouts` with dashboard-update instead. This tool repacks only the tiles in `tile_order`. To
             repack the whole dashboard, include every tile ID. Tiles omitted from `tile_order` keep their positions and
             can overlap the repacked tiles. This tool does not set different sizes or positions for individual tiles.
-    dashboard-saved-views-create:
-        operation: dashboard_saved_views_create
-        enabled: false
-    dashboard-saved-views-destroy:
-        operation: dashboard_saved_views_destroy
-        enabled: false
-    dashboard-saved-views-list:
-        operation: dashboard_saved_views_list
-        enabled: false
-    dashboard-saved-views-partial-update:
-        operation: dashboard_saved_views_partial_update
-        enabled: false
-    dashboard-saved-views-update:
-        operation: dashboard_saved_views_update
-        enabled: false
     dashboard-templates-copy-between-projects-create:
         operation: dashboard_templates_copy_between_projects_create
         enabled: false

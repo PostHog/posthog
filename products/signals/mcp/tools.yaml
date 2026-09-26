@@ -287,14 +287,14 @@ tools:
                 - updated_at
     inbox-reports-merge:
         operation: signals_reports_merge_create
-        enabled: false
+        enabled: true
         scopes:
             - task:write
         annotations:
             readOnly: false
             destructive: true
             idempotent: false
-        enrich_url: '{id}'
+        enrich_url: '{params.id}'
         title: Merge duplicate reports into one
         description: >
             Fold duplicate inbox reports into the one report that survives them, when the same issue landed in more than
@@ -954,7 +954,7 @@ tools:
             the report as a `check_result` entry people read in the inbox. Check `scout-report-check-list` first: a
             report holds at most five open checks, and a second check for the same claim is noise.
     scout-report-check-list:
-        operation: signals_scout_report_checks_list
+        operation: signals_scout_report_check_list
         enabled: true
         scopes:
             - signal_scout_report:write
@@ -965,12 +965,12 @@ tools:
         title: List a report's follow-up checks
         description: >
             Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass
-            the `run_id` of your own in-progress run and the `report_id` of the report to read; both are required. Read
-            this before writing a check: a report already carrying one for the same claim needs no second, and a report
-            holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its
-            clock starts; every status other than `pending` and `active` is terminal.
+            the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report
+            already carrying one for the same claim needs no second, and a report holds at most five open checks at a
+            time. A `pending` check is waiting for the report to resolve before its clock starts; every status other
+            than `pending` and `active` is terminal.
     scout-report-checks-list:
-        operation: signals_scout_report_checks_list
+        operation: signals_scout_report_check_list
         enabled: true
         scopes:
             - signal_scout_report:write
@@ -1378,6 +1378,9 @@ tools:
         description:
             'DEPRECATED: renamed to scout-project-profile-get. This alias forwards to the same endpoint and will be
             removed. Call scout-project-profile-get directly with the same arguments.'
+    signals-scout-report-checks-list:
+        operation: signals_scout_report_checks_list
+        enabled: false
     signals-scout-run-now:
         operation: signals_scout_config_run
         enabled: true

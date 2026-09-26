@@ -122,6 +122,17 @@ def _is_schema_lag_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable)
 
 
+def _is_transient_connection_error(error: BaseException, conn: psycopg.AsyncConnection[Any]) -> bool:
+    """Whether ``error`` is ``conn`` dying mid-query rather than a real bug.
+
+    Mirrors ``_is_transient_queue_connection_drop`` in postgres_queue/consumer.py: a network
+    blip, server-side cull, pgbouncer bounce, or (for a call made from ``_close``) the pod's
+    own network path tearing down concurrently with its graceful shutdown all leave ``conn``
+    closed or broken — the connection is gone, not the query wrong.
+    """
+    return isinstance(error, psycopg.OperationalError) and (conn.closed or conn.broken)
+
+
 class OwnershipLostError(Exception):
     """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
 
@@ -1409,6 +1420,11 @@ class BatchConsumer:
                 if _is_admin_shutdown_error(e):
                     # Admin-initiated disconnect during teardown is expected; the lease just expires.
                     logger.warning(self._event("release_all_owned_admin_shutdown"), error=str(e))
+                elif _is_transient_connection_error(e, self._poll_conn):
+                    # The connection died mid-teardown rather than release_all_owned itself
+                    # being wrong — nothing to retry with here, so the lease just expires
+                    # per the comment above.
+                    logger.warning(self._event("release_all_owned_connection_dropped"), error=str(e))
                 else:
                     logger.exception(self._event("release_all_owned_failed_on_shutdown"))
                     capture_exception(e)
