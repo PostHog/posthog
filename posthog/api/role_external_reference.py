@@ -142,7 +142,7 @@ class RoleExternalReferenceViewSet(
         return queryset.order_by("provider", "provider_organization_id", "provider_role_slug")
 
     @extend_schema(parameters=[RoleLookupQuerySerializer], responses={200: RoleLookupResponseSerializer})
-    @action(detail=False, methods=["GET"], url_path="lookup")
+    @action(detail=False, methods=["GET"], url_path="lookup", required_scopes=["organization:read"])
     def lookup(self, request: Request, **kwargs: Any) -> Response:
         query = RoleLookupQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)

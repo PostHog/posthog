@@ -118,6 +118,24 @@ class TestRoleExternalReferencePermissions(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def _lookup_url(self) -> str:
+        return f"{self._base_url()}/lookup/?provider=github&provider_organization_id=posthog&provider_role_slug=frontend-team"
+
+    @parameterized.expand([("organization:read",), ("organization:write",)])
+    def test_lookup_accepts_personal_api_key_with_organization_scope(self, scope: str) -> None:
+        key = self.create_personal_api_key_with_scopes([scope])
+
+        response = self.client.get(self._lookup_url(), HTTP_AUTHORIZATION=f"Bearer {key}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["reference"])
+
+    def test_lookup_rejects_personal_api_key_without_organization_scope(self) -> None:
+        key = self.create_personal_api_key_with_scopes(["insight:read"])
+
+        response = self.client.get(self._lookup_url(), HTTP_AUTHORIZATION=f"Bearer {key}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "API key missing required scope 'organization:read'")
+
 
 class TestRoleExternalReferenceCrossOrgIsolation(APILicensedTest):
     CLASS_DATA_LEVEL_SETUP = False
