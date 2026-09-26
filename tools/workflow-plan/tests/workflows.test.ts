@@ -466,19 +466,40 @@ interface StepExpectation {
     runs: boolean
 }
 
-const STEP_EXPECTATIONS: StepExpectation[] = PINNED_WORKFLOWS.flatMap((file) => [
-    { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
-    { file, job: 'changes', step: 'filter', scenario: { name: 'hourly schedule', github: schedule() }, runs: false },
-    { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
-    {
-        file,
-        job: 'changes',
-        step: 'app-token',
-        scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
-        runs: false,
+const E2E_DISPATCH: Scenario = {
+    name: 'manual dispatch',
+    github: workflowDispatch('feat/example'),
+    steps: {
+        changes: {
+            decide: { outputs: { shouldRun: 'true' } },
+            'schema-key': { outputs: { migrations_key: 'posthog-schema-mig-test' } },
+        },
     },
-])
+}
+
+const STEP_EXPECTATIONS: StepExpectation[] = [
+    ...PINNED_WORKFLOWS.flatMap((file) => [
+        { file, job: 'changes', step: 'filter', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        { file, job: 'changes', step: 'filter', scenario: { name: 'master push', github: push() }, runs: false },
+        {
+            file,
+            job: 'changes',
+            step: 'filter',
+            scenario: { name: 'hourly schedule', github: schedule() },
+            runs: false,
+        },
+        { file, job: 'changes', step: 'app-token', scenario: { name: 'ready PR', github: pullRequest() }, runs: true },
+        {
+            file,
+            job: 'changes',
+            step: 'app-token',
+            scenario: { name: 'fork PR', github: pullRequest({ fork: true }) },
+            runs: false,
+        },
+    ]),
+    { file: 'ci-e2e-playwright.yml', job: 'changes', step: 'schema-key', scenario: E2E_DISPATCH, runs: true },
+    { file: 'ci-e2e-playwright.yml', job: 'playwright', step: 'schema-cache', scenario: E2E_DISPATCH, runs: true },
+]
 
 const namedJobs = (file: string): Set<string> =>
     new Set(
