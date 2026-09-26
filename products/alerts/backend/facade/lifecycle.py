@@ -137,7 +137,6 @@ class AlertSnapshot:
     datapoints_to_alarm: int = 1
     # Breach flags of the most recent prior checks, newest first (excludes the current one).
     recent_events_breached: tuple[bool, ...] = ()
-    # True while the alert is FIRING and a mute held the announcement of it.
     firing_unannounced: bool = False
 
 
@@ -162,6 +161,8 @@ class AlertCheckOutcome:
     disable: bool = False
     # What a mute held back, so a muted fire is distinguishable from a check that said nothing.
     muted_notification: NotificationAction = NotificationAction.NONE
+    # The alert is firing and nobody was told, so the next unmuted check has to announce it.
+    firing_unannounced: bool = False
 
 
 @dataclass(frozen=True)
@@ -274,7 +275,7 @@ def evaluate_alert_check(
             error_message=None,
         )
 
-    if not muted and snapshot.firing_unannounced:
+    if policy.mute_gates_notification_only and not muted and snapshot.firing_unannounced:
         # Re-evaluating from scratch is what makes a condition that survived the mute announce
         # itself, and is what the SNOOZED branch below does for an expired snooze.
         effective_state = AlertState.NOT_FIRING
@@ -335,7 +336,22 @@ def evaluate_alert_check(
         update_last_notified_at=update_last_notified_at,
         error_message=None,
     )
-    return _muted(outcome) if muted else outcome
+    if muted:
+        outcome = _muted(outcome)
+    return replace(outcome, firing_unannounced=_still_unannounced(snapshot, outcome))
+
+
+def _still_unannounced(snapshot: AlertSnapshot, outcome: AlertCheckOutcome) -> bool:
+    """Whether the alert is left firing with nobody told.
+
+    Set when a mute holds a fire, cleared when the condition ends or an announcement goes out, so
+    a held fire cannot outlive the incident it belongs to and force a re-fire on every later check.
+    """
+    if outcome.muted_notification == NotificationAction.FIRE:
+        return True
+    if outcome.new_state != AlertState.FIRING or outcome.update_last_notified_at:
+        return False
+    return snapshot.firing_unannounced
 
 
 def evaluate_alert_failure(

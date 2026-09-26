@@ -215,12 +215,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now
-            # Held only while the alert is both firing and unannounced, so the flag clears itself
-            # when the condition ends or when an announcement finally goes out.
-            if outcome.muted_notification == "fire":
-                alert.firing_unannounced = True
-            elif outcome.new_state != PlatformAlert.State.FIRING or outcome.notified:
-                alert.firing_unannounced = False
+            alert.firing_unannounced = outcome.firing_unannounced
 
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:

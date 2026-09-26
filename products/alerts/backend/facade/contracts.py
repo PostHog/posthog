@@ -197,6 +197,8 @@ class PlatformAlertOutcome:
     query_duration_ms: int | None = None
     # What a mute held back, so history separates a muted fire from a check that said nothing.
     muted_notification: str = ""
+    # The alert is left firing with nobody told, as the shared machine decided it.
+    firing_unannounced: bool = False
     # Recording an outcome without it leaves a configuration discovery keeps handing back to an
     # evaluation that cannot succeed.
     disable: bool = False
@@ -207,9 +209,12 @@ class GroupTransition:
     """One transition a delivery carries, with everything a message renders from.
 
     `grouping_key` is empty until a source groups, so delivery reads a list of one today and a
-    list of N when fan-out ships. The condition and the source config travel with the transition
-    rather than being read back at send time, so a threshold edited between the check and a
-    retried send cannot change what the message claims was breached.
+    list of N when fan-out ships.
+
+    Only bounded facts travel here. The condition and the source config a message also needs are
+    on the history row, which `evaluation_key` addresses: `source_config` is an unbounded filter
+    tree, and one per transition would blow the activity payload bound that
+    `MAX_PREVIEWS_PER_CYCLE` was sized against.
     """
 
     grouping_key: str
@@ -218,9 +223,6 @@ class GroupTransition:
     previous_state: str
     state: str
     value: float | None = None
-    labels: dict[str, str] = field(default_factory=dict)
-    condition: dict[str, Any] = field(default_factory=dict)
-    source_config: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen

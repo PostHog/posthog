@@ -325,6 +325,34 @@ class TestPolicyDecisionTable:
         if expected_muted is not NotificationAction.NONE:
             assert outcome.update_last_notified_at is False
 
+    @parameterized.expand(
+        [
+            ("a_held_fire_sets_it", snapshot(snooze_until=SNOOZING), BREACH, True),
+            ("an_announced_fire_clears_it", snapshot(firing_unannounced=True), BREACH, False),
+            (
+                "a_recovery_inside_the_mute_clears_it",
+                snapshot(
+                    state=AlertState.FIRING, firing_unannounced=True, snooze_until=SNOOZING, cooldown=timedelta(0)
+                ),
+                CLEAR,
+                False,
+            ),
+            (
+                "a_steady_muted_fire_keeps_it",
+                snapshot(state=AlertState.FIRING, firing_unannounced=True, snooze_until=SNOOZING),
+                BREACH,
+                True,
+            ),
+        ]
+    )
+    def test_a_held_fire_outlives_the_mute_but_not_the_incident(
+        self, _name: str, snap: AlertSnapshot, check: CheckInput, expected: bool
+    ) -> None:
+        # Left set after the incident ends, the flag forces a re-evaluation from NOT_FIRING on
+        # every later check, so a steady alert re-fires each cycle.
+        outcome = evaluate_alert_check(snap, check, NOW, policy=PLATFORM_LOGS_ALERT_POLICY)
+        assert outcome.firing_unannounced is expected
+
     def test_inconclusive_preserves_failure_counter(self) -> None:
         outcome = evaluate_alert_check(
             snapshot(state=AlertState.ERRORED, consecutive_failures=3), INCONCLUSIVE, NOW, policy=LOGS_ALERT_POLICY

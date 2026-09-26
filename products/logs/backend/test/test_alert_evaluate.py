@@ -269,14 +269,15 @@ class TestLogsAlertEvaluation(APIBaseTest):
         kwargs = query.call_args.kwargs
         assert kwargs["date_to"] - kwargs["date_from"] == timedelta(minutes=expected_lookback_minutes)
 
-    def test_the_evaluation_key_comes_from_the_tick_occasion_not_the_clock(self) -> None:
+    def test_a_preview_and_its_recorded_outcome_name_the_same_evaluation(self) -> None:
         configuration = self._configuration(next_check_at=None)
 
         evaluation, _ = self._run(configuration)
 
-        assert [p.evaluation_key for p in evaluation.previews] == [
-            f"{configuration.id}:window:{self.cutoff.isoformat()}"
-        ]
+        # Two key formats meant a delivery could not find the history row it was announcing. The
+        # key also comes from the tick occasion rather than the clock, so a retry recomputes it.
+        assert [p.evaluation_key for p in evaluation.previews] == [evaluation.outcomes[0].evaluation_key]
+        assert self.cutoff.isoformat() in evaluation.outcomes[0].evaluation_key
 
 
 class TestEvaluationTimeoutLadder(SimpleTestCase):

@@ -337,7 +337,8 @@ Three consequences worth stating:
 `AlertCheckOutcome.muted_notification` carries what was held, and
 `alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
 
-A mute that swallowed a fire sets `PlatformAlert.firing_unannounced`.
+A mute that swallowed a fire sets `PlatformAlert.firing_unannounced`, which the shared machine
+decides and the write path only persists.
 The first unmuted check re-evaluates the alert from scratch, so a condition that survived the mute
 announces itself and one that cleared stays quiet.
 The flag is scoped to a held fire rather than to any held announcement, so it clears itself when the

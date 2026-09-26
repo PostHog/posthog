@@ -18,7 +18,6 @@ import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from itertools import batched
-from typing import Any
 from uuid import UUID
 
 import structlog
@@ -235,18 +234,6 @@ def _verdict(
     return outcome
 
 
-def _condition(check: PlatformAlertCheckInput) -> dict[str, Any]:
-    """What the check was measured against, as a message states it."""
-    return {
-        "threshold_count": check.threshold_count,
-        "threshold_operator": check.threshold_operator,
-        "window_minutes": check.window_minutes,
-        "evaluation_periods": check.evaluation_periods,
-        "datapoints_to_alarm": check.datapoints_to_alarm,
-        "cooldown_minutes": check.cooldown_minutes,
-    }
-
-
 def _recorded(
     check: PlatformAlertCheckInput,
     *,
@@ -259,6 +246,7 @@ def _recorded(
     error_message: str | None = None,
     query_duration_ms: int | None = None,
     muted_notification: str = "",
+    firing_unannounced: bool = False,
     disable: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place a recorded outcome is built, so the evaluated and held paths cannot drift."""
@@ -273,6 +261,7 @@ def _recorded(
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         muted_notification=muted_notification,
+        firing_unannounced=firing_unannounced,
         disable=disable,
     )
 
@@ -299,6 +288,7 @@ def _delivery(
         muted_notification=(
             "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
         ),
+        firing_unannounced=outcome.firing_unannounced,
         disable=outcome.disable,
     )
     if outcome.notification == NotificationAction.NONE:
@@ -314,7 +304,7 @@ def _delivery(
         source=SourceKind.LOGS,
         alert_id=str(check.id),
         alert_name=check.name,
-        evaluation_key=f"{check.id}:window:{window_end.isoformat()}",
+        evaluation_key=recorded.evaluation_key,
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
@@ -326,8 +316,6 @@ def _delivery(
                 previous_state=check.state,
                 state=outcome.new_state.value,
                 value=value,
-                condition=_condition(check),
-                source_config=check.source_config,
             ),
         ),
     )
