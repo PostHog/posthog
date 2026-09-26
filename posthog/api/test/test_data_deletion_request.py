@@ -9,6 +9,8 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models import AccessControl
 
@@ -157,6 +159,30 @@ class TestDataDeletionRequestAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert response.json() == {"count": 123}
         preview.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (["data_deletion:write"], status.HTTP_200_OK),
+            (["data_deletion:read"], status.HTTP_403_FORBIDDEN),
+            (["event:write"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=7)
+    def test_preview_with_personal_api_key_requires_write_scope(
+        self, scopes: list[str], expected_status: int, _preview, _feature_flag
+    ) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"{self.url}/preview/",
+            {"query": "SELECT uuid FROM events", "variables": {}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected_status, response.json()
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("posthog.api.data_deletion_request.preview_event_deletion", return_value=1)
