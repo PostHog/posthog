@@ -205,6 +205,10 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     # Result line
     if applicable is False or applicable == "false":
         result_str = "N/A"
+    elif props.get("$ai_evaluation_result_type") == "categorical" and isinstance(
+        props.get("$ai_evaluation_categorical_result"), list
+    ):
+        result_str = str(props["$ai_evaluation_categorical_result"])
     elif (
         props.get("$ai_evaluation_result_type") == "numeric" and props.get("$ai_evaluation_numeric_result") is not None
     ):

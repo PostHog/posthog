@@ -10,6 +10,24 @@ from posthog.temporal.ai_observability.eval_reports.output_types import (
 
 class TestOutcomeDefinitions(SimpleTestCase):
     @parameterized.expand(
+        [(["resolved"], "pass"), (["resolved", "incorrect"], "fail"), (["incorrect"], "fail"), ([], "pass")]
+    )
+    def test_categorical_passing_categories(self, categories: list[str], outcome: str) -> None:
+        definition = get_outcome_definition(
+            "categorical",
+            output_config={
+                "options": [{"key": "resolved", "label": "Resolved"}, {"key": "incorrect", "label": "Incorrect"}],
+                "selection_mode": "multiple",
+                "passing_rule": {"categories": ["resolved"]},
+            },
+        )
+        self.assertEqual(definition.label_for(categories), outcome)
+        self.assertEqual(definition.label_for(None, applicable=False), "na")
+        self.assertIsNone(definition.label_for(None))
+        self.assertIsNone(definition.label_for("resolved"))
+        self.assertEqual(definition.query_placeholders["passing_categories"].value, ["resolved"])
+
+    @parameterized.expand(
         [
             ("gte", 6, "fail"),
             ("gte", 7, "pass"),
@@ -73,7 +91,7 @@ class TestOutcomeDefinitions(SimpleTestCase):
         self.assertEqual(definition.label_for(0), "fail")
 
     def test_supported_types_are_derived_from_the_builders(self):
-        self.assertEqual(set(SUPPORTED_EVAL_REPORT_OUTPUT_TYPES), {"boolean", "sentiment", "numeric"})
+        self.assertEqual(set(SUPPORTED_EVAL_REPORT_OUTPUT_TYPES), {"boolean", "sentiment", "numeric", "categorical"})
         for output_type in SUPPORTED_EVAL_REPORT_OUTPUT_TYPES:
             self.assertIsNotNone(get_outcome_definition(output_type))
 

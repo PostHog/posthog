@@ -202,8 +202,10 @@ class EvalReportMetrics:
                 if outcome in definition.outcomes
             }
 
-        if self.output_type in ("boolean", "numeric"):
-            self.pass_rate = calculate_pass_rate(self.result_counts, empty_as_none=self.output_type == "numeric")
+        if self.output_type in ("boolean", "numeric", "categorical"):
+            self.pass_rate = calculate_pass_rate(
+                self.result_counts, empty_as_none=self.output_type in ("numeric", "categorical")
+            )
             if self.previous_result_counts is not None:
                 self.previous_pass_rate = calculate_pass_rate(self.previous_result_counts, empty_as_none=True)
         else:
@@ -221,14 +223,14 @@ class EvalReportMetrics:
             "previous_result_counts": self.previous_result_counts,
             "previous_result_rates": self.previous_result_rates,
         }
-        if self.output_type in ("boolean", "numeric"):
+        if self.output_type in ("boolean", "numeric", "categorical"):
             metrics.update(
                 {
                     "pass_rate": self.pass_rate,
                     "previous_pass_rate": self.previous_pass_rate,
                 }
             )
-        if self.output_type == "numeric":
+        if self.output_type in ("numeric", "categorical"):
             metrics["output_config"] = self.output_config
         return metrics
 
@@ -260,9 +262,9 @@ class EvalReportMetrics:
             ),
             previous_pass_rate=data.get("previous_pass_rate"),
         )
-        if metrics.output_type in ("boolean", "numeric") and data.get("pass_rate") is not None:
+        if metrics.output_type in ("boolean", "numeric", "categorical") and data.get("pass_rate") is not None:
             metrics.pass_rate = float(data["pass_rate"])
-        if metrics.output_type in ("boolean", "numeric") and data.get("previous_pass_rate") is not None:
+        if metrics.output_type in ("boolean", "numeric", "categorical") and data.get("previous_pass_rate") is not None:
             metrics.previous_pass_rate = float(data["previous_pass_rate"])
         return metrics
 

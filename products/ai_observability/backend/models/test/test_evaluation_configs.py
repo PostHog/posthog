@@ -3,6 +3,7 @@ import math
 import pytest
 
 from products.ai_observability.backend.models.evaluation_configs import (
+    CategoricalOutputConfig,
     NumericOutputConfig,
     NumericScoreOutOfBounds,
     validate_evaluation_configs,
@@ -71,6 +72,47 @@ class TestNumericOutputConfig:
             {"min": None, "max": None, "step": None, "passing_rule": None, "allows_na": True},
         )
         assert output == {"allows_na": True}
+
+
+class TestCategoricalOutputConfig:
+    @pytest.mark.parametrize("runtime", ["hog", "llm_judge"])
+    @pytest.mark.parametrize("selection_mode", ["single", "multiple"])
+    def test_categorical_configuration(self, runtime: str, selection_mode: str) -> None:
+        evaluation_config = (
+            {"source": "return 'resolved';"} if runtime == "hog" else {"prompt": "Classify the response"}
+        )
+        output_config = {
+            "options": [{"key": "resolved", "label": "Resolved"}, {"key": "incorrect", "label": "Incorrect"}],
+            "selection_mode": selection_mode,
+            "allows_na": True,
+            "passing_rule": {"categories": ["resolved"]},
+        }
+        _, validated = validate_evaluation_configs(runtime, "categorical", evaluation_config, output_config)
+        assert validated == output_config
+
+    @pytest.mark.parametrize("value", [[], ["resolved", "resolved"], ["unknown"], [1], True, None, {"resolved": True}])
+    def test_single_selection_rejects_invalid_results(self, value: object) -> None:
+        config = CategoricalOutputConfig.model_validate({"options": [{"key": "resolved", "label": "Resolved"}]})
+        with pytest.raises(ValueError):
+            config.validate_result(value)
+
+    @pytest.mark.parametrize(
+        "patch",
+        [
+            {"options": []},
+            {"options": [{"key": "a", "label": "A"}, {"key": "a", "label": "B"}]},
+            {"options": [{"key": "A", "label": "A"}]},
+            {"options": [{"key": "a", "label": " "}]},
+            {"passing_rule": {"categories": ["unknown"]}},
+            {"passing_rule": {"categories": ["resolved", "resolved"]}},
+            {"passing_rule": {"categories": ["resolved"], "operator": "any"}},
+            {"selection_mode": "other"},
+            {"unknown": True},
+        ],
+    )
+    def test_invalid_category_configuration_is_rejected(self, patch: dict) -> None:
+        with pytest.raises(ValueError):
+            CategoricalOutputConfig.model_validate({"options": [{"key": "resolved", "label": "Resolved"}], **patch})
 
 
 class TestValidateTargetConfig:

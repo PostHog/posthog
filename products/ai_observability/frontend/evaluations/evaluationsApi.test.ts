@@ -96,7 +96,7 @@ describe('evaluationsApi', () => {
         expect(evaluation).toMatchObject({ evaluation_type, output_type: 'numeric', output_config })
     })
 
-    it.each(['categorical', 'future_output'])(
+    it.each(['future_output', 'another_output'])(
         'keeps supported rows when a page contains a future %s output',
         async (output_type) => {
             jest.mocked(evaluationsList).mockResolvedValueOnce({

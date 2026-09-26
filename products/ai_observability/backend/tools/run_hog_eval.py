@@ -27,7 +27,7 @@ from ee.hogai.tool import MaxTool
 
 TOOL_DESCRIPTION = f"""Test Hog evaluation code against sample data from the last {EVALUATION_TEST_LOOKBACK_DAYS} days.
 
-Returns compilation errors if the code is invalid, or raw boolean/numeric/N/A/error results for each sample.
+Returns compilation errors if the code is invalid, or raw boolean/numeric/categorical/N/A/error results for each sample.
 
 Set `target` to match how the evaluation will run: `generation` samples individual generations,
 `trace` samples whole traces, and `session` samples whole sessions that have gone quiet. For
@@ -47,7 +47,7 @@ Saved evaluations can still use the generation-only compatibility globals `input
 `properties`, and `event`, but do not use them in new source that should also work for traces
 or sessions.
 
-The code must return `true` or `false` for boolean output, or a finite number for numeric output.
+The code must return `true` or `false` for boolean output, a finite number for numeric output, or a list of configured category keys for categorical output. Empty lists are valid for multiple selection; null means N/A when allowed.
 Set `output_type` and `output_config` to match the saved evaluation, including bounds and N/A settings. Numeric output disallows N/A by default;
 set output_config.allows_na=true to allow null. Boolean previews allow N/A by default.
 Use `print()` statements to output reasoning.
@@ -63,9 +63,12 @@ def _format_sample(
     output_preview: str,
     reasoning: str,
     score: float | None = None,
+    categories: list[str] | None = None,
 ) -> list[str]:
     if error:
         verdict_str = "ERROR"
+    elif categories is not None:
+        verdict_str = str(categories)
     elif score is not None:
         verdict_str = str(score)
     elif verdict is True:
@@ -90,10 +93,12 @@ def _format_sample(
 
 
 class RunHogEvalTestArgs(BaseModel):
-    output_type: Literal["boolean", "numeric"] = Field(default="boolean", description="The evaluation result type")
+    output_type: Literal["boolean", "numeric", "categorical"] = Field(
+        default="boolean", description="The evaluation result type"
+    )
     output_config: dict[str, Any] = Field(
         default_factory=dict,
-        description="Output settings: allows_na, and for numeric evaluations optional min, max, step and passing_rule",
+        description="Output settings: allows_na, and for numeric evaluations optional min, max, step and passing_rule; categorical settings include options, selection_mode and passing categories",
     )
     source: str = Field(description="Hog evaluation source code to compile and test")
     sample_count: int = Field(
@@ -138,7 +143,7 @@ class RunHogEvalTestTool(MaxTool):
         target: Literal["generation", "trace", "session"] = "generation",
         window_seconds: int = TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
         quiet_period_seconds: int = SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
-        output_type: Literal["boolean", "numeric"] = "boolean",
+        output_type: Literal["boolean", "numeric", "categorical"] = "boolean",
         output_config: dict[str, Any] | None = None,
     ) -> tuple[str, Any]:
         from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
@@ -296,6 +301,7 @@ class RunHogEvalTestTool(MaxTool):
                     output_preview,
                     result["reasoning"],
                     score=result.get("score"),
+                    categories=result.get("categories"),
                 )
             )
 
@@ -341,6 +347,7 @@ class RunHogEvalTestTool(MaxTool):
                     r.output_preview,
                     r.reasoning,
                     score=r.score,
+                    categories=r.categories,
                 )
             )
 
@@ -389,6 +396,7 @@ class RunHogEvalTestTool(MaxTool):
                     s.output_preview,
                     s.reasoning,
                     score=s.score,
+                    categories=s.categories,
                 )
             )
 

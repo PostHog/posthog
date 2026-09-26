@@ -105,6 +105,59 @@ def test_numeric_hog_na_omits_score() -> None:
     assert result == {"result_type": "numeric", "reasoning": "", "allows_na": True, "applicable": False}
 
 
+@pytest.mark.parametrize(
+    "mode,source,categories,applicable",
+    [
+        ("single", "return 'resolved'", ["resolved"], True),
+        ("multiple", "return ['resolved', 'polite']", ["resolved", "polite"], True),
+        ("multiple", "return []", [], True),
+        ("multiple", "return null", None, False),
+    ],
+)
+def test_categorical_hog_preserves_labels_and_applicability(
+    mode: str, source: str, categories: list[str] | None, applicable: bool
+) -> None:
+    config = {
+        "options": [{"key": "resolved", "label": "Resolved"}, {"key": "polite", "label": "Polite"}],
+        "selection_mode": mode,
+        "allows_na": True,
+    }
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog(source, "destination"), {}, True, output_type="categorical", output_config=config
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "categorical", "output_config": config},
+        allows_na=True,
+        unit_label=None,
+    )
+    assert result == {
+        "result_type": "categorical",
+        "reasoning": "",
+        "allows_na": True,
+        "applicable": applicable,
+        **({"categories": categories} if categories is not None else {}),
+    }
+
+
+@pytest.mark.parametrize("source,terminal", [("return 'unknown'", False), ("return 1", True), ("return []", True)])
+def test_invalid_categorical_hog_only_skips_unknown_keys(source: str, terminal: bool) -> None:
+    config = {"options": [{"key": "resolved", "label": "Resolved"}]}
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog(source, "destination"), {}, False, output_type="categorical", output_config=config
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "categorical", "output_config": config},
+        allows_na=False,
+        unit_label=None,
+    )
+    assert is_terminal_user_error_result(result) is terminal
+    assert result["skipped"] is True
+    assert result["skip_reason"] == ("hog_error" if terminal else "hog_input_error")
+    assert "categories" not in result
+
+
 def run_source(source: str, property_value: object = "", *, allows_na: bool = True) -> dict:
     bytecode = compile_ai_observability_hog(source, "destination")
     return execute_hog_eval_bytecode(bytecode, {"properties": {"$ai_output": property_value}}, allows_na=allows_na)

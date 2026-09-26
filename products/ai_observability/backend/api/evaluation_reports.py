@@ -430,7 +430,7 @@ class EvaluationReportCitationSerializer(serializers.Serializer):
 class EvaluationReportMetricsSerializer(serializers.Serializer):
     output_config = _OutputConfigField(
         required=False,
-        help_text="Numeric score configuration and passing rule used for both report periods.",
+        help_text="Output configuration and passing rule used for both report periods.",
     )
     output_type = serializers.ChoiceField(
         choices=OutputType.choices,
@@ -479,12 +479,12 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
     pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.",
+        help_text="Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.",
     )
     previous_pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Boolean or numeric pass percentage for the previous period, or null when unavailable.",
+        help_text="Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.",
     )
 
 

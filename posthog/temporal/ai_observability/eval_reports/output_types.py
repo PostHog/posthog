@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from posthog.hogql import ast
 
-from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig
+from products.ai_observability.backend.models.evaluation_configs import CategoricalOutputConfig, NumericOutputConfig
 
 SENTIMENT_LABELS = ("positive", "neutral", "negative")
 
@@ -26,15 +26,25 @@ class EvaluationReportOutcomeDefinition:
     # Which raw boolean is the desirable outcome, or None for an output type that labels itself.
     passing_result: bool | None
     numeric_config: NumericOutputConfig | None = None
+    categorical_config: CategoricalOutputConfig | None = None
 
     @property
     def query_placeholders(self) -> dict[str, ast.Constant]:
+        if self.categorical_config is not None and self.categorical_config.passing_rule is not None:
+            return {"passing_categories": ast.Constant(value=self.categorical_config.passing_rule.categories)}
         if self.numeric_config is not None and self.numeric_config.passing_rule is not None:
             return {"numeric_threshold": ast.Constant(value=self.numeric_config.passing_rule.threshold)}
         return {}
 
     def label_for(self, result: object, applicable: object = None) -> str | None:
         """Map one raw result value to its outcome label, or None when it is not one we report."""
+        if self.categorical_config is not None:
+            if applicable in (False, "false"):
+                return "na"
+            rule = self.categorical_config.passing_rule
+            if rule is None or not isinstance(result, list) or not all(isinstance(value, str) for value in result):
+                return None
+            return "pass" if rule.passes(result) else "fail"
         if self.numeric_config is not None:
             if applicable in (False, "false"):
                 return "na"
@@ -105,7 +115,28 @@ _DEFINITION_BUILDERS: Mapping[str, Callable[[bool], EvaluationReportOutcomeDefin
     "sentiment": _sentiment_definition,
 }
 
-SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric")
+SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric", "categorical")
+
+
+def _categorical_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
+    config = CategoricalOutputConfig.model_validate(output_config) if output_config else None
+    categories = "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
+    graded = "properties.$ai_evaluation_applicable = 'true'"
+    passed = failed = "false"
+    if config is not None and config.passing_rule is not None:
+        condition = f"hasAll({{passing_categories}}, {categories})"
+        passed = f"{condition} AND {graded}"
+        failed = f"NOT {condition} AND {graded}"
+    return EvaluationReportOutcomeDefinition(
+        outcomes=("pass", "fail", "na"),
+        outcome_predicates={"pass": passed, "fail": failed, "na": "properties.$ai_evaluation_applicable = 'false'"},
+        event_predicate=f"properties.$ai_evaluation_result_type = 'categorical' AND {_NOT_SKIPPED_PREDICATE}",
+        result_expression=categories,
+        applicable_expression="properties.$ai_evaluation_applicable",
+        score_expression="NULL",
+        passing_result=None,
+        categorical_config=config,
+    )
 
 
 def _numeric_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
@@ -133,6 +164,8 @@ def get_outcome_definition(
     output_type: str | None, *, true_is_failure: bool = False, output_config: dict | None = None
 ) -> EvaluationReportOutcomeDefinition:
     normalized_output_type = output_type or "boolean"
+    if normalized_output_type == "categorical":
+        return _categorical_definition(output_config)
     if normalized_output_type == "numeric":
         return _numeric_definition(output_config)
     try:

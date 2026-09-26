@@ -1609,7 +1609,7 @@ return result`,
             expect(logic.values.hogTestResults).toBeNull()
         })
 
-        it.each(['boolean', 'numeric'] as const)(
+        it.each(['boolean', 'numeric', 'categorical'] as const)(
             'sends %s output config and clears sample results after configuration changes',
             async (outputType) => {
                 let requestBody: Record<string, unknown> | undefined
@@ -1663,7 +1663,16 @@ return result`,
                     output_config:
                         outputType === 'numeric'
                             ? { min: 0, max: 10, allows_na: false, passing_rule: { operator: 'gte', threshold: 7 } }
-                            : { allows_na: false },
+                            : outputType === 'categorical'
+                              ? {
+                                    allows_na: false,
+                                    selection_mode: 'single',
+                                    options: [
+                                        { key: 'resolved', label: 'Resolved' },
+                                        { key: 'unresolved', label: 'Unresolved' },
+                                    ],
+                                }
+                              : { allows_na: false },
                     target_config: { window_seconds: 120 },
                 })
                 expect(requestBody).not.toHaveProperty('allows_na')

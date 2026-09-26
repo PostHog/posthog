@@ -3,9 +3,9 @@ import type { EvaluationConfig, EvaluationOutputType, EvaluationType, LLMJudgeEv
 
 // Mirrors REPORTABLE_OUTPUT_TYPES_BY_TARGET in evaluation_configs.py — keep the two in step.
 const REPORTABLE_OUTPUT_TYPES_BY_TARGET: Record<string, ReadonlySet<EvaluationOutputType>> = {
-    generation: new Set(['boolean', 'sentiment', 'numeric']),
-    trace: new Set(['boolean', 'numeric']),
-    session: new Set(['boolean', 'numeric']),
+    generation: new Set(['boolean', 'sentiment', 'numeric', 'categorical']),
+    trace: new Set(['boolean', 'numeric', 'categorical']),
+    session: new Set(['boolean', 'numeric', 'categorical']),
 }
 
 export function isBooleanEvaluationOutput(outputType: EvaluationOutputType | null | undefined): boolean {
@@ -26,7 +26,8 @@ export function evaluationSupportsReports(
 ): boolean {
     return (
         evaluationSupportsReportHistory(evaluation) &&
-        (evaluation?.output_type !== 'numeric' || !!evaluation.output_config?.passing_rule)
+        (!['numeric', 'categorical'].includes(evaluation?.output_type ?? '') ||
+            !!evaluation?.output_config?.passing_rule)
     )
 }
 
@@ -36,7 +37,7 @@ export function evaluationSupportsRunOutcomes(
         | null
         | undefined
 ): boolean {
-    return evaluation?.output_type === 'numeric'
+    return evaluation?.output_type === 'numeric' || evaluation?.output_type === 'categorical'
         ? !!evaluation.output_config?.passing_rule
         : isBooleanEvaluationOutput(evaluation?.output_type)
 }

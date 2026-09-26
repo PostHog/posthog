@@ -54,6 +54,7 @@ The playground keeps the provider's explanation so users can correct the setting
 Boolean online evaluations write their raw verdict to `$ai_evaluation_result`.
 Numeric evaluations write their score to `$ai_evaluation_numeric_result`, with optional `$ai_evaluation_numeric_result_min` and `$ai_evaluation_numeric_result_max` bounds.
 `$ai_evaluation_result_type` identifies the output type; events without it are legacy boolean results.
+Categorical evaluations write a list of category keys to `$ai_evaluation_categorical_result`, including for single selection.
 Sentiment evaluations keep their `$ai_sentiment_*` properties.
 N/A and skipped numeric runs omit the score, while zero remains a graded result.
 
@@ -62,6 +63,33 @@ The numeric property uses normal numeric inference and can be aggregated in Insi
 Numeric queries use `toFloat(properties.$ai_evaluation_numeric_result)` to also handle properties whose metadata has not been registered yet.
 No property-definition migration is required before enabling `llm-analytics-numeric-evaluations`.
 
+## Categorical outputs
+
+Hog and LLM judge evaluations support categorical output for generation, trace, and session targets.
+Creation is gated by `llm-analytics-categorical-evaluations`, disabled by default, in the API and frontend.
+Existing evaluations remain editable and continue running when the flag is off.
+
+The output configuration defines `options` as `{key, label}` pairs, `selection_mode` as `single` or `multiple`, and optional `allows_na`.
+Keys must be unique lowercase identifiers; labels are for display.
+Keep keys stable when changing labels so historical results retain their meaning.
+
+Hog returns a list of keys, or a single key string for single selection.
+The LLM judge returns `categories` and `reasoning`.
+Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
+Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
+`null` means N/A only when `allows_na` is enabled.
+Unknown or duplicate keys are invalid results.
+Invalid model responses and unknown category keys from Hog skip the run.
+Wrong Hog return types follow the existing return-contract error path.
+
+An optional `passing_rule: {categories: [key]}` marks the passing categories.
+Every returned category must be marked as passing; `[]` passes, and N/A is excluded from pass rates.
+Without a rule, results stay ungraded and new reports are unavailable.
+Rule edits reclassify stored results, while each report retains its own configuration snapshot.
+
+The new result property leaves boolean and numeric properties unchanged and needs no property-definition backfill.
+Deploy all evaluation workers before enabling the flag.
+
 ## Run history and reports
 
 The evaluation's Runs tab defaults to the last seven days.
@@ -69,7 +97,7 @@ Its date filter applies to both the run list and summary statistics, supports cu
 Opening a specific backfill shows all runs from that backfill, regardless of the date filter.
 Backfilled results use the original generation's timestamp.
 
-Removing a numeric evaluation's passing rule stops new report generation and scheduled delivery.
+Removing a numeric or categorical evaluation's passing rule stops new report generation and scheduled delivery.
 Existing reports remain accessible through the Reports tab and the report list, detail, and history API endpoints.
 
 ## Browser compatibility
