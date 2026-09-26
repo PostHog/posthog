@@ -3,6 +3,9 @@ from typing import Any, Optional
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
@@ -263,8 +266,12 @@ class TestHogFlowRevisions(APIBaseTest):
         flow_id = self._create_active_flow()
         self._live_edit(flow_id)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/revisions")
         assert response.status_code == 200, response.json()
+        revision_selects = [q["sql"] for q in queries if 'FROM "workflows_hogflowrevision"' in q["sql"]]
+        assert revision_selects
+        assert all('"workflows_hogflowrevision"."content"' not in sql for sql in revision_selects)
         results = response.json()["results"]
         assert [r["version"] for r in results] == [2, 1]
         assert results[0]["created_by"]["id"] == self.user.id
