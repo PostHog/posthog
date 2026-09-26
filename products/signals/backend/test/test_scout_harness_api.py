@@ -2263,6 +2263,39 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         ]
         row.save(update_fields=["payload"])
 
+    def _reports_count(self, **params: str) -> int:
+        """`inbox-reports-list` in count-only mode, as the session user the tool serves."""
+        self.client.credentials()
+        self.client.force_login(self.user)
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/signals/reports/",
+            {"count_only": "true", **params},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()["count"]
+
+    def test_inbox_counts_agree_with_a_count_only_report_list(self) -> None:
+        # A scout compares these two tools inside one run, so a report that lands after the
+        # profile row was built must not move the two answers apart.
+        for report_status in (
+            SignalReport.Status.POTENTIAL,
+            SignalReport.Status.READY,
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.SUPPRESSED,
+            SignalReport.Status.DELETED,
+        ):
+            SignalReport.objects.create(team=self.team, status=report_status)
+        self._seed_profile()
+        SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+
+        _authenticate_as_scout(self)
+        counts = self.client.get(self._list_url()).json()["summary"]["existing_inbox_reports"]
+
+        assert counts["total"] == self._reports_count()
+        assert counts["total_including_dismissed"] == self._reports_count(include_all_statuses="true")
+        assert counts["total"] < counts["total_including_dismissed"], "the dismissed report should separate them"
+        assert counts["counted_at"] is not None
+
     # --- untrusted (session) callers: read-only, never build ---
 
     def test_session_read_returns_404_when_no_profile_exists(self) -> None:
@@ -2428,7 +2461,12 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "blocking_reason",
             "remediation",
         }
-        assert set(body["summary"]["existing_inbox_reports"]) == {"total", "by_status"}
+        assert set(body["summary"]["existing_inbox_reports"]) == {
+            "counted_at",
+            "total",
+            "total_including_dismissed",
+            "by_status",
+        }
 
 
 class TestRunCronScheduleValidation(SimpleTestCase):

@@ -107,6 +107,8 @@ from products.signals.backend.implementation_pr import (
     pull_request_matches_id,
 )
 from products.signals.backend.models import (
+    DEFAULT_REPORT_STATUSES,
+    LISTABLE_REPORT_STATUSES,
     ArtefactAttribution,
     AutonomyPriority,
     InvalidStatusTransition,
@@ -1189,11 +1191,6 @@ class SignalReportViewSet(
         )
         return queryset.annotate(channel_id=channel_id_subquery)
 
-    # Deleted reports are terminal, so `deleted` never reaches any endpoint (detail, list,
-    # actions) and is never a valid filter target either.
-    _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
-    _DEFAULT_STATUSES = _FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED}
-
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
     _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
 
@@ -1243,9 +1240,9 @@ class SignalReportViewSet(
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
-            invalid = [s for s in statuses if s not in self._FILTERABLE_STATUSES]
+            invalid = [s for s in statuses if s not in LISTABLE_REPORT_STATUSES]
             if invalid:
-                accepted = ", ".join(sorted(self._FILTERABLE_STATUSES))
+                accepted = ", ".join(sorted(LISTABLE_REPORT_STATUSES))
                 raise serializers.ValidationError(
                     {
                         "status": f"Invalid status value(s): {', '.join(sorted(set(invalid)))}. Accepted values: {accepted}."
@@ -1265,8 +1262,8 @@ class SignalReportViewSet(
             or self._include_all_statuses_requested()
             or self.request.query_params.get("view") in {"dismissed", "all"}
         ):
-            return self._FILTERABLE_STATUSES
-        return self._DEFAULT_STATUSES
+            return LISTABLE_REPORT_STATUSES
+        return DEFAULT_REPORT_STATUSES
 
     def _include_all_statuses_requested(self) -> bool:
         # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID

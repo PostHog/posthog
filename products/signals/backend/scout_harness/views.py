@@ -84,6 +84,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     is_operational_scout,
     scout_skill_origin,
 )
+from products.signals.backend.scout_harness.profile import existing_inbox_reports
 from products.signals.backend.scout_harness.run_costs import scout_run_token_costs
 from products.signals.backend.scout_harness.run_gates import (
     ScoutRunRejection,
@@ -2115,22 +2116,43 @@ def _eligibility_run_id(request: Request, *, team_id: int, supplied: uuid.UUID |
     return str(supplied) if supplied is not None else None
 
 
+def _overlay_live_section(body: dict[str, Any], *, section: str, value: Any) -> None:
+    """Write a re-derived section into both places the response carries it.
+
+    The summary envelope repeats the inventory, so a section refreshed in one and not the other
+    would hand the scout two answers to the same question. A payload that predates the section
+    is left alone.
+    """
+    inventory = body["payload"].get("inventory")
+    if isinstance(inventory, dict) and section in inventory:
+        inventory[section] = value
+        body["summary"][section] = value
+
+
 def _overlay_effective_emit_eligibility(body: dict[str, Any], *, team_id: int, run_id: str | None) -> None:
     """Replace the stored team-wide `emit_eligibility` with the calling scout's effective one.
 
-    Updates both response sections, and no-ops when no scout run resolves or the payload predates the
-    section. The profile row is shared per team, so what it stores can only be the team-wide floor;
-    the scout reading it also has its own config's dry-run toggle to clear. Re-deriving here rather
-    than at build time keeps that answer live too, because the row is cached for up to
-    `PROFILE_TTL` while the gate is re-read from the config on every write.
+    No-ops when no scout run resolves. The profile row is shared per team, so what it stores can
+    only be the team-wide floor; the scout reading it also has its own config's dry-run toggle to
+    clear. Re-deriving here rather than at build time keeps that answer live too, because the row
+    is cached for up to `PROFILE_TTL` while the gate is re-read from the config on every write.
     """
     effective = emit_eligibility_for_run(team_id=team_id, run_id=run_id)
     if effective is None:
         return
-    inventory = body["payload"].get("inventory")
-    if isinstance(inventory, dict) and "emit_eligibility" in inventory:
-        inventory["emit_eligibility"] = effective
-        body["summary"]["emit_eligibility"] = effective
+    _overlay_live_section(body, section="emit_eligibility", value=effective)
+
+
+def _overlay_live_inbox_report_counts(body: dict[str, Any], *, team_id: int) -> None:
+    """Replace the stored inbox report counts with counts read now.
+
+    The rest of the profile is a snapshot the scout reads for orientation, but these counts are
+    what it dedupes against, and it compares them against an `inbox-reports-list` call in the same
+    run. A row cached for up to `PROFILE_TTL` makes the two disagree whenever a report lands or
+    changes status inside the window, which reads as a broken count rather than an old one. One
+    grouped count on `(team, status)` is cheap enough to pay per request, so the section is live.
+    """
+    _overlay_live_section(body, section="existing_inbox_reports", value=existing_inbox_reports(team_id=team_id))
 
 
 class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -2189,7 +2211,10 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "Return the team's deterministic project profile. The response opens with a compact `summary` "
             "envelope carrying the emit gate and the inbox report counts, then the full `payload`. The "
             "inventory runs to tens of kilobytes, so a client that truncates a long tool result still keeps "
-            "the gate. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the "
+            "the gate. The emit gate and the inbox report counts are re-read on every request rather than "
+            "served from the cached row, so the counts match `inbox-reports-list` (`total` the default "
+            "scope, `total_including_dismissed` the `include_all_statuses=true` scope) and `counted_at` "
+            "says when they were read. Pass `summary_only=true` to omit `payload` entirely. For the internal scout token the "
             "response reflects the newest non-expired cached row or a freshly-built one (lazy compute on cache "
             "miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read "
             "callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none "
@@ -2238,6 +2263,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             team_id=team_id,
             run_id=_eligibility_run_id(request, team_id=team_id, supplied=validated.get("run_id")),
         )
+        _overlay_live_inbox_report_counts(body, team_id=team_id)
         if validated.get("summary_only", False):
             # `payload` is `required=False` on the serializer, so dropping the key here omits it
             # from the response rather than rendering it null.
