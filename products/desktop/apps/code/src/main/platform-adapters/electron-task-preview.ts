@@ -9,11 +9,11 @@ import {
 import {
   TASK_PREVIEW_ARG,
   TASK_PREVIEW_PARTITION,
+  TASK_PREVIEW_TOKEN_PARAM,
 } from "../../shared/constants";
 
 const SANDBOX_PREVIEW_HOST_SUFFIX = ".modal.host";
 const LOCAL_PREVIEW_HOSTS = new Set(["localhost", "127.0.0.1"]);
-export const PREVIEW_TOKEN_PARAM = "_modal_connect_token";
 
 function parseUrl(url: string): URL | null {
   try {
@@ -26,7 +26,7 @@ function parseUrl(url: string): URL | null {
 export function isAllowedTaskPreviewUrl(url: string): boolean {
   const parsed = parseUrl(url);
   if (!parsed || parsed.username || parsed.password) return false;
-  if (parsed.searchParams.has(PREVIEW_TOKEN_PARAM)) return false;
+  if (parsed.searchParams.has(TASK_PREVIEW_TOKEN_PARAM)) return false;
   if (
     parsed.protocol === "https:" &&
     parsed.hostname.endsWith(SANDBOX_PREVIEW_HOST_SUFFIX)
@@ -69,15 +69,15 @@ export async function authorizeTaskPreview(
 ): Promise<string | null> {
   const url = parseUrl(target);
   if (!url) return null;
-  const token = url.searchParams.get(PREVIEW_TOKEN_PARAM);
-  url.searchParams.delete(PREVIEW_TOKEN_PARAM);
+  const token = url.searchParams.get(TASK_PREVIEW_TOKEN_PARAM);
+  url.searchParams.delete(TASK_PREVIEW_TOKEN_PARAM);
   const bare = url.toString();
   if (!isAllowedTaskPreviewUrl(bare)) return null;
   if (!token) return url.protocol === "http:" ? bare : null;
   if (url.protocol !== "https:") return null;
   await cookies.set({
     url: url.origin,
-    name: PREVIEW_TOKEN_PARAM,
+    name: TASK_PREVIEW_TOKEN_PARAM,
     value: token,
     path: "/",
     secure: true,

@@ -29,11 +29,14 @@ export type TaskPreviewLocation = {
   canGoForward: boolean;
 };
 
-export type TaskPreviewNavigationRequest = { nonce: number } & (
+export type TaskPreviewNavigation =
   | { kind: "load"; path: string }
   | { kind: "back" }
-  | { kind: "forward" }
-);
+  | { kind: "forward" };
+
+export type TaskPreviewNavigationRequest = TaskPreviewNavigation & {
+  nonce: number;
+};
 
 export type TaskPreviewFrameProps = {
   url: string;

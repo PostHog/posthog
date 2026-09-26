@@ -48,12 +48,10 @@ type WebviewIpcMessageEvent = Event & {
 };
 
 const ABORTED_LOAD_ERROR_CODE = -3;
-const PREVIEW_TOKEN_PARAM = "_modal_connect_token";
 
 function locationPath(url: string): string {
   try {
     const parsed = new URL(url);
-    parsed.searchParams.delete(PREVIEW_TOKEN_PARAM);
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return "/";

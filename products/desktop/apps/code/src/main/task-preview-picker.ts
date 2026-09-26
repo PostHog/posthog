@@ -4,6 +4,7 @@ import type {
   TaskPreviewPin,
   TaskPreviewRect,
 } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
+import { TASK_PREVIEW_TOKEN_PARAM } from "../shared/constants";
 import type {
   TaskPreviewGuestMessage,
   TaskPreviewHostMessage,
@@ -24,7 +25,6 @@ const REPORTED_ATTRIBUTES = [
   "title",
   "alt",
 ];
-const PREVIEW_TOKEN_PARAM = "_modal_connect_token";
 const PIN_REFRESH_INTERVAL_MS = 500;
 const MARKER_RELEASE_TIMEOUT_MS = 4_000;
 const MARKER_SIZE = 22;
@@ -69,7 +69,7 @@ export function elementText(element: Element): string {
 
 export function previewPath(location: Location): string {
   const params = new URLSearchParams(location.search);
-  params.delete(PREVIEW_TOKEN_PARAM);
+  params.delete(TASK_PREVIEW_TOKEN_PARAM);
   const search = params.toString();
   return `${location.pathname}${search ? `?${search}` : ""}${location.hash}`;
 }

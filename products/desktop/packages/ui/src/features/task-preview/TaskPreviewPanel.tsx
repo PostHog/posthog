@@ -28,6 +28,7 @@ import { resolvePreviewNavigation } from "./previewNavigation";
 import { type PreviewProblem, previewProblem } from "./previewProblem";
 import type {
   TaskPreviewLocation,
+  TaskPreviewNavigation,
   TaskPreviewNavigationRequest,
 } from "./taskPreviewFrameHost";
 import { usePreviewTabInMainPanel } from "./usePreviewTabInMainPanel";
@@ -121,12 +122,7 @@ export function TaskPreviewPanel({
   }, [outcome]);
 
   const retry = () => setAttempt((current) => current + 1);
-  const requestNavigation = (
-    request:
-      | { kind: "load"; path: string }
-      | { kind: "back" }
-      | { kind: "forward" },
-  ) =>
+  const requestNavigation = (request: TaskPreviewNavigation) =>
     setNavigationRequest((current) => ({
       ...request,
       nonce: (current?.nonce ?? 0) + 1,

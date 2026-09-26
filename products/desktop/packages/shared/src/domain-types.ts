@@ -471,11 +471,15 @@ export interface TaskRunExposedPort {
   name: string | null;
 }
 
-export type TaskRunPreviewSessionOutcome =
-  | "ready"
-  | "not_ready"
-  | "ended"
-  | "unavailable";
+export const taskRunPreviewSessionOutcomeSchema = z.enum([
+  "ready",
+  "not_ready",
+  "ended",
+  "unavailable",
+]);
+export type TaskRunPreviewSessionOutcome = z.infer<
+  typeof taskRunPreviewSessionOutcomeSchema
+>;
 
 export interface TaskRunPreviewSession {
   outcome: TaskRunPreviewSessionOutcome;

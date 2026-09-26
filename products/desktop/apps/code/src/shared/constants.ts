@@ -7,6 +7,7 @@ export const ARTIFACT_PREVIEW_DATA_URL_PREFIX =
   "data:text/html;charset=utf-8;base64,";
 export const ARTIFACT_PREVIEW_PARTITION_PREFIX = "artifact-preview-";
 export const TASK_PREVIEW_PARTITION = "task-preview";
+export const TASK_PREVIEW_TOKEN_PARAM = "_modal_connect_token";
 export const TASK_PREVIEW_ARG = "--posthog-task-preview";
 export const TASK_PREVIEW_TO_HOST_CHANNEL = "posthog-task-preview-message";
 export const HOST_TO_TASK_PREVIEW_CHANNEL = "posthog-task-preview-host-message";

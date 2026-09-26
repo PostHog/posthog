@@ -75,11 +75,11 @@ import type {
   TaskRunArtefact,
   TaskRunArtifact,
   TaskRunPreviewSession,
-  TaskRunPreviewSessionOutcome,
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { taskRunPreviewSessionOutcomeSchema } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   spaceSetupInputSchema,
@@ -1061,13 +1061,6 @@ export class ContextWikiUnavailableError extends Error {
 }
 
 /** DRF error bodies carry the human-readable message in `detail`. */
-const PREVIEW_SESSION_OUTCOMES: readonly TaskRunPreviewSessionOutcome[] = [
-  "ready",
-  "not_ready",
-  "ended",
-  "unavailable",
-];
-
 function readDetail(error: ApiRequestError): string {
   const body = error.body as { detail?: string } | null;
   return body?.detail ?? error.message;
@@ -4776,9 +4769,8 @@ export class PostHogAPIClient {
       outcome?: unknown;
       url?: unknown;
     };
-    const outcome = PREVIEW_SESSION_OUTCOMES.find(
-      (known) => known === data.outcome,
-    );
+    const parsed = taskRunPreviewSessionOutcomeSchema.safeParse(data.outcome);
+    const outcome = parsed.success ? parsed.data : undefined;
     return {
       outcome: outcome ?? "unavailable",
       url:
