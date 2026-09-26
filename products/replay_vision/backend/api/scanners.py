@@ -96,7 +96,12 @@ from products.replay_vision.backend.impact import (
     compute_scanner_impact,
     create_affected_cohort,
 )
-from products.replay_vision.backend.jev_watch_feed import load_watch_ranks, rank_watch_feed_by_jev, watch_feed_ranker
+from products.replay_vision.backend.jev_watch_feed import (
+    JEV_WATCHABLE_MIN,
+    load_watch_ranks,
+    rank_watch_feed_by_jev,
+    watch_feed_ranker,
+)
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -2297,9 +2302,29 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
         # the hourly sweep cached. Neither arm makes a model call here.
         if watch_feed_ranker(self.team_id) == "jev":
-            ranked = rank_watch_feed_by_jev(candidate_rows, load_watch_ranks(self.team_id, allowed_ids))[
-                : params["limit"]
-            ]
+            probabilities = load_watch_ranks(self.team_id, allowed_ids)
+            jev_rows = list(candidate_rows)
+            # The recency slice above holds only each scanner's newest rows, which on a high-volume
+            # scanner covers minutes. The sweep judged the whole window, so fetch the watchable rows
+            # the slice cut off; `candidates` already carries the team, scanner, date, and search
+            # filters, so nothing outside the request's scope can enter.
+            watchable_missing = sorted(
+                (
+                    UUID(observation_id)
+                    for observation_id, probability in probabilities.items()
+                    if probability >= JEV_WATCHABLE_MIN
+                ),
+                key=lambda observation_id: probabilities[str(observation_id)],
+                reverse=True,
+            )[:WATCH_FEED_CANDIDATE_CAP]
+            loaded_ids = {row["id"] for row in jev_rows}
+            if missing := [observation_id for observation_id in watchable_missing if observation_id not in loaded_ids]:
+                jev_rows += list(
+                    candidates.filter(id__in=missing)
+                    .annotate(feed_viewed=viewed)
+                    .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
+                )
+            ranked = rank_watch_feed_by_jev(jev_rows, probabilities)[: params["limit"]]
         else:
             ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}

@@ -35,7 +35,7 @@ from products.replay_vision.backend.api.scanners import ReplayScannerSerializer,
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
-from products.replay_vision.backend.jev_watch_feed import WindowJudgment, store_watch_ranks
+from products.replay_vision.backend.jev_watch_feed import store_watch_ranks
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -4743,19 +4743,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         jev_high = self._succeeded_observation(scanner, "jev-high", 40, self._monitor_result("no"))
         self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
         jev_low = self._succeeded_observation(scanner, "jev-low", 10, self._monitor_result("yes"))
-        store_watch_ranks(
-            self.team.id,
-            scanner.id,
-            WindowJudgment(
-                probabilities={str(jev_high.id): 0.95, str(jev_low.id): 0.2},
-                model="jevk5-fp8-0.2",
-                chunks=1,
-                failed_chunks=0,
-                input_tokens=10,
-                estimated_cost_usd=0.0,
-            ),
-            "window-fp",
-        )
+        store_watch_ranks(self.team.id, scanner.id, {str(jev_high.id): 0.95, str(jev_low.id): 0.2}, "jevk5-fp8-0.2")
 
         ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
         for mode in ("weighted-score", "jev-shadow"):
@@ -4783,6 +4771,29 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
         self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
         self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
+
+    def test_the_jev_arm_surfaces_a_watchable_row_the_recency_slice_cut_off(self) -> None:
+        # The candidate query keeps only each scanner's newest rows, so on a high-volume scanner a
+        # watchable row from days ago never reaches the weighted feed. The jev arm must fetch it
+        # back from the cache and rank it first.
+        scanner = self._create_scanner(name="m")
+        old_interesting = self._succeeded_observation(
+            scanner, "old-interesting", 60 * 24 * 2, self._monitor_result("yes")
+        )
+        for index in range(100):
+            self._succeeded_observation(scanner, f"routine-{index}", index + 1, self._monitor_result("no"))
+        store_watch_ranks(self.team.id, scanner.id, {str(old_interesting.id): 0.9}, "jevk5-fp8-0.2")
+
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        with patch(ranker, return_value="weighted-score"):
+            resp = self.client.get(self.feed_url)
+        self.assertNotIn("old-interesting", [item["observation"]["session_id"] for item in resp.json()["results"]])
+
+        with patch(ranker, return_value="jev"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
+        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.9})
 
     def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
         # Seen-state is a within-tier order, not a top-level one: a signal the reader saw yesterday
