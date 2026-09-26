@@ -103,6 +103,9 @@ tools:
     domains-verify-create:
         operation: domains_verify_create
         enabled: false
+    emoji-search-suggest-retrieve:
+        operation: emoji_search_suggest_retrieve
+        enabled: false
     exports-content-retrieve:
         operation: exports_content_retrieve
         enabled: false
