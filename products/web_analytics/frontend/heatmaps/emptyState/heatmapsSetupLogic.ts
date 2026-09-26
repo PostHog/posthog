@@ -12,6 +12,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 export const heatmapsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.HEATMAPS,
     path: ['products', 'web_analytics', 'frontend', 'heatmaps', 'emptyState', 'heatmapsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const response = await api.savedHeatmaps.list({ limit: 1 })
         return response.count > 0 ? 'has-data' : 'needs-setup'

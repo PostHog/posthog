@@ -43,7 +43,7 @@ import {
     MultivariateFlagVariant,
     PropertyFilterType,
     PropertyOperator,
-    type QueryBasedInsightModel,
+    type InsightModel,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -641,7 +641,7 @@ export function getDefaultExperimentMetric(metricType: ExperimentMetricType): Ex
     }
 }
 
-export function getExperimentMetricFromInsight(insight: QueryBasedInsightModel | null): ExperimentMetric | undefined {
+export function getExperimentMetricFromInsight(insight: InsightModel | null): ExperimentMetric | undefined {
     if (!insight?.query || !isValidQueryForExperiment(insight?.query) || !isNodeWithSource(insight.query)) {
         return undefined
     }
@@ -881,8 +881,11 @@ const getEventCountSeries = (metric: ExperimentMetric): AnyEntityNode[] => {
 
     const source: ExperimentMetricSource | null = match(metric)
         .when(isExperimentRatioMetric, (ratioMetric) => ratioMetric.numerator)
+        // An exposure-anchored start has no literal event to preview, so show completion-event activity
         .when(isExperimentRetentionMetric, (retentionMetric) =>
-            isExperimentExposureNode(retentionMetric.start_event) ? null : retentionMetric.start_event
+            isExperimentExposureNode(retentionMetric.start_event)
+                ? retentionMetric.completion_event
+                : retentionMetric.start_event
         )
         .when(isExperimentMeanMetric, (meanMetric) => meanMetric.source)
         .otherwise(() => null)
@@ -1003,94 +1006,73 @@ export function initializeMetricOrdering(experiment: Experiment): Experiment {
 }
 
 /**
- * Maps metrics to their results and errors in the correct display order
- * This handles the complex logic of:
- * 1. Mapping results by index to original metrics array (including shared metrics)
- * 2. Enriching shared metrics with metadata, including breakdowns
- * 3. Reordering everything according to the ordered UUIDs
+ * Returns metric indices in display order. Metrics whose UUID appears in
+ * orderedUuids come first (in that order), followed by any remaining metrics
+ * in their original array position. Each entry is the original index into the
+ * metrics array so callers can write results to the correct positional slot.
+ *
+ * The ordering array is a display hint, not a membership list. An entry that matches no
+ * metric is ignored, and a metric the array does not list still renders after the listed
+ * ones. Filtering by the array instead would hide any metric whose uuid never reached it.
  */
-export function getOrderedMetricsWithResults(
-    experiment: Experiment,
-    primaryMetricsResults: CachedNewExperimentQueryResponse[],
-    primaryMetricsResultsErrors: any[],
-    secondaryMetricsResults: CachedNewExperimentQueryResponse[],
-    secondaryMetricsResultsErrors: any[],
-    isSecondary: boolean
-): Array<{
-    metric: ExperimentMetric
-    result: any
-    error: any
-    displayIndex: number
-    metricIndex: number
-}> {
-    const metricType = isSecondary ? 'secondary' : 'primary'
-    const results = isSecondary ? secondaryMetricsResults : primaryMetricsResults
-    const errors = isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors
+export function getDisplayOrderedIndices(
+    metrics: { uuid?: string }[],
+    orderedUuids: string[] | null | undefined
+): number[] {
+    if (!orderedUuids || orderedUuids.length === 0) {
+        return metrics.map((_, i) => i)
+    }
 
-    // Build enriched metrics in original order (same order as results arrays)
-    const regularMetrics = isSecondary
-        ? ((experiment.metrics_secondary || []) as ExperimentMetric[])
-        : ((experiment.metrics || []) as ExperimentMetric[])
-
-    const enrichedSharedMetrics = (experiment.saved_metrics || [])
-        .filter((sharedMetric) => sharedMetric.metadata?.type === metricType)
-        .map((sharedMetric) => ({
-            ...sharedMetric.query,
-            name: sharedMetric.name,
-            sharedMetricId: sharedMetric.saved_metric,
-            isSharedMetric: true,
-            /**
-             * Merge per-experiment breakdown attribution from metadata into the query
-             */
-            ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
-                breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
-                breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
-            }),
-            /**
-             * Merge breakdowns from metadata into breakdownFilter
-             */
-            breakdownFilter: {
-                ...sharedMetric.query?.breakdownFilter,
-                breakdowns: sharedMetric.metadata?.breakdowns || [],
-                ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
-                    breakdown_limit: sharedMetric.metadata.breakdown_limit,
-                }),
-            },
-        })) as ExperimentMetric[]
-
-    const allMetrics = [...regularMetrics, ...enrichedSharedMetrics]
-
-    // Create UUID maps in one pass
-    const resultsMap = new Map()
-    const errorsMap = new Map()
-    const metricsMap = new Map()
-    const originalIndexMap = new Map()
-
-    allMetrics.forEach((metric: any, index) => {
-        const uuid = metric.uuid || metric.query?.uuid
+    const uuidToIndex = new Map<string, number>()
+    for (let i = 0; i < metrics.length; i++) {
+        const uuid = metrics[i].uuid
         if (uuid) {
-            resultsMap.set(uuid, results[index])
-            errorsMap.set(uuid, errors[index])
-            metricsMap.set(uuid, metric)
-            originalIndexMap.set(uuid, index) // Track original position for retry
+            uuidToIndex.set(uuid, i)
         }
-    })
+    }
 
-    // Get display order and map to final result
-    const orderedUuids = isSecondary
-        ? experiment.secondary_metrics_ordered_uuids || []
-        : experiment.primary_metrics_ordered_uuids || []
+    const ordered: number[] = []
+    const seen = new Set<number>()
 
-    return orderedUuids
-        .map((uuid) => metricsMap.get(uuid))
-        .filter(Boolean)
-        .map((metric: ExperimentMetric, index: number) => ({
-            metric,
-            result: resultsMap.get(metric.uuid),
-            error: errorsMap.get(metric.uuid),
-            displayIndex: index,
-            metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
-        }))
+    for (const uuid of orderedUuids) {
+        const idx = uuidToIndex.get(uuid)
+        if (idx !== undefined && !seen.has(idx)) {
+            ordered.push(idx)
+            seen.add(idx)
+        }
+    }
+
+    for (let i = 0; i < metrics.length; i++) {
+        if (!seen.has(i)) {
+            ordered.push(i)
+        }
+    }
+
+    return ordered
+}
+
+/**
+ * Reshape a saved/shared metric into the inline ExperimentMetric shape, merging the
+ * per-experiment link metadata (breakdown attribution, breakdowns) into the query.
+ */
+function enrichSharedMetric(sharedMetric: Experiment['saved_metrics'][number]): ExperimentMetric {
+    return {
+        ...sharedMetric.query,
+        name: sharedMetric.name,
+        sharedMetricId: sharedMetric.saved_metric,
+        isSharedMetric: true,
+        ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
+            breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
+            breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
+        }),
+        breakdownFilter: {
+            ...sharedMetric.query?.breakdownFilter,
+            breakdowns: sharedMetric.metadata?.breakdowns || [],
+            ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
+                breakdown_limit: sharedMetric.metadata.breakdown_limit,
+            }),
+        },
+    } as ExperimentMetric
 }
 
 export type MetricWithResult = {
@@ -1246,14 +1228,14 @@ export function toExperimentWritePayload<T extends Pick<Experiment, 'feature_fla
 
 /**
  * Pure zip of one metric type (`primary` | `secondary`) with its results and errors, in display order.
- * Same shaping as {@link getOrderedMetricsWithResults} but curried over the experiment, so a caller can
- * bind it once per experiment instance and reuse it for both primary and secondary:
+ * Curried over the experiment, so a caller can bind it once per experiment instance and reuse it for
+ * both primary and secondary:
  *
  *   const zip = metricResults(experiment)
  *   const primary = zip(primaryResults, primaryErrors, 'primary')
  *   const secondary = zip(secondaryResults, secondaryErrors, 'secondary')
  *
- * Used by the recalculation flow; the legacy per-metric path keeps using getOrderedMetricsWithResults.
+ * Results and errors are positional over `[...inline, ...shared]`, the layout the loaders write to.
  */
 export const metricResults =
     (experiment: Experiment) =>
@@ -1266,62 +1248,42 @@ export const metricResults =
             type === 'secondary' ? experiment.metrics_secondary || [] : experiment.metrics || []
         ) as ExperimentMetric[]
 
-        /**
-         * Reshape saved/shared metrics into the inline ExperimentMetric shape so both can be merged and
-         * ordered together below.
-         */
         const sharedMetrics = (experiment.saved_metrics || [])
             .filter((sharedMetric) => sharedMetric.metadata?.type === type)
-            .map((sharedMetric) => ({
-                ...sharedMetric.query,
-                name: sharedMetric.name,
-                sharedMetricId: sharedMetric.saved_metric,
-                isSharedMetric: true,
-                /**
-                 * Merge per-experiment breakdown attribution from metadata into the query
-                 */
-                ...(sharedMetric.metadata?.breakdownAttributionType !== undefined && {
-                    breakdownAttributionType: sharedMetric.metadata.breakdownAttributionType,
-                    breakdownAttributionValue: sharedMetric.metadata.breakdownAttributionValue,
-                }),
-                /**
-                 * Merge breakdowns from metadata into breakdownFilter
-                 */
-                breakdownFilter: {
-                    ...sharedMetric.query?.breakdownFilter,
-                    breakdowns: sharedMetric.metadata?.breakdowns || [],
-                    ...(sharedMetric.metadata?.breakdown_limit !== undefined && {
-                        breakdown_limit: sharedMetric.metadata.breakdown_limit,
-                    }),
-                },
-            })) as ExperimentMetric[]
+            .map(enrichSharedMetric)
 
-        /**
-         * Merge inline + shared metrics, dropping any without a uuid (defensive). One entry per metric
-         * carries everything the output row needs, keyed by uuid for the ordering pass below.
-         */
-        const byUuid = new Map(
-            [...regularMetrics, ...sharedMetrics]
-                .map((metric, index) => ({ metric, result: results[index], error: errors[index], index }))
-                .filter((entry): entry is { metric: ExperimentMetric & { uuid: string } } & typeof entry =>
-                    Boolean(entry.metric.uuid)
-                )
-                .map((entry) => [entry.metric.uuid, entry])
-        )
-
+        const allMetrics = [...regularMetrics, ...sharedMetrics]
         const orderedUuids =
-            type === 'secondary'
-                ? experiment.secondary_metrics_ordered_uuids || []
-                : experiment.primary_metrics_ordered_uuids || []
+            type === 'secondary' ? experiment.secondary_metrics_ordered_uuids : experiment.primary_metrics_ordered_uuids
 
-        return orderedUuids
-            .map((uuid) => byUuid.get(uuid))
-            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
-            .map(({ metric, result, error, index }, displayIndex) => ({
-                metric,
-                result,
-                error,
-                displayIndex,
-                metricIndex: index,
-            }))
+        return getDisplayOrderedIndices(allMetrics, orderedUuids).map((index, displayIndex) => ({
+            metric: allMetrics[index],
+            result: results[index],
+            error: errors[index],
+            displayIndex,
+            metricIndex: index,
+        }))
     }
+
+/**
+ * {@link metricResults} over both sections' arrays, picking one. Kept for the legacy per-metric
+ * results path and its selectors.
+ */
+export function getOrderedMetricsWithResults(
+    experiment: Experiment,
+    primaryMetricsResults: CachedNewExperimentQueryResponse[],
+    primaryMetricsResultsErrors: any[],
+    secondaryMetricsResults: CachedNewExperimentQueryResponse[],
+    secondaryMetricsResultsErrors: any[],
+    isSecondary: boolean
+): Array<{
+    metric: ExperimentMetric
+    result: any
+    error: any
+    displayIndex: number
+    metricIndex: number
+}> {
+    return isSecondary
+        ? metricResults(experiment)(secondaryMetricsResults, secondaryMetricsResultsErrors, 'secondary')
+        : metricResults(experiment)(primaryMetricsResults, primaryMetricsResultsErrors, 'primary')
+}

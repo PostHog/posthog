@@ -34,6 +34,7 @@ with workflow.unsafe.imports_passed_through():
         AI_REPLY_TRACE_NAMESPACE,
         BLOCKER_AWARE_LOOP_PATCH,
         DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH,
+        DRAFT_ACTIVITY_MAX_ATTEMPTS,
         LEGACY_MAX_ATTEMPTS,
         MAX_ATTEMPTS,
         MAX_CLARIFICATION_ROUNDS,
@@ -317,6 +318,11 @@ class SupportReplyWorkflow:
                     "validator_confidence": validate.confidence,
                     "coverage": validate.coverage,
                     "grounded": validate.grounded,
+                    "citations": list(draft.citations),
+                    "investigation_summary": draft.investigation_summary,
+                    "unknowns": list(draft.unknowns),
+                    "clarifying_questions": list(draft.clarifying_questions),
+                    "missing": list(validate.missing),
                 }
 
             for attempt in range(max_attempts):
@@ -378,7 +384,7 @@ class SupportReplyWorkflow:
                             custom_instructions=ctx_output.custom_instructions,
                         ),
                         start_to_close_timeout=timedelta(minutes=20),
-                        retry_policy=RetryPolicy(maximum_attempts=2),
+                        retry_policy=RetryPolicy(maximum_attempts=DRAFT_ACTIVITY_MAX_ATTEMPTS),
                     ),
                 )
                 sandbox_seconds += draft_output.sandbox_seconds or 0.0

@@ -13,6 +13,8 @@ import { insightsList } from '../generated/api'
 export const productAnalyticsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.PRODUCT_ANALYTICS,
     path: ['products', 'product_analytics', 'frontend', 'emptyState', 'productAnalyticsSetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
         const response = await insightsList(projectId, { limit: 1 })

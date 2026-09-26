@@ -6,7 +6,8 @@ description: >
   scouts they have, how each one is behaving, and whether the fleet is actually working. Covers
   surveying the fleet and its schedules, reading recent scout runs and drilling into a single
   run's reasoning, inspecting the durable scratchpad memory the fleet has built up, tracing a
-  run to the reports it wrote or edited, and assessing a scout's health and performance over time
+  run to the reports it wrote or edited, reading the follow-up checks still measuring a report,
+  and assessing a scout's health and performance over time
   (cadence, success rate, report rate, signal-to-noise). Read-only and exploratory — to write or
   tune a scout, use `authoring-scouts` instead. Trigger on "what are my scouts doing",
   "how is my <x> scout performing", "show me recent scout runs", "why did this scout find/report
@@ -31,6 +32,11 @@ The run rows also carry `emitted_count` / `emitted_finding_ids` — **legacy fie
 **Never read `emitted_count: 0` as "did nothing"** — check the report columns and the run summary first.
 A scout whose config carries a `structured_output_schema` has a third output channel next to reports: schema-validated **measurement records**, recorded as `$scout_structured_output` events in the project (only _scalar_ top-level payload keys flatten to `output_<key>` properties — object and array fields live solely inside the full `output` property, so a missing `output_<key>` is not a missing value; `subject` names the judged entity) rather than as run-row columns.
 The events are the ground truth — `metadata.derived.has_structured_output` says the run had at least one batch **accepted**, which is a fast per-run screen but not delivery confirmation (a rare capture failure after acceptance leaves it true with fewer or no events behind it), so count the events when the number of records matters. See [`references/scout-data-model.md`](references/scout-data-model.md) for the event shape.
+Of the scouts PostHog ships, `signals-scout-mcp-tool-calls` is the one that records a series: every run that finds MCP traffic writes a per-category roll-up of MCP tool health and per-tool session-share rows, whether or not it files a report, so a healthy category is distinguishable from an unmeasured one.
+No records is not by itself a broken channel.
+A run on a project with no recent `$mcp_tool_call` events stops early and records nothing, and a dry-run scout (`emit` off) has nowhere to record to.
+Check the run summary, the `not-in-use:mcp_analytics` scratchpad entry, and the config's `emit` before you call the channel broken.
+Find them with `event = '$scout_structured_output'` and `properties.skill_name = 'signals-scout-mcp-tool-calls'`; the scout's own `references/metrics-dashboard.md` carries the chart and alert recipes.
 Each run also carries a `metadata` map. Top-level: the provenance set `harness_prompt_version` / `report_channel` (`none`, `emit`, `edit`, or `both`) / `skill_origin` / `github_guidance`, saying which instructions the run was given; plus routing keys (`model` / `runtime_adapter` / `reasoning_effort` / `service_tier`) only when a gate or pin overrode the default. Nested under `metadata.derived`: booleans the harness computes at the end of the run (`has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`).
 When comparing runs (before/after a prompt change, one model against another), segment on all four provenance values first: runs differing on any of `harness_prompt_version`, `report_channel`, `skill_origin`, or `github_guidance` were given different instructions and aren't a like-for-like population. Runs predating this field have none of them, so treat missing provenance as unknown and exclude those runs from a comparison rather than pooling them.
 For "what kind of run was this?" questions — did it author a self-improvement report, did it validate its follow-up queue — read `derived` rather than parsing the prose summary. It's computed server-side from what the run actually did, so it can't disagree with the run's own output — with one exception: `has_structured_output` tracks batches the run had **accepted**, not events delivered, so it alone can be true with fewer or no records behind it (count the events, as above). No `derived` map at all means unknown, not "all false" — the run predates the field, failed before finishing, or its stamp failed. Most runs from before this shipped have no map, so don't read their absence as a finding.
@@ -260,6 +266,19 @@ For the per-run view, work from the runs instead: `scout-runs-list?emitted=true`
 The flip side matters when explaining a gap: a run can narrate "authored a report" in its `summary` yet have the write **silently dropped** by a preflight gate (dry-run at the time, the org hasn't approved AI processing, or the `signals_scout` source is disabled) — those leave `emitted_report_ids` empty, so a claimed-but-absent report is itself a diagnostic.
 To browse the inbox more broadly, use the `inbox-exploration` skill (statuses, suggested reviewers, drilling into a report's underlying signals).
 The report contract behind each report — the report bar, evidence, actionability, reviewer routing — is documented in the `authoring-scouts` skill (`references/report-contract.md`).
+
+**A report's status is not its whole state: read its checks too.** A **check** is a follow-up measurement a scout or the report pipeline attached to a report — an expectation plus a time to test it — so a report can be resolved and still under measurement.
+`inbox-report-checks-list` returns every check on one report, newest first, with its `status` (`pending`, `active`, `passed`, `failed`, `errored`, `expired`, `cancelled`), its `last_outcome`, and its schedule (`next_run_at`, `run_interval_minutes`, `runs_remaining`, `expires_at`); `inbox-report-checks-retrieve` returns one check with its full config.
+Read the rows this way:
+
+- **`pending`** — the check is waiting for the report to resolve before its clock starts.
+- **`active`** with a future `next_run_at` — a verdict is on its way. Don't re-derive the answer by hand; say when it lands.
+- Everything else is terminal. A claim still worth watching needs a new check, which is a write — hand off to `authoring-scouts`.
+
+The verdicts themselves are **not** on the check row: each one is a `check_result` artefact on the report, so read them through the report's artefact list.
+`query` and `baseline_value` read as null for a credential that cannot read the data they describe.
+A `failed` check on a resolved report usually has a **fresh report** behind it as well (the breach is re-surfaced as a new report linked to the resolved one), so look for that before reporting the relapse as unhandled.
+The full mechanics — the two check kinds, the soak window, what each verdict does next — are in the `authoring-scouts` skill (`references/report-checks.md`).
 
 ## Workflow: assess health and performance
 

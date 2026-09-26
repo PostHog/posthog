@@ -67,7 +67,6 @@ export type OrganizationUpdatePayload = Partial<
         | 'read_only_mcp_access'
         | 'is_ai_data_processing_approved'
         | 'is_ai_training_opted_in'
-        | 'default_experiment_stats_method'
         | 'allow_publicly_shared_resources'
         | 'default_role_id'
         | 'default_anonymize_ips'
@@ -269,6 +268,7 @@ export const organizationLogic = kea<organizationLogicType>([
                         return null
                     }
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use retrieve() from 'products/platform_features/frontend/generated/api' instead.
                         return await api.get('api/organizations/@current')
                     } catch (error) {
                         if (error instanceof ApiError && error.status && error.status < 500) {
@@ -284,6 +284,7 @@ export const organizationLogic = kea<organizationLogicType>([
                 },
                 createOrganization: async (name: string) => {
                     await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use create() from 'products/platform_features/frontend/generated/api' instead.
                     return await api.create('api/organizations/', { name })
                 },
                 updateOrganization: async (payload: OrganizationUpdatePayload) => {
@@ -292,6 +293,7 @@ export const organizationLogic = kea<organizationLogicType>([
                     }
                     // Check if re-authentication is required, if so, await its completion (or failure)
                     await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use partialUpdate() from 'products/platform_features/frontend/generated/api' instead.
                     const updatedOrganization = await api.update(
                         `api/organizations/${values.currentOrganization.id}`,
                         payload
@@ -300,8 +302,10 @@ export const organizationLogic = kea<organizationLogicType>([
                     return updatedOrganization
                 },
                 completeOnboarding: async () =>
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/onboarding/`, {}),
                 migrateAccessControlVersion: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     await api.create(`api/organizations/${values.currentOrganization!.id}/migrate_access_control/`, {})
                     window.location.reload()
                     return values.currentOrganization // Return current organization state since the page will reload anyway
@@ -404,6 +408,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         deleteOrganization: async ({ organizationId, redirectPath }) => {
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. destroy() from 'products/platform_features/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
                 await api.delete(`api/organizations/${organizationId}`)
                 actions.deleteOrganizationSuccess({ redirectPath })
             } catch (e) {

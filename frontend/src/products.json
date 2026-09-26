@@ -264,6 +264,13 @@
             "intents": ["visual_review"]
         },
         {
+            "path": "ETL",
+            "category": "Tools",
+            "iconType": "data_pipeline",
+            "type": null,
+            "intents": ["data_warehouse"]
+        },
+        {
             "path": "Web analytics",
             "category": "Analytics",
             "iconType": "web_analytics",
@@ -273,9 +280,16 @@
         { "path": "Wizard", "category": "Tools", "iconType": null, "type": "wizard", "intents": [] },
         {
             "path": "Workflows",
-            "category": "Tools",
+            "category": "Messaging",
             "iconType": "workflows",
             "type": "workflows",
+            "intents": ["workflows"]
+        },
+        {
+            "path": "Broadcasts",
+            "category": "Messaging",
+            "iconType": "broadcasts",
+            "type": "broadcasts",
             "intents": ["workflows"]
         }
     ],
@@ -322,6 +336,7 @@
             "type": null,
             "intents": []
         },
+        { "path": "Models", "category": "Tools", "iconType": "sql_editor", "type": "sql", "intents": [] },
         {
             "path": "Sources",
             "category": "Pipeline",
@@ -329,7 +344,6 @@
             "type": "hog_function/source",
             "intents": []
         },
-        { "path": "Models", "category": "Tools", "iconType": "sql_editor", "type": "sql", "intents": [] },
         {
             "path": "Warehouse destinations",
             "category": "Pipeline",

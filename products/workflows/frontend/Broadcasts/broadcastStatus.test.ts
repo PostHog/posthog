@@ -1,0 +1,40 @@
+import type { HogFlowBatchJobApi, HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
+
+import { getBroadcastStatus } from './broadcastsLogic'
+
+const flow = (status: string): HogFlowMinimalApi => ({ status }) as unknown as HogFlowMinimalApi
+const withJob = (status: string): { latestBatchJob: HogFlowBatchJobApi; totals: Record<string, number> } => ({
+    latestBatchJob: { status } as HogFlowBatchJobApi,
+    totals: {},
+})
+
+describe('getBroadcastStatus', () => {
+    it.each([
+        ['a draft, whatever its runs say', flow('draft'), withJob('completed'), 'draft'],
+        ['an archived broadcast', flow('archived'), withJob('completed'), 'archived'],
+        ['a run still going', flow('active'), withJob('active'), 'sending'],
+        ['a run that finished', flow('active'), { ...withJob('completed'), hasPendingSchedule: false }, 'sent'],
+        ['a finished run whose schedules did not load', flow('active'), withJob('completed'), 'unknown'],
+        // A terminal run used to fall through to the no-run fallback and read as "scheduled",
+        // telling the sender another send was pending when nothing was coming.
+        ['a run that failed', flow('active'), withJob('failed'), 'failed'],
+        ['a run that was cancelled', flow('active'), withJob('cancelled'), 'failed'],
+        ['no run yet', flow('active'), { latestBatchJob: null, totals: {} }, 'scheduled'],
+        [
+            'a recurring broadcast between runs',
+            flow('active'),
+            { ...withJob('completed'), hasPendingSchedule: true },
+            'scheduled',
+        ],
+        [
+            'a recurring broadcast whose last run failed',
+            flow('active'),
+            { ...withJob('failed'), hasPendingSchedule: true },
+            'failed',
+        ],
+        // Runs not loaded yet, or failed to load, used to read as "scheduled" for a broadcast that already sent.
+        ['a live broadcast whose runs have not loaded', flow('active'), undefined, 'unknown'],
+    ])('reads %s as %s', (_name, broadcast, details, expected) => {
+        expect(getBroadcastStatus(broadcast, details)).toBe(expected)
+    })
+})

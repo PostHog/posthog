@@ -11,9 +11,11 @@ behavior rather than just their shape.
 """
 
 import time
+from typing import Any
 
 from django.conf import settings
 
+import structlog
 from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
@@ -22,7 +24,18 @@ from posthog.dataclasses import frozen
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    CDC_SNAPSHOT_LANE_KEY,
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    BUFFER_LANE,
+    cancel_sync_that_could_hand_over,
+    resnapshot_stays_in_buffer,
+)
+
+logger = structlog.get_logger(__name__)
 
 
 @frozen
@@ -38,6 +51,10 @@ class SchedulePauseError(Exception):
 
 class WorkflowStartError(Exception):
     """The workflow failed to start. Any pause taken by this call has been rolled back."""
+
+
+class SyncStillRunningError(Exception):
+    """A CDC table's running sync could still hand over, so nothing was staged. Its cancel was requested."""
 
 
 @async_to_sync
@@ -80,6 +97,11 @@ def trigger_ad_hoc_sync(
     schedule plus an ad-hoc workflow, so without it the scheduled run can race this one. A schedule
     the caller already paused by hand is left alone, so this does not undo their action.
     """
+    # A sync that hands over after a CDC reset leaves the reset pending on a streaming table, whose next
+    # run wipes it. This call starts its own run, so it cannot leave the reset to capture.
+    if reset_pipeline and schema.is_cdc and cancel_sync_that_could_hand_over(schema):
+        raise SyncStillRunningError("A sync of this table is still stopping. Retry in a minute.")
+
     was_paused = is_schedule_paused(client, str(schema.id))
     paused_now = False
     if not was_paused:
@@ -89,17 +111,18 @@ def trigger_ad_hoc_sync(
         except Exception as e:
             raise SchedulePauseError(str(e)) from e
 
-    # Single save: the reset, the CDC re-snapshot, and the auto-unpause marker in one round-trip.
+    # Single write: the reset, the CDC re-snapshot, and the auto-unpause marker in one round-trip.
     # reset_pipeline goes on sync_type_config rather than the workflow input because the pipeline
     # pops it after the first reset; on the input every activity retry would re-read True and wipe
     # Delta plus the cursor, restarting from row 0.
-    config_before = dict(schema.sync_type_config)
+    config_before = dict(schema.sync_type_config or {})
     initial_sync_complete_before = schema.initial_sync_complete
 
-    update_fields: list[str] = []
+    updates: dict[str, Any] = {}
+    removes: list[str] = []
+    extra_model_fields: dict[str, Any] = {}
     if reset_pipeline:
-        schema.sync_type_config["reset_pipeline"] = True
-        update_fields.append("sync_type_config")
+        updates["reset_pipeline"] = True
         # A streaming CDC schema no-ops a normal reset — CDCExtractionWorkflow owns it and the
         # per-schema run raises CDCHandledExternally. Flip it back to snapshot so this run does a
         # full re-snapshot. The job is created non-billable when the caller asks for that, and on
@@ -107,17 +130,27 @@ def trigger_ad_hoc_sync(
         # stays billable. The save must precede the workflow start so the source reloads
         # cdc_mode="snapshot" instead of racing on stale "streaming".
         if schema.is_cdc and schema.cdc_mode == "streaming":
-            schema.sync_type_config["cdc_mode"] = "snapshot"
-            schema.sync_type_config.pop("cdc_last_log_position", None)
-            schema.sync_type_config.pop("cdc_deferred_runs", None)
-            schema.initial_sync_complete = False
-            update_fields.append("initial_sync_complete")
+            # Decided while the table still streams. Without the marker, the next capture run would
+            # empty the buffer under the new snapshot, deleting changes an in-flight run wrote.
+            if resnapshot_stays_in_buffer(schema, logger):
+                updates[CDC_SNAPSHOT_LANE_KEY] = BUFFER_LANE
+            updates["cdc_mode"] = "snapshot"
+            removes += ["cdc_last_log_position", "cdc_deferred_runs"]
+            extra_model_fields["initial_sync_complete"] = False
     if paused_now:
-        schema.sync_type_config["admin_unpause_schedule_after_run"] = True
-        if "sync_type_config" not in update_fields:
-            update_fields.append("sync_type_config")
-    if update_fields:
-        schema.save(update_fields=update_fields)
+        updates["admin_unpause_schedule_after_run"] = True
+    staged = bool(updates or removes or extra_model_fields)
+    if staged:
+        # Merged under the row lock: capture writes this config concurrently, and saving the copy
+        # loaded above would revert whatever it wrote since.
+        schema.sync_type_config = update_sync_type_config_keys(
+            schema.id,
+            schema.team_id,
+            updates=updates,
+            removes=removes,
+            extra_model_fields=extra_model_fields or None,
+        )
+        schema.initial_sync_complete = extra_model_fields.get("initial_sync_complete", schema.initial_sync_complete)
 
     inputs = ExternalDataWorkflowInputs(
         team_id=schema.team_id,
@@ -134,18 +167,24 @@ def trigger_ad_hoc_sync(
         # The unpause marker is only read by a workflow that never began, so the schedule would stay
         # paused forever. And the staged reset would be consumed by the next *scheduled* run, which
         # would wipe the Delta table, or re-snapshot a CDC schema whose log position staging already
-        # deleted. Restoring the whole prior config covers the deleted keys, which a key-by-key undo
-        # cannot.
+        # deleted. Every staged key goes back to its prior value, the deleted ones included, and
+        # keys other writers set in the meantime survive.
         if paused_now:
             try:
                 unpause_external_data_schedule(str(schema.id))
             except Exception:
                 pass
-        if update_fields:
-            schema.sync_type_config = config_before
-            schema.initial_sync_complete = initial_sync_complete_before
+        if staged:
+            staged_keys = [*updates, *removes]
             try:
-                schema.save(update_fields=["sync_type_config", "initial_sync_complete"])
+                schema.sync_type_config = update_sync_type_config_keys(
+                    schema.id,
+                    schema.team_id,
+                    updates={key: config_before[key] for key in staged_keys if key in config_before},
+                    removes=[key for key in staged_keys if key not in config_before],
+                    extra_model_fields={"initial_sync_complete": initial_sync_complete_before},
+                )
+                schema.initial_sync_complete = initial_sync_complete_before
             except Exception:
                 pass
         raise WorkflowStartError(str(e)) from e

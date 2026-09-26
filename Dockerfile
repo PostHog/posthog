@@ -83,6 +83,11 @@ COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 # "retained" and the .map files are kept in the image. Uses explicit && chaining rather than `set -e`,
 # which bash ignores inside a `||`-guarded subshell — any failing link drops us into the retained branch.
 #
+# Two passes. The stable-name copies (`*-S<10 hex>.js`, see frontend/bin/stableChunkNames.mjs) keep
+# one URL for as long as their code is unchanged, so they must not carry the per-release id that the
+# first pass injects. The second pass runs with no release flags and without GITHUB_ACTIONS, so the CLI
+# resolves no release and injects only the chunk id, which it derives from the file's own content.
+#
 # The CLI installer is pinned to an immutable release tag and checksum-verified before execution:
 # the processed frontend/dist ships in the final image, so the CLI must not be mutable remote code.
 # To upgrade, change POSTHOG_CLI_VERSION and recompute the hash:
@@ -94,7 +99,8 @@ ARG POSTHOG_CLI_INSTALLER_SHA256=1ed5ff785ca33f38458efb1677ffd35ed99d935ac59d5e2
 # directory to fall back on: without these the release is created with no link back to the code it
 # was built from, and the CLI skips the metadata silently because --release-name/--release-version
 # already let it create the release. The CLI treats empty values as absent, so local builds that
-# pass none of these behave as before.
+# pass none of these behave as before. In the CD workflow the release usually exists already, created
+# with the same metadata before the build, and this stage only looks it up by name and version.
 ARG GITHUB_ACTIONS
 ARG GITHUB_SHA
 ARG GITHUB_REF_NAME
@@ -117,12 +123,19 @@ RUN --mount=type=secret,id=posthog_upload_sourcemaps_cli_api_key \
         export PATH="/root/.posthog:$PATH" && \
         export POSTHOG_CLI_TOKEN="$(cat /run/secrets/posthog_upload_sourcemaps_cli_api_key)" && \
         export POSTHOG_CLI_ENV_ID=2 && \
+        STABLE_CHUNKS='**/*-S[0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F][0-9A-F].js' && \
         posthog-cli sourcemap process \
             --directory /code/frontend/dist \
+            --exclude "$STABLE_CHUNKS" \
             --public-path-prefix /static \
             --release-mode event \
             --release-name posthog \
-            --release-version "${COMMIT_HASH:-unknown}" \
+            --release-version "${COMMIT_HASH:-unknown}" && \
+        env -u GITHUB_ACTIONS posthog-cli sourcemap process \
+            --directory /code/frontend/dist \
+            --include "$STABLE_CHUNKS" \
+            --public-path-prefix /static \
+            --release-mode event \
     ); then \
         echo uploaded > /tmp/.sourcemaps-status; \
     else \
@@ -204,6 +217,7 @@ RUN --mount=type=cache,id=uv-libxmlsec1.2.37-2,target=/root/.cache/uv \
     # is a runtime dependency (stamphog's digest reads owners.yaml through it), and --no-editable
     # copies it into the venv so the image never depends on this bind mount's path surviving.
     --mount=type=bind,source=packages/owners-yaml,target=packages/owners-yaml \
+    --mount=type=bind,source=packages/personhog-proto,target=packages/personhog-proto \
     uv sync --locked --no-dev --no-editable --no-install-project --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
@@ -358,6 +372,14 @@ USER posthog
 # Add the commit hash
 ARG COMMIT_HASH
 RUN echo $COMMIT_HASH > /code/commit.txt
+
+# The error tracking release this build belongs to. The CD workflow creates the release before the
+# build and passes its id in (see "Resolve error tracking release" in
+# .github/workflows/container-images-cd.yml). The Python SDK reads POSTHOG_RELEASE_ID and sends it as
+# $release_id on every event, so a backend exception resolves to the same release as the frontend
+# bundles. Empty in every other build, which the SDK treats as unset.
+ARG POSTHOG_RELEASE_ID
+ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
 
 # Copy the Python dependencies and Django staticfiles from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles

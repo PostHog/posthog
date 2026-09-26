@@ -374,6 +374,9 @@ tools:
     task-channels-provision-defaults-create:
         operation: task_channels_provision_defaults_create
         enabled: false
+    task-channels-setup-create:
+        operation: task_channels_setup_create
+        enabled: false
     task-channels-star-create:
         operation: task_channels_star_create
         enabled: false
@@ -478,12 +481,15 @@ tools:
             idempotent: false
         input_schema: TaskAgentCreateSchema
         enrich_url: '{id}'
-        title: Create task and start run
+        title: Create task and start or schedule run
         description: >
-            Create a task and start its first background run. Set `description` to the agent's instructions. For code
-            tasks, set `repository` to `organization/repo`. Omit `branch` to use the default branch. Check `run_error`
-            if the run does not start. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. If the response is
-            lost, search for the task before you retry. A repeated call can create another task.
+            Create a task and start its first background run, or set `scheduled_at` for a one-off run within 30 days.
+            Times without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit
+            model fields to use saved defaults. Use `tasks-models-retrieve` before an explicit model choice. Set
+            `description` to the agent's instructions. For code tasks, set `repository` to `organization/repo`. Omit
+            `branch` to use the default branch. Check `run_error` if the run does not start. Poll `tasks-runs-list` or
+            `tasks-runs-retrieve` for progress. If the response is lost, search for the task before you retry. A
+            repeated call can create another task.
         feature_flag: tasks-mcp-agent-run-start
         response:
             include:
@@ -496,6 +502,9 @@ tools:
                 - latest_run.stage
                 - latest_run.status
                 - run_error
+                - latest_run.scheduled_at
+                - latest_run.model
+                - latest_run.reasoning_effort
     tasks-destroy:
         operation: tasks_destroy
         enabled: false
@@ -659,12 +668,14 @@ tools:
             idempotent: false
         input_schema: TaskAgentRunCreateSchema
         enrich_url: '{id}'
-        title: Start task run
+        title: Start or schedule task run
         description: >
-            Start a cloud run for an existing task. Use `pending_user_message` for follow-up work and
-            `resume_from_run_id` to continue a prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress.
-            Check `run_error` for a start failure. If the response is lost, check the runs before you retry. A repeated
-            call can start another run.
+            Start a cloud run for an existing task, or set `scheduled_at` for a one-off run within 30 days. Times
+            without an offset use UTC. Confirm the returned time; execution starts at or after that time. Omit model
+            fields to use saved defaults, or the previous run's model on resume. Use `tasks-models-retrieve` before an
+            explicit model choice. Use `pending_user_message` for follow-up work and `resume_from_run_id` to continue a
+            prior run. Poll `tasks-runs-list` or `tasks-runs-retrieve` for progress. Check `run_error` for a start
+            failure. If the response is lost, check the runs before you retry. A repeated call can start another run.
         feature_flag: tasks-mcp-agent-run-start
         response:
             include:
@@ -677,6 +688,9 @@ tools:
                 - latest_run.id
                 - latest_run.stage
                 - latest_run.status
+                - latest_run.scheduled_at
+                - latest_run.model
+                - latest_run.reasoning_effort
     tasks-runs-analysis-activity-create:
         operation: tasks_runs_analysis_activity_create
         enabled: false
@@ -753,6 +767,9 @@ tools:
                 - environment
                 - error_message
                 - state.sandbox_environment_id
+                - scheduled_at
+                - model
+                - reasoning_effort
                 - created_at
                 - updated_at
                 - completed_at
@@ -842,6 +859,9 @@ tools:
         enabled: false
     tasks-runs-stream-token-retrieve:
         operation: tasks_runs_stream_token_retrieve
+        enabled: false
+    tasks-runs-subscription-token-create:
+        operation: tasks_runs_subscription_token_create
         enabled: false
     tasks-runs-task-session-retrieve:
         operation: tasks_runs_task_session_retrieve

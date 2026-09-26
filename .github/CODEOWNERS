@@ -57,6 +57,16 @@ posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security
 ee/api/scim/auth.py @PostHog/team-security
 
+# The Content Security Policy every app and admin page carries. A browser refuses a resource the
+# policy does not name and shows the user no error, so a policy mistake breaks a feature with no
+# signal, and a widened directive removes a control the same way. Neither shows up in a test or a
+# stack trace, which is why review is the control. The semgrep rule stops a view from setting the
+# header outside this file, and each exception it carries names the policy it allows, so a fourth
+# document needs this team too.
+posthog/csp_middleware.py @PostHog/team-security
+posthog/test/test_csp_middleware.py @PostHog/team-security
+.semgrep/rules/security/csp-header-outside-csp-middleware.* @PostHog/team-security
+
 # Dev sandbox provides important protection in local dev
 bin/dev-sandbox* @PostHog/team-security
 
@@ -64,7 +74,7 @@ bin/dev-sandbox* @PostHog/team-security
 # becomes (probe permitting) an active server template in every environment on the next
 # deploy — installable by all tenants and feeding tool results into their LLM agents. The
 # probe only verifies liveness, so PR review is the vendor-identity gate.
-products/mcp_store/backend/catalog.py @PostHog/team-self-driving @cvolzer3
+products/mcp_store/backend/catalog.py @PostHog/team-context-mcp
 
 # Adding a line here exempts a product from isolation, so the full Django backend suite
 # keeps running on every change it makes — a cost paid by everyone, not just its team.

@@ -185,8 +185,15 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
 
     # A plain read, so it's safe to retry outright on the Team/Organization join losing a
-    # Postgres deadlock race against an unrelated writer of either table.
-    team = _get_team(team_id)
+    # Postgres deadlock race against an unrelated writer of either table. The team can also be
+    # legitimately gone by the time this fire-and-forget child workflow runs (deleted between the
+    # post-import gate check and now) — that's not a bug, so skip like the other not-found cases
+    # below rather than let DoesNotExist reach the activity's except block and error tracking.
+    try:
+        team = _get_team(team_id)
+    except Team.DoesNotExist:
+        log.info("warehouse_statistics.skipped", reason="team_deleted")
+        return {"status": "skipped", "reason": "team_deleted"}
     event_props: dict[str, Any] = {"schema_id": str(schema_id)}
 
     def emit_completed(status: str, **props: Any) -> None:

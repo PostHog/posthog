@@ -12,11 +12,11 @@ use arrow::pyarrow::{FromPyArrow, ToPyArrow};
 use arrow_array::{new_empty_array, Array, RecordBatch};
 use arrow_schema::SchemaRef;
 use deltalake::writer::RecordBatchWriter;
-use deltalake::DeltaTable;
 use deltalite_core::errors::Error;
+use deltalite_core::handle::TableHandle;
 use deltalite_core::limits::ProcessLimits;
 use deltalite_core::schema::import_column;
-use deltalite_core::table::{open_table, open_table_multipart, MultipartConfig};
+use deltalite_core::table::{open_table, MultipartConfig};
 use deltalite_core::upsert::{PruneStrategy, UpsertOptions};
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -169,6 +169,14 @@ pub struct UpsertStats {
     pub commit_ms: u64,
     #[pyo3(get)]
     pub columns_relaxed: usize,
+    #[pyo3(get)]
+    pub open_ms: u64,
+    #[pyo3(get)]
+    pub ingest_ms: u64,
+    #[pyo3(get)]
+    pub relax_ms: u64,
+    #[pyo3(get)]
+    pub maintenance_ms: u64,
 }
 
 #[pymethods]
@@ -209,6 +217,10 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
             rewrite_ms: s.rewrite_ms,
             commit_ms: s.commit_ms,
             columns_relaxed: s.columns_relaxed,
+            open_ms: s.open_ms,
+            ingest_ms: s.ingest_ms,
+            relax_ms: s.relax_ms,
+            maintenance_ms: s.maintenance_ms,
         }
     }
 }
@@ -218,9 +230,7 @@ impl From<deltalite_core::upsert::UpsertStats> for UpsertStats {
 /// `deltalake` package -- both address the same `_delta_log`.
 #[pyclass(module = "deltalite")]
 pub struct DeltaLiteTable {
-    uri: String,
-    storage_options: HashMap<String, String>,
-    table: DeltaTable,
+    handle: TableHandle,
 }
 
 #[pymethods]
@@ -234,15 +244,10 @@ impl DeltaLiteTable {
         storage_options: Option<HashMap<String, String>>,
     ) -> PyResult<Self> {
         let so = storage_options.unwrap_or_default();
-        let so2 = so.clone();
-        let table = py
-            .detach(|| runtime().block_on(open_table(&uri, so2)))
+        let handle = py
+            .detach(|| runtime().block_on(TableHandle::open(uri, so)))
             .map_err(to_py_err)?;
-        Ok(Self {
-            uri,
-            storage_options: so,
-            table,
-        })
+        Ok(Self { handle })
     }
 
     /// Whether `uri` points at a loadable Delta table.
@@ -261,25 +266,22 @@ impl DeltaLiteTable {
 
     /// The table version this handle currently observes (-1 before any load).
     fn version(&self) -> i64 {
-        self.table
-            .version()
-            .and_then(|v| i64::try_from(v).ok())
-            .unwrap_or(-1)
+        self.handle.version()
     }
 
-    /// Re-read the log so this handle observes commits made elsewhere.
+    /// Re-read the log so this handle observes commits made elsewhere. Incremental --
+    /// only commits newer than the loaded version are read -- with a full re-open
+    /// fallback when the log is not reachable forward from the loaded state.
     fn reload(&mut self, py: Python<'_>) -> PyResult<()> {
-        let uri = self.uri.clone();
-        let so = self.storage_options.clone();
-        self.table = py
-            .detach(|| runtime().block_on(open_table(&uri, so)))
+        let handle = &mut self.handle;
+        py.detach(|| runtime().block_on(handle.refresh()))
             .map_err(to_py_err)?;
         Ok(())
     }
 
     /// The table's Arrow schema, as the write path will expect it.
     fn schema_arrow(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let schema = RecordBatchWriter::for_table(&self.table)
+        let schema = RecordBatchWriter::for_table(self.handle.table())
             .map_err(|e| to_py_err(Error::from(e)))?
             .arrow_schema();
         Ok(schema.to_pyarrow(py)?.into())
@@ -287,14 +289,19 @@ impl DeltaLiteTable {
 
     /// The table's partition columns (possibly empty).
     fn partition_columns(&self) -> PyResult<Vec<String>> {
-        let snapshot = self.table.snapshot().map_err(|e| to_py_err(e.into()))?;
+        let snapshot = self
+            .handle
+            .table()
+            .snapshot()
+            .map_err(|e| to_py_err(e.into()))?;
         Ok(snapshot.metadata().partition_columns().to_vec())
     }
 
     /// URIs of the live data files.
     fn file_uris(&self) -> PyResult<Vec<String>> {
         Ok(self
-            .table
+            .handle
+            .table()
             .get_file_uris()
             .map_err(|e| to_py_err(e.into()))?
             .collect::<Vec<_>>())
@@ -359,7 +366,9 @@ impl DeltaLiteTable {
     ) -> PyResult<UpsertStats> {
         // Import while holding the GIL (it reads a Python object), then release it for
         // all the I/O.
+        let ingest_started = std::time::Instant::now();
         let (schema, batches) = read_pyarrow(data)?;
+        let ingest_ms = ingest_started.elapsed().as_millis() as u64;
 
         let prune_strategy = match prune_strategy.as_deref() {
             Some(s) => s.parse::<PruneStrategy>().map_err(to_py_err)?,
@@ -390,59 +399,22 @@ impl DeltaLiteTable {
         };
         let multipart = MultipartConfig::resolve(multipart_threshold, multipart_part_size);
 
-        let uri = self.uri.clone();
-        let so = self.storage_options.clone();
+        // Conflict retries, snapshot refreshes and the post-commit reload all live in
+        // `TableHandle::upsert` (shared with the Rust benchmarks); the handle refreshes
+        // incrementally instead of re-replaying the whole log per attempt.
+        let handle = &mut self.handle;
         let stats = py
-            .detach(|| {
-                runtime().block_on(async move {
-                    // A concurrent writer can make delta-rs reject the commit with a
-                    // "must rerun" conflict (it read data another transaction deleted).
-                    // delta-rs's own commit retries re-attempt the SAME, now-stale actions and
-                    // keep conflicting; the only fix is to re-read the table and re-plan. So on
-                    // a Conflict we re-open a fresh snapshot and re-run the whole upsert a few
-                    // times before giving up -- after which the caller falls back to the MERGE.
-                    // Re-opening each attempt also gives every try a fresh snapshot, so a
-                    // retried batch never plans against stale state.
-                    //
-                    // Only data conflicts are retried. A concurrent schema/protocol change
-                    // surfaces as Error::Unsupported (see core `errors.rs`), not Conflict, and so
-                    // breaks straight out to the MERGE fallback -- re-planning a blind rewrite
-                    // against changed metadata could null-pad a newly-added column.
-                    const CONFLICT_RETRIES: usize = 5;
-                    let mut attempt = 0usize;
-                    loop {
-                        let table = open_table_multipart(&uri, so.clone(), multipart).await?;
-                        match deltalite_core::upsert::upsert(
-                            &table,
-                            batches.clone(),
-                            schema.clone(),
-                            opts.clone(),
-                        )
-                        .await
-                        {
-                            Err(Error::Conflict(_)) if attempt < CONFLICT_RETRIES => {
-                                attempt += 1;
-                                // Short linear backoff so two upserts racing a hot table don't
-                                // live-lock re-reading each other's in-flight commit.
-                                tokio::time::sleep(std::time::Duration::from_millis(
-                                    50 * attempt as u64,
-                                ))
-                                .await;
-                            }
-                            other => break other,
-                        }
-                    }
-                })
-            })
+            .detach(|| runtime().block_on(handle.upsert(batches, schema, opts, multipart)))
             .map_err(to_py_err)?;
 
-        self.reload(py)?;
-        Ok(stats.into())
+        let mut stats: UpsertStats = stats.into();
+        stats.ingest_ms = ingest_ms;
+        Ok(stats)
     }
 
     /// Commit metadata of the most recent `limit` commits, oldest first.
     fn history(&self, py: Python<'_>, limit: usize) -> PyResult<Py<PyAny>> {
-        let table = self.table.clone();
+        let table = self.handle.table().clone();
         let infos = py
             .detach(|| {
                 runtime().block_on(async move {

@@ -12,13 +12,16 @@ from posthog.management.migration_analysis.models import MigrationRisk, Operatio
 from posthog.management.migration_analysis.policies import (
     AtomicFalsePolicy,
     ConcurrentIndexIdempotencyPolicy,
+    GeneratedNameDropPolicy,
     HotTableAlterPolicy,
+    LockPhaseTransactionPolicy,
     OrphanedForeignKeyPolicy,
 )
 from posthog.management.migration_analysis.utils import _model_name_for_table
 from posthog.migration_helpers import (
     AddConstraintNotValid,
     AddForeignKeyNotValid,
+    DropColumnConstraints,
     DropForeignKey,
     SafeAddIndexConcurrently,
     SafeDropTable,
@@ -2924,10 +2927,11 @@ class TestOrphanedForeignKeyPolicy:
         assert len(violations) == 1
         assert violations[0].startswith("⚠️ WARNING")
 
-    def test_a_matching_drop_clears_it(self, monkeypatch):
+    @pytest.mark.parametrize("column", ["owner_id", ["other_id", "owner_id"]])
+    def test_a_matching_drop_clears_it(self, monkeypatch, column):
         state = self._state(owner=models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True))
 
-        violations = self._check(state, [DropForeignKey("posthog_child", column="owner_id")], monkeypatch)
+        violations = self._check(state, [DropForeignKey("posthog_child", column=column)], monkeypatch)
 
         assert violations == []
 
@@ -2972,3 +2976,115 @@ class TestOrphanedForeignKeyPolicy:
         violations = self._check(state, [migrations.RunSQL(sql=sql)], monkeypatch)
 
         assert len(violations) == expected
+
+
+class TestLockPhaseTransactionPolicy:
+    def _untrack(self, *drops):
+        return migrations.SeparateDatabaseAndState(
+            state_operations=[migrations.RemoveField(model_name="child", name="owner")],
+            database_operations=list(drops),
+        )
+
+    @parameterized.expand(
+        [
+            ("alone_beside_state_operations", True, ["untrack_one"], []),
+            ("two_drops_in_one_transaction", True, ["untrack_two"], ["column=[...]"]),
+            ("another_operation_first", True, ["remove_constraint", "untrack_one"], ["RemoveConstraint"]),
+            ("both_shapes_at_once", True, ["remove_constraint", "untrack_two"], ["column=[...]", "RemoveConstraint"]),
+            ("a_table_drop_beside_a_key_drop", True, ["untrack_one", "safe_drop"], ["SafeDropTable"]),
+            ("column_rules_beside_a_key_drop", True, ["drop_rules", "untrack_one"], ["DropColumnConstraints"]),
+            ("a_no_op_beside_the_drop", True, ["no_op_sql", "untrack_one"], []),
+            ("a_state_only_django_op_beside_the_drop", True, ["alter_options", "untrack_one"], []),
+            ("two_drops_nested_one_level_down", True, ["nested_two"], ["column=[...]"]),
+            ("atomic_false_commits_each_drop_alone", False, ["remove_constraint", "untrack_two"], []),
+        ]
+    )
+    def test_a_lock_phase_must_own_its_transaction(self, _name, atomic, shape, expected):
+        owner = DropForeignKey("posthog_child", column="owner_id")
+        other = DropForeignKey("posthog_child", column="other_id")
+        operations = {
+            "untrack_one": self._untrack(owner),
+            "untrack_two": self._untrack(owner, other),
+            "remove_constraint": migrations.RemoveConstraint(model_name="child", name="exactly_one_owner"),
+            "safe_drop": SafeDropTable("posthog_retired"),
+            "drop_rules": DropColumnConstraints("posthog_child", columns=["owner_id"]),
+            "no_op_sql": migrations.RunSQL(migrations.RunSQL.noop, migrations.RunSQL.noop),
+            "alter_options": migrations.AlterModelOptions(name="child", options={"ordering": ["id"]}),
+            "nested_two": migrations.SeparateDatabaseAndState(database_operations=[self._untrack(owner, other)]),
+        }
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.atomic = atomic
+        migration.operations = [operations[key] for key in shape]
+
+        violations = LockPhaseTransactionPolicy().check_migration(migration)
+
+        assert len(violations) == len(expected)
+        for violation, fragment in zip(violations, expected):
+            assert violation.startswith("❌ BLOCKED")
+            assert fragment in violation
+
+
+class TestGeneratedNameDropPolicy:
+    @parameterized.expand(
+        [
+            (
+                "unique_together_with_if_exists",
+                'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "posthog_x_tag_id_owner_id_734394e1_uniq"',
+                None,
+                ["posthog_x_tag_id_owner_id_734394e1_uniq"],
+            ),
+            (
+                "foreign_key",
+                "ALTER TABLE posthog_x DROP CONSTRAINT posthog_x_owner_id_9a1bc3de_fk_posthog_team_id",
+                None,
+                ["posthog_x_owner_id_9a1bc3de_fk_posthog_team_id"],
+            ),
+            (
+                "index_dropped_concurrently",
+                'DROP INDEX CONCURRENTLY IF EXISTS "posthog_x_owner_id_5a6b7c8d"',
+                None,
+                ["posthog_x_owner_id_5a6b7c8d"],
+            ),
+            (
+                "index_together_idx",
+                'DROP INDEX IF EXISTS "posthog_x_team_id_owner_id_1a2b3c4d_idx"',
+                None,
+                ["posthog_x_team_id_owner_id_1a2b3c4d_idx"],
+            ),
+            (
+                "unnamed_models_index",
+                'DROP INDEX IF EXISTS "posthog_eve_team_id_26dbfb_idx"',
+                None,
+                ["posthog_eve_team_id_26dbfb_idx"],
+            ),
+            (
+                "all_digit_hash_before_a_suffix",
+                'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "posthog_x_tag_id_owner_id_12345678_uniq"',
+                None,
+                ["posthog_x_tag_id_owner_id_12345678_uniq"],
+            ),
+            ("a_chosen_name", 'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "exactly_one_owner"', None, []),
+            ("a_date_in_a_chosen_name", 'DROP INDEX IF EXISTS "posthog_x_backfill_20260923"', None, []),
+            (
+                "only_the_reverse",
+                'ALTER TABLE "posthog_x" ADD CONSTRAINT "posthog_x_tag_id_owner_id_734394e1_uniq" UNIQUE (tag_id)',
+                'ALTER TABLE "posthog_x" DROP CONSTRAINT IF EXISTS "posthog_x_tag_id_owner_id_734394e1_uniq"',
+                [],
+            ),
+            ("inside_a_comment", '-- DROP CONSTRAINT "posthog_x_tag_id_owner_id_734394e1_uniq"\nSELECT 1', None, []),
+        ]
+    )
+    def test_a_generated_name_is_not_typed_into_a_drop(self, _name, sql, reverse_sql, expected):
+        run_sql = migrations.RunSQL(sql, reverse_sql or migrations.RunSQL.noop)
+        migration = MagicMock()
+        migration.app_label = "posthog"
+        migration.name = "0001_test"
+        migration.operations = [migrations.SeparateDatabaseAndState(database_operations=[run_sql])]
+
+        violations = GeneratedNameDropPolicy().check_migration(migration)
+
+        assert len(violations) == (1 if expected else 0)
+        for name in expected:
+            assert name in violations[0]

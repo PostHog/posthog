@@ -14,6 +14,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
+from products.data_warehouse.backend.presentation.views.data_warehouse import _pipeline_stats_cache_key
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -174,6 +175,159 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(data["modeling_jobs"]["failed"], 0)
         self.assertIn("breakdown", data)
         self.assertIn("cutoff_time", data)
+
+    @parameterized.expand(
+        [
+            ("billing_limit_reached", ExternalDataJob.Status.BILLING_LIMIT_REACHED),
+            ("billing_limit_too_low", ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW),
+        ]
+    )
+    def test_job_stats_counts_a_billing_stopped_run_as_failed(self, _name: str, job_status: str) -> None:
+        # A run billing stopped is not successful, so leaving it out of the failed count reports it
+        # as neither and the totals stop adding up.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/job_stats"
+        source = ExternalDataSource.objects.create(
+            source_id="billing-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(name="charges", team=self.team, source=source)
+
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            schema=schema,
+            team=self.team,
+            status=job_status,
+            rows_synced=0,
+            finished_at=timezone.now(),
+        )
+
+        data = self.client.get(endpoint).json()
+
+        self.assertEqual(data["external_data_jobs"]["total"], 1)
+        self.assertEqual(data["external_data_jobs"]["failed"], 1)
+        self.assertEqual(data["external_data_jobs"]["successful"], 0)
+        self.assertEqual(data["failed_jobs"], 1)
+
+    @parameterized.expand(
+        [
+            ("failed", ExternalDataSchema.Status.FAILED, "failed"),
+            ("billing_limit_reached", ExternalDataSchema.Status.BILLING_LIMIT_REACHED, "billing_limit"),
+            ("billing_limit_too_low", ExternalDataSchema.Status.BILLING_LIMIT_TOO_LOW, "billing_limit"),
+        ]
+    )
+    def test_data_health_issues_reports_a_stopped_sync(
+        self, _name: str, schema_status: str, expected_status: str
+    ) -> None:
+        # A sync billing stopped used to be absent from the health list entirely, so the one place
+        # that says why a pipeline stopped said nothing at all.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        source = ExternalDataSource.objects.create(
+            source_id="health-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        ExternalDataSchema.objects.create(
+            name="charges",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=schema_status,
+            latest_error="it broke",
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        syncs = [issue for issue in results if issue["type"] == "external_data_sync"]
+        self.assertEqual(len(syncs), 1)
+        self.assertEqual(syncs[0]["status"], expected_status)
+        self.assertEqual(syncs[0]["name"], "charges")
+        self.assertEqual(syncs[0]["error"], "it broke")
+
+    def test_data_health_issues_ignores_a_sync_that_is_switched_off(self) -> None:
+        # A table the user turned off is not a problem to report, however it last ended.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        source = ExternalDataSource.objects.create(
+            source_id="off-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        ExternalDataSchema.objects.create(
+            name="charges",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            status=ExternalDataSchema.Status.FAILED,
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        self.assertEqual([issue for issue in results if issue["type"] == "external_data_sync"], [])
+
+    @parameterized.expand(
+        [
+            ("failed", ExternalDataJob.Status.FAILED),
+            ("billing_limit_reached", ExternalDataJob.Status.BILLING_LIMIT_REACHED),
+            ("billing_limit_too_low", ExternalDataJob.Status.BILLING_LIMIT_TOO_LOW),
+        ]
+    )
+    def test_completed_activity_can_return_failed_runs(self, _name: str, job_status: str) -> None:
+        # Before this parameter, no endpoint listed failed runs across sources: running_activity
+        # is Running-only and this one was Completed-only, so a failure was visible only by
+        # opening each source in turn.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        source = ExternalDataSource.objects.create(
+            source_id="activity-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(name="charges", team=self.team, source=source)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            schema=schema,
+            team=self.team,
+            status=job_status,
+            rows_synced=0,
+            finished_at=timezone.now(),
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            schema=schema,
+            team=self.team,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=5,
+            finished_at=timezone.now(),
+        )
+
+        failed = self.client.get(f"{endpoint}?outcome=failed").json()["results"]
+        completed = self.client.get(endpoint).json()["results"]
+
+        self.assertEqual([run["status"] for run in failed], [job_status])
+        # The default is unchanged, so existing callers keep seeing only successful runs.
+        self.assertEqual([run["status"] for run in completed], [ExternalDataJob.Status.COMPLETED])
+
+    def test_completed_activity_rejects_an_unknown_outcome(self) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        response = self.client.get(f"{endpoint}?outcome=sideways")
+
+        self.assertEqual(response.status_code, 400)
+
+    def test_the_cache_key_separates_teams_windows_and_aggregates(self) -> None:
+        # The team is part of the key rather than a filter applied to a cached answer. A key that
+        # dropped it would serve one team another team's totals for the whole TTL.
+        self.assertNotEqual(_pipeline_stats_cache_key("job_stats", 1, 7), _pipeline_stats_cache_key("job_stats", 2, 7))
+        # Without the window, asking for 30 days right after 1 day returns the one-day answer.
+        self.assertNotEqual(_pipeline_stats_cache_key("job_stats", 1, 1), _pipeline_stats_cache_key("job_stats", 1, 30))
+        self.assertNotEqual(_pipeline_stats_cache_key("job_stats", 1), _pipeline_stats_cache_key("total_rows_stats", 1))
 
     def test_job_stats_1_day_hourly_breakdown(self):
         """Test job_stats endpoint with 1-day period returns hourly breakdown"""
@@ -626,9 +780,7 @@ class TestDataWarehouseAPI(APIBaseTest):
     def test_data_ops_dashboard_creates_dashboard_on_first_call(self):
         endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
 
-        # Config is auto-created by the team extension signal, but starts with no dashboards
-        config = TeamDataWarehouseConfig.objects.get(team=self.team)
-        self.assertEqual(config.overview_dashboards.count(), 0)
+        self.assertFalse(TeamDataWarehouseConfig.objects.filter(team=self.team).exists())
 
         response = self.client.get(endpoint)
         self.assertEqual(response.status_code, 200)
@@ -698,10 +850,13 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
     The custom action is not one of the default read actions, so without an explicit
     `required_scopes` it returned None and rejected all personal API key access with a 403.
     The action now declares `warehouse_view:read` + `external_data_source:read`, matching the
-    MCP tool definition.
+    MCP tool definition, plus `batch_export:read` and `hog_function:read` since the response
+    also includes batch export and HogFunction names, ids, statuses, and error messages.
     """
 
     CONFIG_AUTO_LOGIN = False
+
+    ALL_REQUIRED_SCOPES = ["warehouse_view:read", "external_data_source:read", "batch_export:read", "hog_function:read"]
 
     def _get(self, value: str):
         return self.client.get(
@@ -711,7 +866,7 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("both_read_scopes", ["warehouse_view:read", "external_data_source:read"]),
+            ("all_read_scopes", ALL_REQUIRED_SCOPES),
             ("wildcard", ["*"]),
         ]
     )
@@ -723,9 +878,13 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
 
     @parameterized.expand(
         [
-            # Both scopes are required; only one is insufficient.
+            # All four scopes are required; missing any one is insufficient.
             ("only_warehouse_view", ["warehouse_view:read"]),
             ("only_external_data_source", ["external_data_source:read"]),
+            ("only_batch_export", ["batch_export:read"]),
+            ("only_hog_function", ["hog_function:read"]),
+            ("missing_batch_export", ["warehouse_view:read", "external_data_source:read", "hog_function:read"]),
+            ("missing_hog_function", ["warehouse_view:read", "external_data_source:read", "batch_export:read"]),
             ("unrelated_scope", ["insight:read"]),
         ]
     )

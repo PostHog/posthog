@@ -29,13 +29,28 @@ macro_rules! run_columns {
     };
 }
 
+// A trailing run is discovered only once one of its holds has lapsed: before that nothing of it
+// can be claimed, and every discovery re-validates its pinned payload. The test is "any hold
+// lapsed", not "an unconfirmed chunk's hold lapsed", so a run whose last chunk confirmed stays
+// visible to `complete_trailing_runs`.
+macro_rules! discoverable_run {
+    () => {
+        "status IN ('awaiting_boundary', 'seeding')
+          OR (status = 'trailing' AND EXISTS (
+              SELECT 1 FROM cohort_backfill_chunks c
+              WHERE c.run_id = cohort_backfill_runs.id AND c.claimable_after <= now()))"
+    };
+}
+
 // The kind predicate binds the caller's allowed-kind set: with the person gate off, discovery
 // binds `['behavioral']`, which keeps the person path inert without a second query text.
 const DISCOVER_ALL: &str = concat!(
     "\n    SELECT ",
     run_columns!(),
     "\n    FROM cohort_backfill_runs",
-    "\n    WHERE status IN ('awaiting_boundary', 'seeding')",
+    "\n    WHERE (",
+    discoverable_run!(),
+    ")",
     "\n      AND backfill_kind = ANY($1)",
     "\n    ORDER BY created_at\n"
 );
@@ -44,7 +59,9 @@ const DISCOVER_ONLY: &str = concat!(
     "\n    SELECT ",
     run_columns!(),
     "\n    FROM cohort_backfill_runs",
-    "\n    WHERE status IN ('awaiting_boundary', 'seeding')",
+    "\n    WHERE (",
+    discoverable_run!(),
+    ")",
     "\n      AND backfill_kind = ANY($2)",
     "\n      AND team_id = ANY($1)",
     "\n    ORDER BY created_at\n"
@@ -96,6 +113,7 @@ pub enum RunStatus {
     Blocked,
     Seeding,
     Reconciling,
+    Trailing,
     Completed,
     Superseded,
     Cancelled,
@@ -103,18 +121,56 @@ pub enum RunStatus {
 }
 
 impl RunStatus {
+    pub const ALL: [Self; 9] = [
+        Self::AwaitingBoundary,
+        Self::Blocked,
+        Self::Seeding,
+        Self::Reconciling,
+        Self::Trailing,
+        Self::Completed,
+        Self::Superseded,
+        Self::Cancelled,
+        Self::Failed,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AwaitingBoundary => "awaiting_boundary",
             Self::Blocked => "blocked",
             Self::Seeding => "seeding",
             Self::Reconciling => "reconciling",
+            Self::Trailing => "trailing",
             Self::Completed => "completed",
             Self::Superseded => "superseded",
             Self::Cancelled => "cancelled",
             Self::Failed => "failed",
         }
     }
+
+    /// The phase in which the seeder scans this run's chunks, or `None` when it scans none.
+    pub const fn seed_phase(self) -> Option<SeedPhase> {
+        match self {
+            Self::Seeding => Some(SeedPhase::Seeding),
+            Self::Trailing => Some(SeedPhase::Trailing),
+            Self::AwaitingBoundary
+            | Self::Blocked
+            | Self::Reconciling
+            | Self::Completed
+            | Self::Superseded
+            | Self::Cancelled
+            | Self::Failed => None,
+        }
+    }
+}
+
+/// What a run with an established boundary still owes the seeder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeedPhase {
+    /// Planning and scanning every day. Readiness waits for the days before the boundary day.
+    Seeding,
+    /// Readiness is stamped, and the run's days were all planned while it was seeding. Only its
+    /// trailing days are left to scan.
+    Trailing,
 }
 
 impl FromStr for RunStatus {
@@ -126,6 +182,7 @@ impl FromStr for RunStatus {
             "blocked" => Ok(Self::Blocked),
             "seeding" => Ok(Self::Seeding),
             "reconciling" => Ok(Self::Reconciling),
+            "trailing" => Ok(Self::Trailing),
             "completed" => Ok(Self::Completed),
             "superseded" => Ok(Self::Superseded),
             "cancelled" => Ok(Self::Cancelled),
@@ -219,14 +276,15 @@ pub struct DiscoveredRun {
     pub pinned: Value,
 }
 
-/// A run proven `seeding` with an established boundary — the only place the boundary `Option`
-/// narrows to a value and the trigger stays typed all the way into [`PinnedRunSnapshot`]. Minted
-/// only by [`establish_boundary`].
+/// A run proven `seeding` or `trailing` with an established boundary — the only place the boundary
+/// `Option` narrows to a value and the trigger stays typed all the way into [`PinnedRunSnapshot`].
+/// Minted only by [`establish_boundary`].
 #[derive(Debug, Clone)]
 pub struct SeedableRun {
     pub run_id: RunId,
     pub team_id: TeamId,
     pub kind: RunKind,
+    pub phase: SeedPhase,
     pub trigger: TriggerKind,
     pub timezone: String,
     pub boundary_at: UtcMillis,
@@ -235,11 +293,12 @@ pub struct SeedableRun {
 }
 
 impl SeedableRun {
-    fn promote(run: DiscoveredRun, boundary_at: DateTime<Utc>) -> Self {
+    fn promote(run: DiscoveredRun, boundary_at: DateTime<Utc>, phase: SeedPhase) -> Self {
         Self {
             run_id: run.run_id,
             team_id: run.team_id,
             kind: run.kind,
+            phase,
             trigger: run.trigger,
             timezone: run.timezone,
             boundary_at: UtcMillis::new(boundary_at.timestamp_millis()),
@@ -672,11 +731,12 @@ pub async fn establish_boundary(
     run: DiscoveredRun,
 ) -> Result<BoundaryOutcome, RunError> {
     let kind = run.kind;
-    if run.status == RunStatus::Seeding {
+    if let Some(phase) = run.status.seed_phase() {
         return match run.boundary_at {
             Some(boundary_at) => Ok(BoundaryOutcome::AlreadyEstablished(SeedableRun::promote(
                 run,
                 boundary_at,
+                phase,
             ))),
             None => Err(RunError::SeedingBoundaryMissing(run.run_id)),
         };
@@ -721,15 +781,17 @@ pub async fn establish_boundary(
         return Ok(BoundaryOutcome::Established(SeedableRun::promote(
             run,
             boundary.boundary_at,
+            SeedPhase::Seeding,
         )));
     }
 
     let current = read_run(pool, run.run_id, kind).await?;
-    if current.status == RunStatus::Seeding {
+    if let Some(phase) = current.status.seed_phase() {
         match current.boundary_at {
             Some(boundary_at) => Ok(BoundaryOutcome::AlreadyEstablished(SeedableRun::promote(
                 current,
                 boundary_at,
+                phase,
             ))),
             None => Err(RunError::SeedingBoundaryMissing(current.run_id)),
         }
@@ -746,7 +808,7 @@ pub async fn fail_run(pool: &PgPool, run_id: RunId, error: &RenderedError) -> Re
         r#"
         UPDATE cohort_backfill_runs
         SET status = 'failed', error = left($2, $3), finished_at = now(), updated_at = now()
-        WHERE id = $1 AND status IN ('awaiting_boundary', 'seeding')
+        WHERE id = $1 AND status IN ('awaiting_boundary', 'seeding', 'trailing')
         RETURNING id
         "#,
     )
@@ -756,6 +818,30 @@ pub async fn fail_run(pool: &PgPool, run_id: RunId, error: &RenderedError) -> Re
     .fetch_optional(pool)
     .await?;
     failed.map(|_| ()).ok_or(RunError::NotActive(run_id))
+}
+
+/// Complete every trailing run among `run_ids` whose chunks have all confirmed. Returns how many it
+/// completed.
+pub async fn complete_trailing_runs(pool: &PgPool, run_ids: &[RunId]) -> Result<u64, RunError> {
+    if run_ids.is_empty() {
+        return Ok(0);
+    }
+    let run_ids = run_ids.iter().map(|run_id| run_id.0).collect::<Vec<_>>();
+    let completed = sqlx::query(
+        r#"
+        UPDATE cohort_backfill_runs r
+        SET status = 'completed', finished_at = now(), updated_at = now()
+        WHERE r.id = ANY($1) AND r.status = 'trailing'
+          AND NOT EXISTS (
+              SELECT 1 FROM cohort_backfill_chunks c
+              WHERE c.run_id = r.id AND c.status <> 'confirmed'
+          )
+        "#,
+    )
+    .bind(run_ids)
+    .execute(pool)
+    .await?;
+    Ok(completed.rows_affected())
 }
 
 pub async fn record_run_warning(

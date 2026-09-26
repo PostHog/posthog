@@ -509,6 +509,7 @@ export interface OrganizationInviteDelegateApi {
 }
 
 /**
+ * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
  * * `discussions_mentioned` - discussions_mentioned
  * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
  * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -523,6 +524,7 @@ export interface OrganizationInviteDelegateApi {
 export type SettingEnumApi = (typeof SettingEnumApi)[keyof typeof SettingEnumApi]
 
 export const SettingEnumApi = {
+    DataCatalogWeeklyDigest: 'data_catalog_weekly_digest',
     DiscussionsMentioned: 'discussions_mentioned',
     ErrorTrackingIssueAssigned: 'error_tracking_issue_assigned',
     ErrorTrackingWeeklyDigestProjectEnabled: 'error_tracking_weekly_digest_project_enabled',
@@ -538,6 +540,7 @@ export const SettingEnumApi = {
 export interface OrganizationNotificationLockApi {
     /** Notification setting this rule enforces.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -579,6 +582,7 @@ export interface OrganizationNotificationLockChangeApi {
     user_id: number
     /** Notification setting to lock or unlock.
      *
+     * * `data_catalog_weekly_digest` - data_catalog_weekly_digest
      * * `discussions_mentioned` - discussions_mentioned
      * * `error_tracking_issue_assigned` - error_tracking_issue_assigned
      * * `error_tracking_weekly_digest_project_enabled` - error_tracking_weekly_digest_project_enabled
@@ -3719,6 +3723,151 @@ export interface SharingConfigurationApi {
 }
 
 /**
+ * * `draft` - Draft
+ * * `pending` - Pending
+ * * `approved` - Approved
+ * * `in_progress` - In Progress
+ * * `queued` - Queued
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type RequestStatusEnumApi = (typeof RequestStatusEnumApi)[keyof typeof RequestStatusEnumApi]
+
+export const RequestStatusEnumApi = {
+    Draft: 'draft',
+    Pending: 'pending',
+    Approved: 'approved',
+    InProgress: 'in_progress',
+    Queued: 'queued',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * Submitted HogQL variable snapshot.
+ */
+export type DataDeletionRequestApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestApi {
+    /** Deletion request identifier. */
+    readonly id: string
+    /** Current deletion workflow status.
+     *
+     * * `draft` - Draft
+     * * `pending` - Pending
+     * * `approved` - Approved
+     * * `in_progress` - In Progress
+     * * `queued` - Queued
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: RequestStatusEnumApi
+    /** Submitted HogQL query snapshot. */
+    readonly query: string
+    /** Submitted HogQL variable snapshot. */
+    readonly variables: DataDeletionRequestApiVariables
+    /**
+     * Client-generated idempotency identifier.
+     * @nullable
+     */
+    readonly submission_id: string | null
+    /**
+     * Number of selected events, when calculated.
+     * @nullable
+     */
+    readonly count: number | null
+    /**
+     * Identifier of the user who submitted the request.
+     * @nullable
+     */
+    readonly created_by_id: number | null
+    /**
+     * Whether the submitter was a PostHog staff user.
+     * @nullable
+     */
+    readonly created_by_staff: boolean | null
+    /** Time when the request was submitted. */
+    readonly created_at: string
+    /** Time when the request last changed. */
+    readonly updated_at: string
+    /**
+     * Time when the request was approved, if approved.
+     * @nullable
+     */
+    readonly approved_at: string | null
+    /**
+     * Time when selection statistics were calculated, if available.
+     * @nullable
+     */
+    readonly stats_calculated_at: string | null
+}
+
+export interface PaginatedDataDeletionRequestListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DataDeletionRequestApi[]
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestCreateApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestCreateApi {
+    /** HogQL query that selects one event UUID column. */
+    query: string
+    /** Variables referenced by the HogQL query. */
+    variables?: DataDeletionRequestCreateApiVariables
+    /** Client-generated identifier that makes request submission idempotent. */
+    submission_id: string
+}
+
+export interface DataDeletionConflictApi {
+    /** Reason the deletion request could not be created in the current state. */
+    readonly detail: string
+}
+
+/**
+ * Variables referenced by the HogQL query.
+ */
+export type DataDeletionRequestInputApiVariables = {
+    [key: string]: {
+        code_name: string
+        isNull?: boolean | null
+        value?: unknown
+        variableId: string
+    }
+}
+
+export interface DataDeletionRequestInputApi {
+    /** HogQL query that selects one event UUID column. */
+    query: string
+    /** Variables referenced by the HogQL query. */
+    variables?: DataDeletionRequestInputApiVariables
+}
+
+export interface DataDeletionPreviewApi {
+    /** Number of event UUIDs selected when the preview ran. */
+    readonly count: number
+}
+
+/**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
  * * `text/csv` - text/csv
@@ -3915,6 +4064,19 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemHomeFolderApi {
+    /**
+     * The user's home folder ID, or null if deleted.
+     * @nullable
+     */
+    readonly id: string | null
+    /**
+     * The current path of the user's home folder.
+     * @nullable
+     */
+    readonly path: string | null
+}
+
 export interface FileSystemShortcutApi {
     readonly id: string
     /** Display path of the shortcut in the sidebar. */
@@ -3926,7 +4088,7 @@ export interface FileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -3969,7 +4131,7 @@ export interface PatchedFileSystemShortcutApi {
     type?: string
     /**
      * Reference to the linked item, scoped to its type. Null for href-only shortcuts.
-     * @maxLength 100
+     * @maxLength 4000
      * @nullable
      */
     ref?: string | null
@@ -4195,6 +4357,69 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface SearchIntentRequestApi {
+    /**
+     * What the person typed into the filter picker search box.
+     * @maxLength 200
+     */
+    query: string
+    /**
+     * The picker tab that is open, as a taxonomic group type such as event_properties.
+     * @maxLength 100
+     */
+    active_group_type: string
+    /**
+     * The taxonomic group types the picker shows. The answer is always one of these, or null.
+     * @maxItems 64
+     * @items.maxLength 100
+     */
+    available_group_types: string[]
+    /**
+     * The id of the scene the picker is open in, such as Insight or Replay.
+     * @nullable
+     * @pattern ^[A-Za-z0-9_-]{1,64}$
+     */
+    scene?: string | null
+}
+
+/**
+ * * `rule` - Matched a value pattern
+ * * `model` - Asked the decision model
+ * * `skipped` - Not classified
+ */
+export type SearchIntentSourceEnumApi = (typeof SearchIntentSourceEnumApi)[keyof typeof SearchIntentSourceEnumApi]
+
+export const SearchIntentSourceEnumApi = {
+    Rule: 'rule',
+    Model: 'model',
+    Skipped: 'skipped',
+} as const
+
+export interface SearchIntentResponseApi {
+    /**
+     * The taxonomic group type the search most likely belongs to, or null if it was not classified.
+     * @nullable
+     */
+    group_type: string | null
+    /** How far the chosen group stands out from the rest, from 0 (a coin flip) to 1. */
+    confidence: number
+    /** Whether the confidence is high enough to act on, for example to suggest a different tab. */
+    is_confident: boolean
+    /** Whether the picker should suggest switching from the open tab to group_type. */
+    suggests_switch: boolean
+    /** How the answer was found: a value pattern, the decision model, or not at all.
+     *
+     * * `rule` - Matched a value pattern
+     * * `model` - Asked the decision model
+     * * `skipped` - Not classified */
+    method: SearchIntentSourceEnumApi
+    /**
+     * The version of the managed search intent prompt the model read. Null for a value pattern, a skipped search, or the bundled fallback prompt.
+     * @nullable
+     */
+    prompt_version: number | null
+}
+
 export interface UploadedMediaApi {
     readonly id: string
     /** The file's original name. */
@@ -4349,18 +4574,6 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
-/**
- * * `bayesian` - Bayesian
- * * `frequentist` - Frequentist
- */
-export type OrganizationDefaultExperimentStatsMethodEnumApi =
-    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
-
-export const OrganizationDefaultExperimentStatsMethodEnumApi = {
-    Bayesian: 'bayesian',
-    Frequentist: 'frequentist',
-} as const
-
 export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
@@ -4431,11 +4644,6 @@ export interface OrganizationApi {
     readonly is_ai_training_cta_shown: boolean | null
     /** Whether the organization has a countersigned Business Associate Agreement on file. When true, AI training stays opted out and cannot be changed. */
     readonly has_signed_baa: boolean
-    /** Default statistical method for new experiments in this organization.
-     *
-     * * `bayesian` - Bayesian
-     * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -4609,6 +4817,11 @@ export interface UserApi {
     readonly is_impersonated_reason: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at: string | null
     readonly team: TeamBasicApi
     readonly organization: OrganizationApi
     readonly organizations: readonly OrganizationBasicApi[]
@@ -4720,6 +4933,11 @@ export interface PatchedUserApi {
     readonly is_impersonated_reason?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
+    /**
+     * When the last re-authentication stops counting as fresh. Changing `email` after this needs a new re-authentication. Null when the session has none on record.
+     * @nullable
+     */
+    readonly fresh_reauth_expires_at?: string | null
     readonly team?: TeamBasicApi
     readonly organization?: OrganizationApi
     readonly organizations?: readonly OrganizationBasicApi[]
@@ -4849,6 +5067,61 @@ export interface PaginatedUserGitHubIntegrationListResponseListApi {
     /** @nullable */
     previous?: string | null
     results: UserGitHubIntegrationListResponseApi[]
+}
+
+/**
+ * * `connected` - Connected
+ * * `reauth_required` - Reauth Required
+ * * `not_connected` - Not Connected
+ */
+export type CodexIntegrationStatusEnumApi =
+    (typeof CodexIntegrationStatusEnumApi)[keyof typeof CodexIntegrationStatusEnumApi]
+
+export const CodexIntegrationStatusEnumApi = {
+    Connected: 'connected',
+    ReauthRequired: 'reauth_required',
+    NotConnected: 'not_connected',
+} as const
+
+export interface UserCodexIntegrationApi {
+    /** `connected` when cloud runs can use the account; `reauth_required` when OpenAI rejected the refresh token and the user must log in and connect again; `not_connected` when no account is connected.
+     *
+     * * `connected` - Connected
+     * * `reauth_required` - Reauth Required
+     * * `not_connected` - Not Connected */
+    status: CodexIntegrationStatusEnumApi
+    /**
+     * The ChatGPT plan type OpenAI reports for the account.
+     * @nullable
+     */
+    plan_type?: string | null
+    /**
+     * The email of the connected ChatGPT account.
+     * @nullable
+     */
+    email?: string | null
+    /**
+     * When the account was connected.
+     * @nullable
+     */
+    connected_at?: string | null
+}
+
+export interface UserCodexAuthTokensApi {
+    /** The ChatGPT access token (a JWT) from the `tokens` object of the Codex `auth.json`. */
+    access_token: string
+    /** The single-use ChatGPT refresh token from the same `tokens` object. */
+    refresh_token: string
+    /**
+     * The OpenID id token from the same `tokens` object, when present. Used to read the account email.
+     * @nullable
+     */
+    id_token?: string | null
+}
+
+export interface UserCodexConnectRequestApi {
+    /** The `tokens` object of the `auth.json` that `codex login` wrote. PostHog refreshes the chain once, stores the rotated tokens, and refreshes them for cloud runs from then on. */
+    tokens: UserCodexAuthTokensApi
 }
 
 export interface GitHubBranchesResponseApi {
@@ -5154,6 +5427,24 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+export interface TwoFactorStatusApi {
+    /** Whether the user has any 2FA method enabled. */
+    is_enabled: boolean
+    /** Number of unused backup codes. The codes themselves are only returned when they are generated. */
+    backup_codes_remaining: number
+    /**
+     * The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.
+     * @nullable
+     */
+    method: string | null
+    /** Whether the user has at least one verified passkey. */
+    has_passkeys: boolean
+    /** Whether the user has an authenticator app set up. */
+    has_totp: boolean
+    /** Whether passkeys count as a 2FA method. */
+    passkeys_enabled_for_2fa: boolean
+}
+
 /**
  * Request body for POST /api/users/verify_email/.
  */
@@ -5327,6 +5618,17 @@ export type OrganizationsProjectsEventIngestionRestrictionsListParams = {
     search?: string
 }
 
+export type DataDeletionRequestsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -5340,6 +5642,10 @@ export type ExportsListParams = {
 
 export type FileSystemListParams = {
     /**
+     * Include meta.content_type for notebooks and insights on this page, without their contents.
+     */
+    include_content_type?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -5351,6 +5657,13 @@ export type FileSystemListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type FileSystemDestroyParams = {
+    /**
+     * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
+     */
+    recursive?: boolean
 }
 
 export type FileSystemShortcutListParams = {

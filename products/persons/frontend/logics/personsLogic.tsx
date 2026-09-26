@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { decodeParams, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
@@ -28,7 +28,6 @@ import {
     ActivityScope,
     AnyPropertyFilter,
     Breadcrumb,
-    CohortType,
     ExporterFormat,
     PersonListParams,
     PersonPropertyFilter,
@@ -39,6 +38,8 @@ import type { TeamPublicType, TeamType } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
 
+import { personsCohortsRetrieve } from '../generated/api'
+import type { CohortMinimalApi } from '../generated/api.schemas'
 import {
     asDisplay,
     coercePropertyValue,
@@ -128,7 +129,7 @@ export interface personsLogicValues {
         | 'https://posthog.com/docs/api/persons'
     breadcrumbs: Breadcrumb[]
     cohortId: number | 'new' | undefined
-    cohorts: CohortType[] | null
+    cohorts: CohortMinimalApi[] | null
     cohortsLoading: boolean
     currentTab: PersonsTabType
     defaultTab: PersonsTabType.PROFILE | PersonsTabType.PROPERTIES
@@ -186,10 +187,10 @@ export interface personsLogicActions {
         errorObject?: any
     }
     loadCohortsSuccess: (
-        cohorts: CohortType[] | null,
+        cohorts: CohortMinimalApi[] | null,
         payload?: any
     ) => {
-        cohorts: CohortType[] | null
+        cohorts: CohortMinimalApi[] | null
         payload?: any
     }
     loadPerson: (id: string) => {
@@ -258,9 +259,6 @@ export interface personsLogicActions {
         payload?: {
             url: string | null
         }
-    }
-    navigateToCohort: (cohort: CohortType) => {
-        cohort: CohortType
     }
     navigateToTab: (tab: PersonsTabType) => {
         tab: PersonsTabType
@@ -375,7 +373,6 @@ export const personsLogic = kea<personsLogicType>([
         setHiddenListProperties: (payload: AnyPropertyFilter[]) => ({ payload }),
         editProperty: (key: string, newValue?: string | number | boolean | null) => ({ key, newValue }),
         deleteProperty: (key: string) => ({ key }),
-        navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setActiveTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
@@ -418,7 +415,7 @@ export const personsLogic = kea<personsLogicType>([
                             if (props.cohort) {
                                 result = {
                                     // This reads the cohorts API, whose generated client belongs to another product.
-                                    // nosemgrep: prefer-codegen-api
+                                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use cohortsPersonsRetrieve() from 'products/cohorts/frontend/generated/api' instead.
                                     ...(await api.get(`api/cohort/${props.cohort}/persons/?${toParams(newFilters)}`)),
                                     offset: 0,
                                 }
@@ -427,7 +424,7 @@ export const personsLogic = kea<personsLogicType>([
                             }
                         } else {
                             // The URL is the pagination link from the previous response.
-                            // nosemgrep: prefer-codegen-api
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                             result = { ...(await api.get(url)), offset: parseInt(decodeParams(url).offset) || 0 }
                         }
                         return result
@@ -484,16 +481,17 @@ export const personsLogic = kea<personsLogicType>([
                 },
             ],
             cohorts: [
-                null as CohortType[] | null,
+                null as CohortMinimalApi[] | null,
                 {
-                    loadCohorts: async (): Promise<CohortType[] | null> => {
+                    loadCohorts: async (): Promise<CohortMinimalApi[] | null> => {
                         if (!values.person?.id) {
                             return null
                         }
-                        // personsCohortsRetrieve returns Promise<void> because the endpoint declares no
-                        // response schema, so it cannot type the CohortType list this loader returns.
-                        // nosemgrep: prefer-codegen-api
-                        const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
+                        // projectId takes a team id here: the persons routes register on
+                        // team_id even though OpenAPI renders the segment as {project_id}.
+                        const response = await personsCohortsRetrieve(String(ApiConfig.getCurrentTeamId()), {
+                            person_id: String(values.person.id),
+                        })
                         return response.results
                     },
                 },
@@ -759,9 +757,6 @@ export const personsLogic = kea<personsLogicType>([
                     lemonToast.error(`Failed to delete person property`)
                 }
             }
-        },
-        navigateToCohort: ({ cohort }) => {
-            router.actions.push(urls.cohort(cohort.id))
         },
     })),
     trackedActionToUrl(({ values, props }) => ({

@@ -167,7 +167,7 @@ const constructValuesEndpoint = (
     let basePath: string
 
     if (type === PropertyDefinitionType.Session) {
-        basePath = `api/environments/${teamId}/${type}s/values`
+        basePath = `api/projects/${teamId}/${type}s/values`
     } else if (type === PropertyDefinitionType.FlagValue) {
         // FlagValue is project-scoped, so use the project-scoped endpoint
         basePath = `api/projects/${teamId}/${type}/values`
@@ -597,6 +597,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             actions.setOptionsSearchInput(propertyKey, newInput || '')
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const responseData: { results: PropValue[]; refreshing: boolean } = await api.get(
                     constructValuesEndpoint(
                         endpoint,

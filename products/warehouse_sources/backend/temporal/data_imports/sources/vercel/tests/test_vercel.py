@@ -194,18 +194,44 @@ class TestValidateCredentials:
         # A transient Vercel-side error must not tell the user to fix their (possibly valid) token.
         assert "Check that it's a valid token" not in (error or "")
 
-    def test_unexpected_status_does_not_leak_raw_status_code(self) -> None:
+    @parameterized.expand([(400,), (401,)])
+    def test_credential_rejection_status_tells_the_user_to_replace_the_token(self, status: int) -> None:
         response = requests.Response()
-        response.status_code = 404
+        response.status_code = status
         session = MagicMock()
         session.get.return_value = response
         with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
             ok, error = validate_credentials("token")
 
         assert ok is False
+        assert error == vercel._VERCEL_INVALID_TOKEN_ERROR
+
+    def test_non_ascii_token_is_rejected_without_a_request(self) -> None:
+        session = MagicMock()
+        with patch.object(vercel, "make_tracked_session", lambda *a, **k: session):
+            ok, error = validate_credentials("tok\u00e9n")
+
+        assert ok is False
+        assert error == vercel._VERCEL_UNSUPPORTED_CHARACTER_ERROR
+        assert session.get.call_count == 0
+
+    def test_unexpected_status_does_not_leak_raw_status_code(self) -> None:
+        response = requests.Response()
+        response.status_code = 418
+        session = MagicMock()
+        session.get.return_value = response
+        with (
+            patch.object(vercel, "make_tracked_session", lambda *a, **k: session),
+            patch.object(vercel, "capture_exception") as capture,
+        ):
+            ok, error = validate_credentials("token")
+
+        assert ok is False
         assert error is not None
         assert "Vercel API error" not in error
-        assert "404" not in error
+        assert "418" not in error
+        # The status has to reach error tracking, or a later triage has only the generic message.
+        assert "418" in str(capture.call_args.args[0])
 
 
 class TestGetRows:

@@ -59,6 +59,7 @@ function errorDetail(error: unknown): string | undefined {
  * binary response, so fetch the raw blob via the generated URL builder instead. */
 export async function exportAndDownloadSkill(skillName: string): Promise<void> {
     const url = getLlmSkillsNameExportRetrieveUrl(String(ApiConfig.getCurrentTeamId()), skillName, {})
+    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
     const response = await api.getResponse(url)
     if (!response.ok) {
         let detail = 'Failed to export skill'

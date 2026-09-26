@@ -98,8 +98,19 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_FETCH_DLQ_TOPIC: string
     SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: string
     SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: number
-    /** Kafka group members per image-fetch worker. Their batches join into one fetch pass. */
+    /** Kafka group members per image-fetch worker. */
     SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: number
+    /** While true, the batches of all group members in one worker join into one fetch pass. While false, each batch starts its own pass. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES: boolean
+    /**
+     * While true, every batch adds its URLs to one pod-wide candidate pool and finishes on its own,
+     * and SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES has no effect.
+     */
+    SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL: boolean
+    /** A group member reads its next batch once fewer of its queued URLs than this can run. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_POOL_REFILL_RUNNABLE_URLS: number
+    /** A group member also waits while this many of its URLs are queued. The wait stops after 30 s to keep the consumer loop healthy, so a member can pass this by about one batch until pass deadlines remove its queued URLs. */
+    SESSION_RECORDING_ML_IMAGE_FETCH_POOL_MAX_QUEUED_URLS_PER_MEMBER: number
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: string
     /** Bounds one DynamoDB request so an unavailable store cannot hold the poll loop. */
     AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: number
@@ -207,7 +218,14 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
     /** Where images the sidecar cannot process are parked so they stop holding their partition. */
     SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: string
-    /** Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s). */
+    /**
+     * Messages per poll. Bounds batch wall time against Kafka's max.poll.interval.ms (300s), and sets
+     * how much of a batch the window drain at its end costs: the last scrubConcurrency images finish
+     * unevenly with slots idling, so a larger batch amortizes that tail over more images. A saturated
+     * sidecar scrubs a 150-message batch in tens of seconds, far inside the interval. The server caps
+     * the poll below this so that every image can time out once at the sidecar and the batch still
+     * returns inside the interval (boundedImageScrubBatchSize).
+     */
     SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: number
     // Per-write timeout (the S3 client has no built-in one). A hand-off writes its shard groups concurrently, each as a shard, an index and per-image lookups, so a hand-off bounds at 3x this plus the lookup budget.
     SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
@@ -250,6 +268,10 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch',
         SESSION_RECORDING_ML_IMAGE_FETCH_BATCH_SIZE: 500,
         SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 2,
+        SESSION_RECORDING_ML_IMAGE_FETCH_JOIN_MEMBER_BATCHES: true,
+        SESSION_RECORDING_ML_IMAGE_FETCH_CONTINUOUS_POOL: false,
+        SESSION_RECORDING_ML_IMAGE_FETCH_POOL_REFILL_RUNNABLE_URLS: 100,
+        SESSION_RECORDING_ML_IMAGE_FETCH_POOL_MAX_QUEUED_URLS_PER_MEMBER: 2_000,
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
@@ -283,7 +305,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX: 500_000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 45 * 1000,
         SESSION_RECORDING_ML_IMAGE_SCRUB_DLQ_TOPIC: KAFKA_SESSION_REPLAY_IMAGE_SCRUB_DLQ,
-        SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 50,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_BATCH_SIZE: 150,
         SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
     }
 }

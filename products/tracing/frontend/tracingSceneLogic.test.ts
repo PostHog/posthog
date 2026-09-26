@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
+import { tracingDataLogic } from './tracingDataLogic'
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingSceneLogic } from './tracingSceneLogic'
 
@@ -107,6 +108,25 @@ describe('tracingSceneLogic', () => {
         expect(router.values.searchParams.view).toBe('operations')
     })
 
+    it('refetches the Operations aggregation when the impact flag resolves late', () => {
+        // Flags load asynchronously, so rows can arrive while the flag is still off. Without the
+        // refetch the Sessions and Users columns render over rows that carry no impact fields.
+        enableOperationsView()
+        mountAt({ view: 'operations' })
+        tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }).actions.fetchAggregationSuccess({
+            current: [{ service_name: 'web', name: 'GET /', count: 1 }],
+            previous: null,
+        } as any)
+        const aggregate = jest.spyOn(api.tracing, 'aggregate')
+
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]: true,
+            [FEATURE_FLAGS.TRACING_IMPACT_STRIP]: true,
+        })
+
+        expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({ includeImpact: true }), expect.anything())
+    })
+
     it('resets the operations tab to traces when the flag is disabled mid-session', () => {
         enableOperationsView()
         mountAt({ view: 'operations' })
@@ -138,6 +158,42 @@ describe('tracingSceneLogic', () => {
         router.actions.push('/tracing', { view: 'spans' })
         expect(logic.values.activeTracingTab).toBe('traces')
         expect(logic.values.displayMode).toBe('spans')
+    })
+
+    it.each([
+        ['already loaded', () => mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })],
+        [
+            'arriving after the URL parse',
+            () => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+                mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
+                featureFlagLogic.actions.setFeatureFlags([], {})
+            },
+        ],
+    ])('drops a tab=sql deep link when the scene tabs flag is off, with flags %s', (_, mount) => {
+        mount()
+        expect(logic.values.sceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+        expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
+    })
+
+    it('restores the SQL tab from a deep link without dropping the filter params', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+        mountAt({ tab: 'sql', serviceNames: JSON.stringify(['checkout']) })
+        expect(logic.values.activeSceneTab).toBe('sql')
+        expect(router.values.searchParams).toMatchObject({ tab: 'sql', serviceNames: ['checkout'] })
+
+        logic.actions.selectSceneTab('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+        expect(router.values.searchParams.serviceNames).toEqual(['checkout'])
+
+        logic.actions.selectSceneTab('sql')
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        expect(logic.values.activeSceneTab).toBe('viewer')
+        expect(router.values.searchParams).not.toHaveProperty('tab')
+
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_SCENE_TABS]: true })
+        expect(logic.values.activeSceneTab).toBe('viewer')
     })
 
     // Guards the operations-tab rate denominator: on the operations tab the aggregate must always

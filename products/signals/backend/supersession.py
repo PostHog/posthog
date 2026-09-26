@@ -180,7 +180,7 @@ def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget
             receipt is None
             or run.task_id in active_tasks
             or latest_runs[run.task_id] != run.id
-            or run.status != "completed"
+            or run.status not in {"completed", "failed"}
             or run.environment != "cloud"
             or run.mode != "background"
         ):
@@ -192,9 +192,23 @@ def automated_targets(team_id: int, report_id: str) -> list[ImplementationTarget
             or run.state.get("self_driving_head_branch") != content.automation_branch
         ):
             continue
+        verified_urls = (
+            {
+                canonical_pr_url(raw_url)
+                for raw_url in (run.state.get("verified_pr_urls") or [])
+                if isinstance(raw_url, str)
+            }
+            if run.status == "failed" and run.state.get("timed_out_wall_clock") is True
+            else set()
+        )
         for raw_url in tasks_facade.read_pr_urls(run.output):
             url = canonical_pr_url(raw_url)
-            if not url or url not in eligible_urls or url in targets:
+            if (
+                not url
+                or url not in eligible_urls
+                or url in targets
+                or (run.status == "failed" and url not in verified_urls)
+            ):
                 continue
             targets[url] = ImplementationTarget(
                 task_id=run.task_id,

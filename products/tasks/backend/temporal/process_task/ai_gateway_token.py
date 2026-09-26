@@ -65,10 +65,14 @@ _MAX_CAP_DECIMAL_PLACES = 6
 # `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
 # review_hog qualifies because validate_origin_product reserves the origin and
 # the resolver requires the server-stamped `internal` flag; rows predating the
-# reservation resolve to posthog_code and cannot mint. slack_app also needs the
-# PATCH-protected `interaction_origin` stamp (mint_refusal), older rows included.
+# reservation resolve to posthog_code and cannot mint. slack_app needs server
+# provenance too (has_slack_provenance), older rows included.
+# workflows qualifies because validate_origin_product reserves its origin for the
+# workflow_tasks endpoint. posthog_ai is API-settable but not internally funded: its token
+# bills the run's own team to AI credits, and the mint refuses an exhausted balance.
 MINTABLE_PRODUCTS = frozenset(
     {
+        "posthog_ai",
         "review_hog",
         "slack_app",
         "signals_scout",
@@ -88,7 +92,11 @@ MINTABLE_PRODUCTS = frozenset(
 INTERACTIVE_MINTABLE_PRODUCTS = frozenset({"signals_inbox", "signals_chat"})
 
 # Interactive runs with no wall-clock cap; their tokens last the sandbox lifetime.
-SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"slack_app"})
+SANDBOX_BOUND_MINTABLE_PRODUCTS = frozenset({"posthog_ai", "slack_app"})
+
+# The Python gateway bills these mintable products to AI credits and stops them at zero.
+# The Go gateway has no credit check, so the mint checks the balance when the run starts.
+AI_CREDITS_BILLED_PRODUCTS = frozenset({"posthog_ai", "slack_app", "workflows"})
 
 _PRODUCT_ALLOWED_MODELS = PRODUCT_ALLOWED_MODELS
 
@@ -130,13 +138,36 @@ def sandbox_product_routed(ai_product: str, ai_stage: str | None, products_csv: 
     return False
 
 
+def is_slack_origin(origin_product: str | None) -> bool:
+    """Whether this origin is the reserved one the Slack app's server flows set."""
+    return _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "") == "slack_app"
+
+
+def has_slack_provenance(
+    state: dict[str, Any] | None, *, internal: bool = False, prior_slack_run: bool = False
+) -> bool:
+    """Whether a server flow put this run on the Slack product.
+
+    The API refuses the `slack` origin for client tasks and never writes `internal`, so an internal
+    run is server-created. A later run of a Slack task has no stamp, so an earlier stamped run counts.
+    """
+    return is_slack_interaction_state(state) or internal or prior_slack_run
+
+
 def mint_refusal(
-    ai_product: str, *, team_id: int, state: dict[str, Any] | None, model: str | None, runtime: str | None
+    ai_product: str,
+    *,
+    team_id: int,
+    state: dict[str, Any] | None,
+    model: str | None,
+    runtime: str | None,
+    internal: bool = False,
+    prior_slack_run: bool = False,
 ) -> str | None:
     """Why a routed run must not mint; a run without a token stays on the Python gateway."""
-    if ai_product != "slack_app":
-        return None
-    if not is_slack_interaction_state(state):
+    if ai_product == "slack_app" and not has_slack_provenance(
+        state, internal=internal, prior_slack_run=prior_slack_run
+    ):
         return "no_slack_provenance"
     # The Pi harness reads only LLM_GATEWAY_URL.
     if runtime == "pi":
@@ -144,7 +175,8 @@ def mint_refusal(
     # The gateway denies an off-pin model with no fallback.
     if not model_allowed_by_product_pin(ai_product, model):
         return "model_outside_pin"
-    # The Python gateway refuses every call once AI credits run out; the Go gateway has no such check.
+    if ai_product not in AI_CREDITS_BILLED_PRODUCTS:
+        return None
     # An unknown balance is no licence to spend.
     try:
         over_budget = _team_over_ai_credit_budget(team_id)
@@ -297,8 +329,13 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
             time.sleep((0.5 * 2**attempt) + random.uniform(0, 0.25))
 
     AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
+    # The deploy's log formatter drops `extra`, so the message carries the fields.
+    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and the mint error, never the token or mint key
     logger.warning(
-        "ai_gateway_token: mint failed, run falls back to the Python gateway",
+        "ai_gateway_token: mint failed, run falls back to the Python gateway (ai_product=%s team_id=%s error=%s)",
+        ai_product,
+        team_id,
+        last_error,
         extra={"ai_product": ai_product, "team_id": team_id, "error": last_error},
     )
     return None

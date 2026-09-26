@@ -1,11 +1,13 @@
 import json
+from concurrent.futures import Future
+from contextlib import nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from uuid import UUID, uuid4
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.conf import settings as django_settings
 from django.utils import timezone
@@ -15,7 +17,9 @@ from clickhouse_driver import Client
 from dagster import build_op_context
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
-from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import NodeRole
+from posthog.clickhouse.cluster import ClickhouseCluster, LightweightDeleteMutationRunner, Query
 from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
@@ -23,6 +27,7 @@ from posthog.dags.data_deletion_requests import (
     HogQLEventRemovalContext,
     PersonRemovalContext,
     _property_removal_where,
+    _refuse_property_removal_unsweepable,
     auto_approve_deletion_requests_job,
     auto_approve_deletion_requests_schedule,
     data_deletion_request_event_removal,
@@ -53,10 +58,16 @@ from posthog.models.data_deletion_request import (
 )
 from posthog.models.deletion_targets import (
     EVENTS,
+    EVENTS_JSON,
     DeletionTarget,
     TargetPlacement,
     UnreachableTargetError,
     placement_for,
+)
+from posthog.models.event.sql import (
+    EVENTS_PROPERTIES_JSON_TYPE,
+    PERSON_PROPERTIES_JSON_TYPE,
+    json_property_presence_expr,
 )
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
@@ -336,17 +347,24 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
 
 
 @pytest.mark.django_db
-def test_hogql_event_deletion_executor_rejects_multiple_columns_before_insert(team, user):
+@pytest.mark.parametrize(
+    ("query", "error"),
+    [
+        ("SELECT uuid, event FROM events", "exactly one event UUID column"),
+        ("SELECT event FROM events", "selected column must contain event UUIDs"),
+    ],
+)
+def test_hogql_event_deletion_executor_rejects_invalid_output_before_insert(team, user, query, error):
     deletion_request = HogQLEventRemovalContext(
         request_id=str(uuid4()),
         team_id=team.pk,
         created_by_id=user.pk,
-        query="SELECT uuid, event FROM events",
+        query=query,
         variables={},
     )
 
     with patch("posthog.dags.data_deletion_requests.sync_execute") as execute:
-        with pytest.raises(dagster.Failure, match="exactly one event UUID column"):
+        with pytest.raises(dagster.Failure, match=error):
             HogQLEventDeletionExecutor(deletion_request).execute()
 
     execute.assert_not_called()
@@ -2711,6 +2729,64 @@ def _property_removal_ctx(**overrides) -> DeletionRequestContext:
     return replace(base, **overrides)
 
 
+@pytest.mark.parametrize(
+    "properties,person_properties,column,document,refuses",
+    [
+        (["$groups.organization"], [], "properties", '{"$groups":{"organization":"secret"}}', True),
+        (["$feature/beta"], [], "properties", '{"$feature_flags":{"beta":"secret"}}', True),
+        (["$set"], [], "temporary_properties", '{"$set":{"email":"a@example.com"}}', True),
+        (["$feature_flag_request_id"], [], "temporary_properties", '{"$feature_flag_request_id":"id"}', True),
+        (["secret"], [], "properties", '{"$unparseable_properties":"malformed secret"}', True),
+        ([], ["secret"], "person_properties", '{"$unparseable_properties":"malformed secret"}', True),
+        ([], ["email"], "properties", '{"$unparseable_properties":"malformed $set email"}', True),
+        ([], ["email"], "temporary_properties", '{"$set_once":{"email":"a@example.com"}}', True),
+        (["secret"], [], "temporary_properties", '{"$set":{"email":"a@example.com"}}', False),
+        (["secret"], [], "properties", '{"other":"value"}', False),
+    ],
+)
+def test_native_property_removal_gate_checks_retained_copies(
+    properties: list[str], person_properties: list[str], column: str, document: str, refuses: bool
+) -> None:
+    marker_time = datetime(2026, 1, 1, tzinfo=UTC)
+    marker = marker_time.strftime("%Y-%m-%d %H:%M:%S.%f")
+    request = _property_removal_ctx(
+        properties=properties,
+        person_properties=person_properties,
+        start_time=marker_time - timedelta(days=1),
+        end_time=marker_time + timedelta(days=1),
+    )
+    stored = {"properties": "{}", "person_properties": "{}", "temporary_properties": "{}", column: document}
+
+    def execute_query(query: Query, _role: NodeRole) -> Future[list[tuple[object, ...]]]:
+        assert isinstance(query.parameters, dict)
+        result: Future[list[tuple[object, ...]]] = Future()
+        result.set_result(
+            sync_execute(
+                """WITH events_json AS (
+                SELECT %(team_id)s AS team_id, '$pageview' AS event,
+                    toDateTime64(%(inserted_at_max)s, 6, 'UTC') AS timestamp,
+                    timestamp - INTERVAL 1 SECOND AS inserted_at, 1 AS _row_exists,
+                    CAST(%(properties)s, %(event_type)s) AS properties,
+                    CAST(%(person_properties)s, %(person_type)s) AS person_properties,
+                    CAST(%(temporary_properties)s, 'JSON(max_dynamic_paths=32)') AS temporary_properties
+            ) """
+                + query.query,
+                {
+                    **query.parameters,
+                    **stored,
+                    "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                    "person_type": PERSON_PROPERTIES_JSON_TYPE(),
+                },
+            )
+        )
+        return result
+
+    cluster = Mock(spec=ClickhouseCluster)
+    cluster.any_host_by_role.side_effect = execute_query
+    with pytest.raises(dagster.Failure, match="cannot be deleted") if refuses else nullcontext():
+        _refuse_property_removal_unsweepable(cluster, [EVENTS_JSON], request, marker)
+
+
 def test_property_removal_where_scopes_to_events_by_default():
     sql, params = _property_removal_where(_property_removal_ctx())
     assert "AND event IN %(events)s" in sql
@@ -2721,3 +2797,58 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     sql, params = _property_removal_where(_property_removal_ctx(events=[], delete_all_events=True))
     assert "event IN" not in sql
     assert "events" not in params
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "failed_step,raises",
+    [
+        (PersonDeletionStep.TOMBSTONE_POSTGRES, True),
+        (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, False),
+    ],
+)
+def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(failed_step, raises):
+    p_uuid = str(uuid4())
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0 if raises else 1,
+            failures=[PersonDeletionFailure(step=failed_step, person_uuid=UUID(p_uuid), error="down")],
+        )
+        if raises:
+            with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons"):
+                delete_person_profiles_op(build_op_context(), ctx)
+        else:
+            assert delete_person_profiles_op(build_op_context(), ctx) is ctx
+
+
+@pytest.mark.parametrize(
+    "document,prop,expected",
+    [
+        ('{"$browser":"Chrome"}', "$groups.organization", 0),
+        ('{"$browser":"Chrome"}', "$groups", 0),
+        ('{"$groups":{"organization":"org1"}}', "$groups.organization", 1),
+        ('{"$groups":{"custom_group":"g"}}', "$groups", 1),
+        ('{"$browser":""}', "$browser", 0),
+        ('{"custom":""}', "custom", 0),
+        ('{"custom":{"a":""}}', "custom", 0),
+        ('{"custom":{"a":"y"}}', "custom", 1),
+    ],
+)
+def test_json_property_presence_expr_treats_empty_values_as_absent(document: str, prop: str, expected: int):
+    predicate = json_property_presence_expr("properties", prop)
+    [(present,)] = sync_execute(
+        f"SELECT toUInt8({predicate}) FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties)",
+        {"raw": document, "json_type": EVENTS_PROPERTIES_JSON_TYPE()},
+    )
+
+    assert present == expected

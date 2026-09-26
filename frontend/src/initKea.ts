@@ -16,6 +16,7 @@ import {
     ensureRoutablePathname,
     removeProjectIdIfPresent,
     stripTrailingSlash,
+    stripTrailingSlashFromUrl,
 } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
 
@@ -71,6 +72,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadCoreMemory', // The PostHog AI memory setting renders its own load error banner with a retry
     'updateCoreMemory', // maxSettingsLogic's updateCoreMemoryFailure listener shows its own save-failure toast
     'loadSessionEventDeltas', // The experiment watch shelf renders the refusal, or the failure with a retry
+    'loadLineage', // MetricLineagePanel renders every failure class itself, including the not-ready 404
+    'loadSourceDocuments', // The knowledge source page renders its own retry banner for the indexed page list
 ]
 
 /*
@@ -88,6 +91,7 @@ purpose, so each caller that degrades has to name itself here, next to the toast
 */
 const NOT_FOUND_SELF_HANDLED = new Set([
     'loadRecordingMeta', // The player renders RecordingNotFound off sessionRecordingMetaLogic's isNotFound
+    'loadLineage', // A metric has no lineage node until the sync task runs; the panel says so and retries
 ])
 
 /*
@@ -97,6 +101,13 @@ generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlag
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
 const HAS_DEPENDENTS_SELF_HANDLED = new Set(['deleteDataWarehouseSavedQuery'])
+
+/*
+Write actions whose own logic marks the form row when the backend rejects an existing member
+(code `existing_member`). It is a validation result, so it is not reported as an exception.
+Owned by inviteLogic's inviteTeamMembersFailure listener.
+*/
+const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -143,7 +154,11 @@ export function initKea({
                 // Runs before kea-router's `decodeURI(pathname)` on every navigation (initial
                 // load, push/replace, popstate). Keep the path decodable so a malformed `%`
                 // routes to 404 instead of crashing the router.
-                return addProjectIdIfMissing(ensureRoutablePathname(path))
+                // Drop the trailing slash here too, so the router's location matches the path
+                // `pathFromWindowToRoutes` matches routes against. The address bar is then
+                // corrected by a silent `replaceState` on mount, rather than by a second
+                // navigation that runs every `urlToAction` of the scene again.
+                return addProjectIdIfMissing(stripTrailingSlashFromUrl(ensureRoutablePathname(path)))
             },
             pathFromWindowToRoutes: (path) => {
                 return stripTrailingSlash(removeProjectIdIfPresent(path))
@@ -230,7 +245,9 @@ export function initKea({
                 }
                 const isSelfHandledNotFound =
                     NOT_FOUND_SELF_HANDLED.has(String(actionKey)) && isUnavailableEndpointError(error)
-                if (shouldReportApiFailure(error) && !isSelfHandledNotFound) {
+                const isSelfHandledExistingMember =
+                    error?.code === 'existing_member' && EXISTING_MEMBER_SELF_HANDLED.has(String(actionKey))
+                if (shouldReportApiFailure(error) && !isSelfHandledNotFound && !isSelfHandledExistingMember) {
                     posthog.captureException(error)
                 }
             },

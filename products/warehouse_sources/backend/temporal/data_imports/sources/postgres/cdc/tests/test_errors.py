@@ -80,8 +80,34 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (
+                "provider_ip_allow_list_rejection_is_non_retryable_host",
+                psycopg.OperationalError(
+                    "connection to server at example.invalid, port 5432 failed: ERROR:  This IP address "
+                    "198.51.100.7 is not allowed to connect to this endpoint."
+                ),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                "provider_blocked_network_rejection_is_non_retryable_host",
+                psycopg.OperationalError(
+                    "connection to server at example.invalid, port 5432 failed: ERROR:  This connection is "
+                    "trying to access this endpoint from a blocked network."
+                ),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
                 "database_host_not_allowed_is_non_retryable_host",
                 HostNotAllowedError("Database host not allowed: resolves to a private address"),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                # ConnectionTimeout only ever reaches here after _connect_with_dropped_retry has
+                # already exhausted its in-process reconnect attempts, so it means the host is
+                # persistently unreachable, not a transient blip. Must not fall through to the
+                # retryable CONNECTION_FAILED bucket, or the workflow retries into the same wall
+                # forever instead of surfacing an actionable message.
+                "connect_timeout_exhausted_is_non_retryable_host",
+                psycopg.errors.ConnectionTimeout("connection timeout expired"),
                 CDCErrorCategory.HOST_UNREACHABLE,
             ),
             (
@@ -103,6 +129,20 @@ class TestClassifyPostgresCDCError:
                 "slot_in_use",
                 psycopg.errors.ObjectInUse('replication slot "posthog_slot" is active for PID 123'),
                 CDCErrorCategory.SLOT_IN_USE,
+            ),
+            (
+                # Recreating a customer-owned publication (e.g. after slot invalidation recovery)
+                # requires owning every table added to it, not just SELECT. This must not fall
+                # through to the retryable UNKNOWN bucket, or recovery retries forever against the
+                # same permission wall.
+                "must_be_owner_is_non_retryable_permission_denied",
+                psycopg.errors.InsufficientPrivilege("must be owner of table orders"),
+                CDCErrorCategory.PERMISSION_DENIED,
+            ),
+            (
+                "permission_denied_for_table_is_non_retryable_permission_denied",
+                psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
+                CDCErrorCategory.PERMISSION_DENIED,
             ),
             (
                 "wal_decode_struct_error",

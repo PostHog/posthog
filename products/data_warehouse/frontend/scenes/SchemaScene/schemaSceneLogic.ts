@@ -421,7 +421,9 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                     return
                 }
                 if (added === 0 && deleted === 0) {
-                    lemonToast.success(`No schema changes — all ${total_tables_seen} table(s) already tracked.`)
+                    lemonToast.success(
+                        `All ${total_tables_seen} table(s) are already tracked. New columns arrive with the next sync unless you picked specific columns for that table.`
+                    )
                     return
                 }
                 const counts = [added > 0 ? `${added} added` : null, deleted > 0 ? `${deleted} deleted` : null]

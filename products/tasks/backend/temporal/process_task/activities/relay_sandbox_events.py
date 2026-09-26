@@ -37,7 +37,6 @@ from products.tasks.backend.models import (
     Task as TaskModel,
     TaskRun as TaskRunModel,
 )
-from products.tasks.backend.push_dispatcher import dispatch_task_run_turn_completed
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_DEFAULT_SECONDS, resolve_inactivity_timeout
 from products.tasks.backend.temporal.metrics import increment_tool_call_only_heartbeat
@@ -46,6 +45,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_task_run_credential_user,
     is_slack_interaction_state,
 )
+from products.tasks.backend.turn_completed import dispatch_turn_completed
 
 from ee.hogai.sandbox import (
     PI_RUNTIME_ERROR_MESSAGE,
@@ -53,6 +53,7 @@ from ee.hogai.sandbox import (
     is_turn_complete,
     pi_turn_error,
     turn_complete_trace_id,
+    turn_completed_successfully,
 )
 
 logger = structlog.get_logger(__name__)
@@ -545,6 +546,11 @@ async def _relay_loop(
                                         )
                                     else:
                                         await _signal_safely(workflow_handle, "agent_state_changed", arg=False)
+                                        await _signal_safely(
+                                            workflow_handle,
+                                            "agent_turn_completed",
+                                            arg=turn_completed_successfully(event_data),
+                                        )
                                 if sandbox_id and background_logs_enabled:
                                     asyncio.create_task(_emit_agentsh_events(sandbox_id, run_id, last_audit_ts_ns))
                                 if not turn_failed and task_run is not None and task_run.mode == "interactive":
@@ -1006,7 +1012,7 @@ def _safe_dispatch_turn_completed(task_run: TaskRunModel, *, turn_completed: boo
     dispatch never bubbles into the relay loop.
     """
     try:
-        dispatch_task_run_turn_completed(task_run, turn_completed=turn_completed)
+        dispatch_turn_completed(task_run, turn_completed=turn_completed)
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",

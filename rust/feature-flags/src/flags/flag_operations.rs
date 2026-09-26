@@ -39,11 +39,20 @@ impl FeatureFlag {
     /// OR if the flag has a group property filter that `group_filter_needs_db` selects
     ///    (the caller owns the request's group context — see
     ///    `FeatureFlagMatcher::group_filter_needs_db_prep`)
+    ///
+    /// A supported v2 flag needs it only when a predicate key is absent from the overrides.
     pub fn requires_db_preparation(
         &self,
         overrides: &HashMap<String, Value>,
         group_filter_needs_db: &dyn Fn(&PropertyFilter, Option<GroupTypeIndex>) -> bool,
     ) -> bool {
+        if let Some(config) = self.filters.supported_v2() {
+            return config
+                .rules
+                .iter()
+                .flat_map(|rule| &rule.targeting)
+                .any(|predicate| !overrides.contains_key(&predicate.key));
+        }
         self.filters
             .requires_db_properties(overrides, &self.key, group_filter_needs_db)
             || self.filters.requires_cohort_filters()
@@ -102,6 +111,35 @@ impl FeatureFlag {
             .groups
             .iter()
             .any(|group| group.rollout_percentage_unwrapped() < 100.0)
+    }
+
+    /// Returns the variant this condition pins, if it names one of the flag's variants.
+    /// An override that names no real variant is ignored, so the variant comes from the hash.
+    pub fn pinned_variant<'c>(&self, condition: &'c FlagPropertyGroup) -> Option<&'c str> {
+        let variant = condition.variant.as_deref()?;
+        self.filters
+            .multivariate
+            .as_ref()
+            .is_some_and(|m| m.variants.iter().any(|v| v.key == variant))
+            .then_some(variant)
+    }
+
+    /// Returns true if the bucketing hash decides the outcome of this condition.
+    ///
+    /// This does not use `has_hash_dependent_variants`. That method treats a single reachable
+    /// variant as hash-independent, but hashes past that variant's share still map to no
+    /// variant, and reading it here would let such a flag bucket its variant on `distinct_id`.
+    pub fn condition_needs_bucketing_hash(&self, condition: &FlagPropertyGroup) -> bool {
+        if condition.rollout_percentage_unwrapped() < 100.0 {
+            return true;
+        }
+        let first_live_variant = self.filters.multivariate.as_ref().and_then(|m| {
+            m.variants
+                .iter()
+                .find(|variant| variant.rollout_percentage > 0.0)
+        });
+        first_live_variant.is_some_and(|variant| variant.rollout_percentage < 100.0)
+            && self.pinned_variant(condition).is_none()
     }
 
     /// Returns true if this flag requires a hash key override lookup for experience continuity.
@@ -1304,6 +1342,29 @@ mod tests {
     }
 
     #[test]
+    fn test_v2_requires_db_preparation_only_when_a_predicate_key_is_missing() {
+        let flag: FeatureFlag = serde_json::from_value(json!({
+            "id": 1, "team_id": 1, "key": "v2", "active": true,
+            "filters": {"version": 2, "return_type": "boolean", "default_value": false, "rules": [
+                {"id": "a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1", "rule_type": "targeted_release",
+                 "value": true, "targeting": {"properties": [
+                    {"key": "a", "type": "person", "operator": "exact", "value": "1", "negation": false},
+                    {"key": "b", "type": "person", "operator": "exact", "value": "2", "negation": false}
+                 ]}}
+            ]}
+        }))
+        .unwrap();
+
+        assert!(
+            flag.requires_db_preparation(&HashMap::from([("a".into(), json!("1"))]), &|_, _| true)
+        );
+        assert!(!flag.requires_db_preparation(
+            &HashMap::from([("a".into(), json!("1")), ("b".into(), json!("2"))]),
+            &|_, _| true
+        ));
+    }
+
+    #[test]
     fn test_does_not_require_db_preparation_if_holdout_set() {
         use crate::flags::flag_models::Holdout;
         let mut flag = mock!(FeatureFlag);
@@ -1598,6 +1659,47 @@ mod tests {
             },
         ];
         assert!(flag.has_partial_rollout());
+    }
+
+    #[rstest::rstest]
+    #[case::no_variants(None, None, 100.0, false)]
+    #[case::empty_variants(Some(vec![]), None, 100.0, false)]
+    #[case::single_variant_at_100(Some(vec![100.0]), None, 100.0, false)]
+    #[case::zero_before_100(Some(vec![0.0, 100.0]), None, 100.0, false)]
+    #[case::all_zero(Some(vec![0.0, 0.0]), None, 100.0, false)]
+    #[case::single_variant_short_of_range(Some(vec![50.0]), None, 100.0, true)]
+    #[case::unpinned_variants(Some(vec![50.0, 50.0]), None, 100.0, true)]
+    #[case::pinned_variant(Some(vec![50.0, 50.0]), Some("variant-0"), 100.0, false)]
+    #[case::pin_names_no_variant(Some(vec![50.0, 50.0]), Some("nonexistent"), 100.0, true)]
+    #[case::pinned_variant_partial_rollout(Some(vec![50.0, 50.0]), Some("variant-0"), 50.0, true)]
+    fn test_condition_needs_bucketing_hash(
+        #[case] variant_percentages: Option<Vec<f64>>,
+        #[case] variant: Option<&str>,
+        #[case] rollout_percentage: f64,
+        #[case] expected: bool,
+    ) {
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate =
+            variant_percentages.map(|percentages| MultivariateFlagOptions {
+                variants: percentages
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, rollout_percentage)| MultivariateFlagVariant {
+                        key: format!("variant-{i}"),
+                        name: None,
+                        rollout_percentage,
+                        ..Default::default()
+                    })
+                    .collect(),
+                ..Default::default()
+            });
+        let condition = FlagPropertyGroup {
+            properties: None,
+            rollout_percentage: Some(rollout_percentage),
+            variant: variant.map(str::to_string),
+            ..Default::default()
+        };
+        assert_eq!(flag.condition_needs_bucketing_hash(&condition), expected);
     }
 
     #[test]

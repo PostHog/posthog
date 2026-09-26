@@ -17,7 +17,9 @@ from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, PropertyMock, patch
 
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -54,6 +56,7 @@ from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -66,6 +69,7 @@ from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscr
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
 from products.product_analytics.backend.models.insight import InsightViewed
 
@@ -842,14 +846,13 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     )
     def test_list_does_not_duplicate_insights_with_multiple_matching_tags(self, _name: str, query: str) -> None:
         from posthog.models.tag import Tag
-        from posthog.models.tagged_item import TaggedItem
 
         insight = Insight.objects.create(
             short_id="search-tg", name="needle", team=self.team, filters={"events": [{"id": "$pageview"}]}
         )
         for tag_name in ("needle-tag-a", "needle-tag-b", "needle-tag-c"):
             tag = Tag.objects.create(name=tag_name, team=self.team)
-            TaggedItem.objects.create(insight=insight, tag=tag)
+            insight.tagged_items.create(tag=tag)
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?{query}")
         assert response.status_code == status.HTTP_200_OK
@@ -1004,6 +1007,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         result_ids = [r["id"] for r in response.json()["results"]]
         assert result_ids.index(newer.id) < result_ids.index(older.id), (
             "explicit order=-id should override relevance ranking and put newer insight first"
+        )
+
+    def test_list_without_order_sorts_by_last_modified_at_descending(self):
+        now = timezone.now()
+        older = Insight.objects.create(
+            name="older",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=1,
+            last_modified_at=now - timedelta(days=2),
+        )
+        newer = Insight.objects.create(
+            name="newer",
+            team=self.team,
+            filters={"events": [{"id": "$pageview"}]},
+            order=2,
+            last_modified_at=now - timedelta(days=1),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/")
+        assert response.status_code == status.HTTP_200_OK
+        result_ids = [r["id"] for r in response.json()["results"]]
+
+        assert result_ids.index(newer.id) < result_ids.index(older.id), (
+            "the default list order must be newest-modified first, not the vestigial `order` column"
         )
 
     def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
@@ -3073,14 +3101,55 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_soft_delete_causes_404(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_200_OK)
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
+        )
+        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
+        deleted_subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily", deleted=True
+        )
+        delivery = SubscriptionDelivery.objects.create(
+            team=self.team, subscription=subscription, idempotency_key="insight-delete-test", status="completed"
+        )
 
         update_response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
         self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
+        unrelated.refresh_from_db()
+        self.assertFalse(unrelated.deleted)
+
+        self.assertFalse(Subscription.objects.filter(pk=deleted_subscription.pk).exists())
+        self.assertFalse(SubscriptionDelivery.objects.filter(pk=delivery.pk).exists())
+
+    def test_soft_delete_locks_the_insight_before_removing_its_alerts(self) -> None:
+        insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
+        AlertConfiguration.objects.create(team=self.team, insight_id=insight_id, name="alert")
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"deleted": True})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        sql = [query["sql"] for query in queries.captured_queries]
+        lock_index = next(
+            i for i, q in enumerate(sql) if q.startswith('SELECT "posthog_dashboarditem"') and "FOR NO KEY UPDATE" in q
+        )
+        delete_index = next(
+            i for i, q in enumerate(sql) if q.startswith("DELETE") and "posthog_alertconfiguration" in q
+        )
+        self.assertLess(lock_index, delete_index)
+
     def test_soft_delete_can_be_reversed_by_patch(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "an insight"})
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight_id, start_date=timezone.now(), frequency="daily"
+        )
 
         self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
@@ -3123,6 +3192,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "field": "deleted",
             "type": "Insight",
         }
+
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
 
     def test_soft_delete_cannot_be_reversed_for_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -4289,12 +4360,24 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         insight = self._create_insight()
         tile = DashboardTile.objects.create(insight=insight, dashboard=dashboard)
         alert = AlertConfiguration.objects.create(team=self.team, insight=insight, name="alert")
+        subscription = Subscription.objects.create(
+            team=self.team, insight_id=insight.id, start_date=timezone.now(), frequency="daily"
+        )
+        unrelated = Subscription.objects.create(team=self.team, start_date=timezone.now(), frequency="daily")
 
         response = self._bulk_delete([insight.id])
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
         self.assertFalse(AlertConfiguration.objects.filter(id=alert.id).exists())
+
+        self.assertFalse(Subscription.objects.filter(pk=subscription.pk).exists())
+        deletion_log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Subscription", item_id=str(subscription.pk), activity="deleted"
+        )
+        self.assertEqual(deletion_log.user_id, self.user.id)
+        unrelated.refresh_from_db()
+        self.assertFalse(unrelated.deleted)
 
     def test_bulk_delete_reports_unknown_ids_as_skipped(self) -> None:
         insight = self._create_insight()
