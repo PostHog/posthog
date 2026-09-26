@@ -193,6 +193,16 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
     )
 
 
+def _media_is_servable(media: ReplayObservationMedia) -> bool:
+    asset = media.asset
+    # No content location means the render has not landed yet, so there is nothing to fetch.
+    if not asset.content_location:
+        return False
+    # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
+    # and an expired frame would serve until the sweep deletes it.
+    return asset.expires_after is None or asset.expires_after > now()
+
+
 class ReplayObservationMediaSerializer(serializers.Serializer):
     """One thumbnail or clip illustrating an observation."""
 
@@ -352,8 +362,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
                 "video_end_ms": media.video_end_ms,
             }
             for media in obj.media.all()
-            # No content location means the render has not landed yet, so there is nothing to fetch.
-            if media.asset.content_location
+            if _media_is_servable(media)
         ]
 
     summary_line = serializers.SerializerMethodField(
@@ -1157,11 +1166,7 @@ class ReplayObservationViewSet(
             (
                 entry
                 for entry in observation.media.all()
-                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL
-                and entry.asset.content_location
-                # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
-                # and an expired frame would serve until the sweep deletes it.
-                and not (entry.asset.expires_after is not None and entry.asset.expires_after <= now())
+                if entry.kind == ReplayObservationMedia.Kind.THUMBNAIL and _media_is_servable(entry)
             ),
             None,
         )

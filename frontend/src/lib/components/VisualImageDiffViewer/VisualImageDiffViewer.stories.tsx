@@ -200,6 +200,15 @@ export const NewSnapshot: Story = {
     ),
 }
 
+// A signed storage URL that has expired or cannot be reached.
+export const ImageFailsToLoad: Story = {
+    args: {
+        ...NewSnapshot.args,
+        currentUrl: '/static/visual-review-missing-image.png',
+    },
+    render: NewSnapshot.render,
+}
+
 // Baseline and current share a width but differ in height. In split mode the
 // two are composited on a shared canvas at one scale, top-left anchored, so
 // the added section reads as the page growing taller rather than both sides

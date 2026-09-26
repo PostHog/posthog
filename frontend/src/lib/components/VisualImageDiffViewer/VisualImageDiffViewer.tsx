@@ -1,6 +1,15 @@
+import posthog from 'posthog-js'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { LemonSegmentedButton, LemonSlider, LemonSwitch, LemonTag, type LemonTagType } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonSegmentedButton,
+    LemonSlider,
+    LemonSwitch,
+    LemonTag,
+    type LemonTagType,
+} from '@posthog/lemon-ui'
 
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { cn } from 'lib/utils/css-classes'
@@ -143,34 +152,53 @@ function ImagePanel({
     onOverlayHover,
     onClick,
 }: ImagePanelProps): JSX.Element {
+    const [failedUrl, setFailedUrl] = useState<string | null>(null)
+    const [attempt, setAttempt] = useState(0)
+    // Keyed on the URL, so a failure does not stick to the next snapshot that reuses this panel.
+    const failed = !!url && failedUrl === url
     const boxCount = (overlayBoxes?.length ?? 0) + (overlayBands?.length ?? 0)
     const hasOverlay = !!url && boxCount > 0 && !!overlayWidth && !!overlayHeight
-    const image = url ? (
-        // `block` on the inline-block wrapper kills the implicit
-        // baseline-descender gap that nudges the SVG overlay a few
-        // pixels below the image's actual bottom edge.
-        <div className="relative inline-block max-w-full leading-none">
-            <img
-                src={url}
-                alt={label}
-                loading="lazy"
-                decoding="async"
-                className={cn('block h-auto bg-black/5', imgClassName || 'max-w-full')}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={imgStyle}
-            />
-            {hasOverlay && (
-                <BboxOverlay
-                    boxes={overlayBoxes ?? []}
-                    bands={overlayBands}
-                    width={overlayWidth!}
-                    height={overlayHeight!}
-                    highlightedIndex={highlightedOverlayIndex ?? null}
-                    onHover={onOverlayHover}
+
+    const onImageError = (): void => {
+        setFailedUrl(url)
+        posthog.capture('visual image load failed', { panel: label, attempt })
+    }
+
+    const onRetry = (): void => {
+        setFailedUrl(null)
+        setAttempt((current) => current + 1)
+    }
+
+    const image =
+        url && !failed ? (
+            // `block` on the inline-block wrapper kills the implicit
+            // baseline-descender gap that nudges the SVG overlay a few
+            // pixels below the image's actual bottom edge.
+            <div className="relative inline-block max-w-full leading-none">
+                <img
+                    // A new key remounts the element, so the browser requests the same signed URL again.
+                    key={attempt}
+                    src={url}
+                    alt={label}
+                    loading="lazy"
+                    decoding="async"
+                    className={cn('block h-auto bg-black/5', imgClassName || 'max-w-full')}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={imgStyle}
+                    onError={onImageError}
                 />
-            )}
-        </div>
-    ) : null
+                {hasOverlay && (
+                    <BboxOverlay
+                        boxes={overlayBoxes ?? []}
+                        bands={overlayBands}
+                        width={overlayWidth!}
+                        height={overlayHeight!}
+                        highlightedIndex={highlightedOverlayIndex ?? null}
+                        onHover={onOverlayHover}
+                    />
+                )}
+            </div>
+        ) : null
 
     return (
         <div className="overflow-hidden rounded-lg border bg-bg-light inline-block max-w-full">
@@ -191,6 +219,8 @@ function ImagePanel({
                 ) : (
                     image
                 )
+            ) : failed ? (
+                <ImageLoadFailedState onRetry={onRetry} />
             ) : (
                 <EmptyImageState title={emptyTitle} />
             )}
@@ -322,6 +352,28 @@ function BboxOverlay({ boxes, bands, width, height, highlightedIndex, onHover }:
                 )
             })}
         </>
+    )
+}
+
+function ImageLoadFailedState({ onRetry }: { onRetry: () => void }): JSX.Element {
+    return (
+        <div className="flex size-full min-h-32 min-w-60 items-center justify-center bg-bg-light px-4 py-6 text-center text-muted-foreground">
+            <div className="flex flex-col items-center gap-2">
+                <div role="status">
+                    <div className="text-sm font-semibold">Couldn't load image</div>
+                    <div className="text-xs mt-1">The link may have expired, or the network dropped.</div>
+                </div>
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    icon={<IconRefresh />}
+                    onClick={onRetry}
+                    data-attr="visual-review-image-retry"
+                >
+                    Try again
+                </LemonButton>
+            </div>
+        </div>
     )
 }
 
