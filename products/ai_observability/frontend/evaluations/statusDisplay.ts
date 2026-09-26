@@ -9,6 +9,7 @@ const REASON_LABELS: Record<EvaluationStatusReason, string> = {
     provider_key_quota_exceeded: 'Provider API key quota exceeded',
     provider_key_rate_limited: 'Provider API key is rate limited',
     model_not_found: 'Model not found',
+    provider_request_invalid: 'Model provider rejected the request',
     hog_error: 'Hog evaluation code failed',
 }
 
@@ -31,7 +32,7 @@ export function statusReasonRecoveryLabel(reason: EvaluationStatusReason | null 
     if (reason === 'provider_key_required') {
         return 'Add a provider API key in settings, then re-enable the evaluation to resume running.'
     }
-    if (reason === 'no_default_model' || reason === 'model_not_found') {
+    if (reason === 'no_default_model' || reason === 'model_not_found' || reason === 'provider_request_invalid') {
         return 'Choose an available model, then re-enable the evaluation to resume running.'
     }
     if (reason === 'hog_error') {

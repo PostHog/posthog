@@ -26,11 +26,13 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
+    ProviderRequestInvalidError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
     is_context_window_error_message,
     is_output_limit_error_message,
+    provider_error_detail,
     stream_error_chunk,
 )
 from products.ai_observability.backend.llm.types import (
@@ -238,6 +240,9 @@ class OpenAIAdapter:
                     return ContextWindowExceededError(str(error))
                 if is_output_limit_error_message(str(error)):
                     return OutputTokenLimitError(str(error))
+                # Any other 400 stays wrong on the next attempt, so map it terminal and pass the
+                # provider's reason on.
+                return ProviderRequestInvalidError(provider_error_detail(error))
             # OpenRouter returns 402 when the key can't afford the requested
             # max_tokens (or is out of credits). Retrying never helps — mirror
             # the quota path so the workflow marks the key errored and stops.
