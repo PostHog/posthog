@@ -57,14 +57,22 @@ def _base_name(base: ast.expr) -> str:
     return base.id if isinstance(base, ast.Name) else ""
 
 
-def _modules_that_subclass_an_authentication_class() -> set[str]:
+def _may_be_authentication_class(node: ast.stmt) -> bool:
+    # The method check catches a class whose base is imported under an alias.
+    return isinstance(node, ast.ClassDef) and (
+        any(_base_name(base).endswith("Authentication") for base in node.bases)
+        or any(isinstance(item, ast.FunctionDef) and item.name == "authenticate" for item in node.body)
+    )
+
+
+def _modules_that_may_define_authentication_classes() -> set[str]:
     modules = set()
     for root in SCANNED_ROOTS:
         for path in (REPO_ROOT / root).rglob("*.py"):
             if SKIPPED_DIRS.intersection(path.parts):
                 continue
             source = path.read_text(encoding="utf-8", errors="ignore")
-            if "Authentication" not in source:
+            if "Authentication" not in source and "def authenticate" not in source:
                 continue
             parts = path.relative_to(REPO_ROOT).with_suffix("").parts
             module = ".".join(parts[:-1] if parts[-1] == "__init__" else parts)
@@ -74,11 +82,7 @@ def _modules_that_subclass_an_authentication_class() -> set[str]:
                 tree = ast.parse(source)
             except SyntaxError:
                 continue
-            if any(
-                isinstance(node, ast.ClassDef)
-                and any(_base_name(base).endswith("Authentication") for base in node.bases)
-                for node in tree.body
-            ):
+            if any(_may_be_authentication_class(node) for node in tree.body):
                 modules.add(module)
     return modules
 
@@ -107,7 +111,7 @@ def _owned_classes() -> tuple[type, ...]:
     # `__subclasses__()` sees only the classes of imported modules. The routes import the view
     # modules, and the source scan imports the modules that no route reaches.
     _route_classes()
-    for module in sorted(_modules_that_subclass_an_authentication_class()):
+    for module in sorted(_modules_that_may_define_authentication_classes()):
         importlib.import_module(module)
     return tuple(sorted((cls for cls in _subclasses(BaseAuthentication) if _is_owned(cls)), key=_dotted_name))
 
