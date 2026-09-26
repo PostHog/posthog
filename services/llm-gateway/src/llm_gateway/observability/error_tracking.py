@@ -21,6 +21,7 @@ def _ensure_initialized() -> bool:
         return False
 
     posthoganalytics.api_key = settings.posthog_project_token  # ty: ignore[invalid-assignment]
+    posthoganalytics.host = settings.posthog_host  # ty: ignore[invalid-assignment]
     _initialized = True
     return True
 

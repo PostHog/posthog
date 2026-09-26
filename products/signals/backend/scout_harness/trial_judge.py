@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 from dataclasses import field
-from typing import cast
+from itertools import chain, islice
+from typing import TYPE_CHECKING, cast
 
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import JsonValue, ValidationError
@@ -26,7 +27,10 @@ from products.signals.backend.scout_harness.trial_gateway import create_trial_ga
 from products.signals.backend.scout_harness.trial_launch import assert_trial_environment_ready
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
 
-JUDGE_PROMPT_VERSION = "1"
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+JUDGE_PROMPT_VERSION = "4"
 MAX_JUDGE_INPUT_CHARACTERS = 120_000
 MAX_JUDGE_OUTPUT_CHARACTERS = 64_000
 MAX_TRACE_INPUT_CHARACTERS = 2_000_000
@@ -91,16 +95,41 @@ def _tool_content(value: JsonValue) -> JsonValue:
     }
 
 
-def evidence_sources_from_logs(content: str) -> TrialTraceEvidence:
+def _render_tool_value(value: JsonValue, path: str) -> Iterator[str]:
+    if isinstance(value, dict) and value:
+        for key, item in value.items():
+            yield from _render_tool_value(item, f"{path}[{json.dumps(key, ensure_ascii=False)}]")
+    elif isinstance(value, list) and value:
+        for index, item in enumerate(value):
+            yield from _render_tool_value(item, f"{path}[{index}]")
+    else:
+        # Keep string values literal so quotations do not need a second layer of JSON escaping.
+        if isinstance(value, str):
+            yield f"{path} (text):\n"
+            yield value
+        else:
+            yield f"{path} (json):\n"
+            yield json.dumps(value, ensure_ascii=False, allow_nan=False)
+        yield "\n\n"
+
+
+def evidence_sources_from_logs(
+    content: str,
+    *,
+    max_characters: int = MAX_TRACE_CHARACTERS,
+    max_sources: int = MAX_TRACE_SOURCES,
+) -> TrialTraceEvidence:
     sources: list[TrialEvidenceSource] = []
     limitations: list[str] = []
     if len(content) > MAX_TRACE_INPUT_CHARACTERS:
         content = content[:MAX_TRACE_INPUT_CHARACTERS].rsplit("\n", 1)[0]
         limitations.append("The session log exceeded the extraction limit; only its beginning was inspected.")
-    total_characters = 0
+    character_budget = max(0, min(max_characters, MAX_TRACE_CHARACTERS))
+    source_limit = max(0, min(max_sources, MAX_TRACE_SOURCES))
+    last_payloads: dict[str, str] = {}
     malformed = False
     unsupported = False
-    truncated = False
+    overflow = False
     ignored_updates = {
         "agent_message",
         "agent_message_chunk",
@@ -143,20 +172,62 @@ def evidence_sources_from_logs(content: str) -> TrialTraceEvidence:
                 )
                 if key in update
             }
-            text = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+            raw_output = _object(payload.get("rawOutput"))
+            tool_content = payload.get("content")
+            if (
+                isinstance(tool_content, list)
+                and all(
+                    isinstance(item, dict) and set(item) == {"type", "content"} and item["type"] == "content"
+                    for item in tool_content
+                )
+                and json.dumps(
+                    [cast(dict[str, JsonValue], item)["content"] for item in tool_content],
+                    sort_keys=True,
+                    allow_nan=False,
+                )
+                == json.dumps(raw_output.get("content"), sort_keys=True, allow_nan=False)
+            ):
+                del payload["content"]
+            identity = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+            call_id = payload.get("toolCallId")
+            if isinstance(call_id, str) and call_id and last_payloads.get(call_id) == identity:
+                continue
+            blocks = (block for key, value in payload.items() for block in _render_tool_value(value, key))
+            # One extra character records truncation without expanding verbose nested field paths.
+            text = "".join(islice(chain.from_iterable(blocks), MAX_TRACE_SOURCE_CHARACTERS + 1))
         except (ValueError, TypeError, RecursionError):
             malformed = True
             continue
-        remaining = MAX_TRACE_CHARACTERS - total_characters
-        if len(sources) >= MAX_TRACE_SOURCES or remaining <= 0:
-            truncated = True
+        if isinstance(call_id, str) and call_id:
+            last_payloads[call_id] = identity
+        if len(sources) >= source_limit:
+            overflow = True
             break
-        limit = min(MAX_TRACE_SOURCE_CHARACTERS, remaining)
-        if len(text) > limit:
-            text = text[:limit]
-            truncated = True
         sources.append(TrialEvidenceSource(id=f"trace:{line_number}", kind="trace", text=text))
-        total_characters += len(text)
+    # Reserve space for later results before bounding verbose earlier tool output.
+    low, high = 0, MAX_TRACE_SOURCE_CHARACTERS
+    while low < high:
+        middle = (low + high + 1) // 2
+        if sum(min(len(source.text), middle) for source in sources) <= character_budget:
+            low = middle
+        else:
+            high = middle - 1
+    truncated = any(len(source.text) > low for source in sources)
+    marker = "\n[Tool trace truncated]"
+    sources = (
+        [
+            source.model_copy(
+                update={
+                    "text": source.text[: low - len(marker)] + marker
+                    if len(source.text) > low and low >= len(marker)
+                    else source.text[:low]
+                }
+            )
+            for source in sources
+        ]
+        if low
+        else []
+    )
     if malformed:
         limitations.append("Some session log entries were malformed and could not be inspected.")
     if unsupported:
@@ -165,6 +236,8 @@ def evidence_sources_from_logs(content: str) -> TrialTraceEvidence:
         limitations.append(
             "Tool trace evidence was truncated to the source or total size limit; omitted actions are unknown."
         )
+    if overflow:
+        limitations.append("Tool trace evidence was truncated at the source count limit; omitted actions are unknown.")
     if not sources:
         limitations.append("No supported tool-call evidence was available; required tool use cannot be established.")
     return TrialTraceEvidence(sources=sources, limitations=limitations)
@@ -173,7 +246,8 @@ def evidence_sources_from_logs(content: str) -> TrialTraceEvidence:
 def build_trial_judge_messages(
     snapshot: TrialEvaluationSnapshot, evidence: TrialRunEvidence
 ) -> list[ChatCompletionMessageParam]:
-    if snapshot.judge_prompt_version != JUDGE_PROMPT_VERSION:
+    # Saved versions use the same model prompt with their original frozen evidence.
+    if snapshot.judge_prompt_version not in {"1", "2", "3", JUDGE_PROMPT_VERSION}:
         raise TrialJudgeValidationError("The saved judge prompt version is unsupported.")
     criterion_ids = [criterion.id for criterion in snapshot.criteria]
     source_ids = [source.id for source in evidence.sources]
@@ -244,7 +318,8 @@ def parse_trial_judgment(
     summary = judgment.summary
     if downgraded:
         summary = (
-            summary[:1850] + " Some verdicts are unknown because their cited evidence did not establish the conclusion."
+            "Some verdicts are unknown because their cited evidence did not establish the conclusion. "
+            "Review the criterion results and their validated evidence."
         )
     return TrialJudgeVerdicts(summary=summary, criteria=[checked[identifier] for identifier in expected_ids])
 

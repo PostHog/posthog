@@ -128,9 +128,9 @@ def read_trial_result(run: SignalScoutRun) -> dict[str, JsonValue] | None:
     return result
 
 
-def export_trial_result(run: SignalScoutRun, *, status: str | None = None) -> str:
+def export_trial_result(run: SignalScoutRun, *, status: str, overwrite: bool = True) -> str:
     key = trial_result_key(run)
-    if status is None and read_trial_result(run) is not None:
+    if not overwrite and read_trial_result(run) is not None:
         return key
     marker = (run.metadata or {})[SCOUT_TRIAL_METADATA_KEY]
     launch = read_trial_launch(run.team_id, marker["launch_id"])
@@ -144,7 +144,7 @@ def export_trial_result(run: SignalScoutRun, *, status: str | None = None) -> st
         "context_id": str(launch.context_id),
         "created_at": run.created_at.isoformat(),
         "exported_at": timezone.now().isoformat(),
-        "status": status or run.task_run.status,
+        "status": status,
         "task_status": run.task_run.status,
         "valid_comparison": invalid_reason is None,
         "invalid_reason": invalid_reason,
@@ -162,12 +162,21 @@ def export_trial_result(run: SignalScoutRun, *, status: str | None = None) -> st
     if len(content.encode()) > MAX_TRIAL_RESULT_BYTES:
         raise ValueError("The scout trial result is too large to export.")
     extras = {"ContentType": "application/json"}
-    if status is None:
+    if not overwrite:
         # Polling may recover a missing export, but only the runner can replace a saved outcome.
         extras["IfNoneMatch"] = "*"
     try:
         object_storage.write(key, content, extras=extras)
     except object_storage.ObjectStorageError:
-        if status is not None or read_trial_result(run) is None:
+        if overwrite or read_trial_result(run) is None:
             raise
     return key
+
+
+def recover_trial_result(run: SignalScoutRun, *, workflow: TrialWorkflowStatus) -> dict[str, JsonValue] | None:
+    if workflow.status not in {"completed", "failed", "cancelled"}:
+        return None
+    # The task can finish before the scout saves its summary and final private state.
+    run.refresh_from_db(fields=["summary", "metadata"])
+    export_trial_result(run, status=workflow.status, overwrite=False)
+    return read_trial_result(run)

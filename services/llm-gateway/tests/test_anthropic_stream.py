@@ -6,10 +6,16 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from anthropic import APIStatusError, AsyncAnthropic
+from httpx import AsyncClient, MockTransport, Response
 from litellm.llms.anthropic.experimental_pass_through.adapters.streaming_iterator import AnthropicStreamWrapper
 from litellm.types.utils import Delta, ModelResponseStream, StreamingChoices
 
-from llm_gateway.anthropic_stream import repair_anthropic_stream
+from llm_gateway.anthropic_stream import (
+    IncompleteAnthropicStreamError,
+    repair_anthropic_stream,
+    require_complete_anthropic_stream,
+)
 from llm_gateway.baseten import BASETEN_GLM53_FLASH_PUBLIC_MODEL, make_baseten_anthropic_call
 from llm_gateway.metrics.prometheus import ANTHROPIC_BRIDGE_INVALID_STREAM
 
@@ -125,6 +131,52 @@ def test_litellm_anthropic_stream_uses_matching_thinking_block() -> None:
     dict_events = [event for event in events if isinstance(event, dict)]
 
     _assert_valid_event_order(dict_events)
+
+
+@pytest.mark.parametrize("ending", ["complete", "missing", "truncated_stop", "truncated_event", "empty", "exception"])
+async def test_completion_guard_requires_a_complete_stop_frame(ending: str) -> None:
+    delta = b'event: content_block_delta\r\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"message_stop"}}\r\n\r\n'
+    stop = b'event: message_stop\r\ndata: {"type":"message_stop"}\r\n\r\n'
+    encoded = (
+        b""
+        if ending == "empty"
+        else delta + {"complete": stop, "truncated_stop": stop[:-4], "truncated_event": b"event: "}.get(ending, b"")
+    )
+    chunks = [encoded[: len(delta) + 20], encoded[len(delta) + 20 :]]
+
+    async def stream() -> AsyncIterator[bytes]:
+        for chunk in chunks:
+            yield chunk
+        if ending == "exception":
+            raise ValueError("synthetic upstream detail")
+
+    observed: list[bytes] = []
+    if ending == "complete":
+        observed = [chunk async for chunk in require_complete_anthropic_stream(stream())]
+        assert observed == chunks
+    else:
+        with pytest.raises(ValueError if ending == "exception" else IncompleteAnthropicStreamError):
+            async for chunk in require_complete_anthropic_stream(stream()):
+                observed.append(chunk)
+        assert observed[:-1] == chunks
+        assert b"synthetic upstream detail" not in observed[-1]
+        async with AsyncClient(
+            transport=MockTransport(
+                lambda _request: Response(
+                    200, headers={"content-type": "text/event-stream"}, content=b"".join(observed)
+                )
+            )
+        ) as client:
+            sdk = AsyncAnthropic(api_key="synthetic-key", http_client=client, max_retries=0)
+            with pytest.raises(APIStatusError, match="Upstream stream failed"):
+                sdk_stream = await sdk.messages.create(
+                    model="gpt-4o-mini",
+                    max_tokens=50,
+                    messages=[{"role": "user", "content": "synthetic prompt"}],
+                    stream=True,
+                )
+                async for _ in sdk_stream:
+                    pass
 
 
 @pytest.mark.parametrize("serialize", [False, True], ids=["structured", "sse_bytes"])

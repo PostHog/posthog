@@ -69,6 +69,26 @@ class _SSEPayloadDecoder:
         return payloads
 
 
+class IncompleteAnthropicStreamError(RuntimeError):
+    status_code = 502
+
+
+async def require_complete_anthropic_stream(stream: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    decoder = _SSEPayloadDecoder()
+    completed = False
+    try:
+        async for chunk in stream:
+            if any(payload.get("type") == "message_stop" for payload in decoder.feed(chunk)):
+                completed = True
+            yield chunk
+        if not completed:
+            raise IncompleteAnthropicStreamError("Upstream stream ended before message_stop")
+    except Exception:
+        # Anthropic SDKs can return a partial message on EOF unless they receive an error event.
+        yield b'\n\nevent: error\ndata: {"type":"error","error":{"type":"api_error","message":"Upstream stream failed"}}\n\n'
+        raise
+
+
 async def repair_anthropic_stream(stream: AsyncIterator[Any], backend: str) -> AsyncIterator[Any]:
     """Record invalid bridge output, and drop reasoning deltas aimed at a text block.
 

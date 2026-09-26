@@ -18,6 +18,7 @@ from uuid import uuid4
 type Json = None | bool | int | float | str | list[Json] | dict[str, Json]
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled", "skipped"}
+ACTIVE_TASK_STATUSES = {"not_started", "queued", "in_progress"}
 
 
 class NoRedirects(HTTPRedirectHandler):
@@ -161,6 +162,15 @@ class Comparison:
                 if result["status"] in TERMINAL_STATUSES:
                     launch_id = str(body["launch_id"])
                     save_json(self.output / f"{launch_id}.result.json", result)
+                    row["result_file"] = f"{launch_id}.result.json"
+                    row["invalid_reason"] = result.get("invalid_reason")
+                    if result.get("task_status") in ACTIVE_TASK_STATUSES:
+                        self.save()
+                        raise RuntimeError(
+                            f"Trial {launch_id} ended with {result['status']}, but task {result.get('task_id')} "
+                            f"run {result.get('task_run_id')} is still {result['task_status']}. "
+                            "Cancel that task or wait for it to finish, then use --resume."
+                        )
                     try:
                         self.download_logs(result, launch_id)
                     except TrialHTTPError as error:
@@ -168,8 +178,6 @@ class Comparison:
                             raise
                         row["log_error"] = "Session logs are unavailable for this stopped run (HTTP 404)."
                     row["status"] = "done"
-                    row["result_file"] = f"{launch_id}.result.json"
-                    row["invalid_reason"] = result.get("invalid_reason")
                     active -= 1
                     print(f"{body.get('variant', launch_id)}: {result['status']}")  # noqa: T201 -- eval script, stdout is the intended output channel
                 self.save()

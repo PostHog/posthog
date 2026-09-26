@@ -17,6 +17,8 @@ Use the existing remaining test budget agreed with the operator. Record a cap an
 
 The gateway exempts staff users from per-user cost caps by default. Fleet limits and gateway limits do not enforce this exercise's dollar budget; use bounded batches and provider accounting.
 
+For local spend checks, set `LLM_GATEWAY_STAFF_UNLIMITED_USAGE=false` and an explicit `LLM_GATEWAY_REDIS_URL` pointing to the devbox's existing Redis. The standalone gateway does not inherit Django's `REDIS_URL` fallback; without its own URL, it uses reduced in-memory limits and loses counters on restart. To inspect `/metrics`, also set `ENABLE_METRICS=true` alongside `LLM_GATEWAY_METRICS_ENABLED=true`. Confirm the running endpoint exposes the intended Signals cost limit before making paid calls.
+
 ## 1. Pull the implementation without losing devbox state
 
 All commands below run inside the devbox, from its repository root. Substitute its real path if it is not `~/posthog`.
@@ -194,7 +196,9 @@ Choose a model and effort from the returned `models` list. If the source effort 
 
 Also check a second local user cannot read the operator's trial tasks/results, and each sandbox's ordinary scoped calls cannot access its sibling's private state. Inspect only credentials issued through normal application interfaces; never scrape other processes for tokens.
 
-For capture acceptance, compare one synthetic ordinary gateway call with one trial call using a separate telemetry destination: the ordinary call retains expected capture, the private call suppresses content, and both retain spend/rate-limit enforcement. Global capture-off plus an empty event list is insufficient evidence. Record any unverified part explicitly.
+For capture acceptance, compare one synthetic ordinary gateway call with one trial call using a separate telemetry destination: the ordinary call retains expected capture, the private call suppresses content, and both retain spend/rate-limit enforcement. Include provider-library stderr logs, background stream failures, and exception events in this check; all ordinary gateway events use the configured capture host. Global capture-off plus an empty event list is insufficient evidence. Record any unverified part explicitly.
+
+Verify that interrupted scout streams on the standard Anthropic route fail in the client instead of returning a partial answer as complete. The gateway requires a complete `message_stop` event for Signals requests on that route and sends a generic Anthropic error when the stream ends early; the initial HTTP 200 alone does not prove completion.
 
 ## 5. Repeatable API/CLI alternative
 
@@ -235,7 +239,7 @@ For each saved launch, inspect:
 GET /api/projects/<project_id>/signals/scout/configs/<config_id>/trial_result/?launch_id=<launch_uuid>
 ```
 
-All selected runs must be terminal: `completed`, `failed`, `cancelled`, or `skipped`. Inspect `error`, `invalid_reason`, `export_error` and `task_status`; a failed controller can leave its underlying task active.
+All selected runs must be terminal: `completed`, `failed`, `cancelled`, or `skipped`. Inspect `error`, `invalid_reason`, `export_error` and `task_status`; a failed controller can leave its underlying task active. Task completion alone does not make a result ready: polling and scoring wait for the scout's final export or a terminal controller before recovering a missing export. A task can show `completed` while its trial remains `in_progress` or `unknown` during finalization. Conversely, a saved completed scout result can precede task shutdown; polling keeps it `in_progress` and scoring waits until the task finishes. A failed or cancelled task cannot become a successful comparison through an earlier completed export.
 
 Create and save an explicit scoring request before sending it:
 

@@ -90,11 +90,15 @@ Runs within a variant must use the same instructions, note, model, runtime, reas
 The server freezes the rubric, bounded evidence, judge model and prompt version before dispatching the judge.
 Evidence includes instructions, starting history, captured reports, memory changes, summaries and available tool calls and results.
 Missing or truncated evidence is recorded as a limitation; private thoughts and reasoning are excluded from the extracted trace.
+Trace extraction removes exact repeated updates and duplicate output content, then shares the available evidence budget across the retained tool events in their original order. Verbose early output cannot consume the space reserved for later results; source-count and size limits remain explicit limitations.
+Tool trace fields use labelled text blocks that preserve string values, including quotes, line breaks and literal backslashes. This lets the judge quote returned prose without copying an extra layer of JSON escaping. Call identity, status, errors and inputs remain part of the same bounded source.
 
 The judge receives criteria and evidence without variant labels or scout model settings.
 It returns one verdict per criterion: pass, fail, unknown or not applicable.
 Pass, fail and not applicable require source references and exact quotations from the saved evidence.
 Unverifiable citations become unknown, and quoting an instruction alone cannot prove it was followed.
+When validation makes a verdict unknown, it replaces the model's summary with a notice to review the criterion results and validated evidence.
+New evaluations record judge version 4 for the readable, bounded trace format. Pending versions 1 through 3 use the same model prompt and summary validation with their frozen evidence; previously saved snapshots and reports remain unchanged.
 Missing evidence is unknown; not applicable means the criterion does not apply to that run.
 The judge assesses the saved text and does not independently verify external sources or measure recall.
 
