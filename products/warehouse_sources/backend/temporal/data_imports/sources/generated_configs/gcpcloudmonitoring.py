@@ -5,5 +5,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class GcpCloudMonitoringKeyFileConfig(config.Config):
+    project_id: str
+    private_key: str
+    private_key_id: str
+    client_email: str
+    token_uri: str
+
+
+@config.config
 class GcpCloudMonitoringSourceConfig(config.Config):
-    pass
+    key_file: GcpCloudMonitoringKeyFileConfig
+    metric_filter: str
+    alignment_period_seconds: int | None = config.value(
+        converter=config.str_to_optional_int, default_factory=lambda: None
+    )
+    project_id: str | None = None
+    per_series_aligner: str | None = None
+    cross_series_reducer: str | None = None
+    group_by_fields: str | None = None
