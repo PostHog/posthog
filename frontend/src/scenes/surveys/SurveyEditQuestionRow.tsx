@@ -83,10 +83,10 @@ export function SurveyEditQuestionHeader({
                 transition,
             }}
         >
-            <div className="flex flex-row gap-2 items-center">
+            <div className="flex flex-row gap-2 items-center min-w-0 overflow-hidden">
                 <SurveyDragHandle listeners={listeners} hasMultipleQuestions={survey.questions.length > 1} />
 
-                <b>
+                <b className="truncate">
                     Question {index + 1}.{' '}
                     {editingLanguage
                         ? (survey.questions[index].translations?.[editingLanguage]?.question ??
