@@ -167,7 +167,13 @@ def fetch_docs_text(url: str) -> str:
                 if len(raw) >= DOCS_FETCH_MAX_BYTES:
                     break
     except requests.RequestException as exc:
-        logger.warning("custom_source_docs_fetch_failed", error=str(exc))
+        # `str(exc)` embeds the URL, which can carry a token in its query string or userinfo, so the
+        # log gets the class and the status only.
+        logger.warning(
+            "custom_source_docs_fetch_failed",
+            error_type=type(exc).__name__,
+            status_code=exc.response.status_code if exc.response is not None else None,
+        )
         raise DocsFetchError(_docs_fetch_error_message(exc)) from exc
 
     text = raw.decode(response.encoding or "utf-8", errors="replace")
