@@ -3,7 +3,10 @@ import {
   CaretDownIcon,
   CaretRightIcon,
 } from "@phosphor-icons/react";
-import { attributionLabel } from "@posthog/core/inbox/activityLog";
+import {
+  attributionLabel,
+  reportLinkKindLabel,
+} from "@posthog/core/inbox/activityLog";
 import type {
   ActionabilityJudgmentContent,
   AnySignalReportArtefact,
@@ -13,6 +16,7 @@ import type {
   LineReferenceContent,
   NoteContent,
   PriorityJudgmentContent,
+  ReportLinkContent,
   SafetyJudgmentContent,
   SignalFindingContent,
   SignalReportArtefactContent,
@@ -22,6 +26,7 @@ import type {
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
 import { ArtefactCommit } from "@posthog/ui/features/inbox/components/detail/ArtefactCommit";
 import { ArtefactTaskRun } from "@posthog/ui/features/inbox/components/detail/ArtefactTaskRun";
+import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
 import { SignalReportActionabilityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportActionabilityBadge";
 import { SignalReportPriorityBadge } from "@posthog/ui/features/inbox/components/utils/SignalReportPriorityBadge";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
@@ -29,6 +34,7 @@ import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { RelativeTimestamp } from "@posthog/ui/primitives/RelativeTimestamp";
 import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { Badge, Box, Flex, Text } from "@radix-ui/themes";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 // A chronological log of every artefact on a report. Each known type renders a
@@ -52,6 +58,7 @@ const TYPE_LABELS: Record<string, string> = {
   repo_selection: "Repo selected",
   dismissal: "Report dismissed",
   video_segment: "Video segment",
+  report_link: "Report linked",
 };
 
 function typeLabel(type: string): string {
@@ -236,6 +243,28 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
   );
 }
 
+function ReportLinkBody({ content }: { content: ReportLinkContent }) {
+  if (!content.report_id) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <InboxBadge>{reportLinkKindLabel(content.kind)}</InboxBadge>
+        <Link
+          to="/reports/$reportId"
+          params={{ reportId: content.report_id }}
+          className="inline-flex items-center gap-1 text-xs hover:underline"
+        >
+          Open report
+          <ArrowSquareOutIcon size={10} />
+        </Link>
+      </div>
+      {content.reason?.trim() ? (
+        <p className="text-muted-foreground text-xs">{content.reason}</p>
+      ) : null}
+    </div>
+  );
+}
+
 function ArtefactBody({
   reportId,
   artefact,
@@ -367,6 +396,8 @@ function ArtefactBody({
       return (
         <ReviewersBody reviewers={artefact.content as SuggestedReviewer[]} />
       );
+    case "report_link":
+      return <ReportLinkBody content={artefact.content as ReportLinkContent} />;
     case "dismissal": {
       const c = artefact.content as DismissalContent;
       return (

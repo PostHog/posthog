@@ -41,6 +41,7 @@ import type {
   OrganizationMemberBasic,
   PriorityJudgmentArtefact,
   ProvisionedTaskChannels,
+  ReportLinkArtefact,
   RepoSelectionArtefact,
   SafetyJudgmentArtefact,
   SandboxCustomImage,
@@ -1359,7 +1360,8 @@ type AnyArtefact =
   | LineReferenceArtefact
   | CommitArtefact
   | TaskRunArtefact
-  | NoteArtefact;
+  | NoteArtefact
+  | ReportLinkArtefact;
 
 // Reasons valid on a dismissal artefact. Resolve reasons are included because the
 // backend stores resolve feedback on the same artefact type (a resolve writes a
@@ -1701,6 +1703,34 @@ function normalizeNoteArtefact(
   };
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A link that names no real report would render as a dead navigation target, so
+// send it down the fallback path and show the reader its text preview instead.
+function normalizeReportLinkArtefact(
+  value: Record<string, unknown>,
+): ReportLinkArtefact | null {
+  const id = optionalString(value.id);
+  if (!id) return null;
+  const c = isObjectRecord(value.content) ? value.content : null;
+  if (!c) return null;
+  const kind = optionalString(c.kind)?.trim();
+  const report_id = optionalString(c.report_id)?.trim();
+  if (!kind || !report_id || !UUID_PATTERN.test(report_id)) return null;
+
+  return {
+    id,
+    type: "report_link",
+    ...artefactBase(value),
+    content: {
+      kind,
+      report_id,
+      reason: optionalString(c.reason),
+    },
+  };
+}
+
 /** Best human-readable one-liner from arbitrary artefact content. */
 function contentPreview(content: unknown): string {
   if (typeof content === "string") return content;
@@ -1800,6 +1830,11 @@ function normalizeSignalReportArtefact(value: unknown): AnyArtefact | null {
   }
   if (dispatchType === "note") {
     return normalizeNoteArtefact(value) ?? normalizeFallbackArtefact(value);
+  }
+  if (dispatchType === "report_link") {
+    return (
+      normalizeReportLinkArtefact(value) ?? normalizeFallbackArtefact(value)
+    );
   }
 
   const id = optionalString(value.id);
