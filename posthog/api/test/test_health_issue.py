@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,6 +14,7 @@ from rest_framework import status
 from posthog.api.health_issue import HealthIssueSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.health_issue import HealthIssue
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -416,21 +418,47 @@ class TestHealthIssueAPI(APIBaseTest):
         self.assertEqual(summary["unsnoozed"]["total"], 1)
         self.assertEqual(summary["unsnoozed"]["by_kind"], {"sdk_outdated": 1})
 
+    def _create_scoped_bearer_token(self, auth_kind: str, scopes: list[str]) -> str:
+        if auth_kind == "personal_api_key":
+            key_value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Test", user=self.user, secure_value=hash_key_value(key_value), scopes=scopes
+            )
+            return key_value
+        application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.user,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token="pha_health_issue_resolve_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope=" ".join(scopes),
+        )
+        return token.token
+
     @parameterized.expand(
         [
-            ("write_scope", ["health_issue:write"], status.HTTP_200_OK, HealthIssue.Status.RESOLVED),
-            ("read_scope", ["health_issue:read"], status.HTTP_403_FORBIDDEN, HealthIssue.Status.ACTIVE),
+            (auth_kind, scope, expected_status, expected_issue_status)
+            for auth_kind in ("personal_api_key", "oauth")
+            for scope, expected_status, expected_issue_status in (
+                ("health_issue:write", status.HTTP_200_OK, HealthIssue.Status.RESOLVED),
+                ("health_issue:read", status.HTTP_403_FORBIDDEN, HealthIssue.Status.ACTIVE),
+            )
         ]
     )
-    def test_resolve_with_personal_api_key(self, _name, scopes, expected_status, expected_issue_status):
+    def test_resolve_with_scoped_token(self, auth_kind, scope, expected_status, expected_issue_status):
         issue = self._create_issue()
-        key_value = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test", user=self.user, secure_value=hash_key_value(key_value), scopes=scopes
-        )
+        token = self._create_scoped_bearer_token(auth_kind, [scope])
         self.client.logout()
 
-        response = self.client.post(self._url(f"/{issue.id}/resolve"), headers={"authorization": f"Bearer {key_value}"})
+        response = self.client.post(self._url(f"/{issue.id}/resolve"), headers={"authorization": f"Bearer {token}"})
         self.assertEqual(response.status_code, expected_status, response.json())
 
         issue.refresh_from_db()
