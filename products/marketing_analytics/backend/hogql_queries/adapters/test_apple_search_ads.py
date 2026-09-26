@@ -82,7 +82,7 @@ class TestAppleSearchAdsAdapter(SimpleTestCase):
                 },
             ).to_hogql()
             assert "applesearchads_campaign_report.local_spend['amount']" in sql
-            assert "applesearchads_campaign_report.local_spend['currency']" in sql
+            assert "coalesce(nullIf(applesearchads_campaign_report.local_spend['currency'], ''), 'EUR')" in sql
             assert "'EUR'" in sql
             assert "toDate(applesearchads_campaign_report.date)" in sql
             assert f"applesearchads_campaign_report.{conversion_column}" in sql
