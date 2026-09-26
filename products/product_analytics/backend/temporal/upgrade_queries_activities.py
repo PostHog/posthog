@@ -1,4 +1,3 @@
-import textwrap
 import dataclasses
 from typing import Any, Optional, cast
 
@@ -16,13 +15,13 @@ from products.product_analytics.backend.facade.models import Insight
 LOGGER = get_logger(__name__)
 
 
-def _clause(kind: str, version: int) -> str:
-    template = """
-        query @? '$.** ? (
-            @.kind == "{kind}" &&
-            (!exists(@.version) || @.version == null || @.version < {version})
-        )'"""
-    return textwrap.dedent(template.format(kind=kind, version=version)).strip()
+def _stale_schema_stamps(latest_versions: dict[str, int]) -> list[str]:
+    """Every `kind:version` stamp that the registry considers out of date.
+
+    `posthog_dashboarditem_schema_versions` stamps a node with no version, or a null one, as
+    version 0, so enumerating 0 to latest - 1 per kind covers every stale node.
+    """
+    return [f"{kind}:{version}" for kind, latest in sorted(latest_versions.items()) for version in range(latest)]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -45,23 +44,27 @@ class GetInsightsToMigrateActivityResult:
 def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> GetInsightsToMigrateActivityResult:
     _discover_migrations()  # Populate LATEST_VERSIONS; this is the first activity in the workflow
 
-    clauses = [_clause(k, v) for k, v in sorted(LATEST_VERSIONS.items())]
-    if not clauses:
-        # No migrations registered — guard against emitting `WHERE ()`, which Postgres rejects
+    stamps = _stale_schema_stamps(LATEST_VERSIONS)
+    if not stamps:
         return GetInsightsToMigrateActivityResult(insight_ids=[], last_id=inputs.after_id)
 
-    after_clause = "" if inputs.after_id is None else f"\nAND id > {inputs.after_id}"
-    where_body = ("\n   OR  ").join(clauses)
+    params: dict[str, Any] = {"stamps": stamps, "limit": inputs.batch_size}
+    after_clause = ""
+    if inputs.after_id is not None:
+        after_clause = "AND id > %(after_id)s"
+        params["after_id"] = inputs.after_id
+
     sql = f"""
-        SELECT DISTINCT id
+        SELECT id
         FROM posthog_dashboarditem
-        WHERE ({where_body}) {after_clause}
+        WHERE posthog_dashboarditem_schema_versions(query) && %(stamps)s::text[]
+        {after_clause}
         ORDER BY id
-        LIMIT {inputs.batch_size};
+        LIMIT %(limit)s;
     """
 
     with connection.cursor() as cur:
-        cur.execute(sql)
+        cur.execute(sql, params)
         ids = [row[0] for row in cur.fetchall()]
     last_id = ids[-1] if ids else inputs.after_id
 
