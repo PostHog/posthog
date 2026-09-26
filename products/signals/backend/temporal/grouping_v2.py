@@ -1,6 +1,7 @@
 import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Optional
 
 from django.conf import settings
@@ -20,7 +21,9 @@ from posthog.temporal.common.scoped import scoped_temporal
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
+    SignalBatchPrepError,
     _process_signal_batch,
+    retry_or_drop_prep_batch,
 )
 from products.signals.backend.temporal.types import (
     EmitSignalInputs,
@@ -81,6 +84,8 @@ class TeamSignalGroupingV2Workflow:
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
+        self._retry_keys: list[str] = []
+        self._prep_attempt: int = 0
         self._batch_buffer_size_gauge: Optional[MetricGauge] = None
         self._signals_processed_counter: Optional[MetricCounter] = None
         self._signals_dropped_counter: Optional[MetricCounter] = None
@@ -120,8 +125,78 @@ class TeamSignalGroupingV2Workflow:
                 team_id=input.team_id,
                 pending_batch_keys=list(self._batch_key_buffer),
                 paused_until=self._paused_until,
+                retry_batch_keys=list(self._retry_keys),
+                prep_attempt=self._prep_attempt,
             )
         )
+
+    def _hold_for_retry(self, object_keys: list[str]) -> None:
+        """Keep the failed keys out of the main buffer, so only they carry their attempt count."""
+        self._retry_keys = list(object_keys)
+
+    async def _retry_or_drop(
+        self, signals: list[EmitSignalInputs], error: SignalBatchPrepError, object_keys: list[str], team_id: int
+    ) -> None:
+        self._prep_attempt = await retry_or_drop_prep_batch(
+            signals,
+            error.cause_error,
+            self._prep_attempt + 1,
+            partial(self._hold_for_retry, object_keys),
+            team_id=team_id,
+            batch_size=len(signals),
+            batch_keys=object_keys,
+        )
+        if self._prep_attempt == 0:
+            self._retry_keys = []
+            if self._signals_dropped_counter is not None:
+                self._signals_dropped_counter.add(len(signals))
+
+    async def _read_batch_keys(self, object_keys: list[str]) -> list[EmitSignalInputs]:
+        signals: list[EmitSignalInputs] = []
+        for object_key in object_keys:
+            read_result: ReadSignalsFromS3Output = await workflow.execute_activity(
+                read_signals_from_s3_activity,
+                ReadSignalsFromS3Input(object_key=object_key),
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            signals.extend(read_result.signals)
+        return signals
+
+    async def _run_retry_path(self, input: TeamSignalGroupingV2Input) -> None:
+        """Process the keys a preparation failure held back, on their own.
+
+        Those keys carry an attempt count. A key that arrived later must not join them,
+        because giving up at the cap would drop signals that failed far fewer times.
+        """
+        object_keys = list(self._retry_keys)
+        signals = await self._read_batch_keys(object_keys)
+
+        try:
+            dropped, _type_examples = await _process_signal_batch(signals)
+            self._retry_keys = []
+            self._prep_attempt = 0
+            if self._signals_processed_counter is not None:
+                self._signals_processed_counter.add(len(signals))
+            if self._signals_dropped_counter is not None and dropped > 0:
+                self._signals_dropped_counter.add(dropped)
+        except SignalBatchPrepError as e:
+            await self._retry_or_drop(signals, e, object_keys, input.team_id)
+        except Exception:
+            # A failure after preparation means part of the batch was emitted already, so the
+            # keys are not retried: another pass would assign those signals a second time.
+            logger.exception(
+                "Failed to process retried signal batch",
+                team_id=input.team_id,
+                batch_size=len(signals),
+                batch_keys=object_keys,
+            )
+            self._retry_keys = []
+            self._prep_attempt = 0
+            if self._signals_dropped_counter is not None:
+                self._signals_dropped_counter.add(len(signals))
+
+        self._continue_as_new(input)
 
     async def _collect_next_batch(self) -> CollectedBatch:
         collected = CollectedBatch()
@@ -192,6 +267,9 @@ class TeamSignalGroupingV2Workflow:
                 self._signals_processed_counter.add(len(signals))
             if self._signals_dropped_counter is not None and dropped > 0:
                 self._signals_dropped_counter.add(dropped)
+            self._prep_attempt = 0
+        except SignalBatchPrepError as e:
+            await self._retry_or_drop(signals, e, [object_key], input.team_id)
         except Exception:
             logger.exception(
                 "Failed to process signal batch",
@@ -199,6 +277,7 @@ class TeamSignalGroupingV2Workflow:
                 batch_size=len(signals),
                 object_key=object_key,
             )
+            self._prep_attempt = 0
 
         # continue_as_new after each batch to keep history bounded.
         # Carry over any pending keys that arrived while we were processing.
@@ -227,6 +306,9 @@ class TeamSignalGroupingV2Workflow:
                 self._signals_processed_counter.add(len(collected.signals))
             if self._signals_dropped_counter is not None and dropped > 0:
                 self._signals_dropped_counter.add(dropped)
+            self._prep_attempt = 0
+        except SignalBatchPrepError as e:
+            await self._retry_or_drop(collected.signals, e, collected.object_keys, input.team_id)
         except Exception:
             logger.exception(
                 "Failed to process signal batch",
@@ -234,6 +316,7 @@ class TeamSignalGroupingV2Workflow:
                 batch_size=len(collected.signals),
                 batch_keys=collected.object_keys,
             )
+            self._prep_attempt = 0
             # Stash keys back so they're retried after continue_as_new.
             # Sleep first to avoid hot-looping on deterministic failures.
             self._batch_key_buffer = collected.object_keys + self._batch_key_buffer
@@ -256,6 +339,8 @@ class TeamSignalGroupingV2Workflow:
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
         self._paused_until = input.paused_until
+        self._retry_keys = list(input.retry_batch_keys)
+        self._prep_attempt = input.prep_attempt
         start_time = workflow.now()
 
         meter = workflow.metric_meter().with_additional_attributes({"team_id": str(input.team_id)})
@@ -282,6 +367,11 @@ class TeamSignalGroupingV2Workflow:
                     lambda: not self._is_paused(),
                     timeout=timedelta(seconds=PAUSE_SLEEP_SECONDS),
                 )
+                continue
+
+            # Held-back keys come first, and alone: waiting on the buffer would strand them.
+            if self._retry_keys:
+                await self._run_retry_path(input)
                 continue
 
             # Wait for at least one batch key
