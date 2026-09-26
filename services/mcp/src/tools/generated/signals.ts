@@ -423,6 +423,39 @@ const inboxReportsList = (): ToolBase<
     },
 })
 
+const InboxReportsMergeSchema = () => {
+    const SignalsReportsMergeCreateBody = orvalSchemas.SignalsReportsMergeCreateBody()
+    const SignalsReportsMergeCreateParams = orvalSchemas.SignalsReportsMergeCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['survivor_report_id'] }),
+        SignalsReportsMergeCreateParams.omit({ project_id: true }).extend(SignalsReportsMergeCreateBody.shape)
+    )
+}
+
+const inboxReportsMerge = (): ToolBase<
+    ReturnType<typeof InboxReportsMergeSchema>,
+    WithPostHogUrl<Schemas.SignalReportMergeResponse>
+> => ({
+    name: 'inbox-reports-merge',
+    schema: InboxReportsMergeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof InboxReportsMergeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.source_report_ids !== undefined) {
+            body['source_report_ids'] = params.source_report_ids
+        }
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.SignalReportMergeResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/merge/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${params.id}`)
+    },
+})
+
 const InboxReportsRetrieveSchema = () => {
     const SignalsReportsRetrieveParams = orvalSchemas.SignalsReportsRetrieveParams()
     return z.preprocess(
@@ -1420,11 +1453,8 @@ const scoutReportCheckCreate = (): ToolBase<
 })
 
 const ScoutReportCheckListSchema = () => {
-    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
-    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
-    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
-        SignalsScoutReportChecksListQueryParams.shape
-    )
+    const SignalsScoutReportCheckListQueryParams = orvalSchemas.SignalsScoutReportCheckListQueryParams()
+    return SignalsScoutReportCheckListQueryParams
 }
 
 const scoutReportCheckList = (): ToolBase<
@@ -1437,7 +1467,7 @@ const scoutReportCheckList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/report-checks/`,
             query: {
                 report_id: params.report_id,
             },
@@ -1447,11 +1477,8 @@ const scoutReportCheckList = (): ToolBase<
 })
 
 const ScoutReportChecksListSchema = () => {
-    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
-    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
-    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
-        SignalsScoutReportChecksListQueryParams.shape
-    )
+    const SignalsScoutReportCheckListQueryParams = orvalSchemas.SignalsScoutReportCheckListQueryParams()
+    return SignalsScoutReportCheckListQueryParams
 }
 
 const scoutReportChecksList = (): ToolBase<
@@ -1464,7 +1491,7 @@ const scoutReportChecksList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/report-checks/`,
             query: {
                 report_id: params.report_id,
             },
@@ -2383,6 +2410,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
     'inbox-reports-claim': inboxReportsClaim,
     'inbox-reports-list': inboxReportsList,
+    'inbox-reports-merge': inboxReportsMerge,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,
     'inbox-reports-update': inboxReportsUpdate,

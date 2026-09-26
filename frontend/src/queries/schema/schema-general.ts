@@ -3518,6 +3518,8 @@ export interface MCPHarnessBreakdownItem {
     errors: integer
     error_rate_pct: number
     sessions: integer
+    /** Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName. */
+    harness_sessions?: integer
 }
 
 export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -3676,6 +3678,10 @@ export interface MCPToolStatsItem {
     conversations: integer
     /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
     with_intent: integer
+    /** Calls to any tool in the same window and filters. The denominator for the tool's call share. */
+    total_calls: integer
+    /** Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share. */
+    total_conversations: integer
 }
 
 export interface MCPToolStatsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3729,6 +3735,8 @@ export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDa
 export interface MCPToolQualityRowItem {
     tool: string
     total_calls: integer
+    /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
+    previous_calls: integer
     errors: integer
     error_rate_pct: number
     p50_duration_ms: number
@@ -3738,6 +3746,15 @@ export interface MCPToolQualityRowItem {
     sessions: integer
     first_seen: string
     last_seen: string
+    /** Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a
+     * large tool's surge. Not a percentage; only meaningful for ordering. */
+    trend_score: number
+    /** Errored calls in the previous period. */
+    previous_errors: integer
+    /** p95 duration in the previous period, or null when no previous call carried a duration. */
+    previous_p95_duration_ms: number | null
+    /** Distinct sessions that called the tool in the previous period. */
+    previous_sessions: integer
 }
 
 export type MCPToolQualitySortColumn =
@@ -3749,6 +3766,7 @@ export type MCPToolQualitySortColumn =
     | 'users'
     | 'sessions'
     | 'last_seen'
+    | 'trend_score'
 
 export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
 
@@ -3756,6 +3774,10 @@ export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseB
     results: MCPToolQualityRowItem[]
     /** Number of tools matching the date, category, and search filters. */
     totalCount: integer
+    /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
+    totalSessions: integer
+    /** The same total for the previous period, the denominator for each row's previous session share. */
+    previousTotalSessions: integer
 }
 
 /** One row per effective MCP tool name, with server-side search, sorting, and pagination. */
@@ -4710,6 +4732,8 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
+    /** Return only attribute keys that exactly match an entry in this list. */
+    attributeKeys?: string[]
 }
 
 export interface LogAttributeResult {
@@ -7704,6 +7728,11 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
     hasMore?: boolean
     limit?: integer
     offset?: integer
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
+     * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
@@ -7712,6 +7741,11 @@ export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQuer
     results: Record<string, MarketingAnalyticsItem>
     hogql?: string
     samplingRate?: SamplingRate
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a
+     * "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string
 }
 
 export type CachedMarketingAnalyticsAggregatedQueryResponse =
@@ -8384,6 +8418,9 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'BingAds',
     'SnapchatAds',
     'PinterestAds',
+    'AppleSearchAds',
+    'OpenAIAds',
+    'AmazonAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8554,9 +8591,43 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         adTableName: 'ads' as const,
         adStatsTableName: 'ad_analytics' as const,
     },
+    AppleSearchAds: {
+        sourceType: 'AppleSearchAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_report',
+        defaultSources: ['apple', 'apple_search_ads', 'apple_ads', 'asa'] as const,
+        primarySource: 'apple',
+        adsetTableName: 'ad_groups' as const,
+        adsetStatsTableName: 'ad_group_report' as const,
+    },
+    OpenAIAds: {
+        sourceType: 'OpenAIAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_insights',
+        defaultSources: ['openai', 'chatgpt', 'openai_ads'] as const,
+        primarySource: 'openai',
+    },
+    AmazonAds: {
+        sourceType: 'AmazonAds' as const,
+        nameField: 'name',
+        idField: 'campaign_id',
+        campaignTableName: 'sp_campaigns',
+        statsTableName: 'sp_campaign_reports',
+        defaultSources: ['amazon', 'amazon_ads'] as const,
+        primarySource: 'amazon',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
+
+export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
+export type AppleSearchAdsDefaultSources =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
+export type OpenAIAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['OpenAIAds']['defaultSources'][number]
 
 export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
 export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]
@@ -8786,6 +8857,7 @@ export enum ProductItemCategory {
     ANALYTICS = 'Analytics',
     AI_ENGINEERING = 'AI engineering',
     BEHAVIOR = 'Behavior',
+    MESSAGING = 'Messaging',
     APP_MONITORING = 'App monitoring',
     FEATURES = 'Features',
     TOOLS = 'Tools',

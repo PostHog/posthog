@@ -17,6 +17,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models import Team, User
 from posthog.models.integration import Integration
+from posthog.slack.formatting import channel_id_from_target
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
@@ -379,7 +380,7 @@ def _build_ai_slack_message(
     charts: list[dict] | None = None,
 ) -> SlackMessage:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
-    channel = subscription.target_value.split("|")[0]
+    channel = channel_id_from_target(subscription.target_value)
     sections = _split_text_into_chunks(_SLACK_CONVERTER.convert(strip_external_links_markdown(markdown)))
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"

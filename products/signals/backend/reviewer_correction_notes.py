@@ -32,7 +32,9 @@ event are already committed, so nothing here may fail a reviewer edit.
 
 A login itself is untrusted input, whichever path stored it, so it is shape-checked before it reaches
 a note and dropped when it is not a GitHub login: these values land inside a backtick span in a
-prompt every scout reads while holding privileged tools.
+prompt every scout reads while holding privileged tools. The editor's own name goes in for the same
+reason the logins do — a scout weighs a correction by who made it — and it is sanitized on the same
+terms, minus the backtick span.
 """
 
 from __future__ import annotations
@@ -85,6 +87,14 @@ SUPPRESSION_WINDOW = timedelta(hours=24)
 
 # Report titles are unbounded TextFields; a note references them for recognition only.
 _MAX_TITLE_CHARS = 200
+
+# The editor's name tells a scout whether a domain owner corrected the routing or somebody trimmed a
+# list in passing, so it is named rather than elided. It is user-controlled text, so it is normalized
+# to one line and capped the way a report title is. It never enters a backtick span:
+# `_logins_already_told` reads those spans back as suppression state, so a quoted name could stand in
+# for a login and silently swallow a later real correction.
+_MAX_ACTOR_NAME_CHARS = 60
+_UNNAMED_ACTOR = "someone"
 
 # GitHub logins are alphanumerics with single interior hyphens, 39 characters at most. Both write
 # paths into the reviewers artefact accept any non-empty string, so a login can carry a backtick or a
@@ -198,6 +208,7 @@ def _forward(*, team: Team, correction: ReviewerCorrection) -> ForwardedCorrecti
             continue
         content = _build_note_content(
             report=report,
+            editor=_actor_name(actor),
             added_logins=added,
             # Split per note rather than per edit: the caveat belongs to the logins this scout is
             # actually being told about, and the suppression filter above can leave a batch holding
@@ -303,6 +314,12 @@ def _live_skills(team_id: int, names: Sequence[str]) -> list[str]:
     return [name for name in names if name in live]
 
 
+def _actor_name(actor: User) -> str:
+    """How the editor is named in the note, or a neutral word when the account carries no name."""
+    name = " ".join(f"{actor.first_name or ''} {actor.last_name or ''}".split()).replace("`", "")
+    return name[:_MAX_ACTOR_NAME_CHARS] if name else _UNNAMED_ACTOR
+
+
 def _actor_login(team_id: int, actor: User) -> str | None:
     """The editor's own GitHub login, so a self-removal is not reported as a teammate's verdict."""
     return get_org_member_github_logins_by_user_uuid(team_id, [str(actor.uuid)]).get(str(actor.uuid))
@@ -346,11 +363,12 @@ def _quoted_logins(content: str) -> set[str]:
 def _build_note_content(
     *,
     report: SignalReport,
+    editor: str,
     added_logins: Sequence[str],
     self_removed: Sequence[str],
     teammate_removed: Sequence[str],
 ) -> str:
-    sections = [f"Inbox routing correction: someone changed the suggested reviewers on {_subject(report)}"]
+    sections = [f"Inbox routing correction: {editor} changed the suggested reviewers on {_subject(report)}"]
     if added_logins:
         sections.append(
             f"{_ADDED_SECTION_PREFIX}{_listed(added_logins)}. An added login is a positive ownership fact for this "

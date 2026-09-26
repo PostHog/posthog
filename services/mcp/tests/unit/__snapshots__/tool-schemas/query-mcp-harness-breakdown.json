@@ -1,0 +1,410 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateRange": {
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year)."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set."
+                },
+                "daysOfWeek": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "const": 1,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 2,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 3,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 4,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 5,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 6,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 7,
+                                        "type": "number"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries."
+                },
+                "excludeIncompletePeriods": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": false,
+                    "description": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries."
+                },
+                "explicitDate": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "default": false,
+                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period."
+                }
+            },
+            "type": "object"
+        },
+        "filterTestAccounts": {
+            "type": "boolean"
+        },
+        "kind": {
+            "const": "MCPHarnessBreakdownQuery",
+            "default": "MCPHarnessBreakdownQuery",
+            "type": "string"
+        },
+        "properties": {
+            "items": {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "default": "exact",
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "starts_with",
+                                    "not_starts_with",
+                                    "ends_with",
+                                    "not_ends_with",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "is_set",
+                                    "is_not_set",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "between",
+                                    "not_between",
+                                    "min",
+                                    "max",
+                                    "in",
+                                    "not_in",
+                                    "is_cleaned_path_exact",
+                                    "flag_evaluates_to",
+                                    "semver_eq",
+                                    "semver_neq",
+                                    "semver_gt",
+                                    "semver_gte",
+                                    "semver_lt",
+                                    "semver_lte",
+                                    "semver_tilde",
+                                    "semver_caret",
+                                    "semver_wildcard",
+                                    "icontains_multi",
+                                    "not_icontains_multi"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "event",
+                                "default": "event",
+                                "description": "Event properties",
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                }
+                                            ]
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["key"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "starts_with",
+                                    "not_starts_with",
+                                    "ends_with",
+                                    "not_ends_with",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "is_set",
+                                    "is_not_set",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "between",
+                                    "not_between",
+                                    "min",
+                                    "max",
+                                    "in",
+                                    "not_in",
+                                    "is_cleaned_path_exact",
+                                    "flag_evaluates_to",
+                                    "semver_eq",
+                                    "semver_neq",
+                                    "semver_gt",
+                                    "semver_gte",
+                                    "semver_lt",
+                                    "semver_lte",
+                                    "semver_tilde",
+                                    "semver_caret",
+                                    "semver_wildcard",
+                                    "icontains_multi",
+                                    "not_icontains_multi"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "person",
+                                "default": "person",
+                                "description": "Person properties",
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                }
+                                            ]
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["key", "operator"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "key": {
+                                "type": "string"
+                            },
+                            "label": {
+                                "type": "string"
+                            },
+                            "operator": {
+                                "enum": [
+                                    "exact",
+                                    "is_not",
+                                    "icontains",
+                                    "not_icontains",
+                                    "starts_with",
+                                    "not_starts_with",
+                                    "ends_with",
+                                    "not_ends_with",
+                                    "regex",
+                                    "not_regex",
+                                    "gt",
+                                    "gte",
+                                    "lt",
+                                    "lte",
+                                    "is_set",
+                                    "is_not_set",
+                                    "is_date_exact",
+                                    "is_date_before",
+                                    "is_date_after",
+                                    "between",
+                                    "not_between",
+                                    "min",
+                                    "max",
+                                    "in",
+                                    "not_in",
+                                    "is_cleaned_path_exact",
+                                    "flag_evaluates_to",
+                                    "semver_eq",
+                                    "semver_neq",
+                                    "semver_gt",
+                                    "semver_gte",
+                                    "semver_lt",
+                                    "semver_lte",
+                                    "semver_tilde",
+                                    "semver_caret",
+                                    "semver_wildcard",
+                                    "icontains_multi",
+                                    "not_icontains_multi"
+                                ],
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "session",
+                                "default": "session",
+                                "type": "string"
+                            },
+                            "value": {
+                                "anyOf": [
+                                    {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "number"
+                                            },
+                                            {
+                                                "type": "boolean"
+                                            }
+                                        ]
+                                    },
+                                    {
+                                        "items": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                }
+                                            ]
+                                        },
+                                        "type": "array"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ]
+                            }
+                        },
+                        "required": ["key", "operator"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "type": "array"
+        },
+        "toolName": {
+            "description": "When set, scope to a single effective tool's new-SDK calls (the per-tool \"By harness\" table).",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

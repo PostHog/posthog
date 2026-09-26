@@ -6,7 +6,7 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
-const { decideSelection, narrowedProducts, selectedShards } = require('./turbo-discover')
+const { decideJsonTargets, decideSelection, narrowedProducts, selectedShards } = require('./turbo-discover')
 
 const segments = (extra) => ({ core: [], poe: [], temporal: [], compat: [], ...extra })
 
@@ -160,4 +160,69 @@ test('a selection that reaches no product runs only the must-run set, which may 
 test('products outside the matrix are ignored', () => {
     const selection = { combined: { products: ['not_a_product'] } }
     assert.deepEqual(narrowedProducts(products, ['gone'], selection), [])
+})
+
+const JSON_TARGETS = [
+    'posthog/hogql',
+    'posthog/dags/tests/test_deletes.py',
+    'posthog/tasks/test/test_usage_report.py',
+    'products/batch_exports/backend/tests/test_hogql_source.py',
+    'products/web_analytics/backend/hogql_queries',
+]
+
+const jsonTargets = (overrides) =>
+    decideJsonTargets({
+        targets: JSON_TARGETS,
+        mode: 'selected',
+        runLegacy: true,
+        selectedTests: [],
+        products: [],
+        ...overrides,
+    })
+
+test('the events_json leg runs the whole list, a narrowed list, or nothing', () => {
+    const cases = [
+        [{ mode: '' }, null],
+        [{ mode: 'full' }, null],
+        [{ mode: 'skip' }, []],
+        [
+            { mode: '', skippedProducts: ['batch-exports'] },
+            [
+                'posthog/hogql',
+                'posthog/dags/tests/test_deletes.py',
+                'posthog/tasks/test/test_usage_report.py',
+                'products/web_analytics/backend/hogql_queries',
+            ],
+        ],
+        [
+            {
+                selectedTests: [
+                    'posthog/hogql/test/test_query.py',
+                    'posthog/hogql_queries/test/test_query_runner.py',
+                    'posthog/api/test/test_team.py',
+                    'products/web_analytics/backend/hogql_queries/test/test_stats_table.py',
+                ],
+                products: ['batch-exports'],
+            },
+            ['posthog/hogql/test/test_query.py', 'products/batch_exports/backend/tests/test_hogql_source.py'],
+        ],
+        [
+            { selectedTests: ['posthog/hogql/test/test_query.py'], products: ['batch-exports'], draft: true },
+            ['posthog/hogql/test/test_query.py'],
+        ],
+        [{ selectedTests: ['posthog/api/test/test_team.py'], products: ['logs'] }, []],
+        [{ mode: '', runLegacy: false, products: ['surveys', 'web-analytics'] }, ['products/web_analytics/backend/hogql_queries']],
+        [{ mode: '', runLegacy: false, products: ['surveys'] }, []],
+        [{ mode: 'full', doubled: true, products: ['batch-exports', 'web-analytics'] }, ['posthog/dags/tests/test_deletes.py']],
+        [{ mode: 'skip', doubled: true }, []],
+        [{ mode: '', runLegacy: false, products: ['web-analytics'], doubled: true }, []],
+        [{ doubled: true, selectedTests: ['posthog/hogql/test/test_query.py'], products: ['web-analytics'] }, []],
+        [
+            { doubled: true, selectedTests: ['posthog/dags/tests/test_deletes.py', 'posthog/hogql/test/test_query.py'] },
+            ['posthog/dags/tests/test_deletes.py'],
+        ],
+    ]
+    for (const [overrides, expected] of cases) {
+        assert.deepEqual(jsonTargets(overrides), expected, JSON.stringify(overrides))
+    }
 })

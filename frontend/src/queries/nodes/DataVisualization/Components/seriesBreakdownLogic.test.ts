@@ -374,6 +374,44 @@ describe('seriesBreakdownLogic', () => {
         }
     )
 
+    it('sums raw breakdown values at zero decimal places', async () => {
+        logic = seriesBreakdownLogic({ key: testUniqueKey })
+        logic.mount()
+
+        const builtDataNodeLogic = dataNodeLogic({
+            key: testUniqueKey,
+            query: globalQuery.source,
+        })
+        builtDataNodeLogic.mount()
+        builtDataNodeLogic.actions.setResponse({
+            results: [
+                ['signed_up', 'Safari', 42.195],
+                ['logged_out', 'Safari', 11.7],
+                ['downloaded_file', 'Safari', 0.49],
+                ['downloaded_file', 'Safari', 0.49],
+            ],
+            columns: ['event', 'browser', 'total_count'],
+            types: [
+                ['event', 'String'],
+                ['browser', 'Nullable(String)'],
+                ['total_count', 'Float64'],
+            ],
+        })
+
+        builtDataVizLogic.actions.clearAxis()
+        builtDataVizLogic.actions.updateXSeries('event')
+        builtDataVizLogic.actions.addYSeries('total_count')
+        builtDataVizLogic.actions.updateSeriesIndex(0, 'total_count', { formatting: { decimalPlaces: 0 } })
+
+        logic.actions.addSeriesBreakdown('browser')
+
+        await expectLogic(logic).toMatchValues({
+            seriesBreakdownData: expect.objectContaining({
+                seriesData: [expect.objectContaining({ name: 'Safari', data: [42.195, 11.7, 0.98] })],
+            }),
+        })
+    })
+
     it('preserves missing breakdown buckets as null when showNullsAsZero is disabled', async () => {
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()

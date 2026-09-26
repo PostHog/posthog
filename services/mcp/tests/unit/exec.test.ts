@@ -6,9 +6,9 @@ import { z } from 'zod'
 import { STRUCTURED_CONTENT_ONLY_TEXT, type ToolResultPayload, UI_APP_RENDER_NOTE } from '@/lib/build-tool-result'
 import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
-import { formatResponse } from '@/lib/response'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
@@ -16,6 +16,7 @@ import {
     describeApiValidationError,
     describeExecCommand,
     describeValidationError,
+    type ExecCommandMeta,
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
@@ -91,6 +92,49 @@ describe('exec tool', () => {
             },
         ]
         const learnCatalog = new ExecLearnCatalog(guides, { posthog: undefined })
+
+        it.each([
+            ['learn -s "funnel conversion"', { exec_learn_kind: 'search', exec_search_query: 'funnel conversion' }],
+            [
+                'learn posthog:building-a-dashboard README.md',
+                { exec_learn_kind: 'load', exec_learn_target: 'posthog:building-a-dashboard' },
+            ],
+            [
+                'learn posthog:building-a-dashboard README.md -s "date range"',
+                {
+                    exec_learn_kind: 'load',
+                    exec_learn_target: 'posthog:building-a-dashboard',
+                    exec_search_query: 'date range',
+                },
+            ],
+            ['learn skills', { exec_learn_kind: 'list' }],
+            ['learn -d posthog:building-a-dashboard', { exec_learn_kind: 'describe' }],
+            ['learn analytics', { exec_learn_kind: 'guide' }],
+            ['learn', { exec_learn_kind: 'list' }],
+        ])('reports the learn form for "%s" whether or not learn is available', async (command, expected) => {
+            for (const catalogOption of [{ learnCatalog }, {}]) {
+                const tracked: ExecCommandMeta[] = []
+                const exec = createExec(undefined, undefined, {
+                    ...catalogOption,
+                    trackCommand: (meta) => tracked.push(meta),
+                })
+
+                await exec.handler(mockContext, { command }).catch(() => undefined)
+
+                expect(tracked.at(-1)).toEqual({ exec_verb: 'learn', ...expected })
+            }
+        })
+
+        it('keeps a malformed learn command a usage error and stamps no form', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(undefined, undefined, { learnCatalog, trackCommand: (meta) => tracked.push(meta) })
+
+            await expect(exec.handler(mockContext, { command: 'learn -s "unterminated' })).rejects.toMatchObject({
+                reason: 'usage',
+                message: 'Unterminated quote in learn command.',
+            })
+            expect(tracked.at(-1)).toEqual({ exec_verb: 'learn' })
+        })
 
         it('lists guide metadata and skill discovery commands without loading content', async () => {
             const exec = createExec(undefined, undefined, { learnCatalog })
@@ -359,12 +403,9 @@ describe('exec tool', () => {
             )
         })
 
-        it.each([
-            { label: '--confirm before --json', command: 'call --confirm --json mock-tool' },
-            { label: 'the retired --no-skills flag', command: 'call --no-skills --json mock-tool' },
-        ])('dispatches a call with $label', async ({ command }) => {
+        it('allows --confirm before --json when dispatching a call', async () => {
             const exec = createExec()
-            const result = await exec.handler(mockContext, { command })
+            const result = await exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })
             const parsed = JSON.parse(result as string)
             expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
@@ -1679,6 +1720,15 @@ describe('exec tool', () => {
             expect(message.includes(redirectHint)).toBe(kept)
         })
 
+        // A generic unknown-command reply reads as "the tool does not exist".
+        it('routes a tool name typed as a command to the call form', async () => {
+            const exec = createExec([makeMockTool({ name: 'docs-search' })])
+
+            await expect(exec.handler(mockContext, { command: 'docs-search {"query":"funnels"}' })).rejects.toThrow(
+                /"docs-search" is a tool, not a command[\s\S]*call docs-search/
+            )
+        })
+
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
@@ -1810,6 +1860,9 @@ describe('exec tool', () => {
             // A removed tool is still one of our own names, so the redirect it
             // triggers stays diagnosable.
             ['call query-run {}', 'call', 'query-run'],
+            // Recording the tool separates a dropped `call` prefix from a genuine typo.
+            ['execute-sql {"query":"select 1"}', 'unrecognized', 'execute-sql'],
+            ['frobnicate now', 'unrecognized', undefined],
             // Verb present, target absent: nothing to record for the tool, but the
             // verb still is.
             ['info', 'info', undefined],
@@ -1883,10 +1936,11 @@ describe('exec tool', () => {
                     }
                 })
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 v2Tools,
                 context,
@@ -1916,10 +1970,11 @@ describe('exec tool', () => {
             const queryToolInfos = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
 
             const formatter = new InstructionsFormatter()
-            const commandReference = formatter.buildExecCommandReference(
-                { guidelines, tools: toolInfos, queryTools: queryToolInfos },
-                { stripEnvContext: false }
-            )
+            const commandReference = formatter.buildExecCommandReference({
+                guidelines,
+                tools: toolInfos,
+                queryTools: queryToolInfos,
+            })
             const execTool = createExecTool(
                 [],
                 createExecContext(),
@@ -2208,7 +2263,7 @@ describe('exec tool', () => {
 
                 it.each([
                     ['vision-scanners-get', 'scanner_id', 'replay scanner'],
-                    ['vision-observations-retrieve', 'observation_id', 'replay observation'],
+                    ['vision-observations-get', 'observation_id', 'replay observation'],
                 ])('names the key %s dropped, so the caller can see it was not read', (toolName, sentKey, entity) => {
                     expect(formatFor(toolName, { [sentKey]: SOME_UUID })).toBe(
                         `Invalid input for "${toolName}": missing required parameter: id (A UUID string identifying this ${entity}.); this tool ignored these keys it does not accept: "${sentKey}"`
@@ -2216,10 +2271,10 @@ describe('exec tool', () => {
                 })
 
                 it('does not tell the caller to resend a scanner id as an observation id', () => {
-                    // `vision-observations-retrieve` does not declare `scanner_id`, and its
+                    // `vision-observations-get` does not declare `scanner_id`, and its
                     // `id` has no format constraint. Matching the two by name suffix would
                     // advise reusing a value that identifies a different entity.
-                    const message = formatFor('vision-observations-retrieve', { scanner_id: SOME_UUID })
+                    const message = formatFor('vision-observations-get', { scanner_id: SOME_UUID })
 
                     expect(message).toContain('"scanner_id"')
                     expect(message).not.toContain('resend')

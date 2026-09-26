@@ -171,6 +171,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     if (!values.currentTeam) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get(`api/projects/${values.currentTeam.id}/materialized_column_slots/`)
                     return response.results || []
                 },
@@ -183,6 +184,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     if (!values.currentTeam) {
                         return null
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(`api/projects/${values.currentTeam.id}/materialized_column_slots/slot_usage/`)
                 },
             },
@@ -194,6 +196,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     if (!values.currentTeam) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(
                         `api/projects/${values.currentTeam.id}/materialized_column_slots/available_properties/`
                     )
@@ -207,6 +210,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                     if (!values.currentTeam) {
                         return []
                     }
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.get(
                         `api/projects/${values.currentTeam.id}/materialized_column_slots/auto_materialized/`
                     )
@@ -247,6 +251,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                 if (!values.currentTeam) {
                     return
                 }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.delete(`api/projects/${values.currentTeam.id}/materialized_column_slots/${slotId}/`)
                 lemonToast.success('Slot deleted successfully')
                 actions.loadSlots()
@@ -260,6 +265,7 @@ export const materializedColumnsLogic = kea<materializedColumnsLogicType>([
                 if (!values.currentTeam) {
                     return
                 }
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create(
                     `api/projects/${values.currentTeam.id}/materialized_column_slots/${slotId}/retry_backfill/`,
                     {}

@@ -93,7 +93,9 @@ function FreeformEditControls({
   const editing = useIsDashboardEditing(dashboardId);
   const setEditing = useDashboardEditStore((s) => s.setEditing);
   const openChat = useCanvasChatPanelStore((state) => state.openChat);
+  const openBlocks = useCanvasChatPanelStore((state) => state.openBlocks);
   const { dashboard } = useDashboard(dashboardId);
+  const builtByAgent = !!dashboard?.generationTaskId;
   const { setPinned, invalidateDashboards } = useDashboardMutations();
   const isPinned = dashboard?.pinnedAt != null;
   // "Delete…" opens a confirmation rather than deleting inline — the canvas and
@@ -250,7 +252,8 @@ function FreeformEditControls({
             dashboard_id: dashboardId,
             editing: !editing,
           });
-          if (!editing) openChat();
+          if (!editing && builtByAgent) openChat();
+          if (!editing && !builtByAgent) openBlocks();
           setEditing(dashboardId, !editing);
         }}
       >

@@ -83,6 +83,44 @@ class StamphogRepoConfig(ModelActivityMixin, ProductTeamModel):
         return self.repository
 
 
+class StamphogInstallation(ProductTeamModel):
+    """One GitHub App installation a team connected, and the repositories a member proved access to.
+
+    `repositories` is a snapshot of what the connecting members could reach with their own GitHub
+    token, merged across syncs. It is not the installation's full repository list: an outside
+    collaborator on one repository can reach the installation, and the installation token would
+    show them every private repository in it. Only a repository in this snapshot can be added to
+    the team without a manual placeholder. A removal webhook shrinks it between syncs, and no webhook
+    grows it, because a webhook carries no user who proved access.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    provider = models.CharField(max_length=32, default="github")
+    installation_id = models.CharField(max_length=64)
+    # Full names in "owner/repo" form, matching StamphogRepoConfig.repository.
+    repositories = models.JSONField(default=list)
+    # The member who last proved access to this installation (plain id, no FK: multi-DB product).
+    # A repository added from the snapshot takes this as its connecting user.
+    connected_by_user_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # Inherit the base Meta so default_manager_name="all_teams" survives (see StamphogRepoConfig.Meta).
+    class Meta(ProductTeamModel.Meta):
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team_id", "provider", "installation_id"], name="unique_stamphog_installation_per_team"
+            ),
+        ]
+        indexes = [
+            # Webhook team resolution reads every team that holds one installation.
+            models.Index(fields=["provider", "installation_id"], name="stamphog_installation_lookup"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.provider} installation {self.installation_id}"
+
+
 class PullRequest(ProductTeamModel):
     """One pull request stamphog knows about — the PR-grain context every review run shares.
 

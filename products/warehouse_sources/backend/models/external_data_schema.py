@@ -7,9 +7,11 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
+from functools import partial
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
 from django.utils import timezone
 
@@ -94,6 +96,12 @@ def incremental_sync_blocked_reason(latest_error: str | None) -> str | None:
 # schema's own sync cadence, which can be six hours apart. The number that matters is the ceiling on
 # how long a rewrite nobody is advancing can pause a table's imports.
 REPARTITION_HOLD_MAX_AGE = timedelta(hours=48)
+
+SCHEDULED_FULL_REFRESH_SYNC_TYPES = frozenset(
+    {ExternalDataSchemaSyncType.INCREMENTAL, ExternalDataSchemaSyncType.APPEND, ExternalDataSchemaSyncType.XMIN}
+)
+MAX_FULL_REFRESH_INTERVAL_DAYS = 90
+SCHEDULED_FULL_REFRESH_MAX_SLACK = timedelta(hours=1)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -213,6 +221,11 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
         return updated
 
 
+# In `sync_type_config`: set while the S3 change buffer carries this table's snapshot. Cleared by the
+# snapshot to streaming flip. See cdc/snapshot_lane.py.
+CDC_SNAPSHOT_LANE_KEY = "cdc_snapshot_lane"
+
+
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
     Status = ExternalDataSchemaStatus
@@ -266,6 +279,19 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     )
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
+    full_refresh_interval_days = models.SmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(MAX_FULL_REFRESH_INTERVAL_DAYS)],
+        help_text="Days between scheduled full refreshes. A full refresh re-imports every row, so rows deleted "
+        "at the source are removed from the table. Null means no scheduled full refreshes.",
+    )
+    next_full_refresh_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the next scheduled full refresh is due. The first scheduled sync that starts at most an hour "
+        "before this time re-imports the table. Saving a new interval, or any full resync, moves it one interval ahead.",
+    )
     initial_sync_complete = models.BooleanField(default=False)
     description = models.CharField(max_length=1000, null=True, blank=True)
     # null = sync all columns (default). Non-empty list = exact column projection.
@@ -504,6 +530,31 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def last_full_run(self) -> datetime | None:
+        """Parsed `last_full_run_at`, or None when it does not parse or has no zone.
+
+        Picking a zone for a naive stamp would invent freshness the schema may not have.
+        """
+        raw = self.last_full_run_at
+        if raw is None:
+            return None
+        try:
+            stamped = datetime.fromisoformat(raw)
+        except (TypeError, ValueError):
+            return None
+        return stamped if stamped.tzinfo is not None else None
+
+    @property
+    def last_run_at(self) -> datetime | None:
+        """When a sync last ran, whether or not it moved any rows.
+
+        A run that extracts nothing advances only `last_full_run_at`, because `last_synced_at` is
+        also the signals watermark. A fast return does the reverse, so neither stamp is enough alone.
+        """
+        stamps = [stamp for stamp in (self.last_synced_at, self.last_full_run) if stamp is not None]
+        return max(stamps) if stamps else None
+
+    @property
     def incremental_field_lookback_seconds(self) -> int | None:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_lookback_seconds", None)
@@ -691,23 +742,30 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         partition_mode: Optional[PartitionMode],
         partition_format: Optional[PartitionFormat],
     ) -> None:
-        self.sync_type_config["partitioning_enabled"] = True
-        self.sync_type_config["partition_count"] = partition_count
-        self.sync_type_config["partition_size"] = partition_size
-        self.sync_type_config["partitioning_keys"] = partitioning_keys
-        self.sync_type_config["partition_mode"] = partition_mode
-        self.sync_type_config["partition_format"] = partition_format
-        # Consume any operator-pinned overrides: they've now been baked into the effective
-        # settings above, so drop them. This makes the pin one-shot — a later reset falls
-        # back to auto-detection instead of re-applying a stale pin (re-pin via the admin
-        # repartition action if needed).
-        self.sync_type_config.pop("partition_count_override", None)
-        self.sync_type_config.pop("partition_size_override", None)
-        self.sync_type_config.pop("partition_mode_override", None)
-        self.sync_type_config.pop("partitioning_keys_override", None)
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT (see save()).
-        self.save(skip_activity_log=True)
+        # Merged under the row lock rather than saved from this copy, which the loader holds for the
+        # whole run while CDC capture writes the same JSON (the snapshot marker among it).
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id,
+            self.team_id,
+            updates={
+                "partitioning_enabled": True,
+                "partition_count": partition_count,
+                "partition_size": partition_size,
+                "partitioning_keys": partitioning_keys,
+                "partition_mode": partition_mode,
+                "partition_format": partition_format,
+            },
+            # Consume any operator-pinned overrides: they've now been baked into the effective
+            # settings above, so drop them. This makes the pin one-shot — a later reset falls
+            # back to auto-detection instead of re-applying a stale pin (re-pin via the admin
+            # repartition action if needed).
+            removes=[
+                "partition_count_override",
+                "partition_size_override",
+                "partition_mode_override",
+                "partitioning_keys_override",
+            ],
+        )
 
     # --- In-place repartition controller state ------------------------------------------------
     # These keys drive the automated, no-source-pull repartition that bounds per-partition memory
@@ -1015,25 +1073,47 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
                 return str(value)
         return str(value)
 
+    def restart_full_refresh_clock(self) -> None:
+        if self.full_refresh_interval_days is None:
+            self.next_full_refresh_at = None
+            return
+        self.next_full_refresh_at = timezone.now() + timedelta(days=self.full_refresh_interval_days)
+
+    def scheduled_full_refresh_due(self) -> bool:
+        if (
+            self.full_refresh_interval_days is None
+            or self.next_full_refresh_at is None
+            or self.sync_type not in SCHEDULED_FULL_REFRESH_SYNC_TYPES
+        ):
+            return False
+        # The wipe that restarts the clock lands a little after its tick, so without slack every refresh would
+        # slip one tick later than the one before.
+        slack = SCHEDULED_FULL_REFRESH_MAX_SLACK
+        if self.sync_frequency_interval is not None:
+            slack = min(slack, self.sync_frequency_interval / 2)
+        return timezone.now() >= self.next_full_refresh_at - slack
+
     def update_sync_type_config_for_reset_pipeline(self, *, clear_initial_sync_complete: bool = True) -> None:
-        self.sync_type_config.pop("reset_pipeline", None)
-        # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
-        # type. column_type_widened_last_reset_at is deliberately kept so the auto-resync cooldown
-        # survives the reset it timestamps.
-        self.sync_type_config.pop("column_type_widened", None)
-        self.sync_type_config.pop("incremental_field_last_value", None)
-        self.sync_type_config.pop("incremental_field_earliest_value", None)
-        self.sync_type_config.pop("incremental_staged", None)
-        self.sync_type_config.pop("incremental_staged_pending", None)
-        self.sync_type_config.pop("partitioning_enabled", None)
-        self.sync_type_config.pop("partition_size", None)
-        self.sync_type_config.pop("partition_count", None)
-        self.sync_type_config.pop("partitioning_keys", None)
-        self.sync_type_config.pop("partition_mode", None)
-        self.sync_type_config.pop("backfilled_partition_format", None)
-        self.sync_type_config.pop("xmin_last_value", None)
-        self.sync_type_config.pop("xmin_ceiling", None)
-        self.sync_type_config.pop("xmin_num_wraparound", None)
+        removes = [
+            "reset_pipeline",
+            # Any reset resolves a pending safe-widening marker; the re-created table adopts the new
+            # type. column_type_widened_last_reset_at is deliberately kept so the auto-resync cooldown
+            # survives the reset it timestamps.
+            "column_type_widened",
+            "incremental_field_last_value",
+            "incremental_field_earliest_value",
+            "incremental_staged",
+            "incremental_staged_pending",
+            "partitioning_enabled",
+            "partition_size",
+            "partition_count",
+            "partitioning_keys",
+            "partition_mode",
+            "backfilled_partition_format",
+            "xmin_last_value",
+            "xmin_ceiling",
+            "xmin_num_wraparound",
+        ]
         # We don't reset partition_format
         # We don't reset chunk_size_override
         # We intentionally don't reset partition_count_override / partition_size_override /
@@ -1046,10 +1126,21 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # it false between runs whenever a sync wrote zero rows (no Delta table means post-load
         # never re-set it). Explicit resets (reset_pipeline, corruption rebuild, sync-method
         # change, delete_table) keep clearing so CDC's False->True streaming flip still fires.
+        extra_model_fields = {"initial_sync_complete": False} if clear_initial_sync_complete else None
+
+        # Merged under the row lock rather than saved from this copy: the sync loaded it when it
+        # started, and CDC capture writes the same JSON meanwhile (the snapshot marker among it).
+        self.sync_type_config = update_sync_type_config_keys(
+            self.id,
+            self.team_id,
+            removes=removes,
+            extra_model_fields=extra_model_fields,
+            restart_full_refresh_clock=True,
+        )
         if clear_initial_sync_complete:
             self.initial_sync_complete = False
-
-        self.save(skip_activity_log=True)
+        # This copy still holds the due time, and a later full save of it would wipe the table again.
+        self.restart_full_refresh_clock()
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -1100,7 +1191,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
 
         if save:
-            self.save(skip_activity_log=True)
+            # A run calls this after every chunk with the copy it loaded at the start, so a full save would
+            # put back settings the user changed during the run.
+            self.save(update_fields=["sync_type_config", "updated_at"], skip_activity_log=True)
 
     def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
         # Call at job completion, not per-batch: a mid-run crash then re-reads the window
@@ -1402,6 +1495,7 @@ def update_sync_type_config_keys(
     removes: Iterable[str] | None = None,
     mutate: Callable[[dict[str, Any]], None] | None = None,
     extra_model_fields: dict[str, Any] | None = None,
+    restart_full_refresh_clock: bool = False,
 ) -> dict[str, Any]:
     """Atomically merge keys into a schema's `sync_type_config` under a row lock and return the
     persisted config.
@@ -1419,6 +1513,9 @@ def update_sync_type_config_keys(
     `extra_model_fields` saves additional model fields in the same transaction and row lock — use
     when a reset must flip both `sync_type_config` and another field (e.g. `initial_sync_complete`)
     atomically so no reader can observe the half-written state.
+
+    `restart_full_refresh_clock` sets `next_full_refresh_at` from the locked row's interval, which may
+    be newer than the caller's copy. The returned dict does not carry it.
 
     Saves with `skip_activity_log=True`: `sync_type_config` is excluded from the schema's audit
     diff anyway, and the bypass skips the extra `_get_before_update` SELECT that can fail when the
@@ -1440,6 +1537,10 @@ def update_sync_type_config_keys(
             for field, value in extra_model_fields.items():
                 setattr(schema, field, value)
                 update_fields.append(field)
+        if restart_full_refresh_clock:
+            # From the locked row's interval, which may be newer than the caller's copy.
+            schema.restart_full_refresh_clock()
+            update_fields.append("next_full_refresh_at")
         schema.save(update_fields=update_fields, skip_activity_log=True)
         return config
 
@@ -1599,6 +1700,8 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
         if schema.is_cdc and schema.cdc_mode == "snapshot":
             config = schema.sync_type_config or {}
             config["cdc_mode"] = "streaming"
+            # In the same lock as the flip, so a hand-over retried after a failed flip still finds it.
+            config.pop(CDC_SNAPSHOT_LANE_KEY, None)
             schema.sync_type_config = config
             update_fields.append("sync_type_config")
 
@@ -1644,6 +1747,38 @@ def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[st
 class SchemaSyncResult:
     created: list[str]
     deleted: list[str]
+
+
+def _pause_schedule_then_disable_schema(schema: "ExternalDataSchema") -> None:
+    """Pause a discovery-removed table's schedule, and only then persist the table as off.
+
+    The sync workflow does not read `should_sync`, so the schedule is what actually stops the
+    billable runs. Writing the row off first would strand the table whenever the pause fails: the
+    schedule keeps starting runs, and the next discovery run sees a row that is already off, so it
+    never retries the pause. Keeping the row on until the pause lands makes a failed pause
+    self-healing, because the table is still on and still unlisted when discovery next runs.
+
+    Nothing here raises: Django drops the remaining `on_commit` callbacks once one of them raises,
+    so an error would also strand every other table removed in the same commit, and on the API
+    paths it would fail a request whose reconcile already committed. A pause that lands without its
+    write (or without its teardown dispatch) heals the same way, on the next discovery run. The
+    write is scoped to its own columns because the row was read before the commit, so a full save
+    would push back whatever a concurrent writer changed in the meantime.
+    """
+    # Call-time import for the reason given in update_should_sync above.
+    from products.data_warehouse.backend.facade.api import pause_external_data_schedule  # noqa: PLC0415
+
+    try:
+        pause_external_data_schedule(str(schema.id))
+        schema.should_sync = False
+        schema.status = ExternalDataSchema.Status.COMPLETED
+        schema.save(update_fields=["should_sync", "status", "updated_at"])
+    except Exception:
+        logger.exception(
+            "discovery_removed_schema_disable_failed",
+            external_data_schema_id=str(schema.id),
+            team_id=schema.team_id,
+        )
 
 
 def sync_old_schemas_with_new_schemas(
@@ -1744,8 +1879,12 @@ def sync_old_schemas_with_new_schemas(
             if s.table_id is None and not s.should_sync:
                 s.soft_delete()
                 deleted_schemas.append(schema)
+            elif s.should_sync:
+                # After the commit because callers can hold the source row lock, and the Temporal
+                # call must not run inside it. A row already off needs no pause, and pausing it
+                # again every run would open a Temporal connection per table per run.
+                transaction.on_commit(partial(_pause_schedule_then_disable_schema, s))
             else:
-                s.should_sync = False
                 s.status = ExternalDataSchema.Status.COMPLETED
                 s.save()
 

@@ -57,6 +57,16 @@ posthog/api/authentication.py @PostHog/team-security
 posthog/auth.py @PostHog/team-security
 ee/api/scim/auth.py @PostHog/team-security
 
+# The Content Security Policy every app and admin page carries. A browser refuses a resource the
+# policy does not name and shows the user no error, so a policy mistake breaks a feature with no
+# signal, and a widened directive removes a control the same way. Neither shows up in a test or a
+# stack trace, which is why review is the control. The semgrep rule stops a view from setting the
+# header outside this file, and each exception it carries names the policy it allows, so a fourth
+# document needs this team too.
+posthog/csp_middleware.py @PostHog/team-security
+posthog/test/test_csp_middleware.py @PostHog/team-security
+.semgrep/rules/security/csp-header-outside-csp-middleware.* @PostHog/team-security
+
 # Dev sandbox provides important protection in local dev
 bin/dev-sandbox* @PostHog/team-security
 

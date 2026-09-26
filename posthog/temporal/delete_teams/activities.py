@@ -65,9 +65,9 @@ async def delete_team_persons_activity(inputs: TeamDataActivityInputs) -> None:
 @temporalio.activity.defn
 async def delete_batch_exports_activity(inputs: TeamDataActivityInputs) -> None:
     async with Heartbeater():
-        from posthog.models.team.util import delete_batch_exports
+        from products.batch_exports.backend.facade.api import delete_batch_exports_for_teams
 
-        await database_sync_to_async_pool(delete_batch_exports)(inputs.team_ids)
+        await database_sync_to_async_pool(delete_batch_exports_for_teams)(inputs.team_ids)
 
 
 @temporalio.activity.defn
