@@ -58,6 +58,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
+    blocked_past_buffer_retention,
+    stop_cdc_past_billing_retention,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import (
     SELF_MANAGED_LAG_REASON,
     clear_recovered_self_managed_lag,
@@ -2298,7 +2302,32 @@ def cleanup_orphan_slots_activity() -> None:
                     purge_buffer_prefix(source.team_id, str(schema_id), source_log)
                 continue
 
-            # 2. Active sources — check WAL lag
+            # 2. Active sources over the billing limit for longer than the buffer keeps changes
+            try:
+                past_billing_retention = blocked_past_buffer_retention(source, sweep_started)
+            except Exception:
+                # The lag check below still runs for this source, and the next sweep retries this one.
+                source_log.exception("failed_to_check_billing_retention")
+                metrics.get_sweeper_source_errors_metric().add(1)
+                sources_errored += 1
+                past_billing_retention = False
+            billing_stop_failed = False
+            if past_billing_retention:
+                source_log.warning("cdc_stopping_past_billing_retention")
+                try:
+                    if stop_cdc_past_billing_retention(source, cdc_config, adapter):
+                        slots_dropped += 1
+                    continue
+                except Exception:
+                    # The source keeps running, so the lag check below still observes it until a later sweep
+                    # stops it. Its auto-drop is skipped: the slot may have just survived a drop, and that path
+                    # pauses capture without confirming the slot is gone.
+                    source_log.exception("failed_to_stop_cdc_past_billing_retention")
+                    metrics.get_sweeper_source_errors_metric().add(1)
+                    sources_errored += 1
+                    billing_stop_failed = True
+
+            # 3. Active sources — check WAL lag
             source_started = dt.datetime.now(tz=dt.UTC)
             try:
                 with adapter.management_connection(source, connect_timeout=10) as conn:
@@ -2329,7 +2358,7 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb=retention_cap_mb,
                 )
 
-                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
+                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot and not billing_stop_failed:
                     source_log.warning("auto_dropping_slot_critical_lag")
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:

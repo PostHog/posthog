@@ -61,6 +61,11 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
 
     def drop_resources(self, conn: Any, slot_name: str, pub_name: str) -> None: ...
 
+    def slot_exists(self, conn: Any, slot_name: str) -> bool:
+        """Whether the change-stream resource still exists on the source database. Callers use it to
+        confirm a best-effort drop actually removed it before acting as if it were gone."""
+        ...
+
     def get_lag_bytes(self, conn: Any, slot_name: str) -> int | None: ...
 
     def get_retention_cap_mb(self, conn: Any) -> int | None:

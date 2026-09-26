@@ -1,15 +1,20 @@
 import uuid
+import datetime as dt
 from contextlib import contextmanager
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import cleanup_orphan_slots_activity
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
 pytestmark = pytest.mark.django_db
+
+_ACTIVITIES = "products.warehouse_sources.backend.temporal.data_imports.cdc.activities"
+_BILLING_EXPIRY = "products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry"
 
 
 def _create_source(team, *, deleted=False, job_inputs=None):
@@ -45,7 +50,7 @@ def _cdc_job_inputs(*, enabled=True, management="posthog", auto_drop_slot=True, 
     }
 
 
-def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None):
+def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None, slot_survives_drop=False):
     """Adapter mock that decodes config for real (proving the encrypted-job_inputs path)
     but stubs every database connection."""
     adapter = MagicMock()
@@ -58,6 +63,7 @@ def _mock_adapter(*, lag_bytes=0, retention_cap_mb=None):
     adapter.management_connection.side_effect = _conn
     adapter.get_lag_bytes.return_value = lag_bytes
     adapter.get_retention_cap_mb.return_value = retention_cap_mb
+    adapter.slot_exists.return_value = slot_survives_drop
     return adapter
 
 
@@ -73,6 +79,7 @@ def _run(adapter):
         patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
         # mark_cdc_broken (critical-lag paths) reaches Temporal / Kafka / analytics — stub the boundaries.
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
+        patch("products.data_warehouse.backend.logic.data_load.service.pause_external_data_schedule"),
         patch("products.notifications.backend.facade.api.create_notification"),
         patch("posthoganalytics.capture"),
     ):
@@ -212,3 +219,123 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(team):
     assert source.status == ExternalDataSource.Status.ERROR
     schema.refresh_from_db()
     assert schema.sync_type_config["cdc_broken"]["reason"] == "critical_lag_self_managed"
+
+
+def _job(team, source, schema, status, age):
+    job = ExternalDataJob.objects.create(team_id=team.pk, pipeline=source, schema=schema, status=status, rows_synced=0)
+    ExternalDataJob.objects.filter(id=job.id).update(created_at=dt.datetime.now(tz=dt.UTC) - age)
+
+
+def _billing_blocked_schema(team, source, *, blocked_for, last_load_ago=None, other_outcome_ago=None, name="users"):
+    schema = _create_cdc_schema(team, source, name=name)
+    ExternalDataSchema.objects.filter(id=schema.id).update(
+        status=ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+        last_synced_at=dt.datetime.now(tz=dt.UTC) - (last_load_ago or blocked_for),
+    )
+    if other_outcome_ago is not None:
+        _job(team, source, schema, ExternalDataJob.Status.FAILED, other_outcome_ago)
+    _job(team, source, schema, ExternalDataJob.Status.BILLING_LIMIT_REACHED, blocked_for)
+    return schema
+
+
+@pytest.mark.parametrize(
+    "job_inputs, dropped, paused",
+    [
+        (_cdc_job_inputs(), True, True),
+        (_cdc_job_inputs(auto_drop_slot=False), False, False),
+        (_cdc_job_inputs(management="self_managed"), False, False),
+    ],
+)
+def test_a_source_blocked_by_billing_past_buffer_retention_is_marked_broken(team, job_inputs, dropped, paused):
+    source = _create_source(team, job_inputs=job_inputs)
+    schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
+    adapter = _mock_adapter()
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
+        _, _, mock_pause = _run(adapter)
+
+    assert adapter.drop_resources.called is dropped
+    assert mock_pause.called is paused
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "billing_limit_expired"
+    adapter.get_lag_bytes.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "blocked_for, other_outcome_ago, team_limited, already_broken",
+    [
+        (dt.timedelta(days=3), None, True, False),
+        (dt.timedelta(days=15), None, False, False),
+        (dt.timedelta(days=15), None, True, True),
+        (dt.timedelta(days=1), dt.timedelta(days=2), True, False),
+    ],
+)
+def test_a_source_is_left_running_unless_billing_blocks_it_past_buffer_retention(
+    team, blocked_for, other_outcome_ago, team_limited, already_broken
+):
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _billing_blocked_schema(
+        team, source, blocked_for=blocked_for, last_load_ago=dt.timedelta(days=15), other_outcome_ago=other_outcome_ago
+    )
+    if already_broken:
+        ExternalDataSchema.objects.filter(id=schema.id).update(
+            sync_type_config={**schema.sync_type_config, "cdc_broken": {"reason": "auto_dropped_critical_lag"}}
+        )
+    adapter = _mock_adapter()
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=team_limited):
+        _run(adapter)
+
+    adapter.drop_resources.assert_not_called()
+    schema.refresh_from_db()
+    assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") != "billing_limit_expired"
+
+
+def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
+    # drop_resources only logs a refused drop, so pausing capture on the strength of the call alone
+    # would leave a live slot with nothing advancing it and the customer's WAL growing.
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
+    adapter = _mock_adapter(slot_survives_drop=True, lag_bytes=5000 * 1024 * 1024)
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
+        _, _, mock_pause = _run(adapter)
+
+    adapter.drop_resources.assert_called_once()
+    mock_pause.assert_not_called()
+    adapter.get_lag_bytes.assert_called_once()
+    source.refresh_from_db()
+    assert source.status != ExternalDataSource.Status.ERROR
+    schema.refresh_from_db()
+    assert "cdc_broken" not in schema.sync_type_config
+
+
+def test_a_job_from_another_table_does_not_defer_the_billing_stop(team):
+    # Each table's blocked run is measured from its own jobs: a sibling that fails, or a non-billable
+    # run that skips the billing check and completes, would otherwise reset the clock on every tick and
+    # defer the stop indefinitely.
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(days=15))
+    sibling = _billing_blocked_schema(team, source, blocked_for=dt.timedelta(hours=1), name="events")
+    _job(team, source, sibling, ExternalDataJob.Status.COMPLETED, dt.timedelta(hours=1))
+    adapter = _mock_adapter()
+
+    with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
+        _run(adapter)
+
+    adapter.drop_resources.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "billing_limit_expired"
+
+
+def test_a_failed_billing_check_still_checks_the_slots_lag(team):
+    source = _create_source(team, job_inputs=_cdc_job_inputs())
+    schema = _create_cdc_schema(team, source)
+    adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)
+
+    with patch(f"{_ACTIVITIES}.blocked_past_buffer_retention", side_effect=RuntimeError("quota cache down")):
+        _run(adapter)
+
+    adapter.drop_resources.assert_called_once()
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "auto_dropped_critical_lag"
