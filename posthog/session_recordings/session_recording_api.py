@@ -918,6 +918,7 @@ class SessionRecordingViewSet(
                         # show explicitly selected sessions (e.g. a funnel drop-off handoff)
                         # even outside the date range
                         bypass_date_window_for_session_ids=True,
+                        allow_combined_event_filters=True,
                     )
 
                 with tracer.start_as_current_span("make_response"):
@@ -1788,6 +1789,7 @@ def list_recordings_from_query(
     team: Team,
     allow_event_property_expansion: bool = False,
     bypass_date_window_for_session_ids: bool = False,
+    allow_combined_event_filters: bool = False,
 ) -> RecordingsListingResult:
     """
     Loads the listing from ClickHouse, then overlays any Postgres row (pins, shares) onto each result.
@@ -1849,6 +1851,7 @@ def list_recordings_from_query(
             allow_event_property_expansion=allow_event_property_expansion,
             session_ids_to_exclude=session_ids_to_exclude,
             bypass_date_window_for_session_ids=bypass_date_window_for_session_ids,
+            allow_combined_event_filters=allow_combined_event_filters,
         ).run()
         ch_session_recordings = query_result.results
 

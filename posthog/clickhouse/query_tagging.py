@@ -7,7 +7,7 @@ import contextvars
 from collections.abc import Generator
 from contextlib import contextmanager, suppress
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any, NotRequired, Optional, TypedDict, assert_never
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, TypedDict, assert_never
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -494,6 +494,13 @@ class QueryTags(BaseModel):
     # in-session exposure evidence, which adds a live events scan and a GLOBAL IN set on top of the
     # population read. Separates that heavier read from a plain exposure listing in the query log.
     experiment_exposures_in_session: Optional[bool] = None
+    # Set on recordings-list reads with positive events-table filters, to compare the combined scan.
+    replay_event_query_strategy: Optional[Literal["separate", "combined"]] = None
+    replay_event_filter_count: Optional[int] = None
+    replay_event_query_property_filter_count: Optional[int] = None
+    replay_combined_event_query_eligible: Optional[bool] = None
+    replay_event_query_operand: Optional[Literal["AND", "OR"]] = None
+    replay_event_query_range_days: Optional[float] = None
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
