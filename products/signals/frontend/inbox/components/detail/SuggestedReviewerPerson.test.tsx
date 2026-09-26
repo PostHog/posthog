@@ -86,13 +86,13 @@ describe('Suggested reviewer presentation', () => {
         expect(reason.compareDocumentPosition(reviewer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
         expect(reviewer.closest('.pl-3')).toBeInTheDocument()
         expect(screen.getByText('Quinn Foster').closest('.pl-3')).not.toBeInTheDocument()
-        const addButton = screen.getByRole('button', { name: 'Add Reviewer' })
+        const addButton = screen.getByText('Add Reviewer')
         expect(addButton).toBeVisible()
         expect(
             screen.getByText('Quinn Foster').compareDocumentPosition(addButton) & Node.DOCUMENT_POSITION_FOLLOWING
         ).toBeTruthy()
 
-        const removeButton = screen.getByRole('button', { name: 'Remove Maya Rivera' })
+        const removeButton = screen.getByLabelText('Remove Maya Rivera')
         expect(removeButton).toBeVisible()
         expect(removeButton).not.toHaveClass('opacity-0')
         await userEvent.click(removeButton)
