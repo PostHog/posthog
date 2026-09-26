@@ -63,6 +63,16 @@ class GladlyReportUnavailableError(Exception):
             f"Gladly returned no report for metricSet={metric_set}: the response body is not a CSV report. "
             f"First line: {header!r:.300}"
         )
+        self.header = header
+
+
+class GladlyReportNotAvailableForAccountError(Exception):
+    def __init__(self, metric_set: str, header: list[str]) -> None:
+        super().__init__(
+            f"Gladly report unavailable for this account: metricSet={metric_set} returned an error body "
+            f"instead of a CSV on every attempt, and this table has never completed a sync. "
+            f"First line: {header!r:.300}"
+        )
 
 
 def _header_is_an_error_line(fieldnames: Sequence[str]) -> bool:
@@ -278,6 +288,7 @@ def get_rows(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     domain: str = DEFAULT_DOMAIN,
+    schema_has_ever_synced: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     config = GLADLY_ENDPOINTS[endpoint]
     session = _get_session(agent_email, api_token)
@@ -293,6 +304,7 @@ def get_rows(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
+            schema_has_ever_synced=schema_has_ever_synced,
         )
         return
 
@@ -386,6 +398,7 @@ def _report_rows(
     resumable_source_manager: ResumableSourceManager[GladlyResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
+    schema_has_ever_synced: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     @retry(
         retry=retry_if_exception_type((GladlyRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -459,25 +472,35 @@ def _report_rows(
             raise GladlyReportHeaderError(metric_set, missing, present)
         return reader
 
+    report_never_served = not schema_has_ever_synced and (
+        resume_config is None or resume_config.last_report_window_end is None
+    )
+
     is_first_request = True
     while window_start <= today:
         window_end = min(window_start + timedelta(days=config.report_window_days - 1), today)
         if not is_first_request:
             time.sleep(REPORT_REQUEST_INTERVAL_SECONDS)
         is_first_request = False
-        reader = open_report(
-            {
-                "metricSet": metric_set,
-                # Explicit UTC keeps window boundaries and rendered timestamps
-                # stable even if the organization's default timezone changes.
-                "timezone": "UTC",
-                # endAt is inclusive: the report covers through the end of that day.
-                "startAt": window_start.isoformat(),
-                "endAt": window_end.isoformat(),
-            },
-            window_start,
-            window_end,
-        )
+        try:
+            reader = open_report(
+                {
+                    "metricSet": metric_set,
+                    # Explicit UTC keeps window boundaries and rendered timestamps
+                    # stable even if the organization's default timezone changes.
+                    "timezone": "UTC",
+                    # endAt is inclusive: the report covers through the end of that day.
+                    "startAt": window_start.isoformat(),
+                    "endAt": window_end.isoformat(),
+                },
+                window_start,
+                window_end,
+            )
+        except GladlyReportUnavailableError as e:
+            if report_never_served:
+                raise GladlyReportNotAvailableForAccountError(metric_set, e.header) from e
+            raise
+        report_never_served = False
         columns = {name: _normalize_report_column(name) for name in reader.fieldnames or []}
 
         row_count = 0
@@ -522,6 +545,7 @@ def gladly_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
     domain: str = DEFAULT_DOMAIN,
+    schema_has_ever_synced: bool = False,
 ) -> SourceResponse:
     config = GLADLY_ENDPOINTS[endpoint]
 
@@ -537,6 +561,7 @@ def gladly_source(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             domain=domain,
+            schema_has_ever_synced=schema_has_ever_synced,
         ),
         primary_keys=[config.primary_key],
         partition_count=1,
