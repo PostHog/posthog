@@ -35,6 +35,7 @@ from products.replay_vision.backend.api.scanners import ReplayScannerSerializer,
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
+from products.replay_vision.backend.jev_watch_feed import store_watch_ranks
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -4733,6 +4734,79 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         )
         resp = self.client.get(self.feed_url)
         self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
+
+    def test_the_flag_switches_the_whole_ranker_between_weighted_score_and_jev(self) -> None:
+        # The two rankers are independent: a cached Jev probability must not move the weighted-score
+        # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
+        # probabilities alone, with unjudged and judged-low rows in the recency filler tier.
+        scanner = self._create_scanner(name="m")
+        jev_high_result = self._monitor_result("no")
+        jev_high_result["model_output"]["notability_reason"] = "The user paid twice for one order."
+        jev_high = self._succeeded_observation(scanner, "jev-high", 40, jev_high_result)
+        self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
+        jev_low = self._succeeded_observation(scanner, "jev-low", 10, self._monitor_result("yes"))
+        store_watch_ranks(
+            self.team.id, scanner.id, {str(jev_high.id), str(jev_low.id)}, {str(jev_high.id): 0.95}, "jevk5-fp8-0.2"
+        )
+
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        for mode in ("weighted-score", "jev-shadow"):
+            with patch(ranker, return_value=mode):
+                resp = self.client.get(self.feed_url)
+            items = resp.json()["results"]
+            # The signal and the verdict hit lead as today; the cached 0.95 moves nothing.
+            self.assertEqual(
+                [item["observation"]["session_id"] for item in items],
+                ["signal", "jev-low", "jev-high"],
+                mode,
+            )
+            self.assertEqual(items[0]["reason"]["kind"], "signal_emitted", mode)
+            self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"}, mode)
+
+        with patch(ranker, return_value="jev"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        # jev-high carries evidence; the 0.2 row and the unjudged row fall to the filler tier by
+        # recency, so neither claims the model judged it worth watching.
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["jev-high", "jev-low", "signal"],
+        )
+        self.assertEqual(
+            items[0]["reason"],
+            {
+                "kind": "jev_watchable",
+                "jev_probability": 0.95,
+                "notability_reason": "The user paid twice for one order.",
+            },
+        )
+        self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
+        self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
+
+    def test_the_jev_arm_surfaces_a_watchable_row_the_recency_slice_cut_off(self) -> None:
+        # The candidate query keeps only each scanner's newest rows, so on a high-volume scanner a
+        # watchable row from days ago never reaches the weighted feed. The jev arm must fetch it
+        # back from the cache and rank it first.
+        scanner = self._create_scanner(name="m")
+        old_interesting = self._succeeded_observation(
+            scanner, "old-interesting", 60 * 24 * 2, self._monitor_result("yes")
+        )
+        for index in range(100):
+            self._succeeded_observation(scanner, f"routine-{index}", index + 1, self._monitor_result("no"))
+        store_watch_ranks(
+            self.team.id, scanner.id, {str(old_interesting.id)}, {str(old_interesting.id): 0.9}, "jevk5-fp8-0.2"
+        )
+
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        with patch(ranker, return_value="weighted-score"):
+            resp = self.client.get(self.feed_url)
+        self.assertNotIn("old-interesting", [item["observation"]["session_id"] for item in resp.json()["results"]])
+
+        with patch(ranker, return_value="jev"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(items[0]["observation"]["session_id"], "old-interesting")
+        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.9})
 
     def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
         # Seen-state is a within-tier order, not a top-level one: a signal the reader saw yesterday
