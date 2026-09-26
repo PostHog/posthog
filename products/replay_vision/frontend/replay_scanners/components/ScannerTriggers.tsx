@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonCard, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
+import { ExperimentPickerSelect } from 'lib/components/ExperimentPicker/ExperimentPickerSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -117,21 +118,20 @@ function ScannerFilterGroup(): JSX.Element {
     )
 }
 
-// Variant selection for a scanner targeting an experiment. The choice is stored as the scanner's
-// experiment targeting; the backend derives the person-scoped exposure filter from it at scan
-// time, so there is no filter in the card below to hand-edit.
-function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element | null {
-    const { experimentContext } = useValues(replayScannerLogic({ id: scannerId }))
-    const { setExperimentVariant, detachExperimentContext } = useActions(replayScannerLogic({ id: scannerId }))
+// Experiment scoping for a scanner. The choice is stored as the scanner's experiment targeting;
+// the backend derives the person-scoped exposure filter from it at scan time, so there is no
+// filter in the card below to hand-edit.
+function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element {
+    const { experimentContext, pendingExperimentId } = useValues(replayScannerLogic({ id: scannerId }))
+    const { selectExperiment, setExperimentVariant, detachExperimentContext } = useActions(
+        replayScannerLogic({ id: scannerId })
+    )
 
-    if (!experimentContext) {
-        return null
-    }
-    const { experiment, variantKey } = experimentContext
+    const experiment = experimentContext?.experiment ?? null
     // A null value targets every variant; each experiment variant is a single-select option.
     const variantOptions: { value: string | null; label: string }[] = [
         { value: null, label: 'All variants' },
-        ...getExperimentVariants(experiment).map((variant) => ({
+        ...(experiment ? getExperimentVariants(experiment) : []).map((variant) => ({
             value: variant.key,
             label: variant.key,
         })),
@@ -143,26 +143,56 @@ function ExperimentTargeting({ scannerId }: { scannerId: string }): JSX.Element 
                 <div className="space-y-1">
                     <LemonLabel>Experiment targeting</LemonLabel>
                     <div className="text-xs text-muted">
-                        This scanner watches sessions of people exposed to{' '}
-                        <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>. Pick a variant to narrow it,
-                        or watch every variant. Filters you add yourself are kept.
+                        {experiment ? (
+                            <>
+                                This scanner watches sessions of people exposed to{' '}
+                                <Link to={urls.experiment(experiment.id)}>{experiment.name}</Link>. Pick a variant to
+                                narrow it, or watch every variant. Filters you add yourself are kept.
+                            </>
+                        ) : (
+                            <>
+                                Pick an experiment to watch only sessions of people exposed to it. Filters you add
+                                yourself are kept.
+                            </>
+                        )}
                     </div>
                 </div>
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    onClick={() => detachExperimentContext()}
-                    tooltip="Stop limiting this scanner to people exposed to this experiment. Filters you added yourself are kept."
-                    data-attr="vision-experiment-targeting-detach"
-                >
-                    Remove targeting
-                </LemonButton>
+                {experiment || pendingExperimentId !== null ? (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        onClick={() => detachExperimentContext()}
+                        tooltip="Stop limiting this scanner to people exposed to this experiment. Filters you added yourself are kept."
+                        data-attr="vision-experiment-targeting-detach"
+                    >
+                        Remove targeting
+                    </LemonButton>
+                ) : null}
             </div>
-            <div className="max-w-160">
+            <div className="flex flex-wrap gap-2 max-w-160">
+                <div className="min-w-60 flex-1">
+                    <ExperimentPickerSelect
+                        pickerKey={`replay-scanner-${scannerId}`}
+                        size="medium"
+                        fullWidth
+                        value={pendingExperimentId ?? (experiment ? (experiment.id as number) : null)}
+                        onChange={(experimentId) =>
+                            experimentId === null ? detachExperimentContext() : selectExperiment(experimentId)
+                        }
+                        dataAttr="vision-experiment-targeting-picker"
+                    />
+                </div>
                 <LemonSelect
-                    value={variantKey}
+                    value={experimentContext?.variantKey ?? null}
                     onChange={(key) => setExperimentVariant(key)}
                     options={variantOptions}
+                    disabledReason={
+                        pendingExperimentId !== null
+                            ? 'Loading the experiment…'
+                            : !experiment
+                              ? 'Pick an experiment first'
+                              : undefined
+                    }
                     data-attr="vision-experiment-targeting-variants"
                 />
             </div>
