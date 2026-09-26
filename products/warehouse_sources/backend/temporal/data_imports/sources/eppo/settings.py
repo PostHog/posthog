@@ -15,6 +15,9 @@ ENDPOINTS = (
     "Tags",
     "Audiences",
     "Environments",
+    "EntityDefinitions",
+    "FactDefinitions",
+    "DimensionDefinitions",
 )
 
 # Endpoints that document `offset`/`limit` query params (https://eppo.cloud/api/docs).
@@ -62,10 +65,14 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     "Tags": ["id"],
     "Audiences": ["id"],
     "Environments": ["id"],
+    "EntityDefinitions": ["id"],
+    "FactDefinitions": ["id"],
+    "DimensionDefinitions": ["id"],
 }
 
 # A stable creation-time field to partition on, where the endpoint has one. `None` disables
-# partitioning for endpoints with no such field (MetricCollections, Teams).
+# partitioning for endpoints with no such field (MetricCollections, Teams, and the
+# /definitions/* resources, none of which return a timestamp).
 PARTITION_KEYS: dict[str, str | None] = {
     "Experiments": "created_date",
     "Metrics": "created_date",
@@ -77,4 +84,7 @@ PARTITION_KEYS: dict[str, str | None] = {
     "Tags": "created_at",
     "Audiences": "created_at",
     "Environments": "created_at",
+    "EntityDefinitions": None,
+    "FactDefinitions": None,
+    "DimensionDefinitions": None,
 }

@@ -2876,14 +2876,14 @@ Note: env0 is now branded 'env zero'; docs.env0.com and docs.envzero.com serve t
 
 ## Eppo — gaps
 
-Today (10): `Audiences`, `Bandits`, `Environments`, `Experiments`, `FeatureFlags`, `Holdouts`, `MetricCollections`, `Metrics`, `Tags`, `Teams`
+Today (13): `Audiences`, `Bandits`, `DimensionDefinitions`, `EntityDefinitions`, `Environments`, `Experiments`, `FactDefinitions`, `FeatureFlags`, `Holdouts`, `MetricCollections`, `Metrics`, `Tags`, `Teams`
 
 Diffed against: <https://eppo.cloud/api/docs-json>
 
-- [ ] `/api/v1/definitions/facts` — fact (metric source) definitions — the lookup that explains what each synced metric is computed from (high)
-- [ ] `/api/v1/definitions/entities` — entity lookup resolving the entity ids carried on metrics, experiments and assignments (high)
-- [ ] `/api/v1/definitions/dimensions` — dimension definitions, the breakdown axes available on experiment analyses (high)
-- [ ] `/api/v1/experiments/{experiment_id}/property-analysis` — experiment results broken down by metric and property — the actual analysis output, currently unavailable (high)
+- [x] `/api/v1/definitions/facts` — fact (metric source) definitions — the lookup that explains what each synced metric is computed from (high)
+- [x] `/api/v1/definitions/entities` — entity lookup resolving the entity ids carried on metrics, experiments and assignments (high)
+- [x] `/api/v1/definitions/dimensions` — dimension definitions, the breakdown axes available on experiment analyses (high)
+- [ ] `/api/v1/experiments/{experiment_id}/property-analysis` — experiment results broken down by metric and property — the actual analysis output, currently unavailable (high) — not syncable: `property_id`, `property_type` and `metric_id` are all required, with no way to enumerate the valid combinations per experiment, so a table would need a speculative experiments x metrics x properties cross product
 - [ ] `/api/v1/definitions/assignments` — assignment source definitions that tie experiments to their exposure data (medium)
 - [ ] `/api/v1/experiments/{id}/diagnostics` — experiment health checks (sample ratio mismatch, traffic issues) per experiment (medium)
 - [ ] `/api/v1/schedules` — experiment schedules, needed to reason about analysis cadence and experiment timelines (medium)
