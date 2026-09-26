@@ -5,6 +5,13 @@ export type RelatedEmojiButtonsProps = {
     onEmojiSelect: (emoji: string) => void
 }
 
+const ARROW_DIRECTION_MAP: Record<string, number> = {
+    ArrowRight: 1,
+    ArrowDown: 1,
+    ArrowLeft: -1,
+    ArrowUp: -1,
+}
+
 export function RelatedEmojiButtons({ suggestions, onEmojiSelect }: RelatedEmojiButtonsProps): JSX.Element {
     return (
         <span className="flex flex-col items-center gap-2">
@@ -19,12 +26,7 @@ export function RelatedEmojiButtons({ suggestions, onEmojiSelect }: RelatedEmoji
                         className="flex size-9 items-center justify-center rounded-md text-xl hover:bg-secondary-3000-hover focus-visible:bg-secondary-3000-hover"
                         onClick={() => onEmojiSelect(emoji)}
                         onKeyDown={(event) => {
-                            const direction =
-                                event.key === 'ArrowRight' || event.key === 'ArrowDown'
-                                    ? 1
-                                    : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-                                      ? -1
-                                      : 0
+                            const direction = ARROW_DIRECTION_MAP[event.key] ?? 0
                             if (direction) {
                                 event.preventDefault()
                                 const buttons = event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
