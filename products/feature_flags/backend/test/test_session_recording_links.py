@@ -3,13 +3,18 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import transaction
+
 from parameterized import parameterized
 
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.session_recording_links import (
+    LINKED_FLAG_COLUMN,
+    TRIGGER_GROUPS_COLUMN,
     ReplayGateRewrite,
+    lock_team_for_replay_gate_write,
     relink_teams,
     replay_gated_flags,
     replay_gated_flags_for_projects,
@@ -167,6 +172,154 @@ class TestReplayGateWritesUseTheLockedRow(BaseTest):
         assert [group["id"] for group in groups] == ["added", "group-0"]
         assert groups[0]["conditions"] == {"matchType": "any", "events": ["signup"]}
         assert groups[1]["conditions"]["flag"] == "gate-new"
+
+
+class TestTheApiWriteResolvesIdentifiedReferencesUnderTheLock(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "linked_flag",
+                lambda flag: {LINKED_FLAG_COLUMN: {"id": flag.id, "key": "replay-gate"}},
+                LINKED_FLAG_COLUMN,
+                None,
+            ),
+            (
+                "sole_trigger_group",
+                lambda flag: {TRIGGER_GROUPS_COLUMN: trigger_groups({"flag": {"id": flag.id, "key": "replay-gate"}})},
+                TRIGGER_GROUPS_COLUMN,
+                None,
+            ),
+            (
+                "trigger_group_beside_one_that_gates_on_nothing",
+                lambda flag: {
+                    TRIGGER_GROUPS_COLUMN: trigger_groups(
+                        {"flag": {"id": flag.id, "key": "replay-gate"}}, {"events": ["signup"]}
+                    )
+                },
+                TRIGGER_GROUPS_COLUMN,
+                {
+                    "version": 2,
+                    "groups": [
+                        {
+                            "id": "group-1",
+                            "sampleRate": 1,
+                            "conditions": {"matchType": "any", "events": ["signup"]},
+                        }
+                    ],
+                },
+            ),
+        ]
+    )
+    def test_a_reference_to_a_flag_deleted_since_validation_is_dropped(
+        self, _name: str, build_columns: Any, column: str, expected: Any
+    ) -> None:
+        # Validation passed while the flag was live, then a hard delete committed and
+        # `clear_replay_gates` took the reference off the team. Storing the client's payload as it
+        # came would put that reference back, after the cleanup had already finished.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        columns = build_columns(flag)
+        FeatureFlag.objects.filter(pk=flag.pk).delete()
+
+        with transaction.atomic():
+            resolved = lock_team_for_replay_gate_write(self.team, columns)
+
+        assert resolved[column] == expected
+
+    def test_a_key_only_reference_survives_a_rename_it_cannot_resolve(self) -> None:
+        # A bare key is what the replay settings UI writes for a trigger group, and it cannot tell
+        # a deleted flag from a renamed one. Dropping it would destroy a working gate on every
+        # rename, so only a reference carrying an id is resolved.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="gate-old")
+        columns = {"session_recording_trigger_groups": trigger_groups({"flag": "gate-old"})}
+        FeatureFlag.objects.filter(pk=flag.pk).update(key="gate-new")
+
+        with transaction.atomic():
+            resolved = lock_team_for_replay_gate_write(self.team, columns)
+
+        assert resolved["session_recording_trigger_groups"]["groups"][0]["conditions"]["flag"] == "gate-old"
+
+
+class TestAHardDeleteTakesTheReferenceWithIt(BaseTest):
+    def _delete(self, flag: FeatureFlag) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            FeatureFlag.objects.filter(pk=flag.pk).delete()
+
+    def test_the_linked_flag_column_is_cleared(self) -> None:
+        # The API serializer refuses this delete, so the flag goes through a management command,
+        # a cascade, or the admin. Left alone, the column names a flag no lookup resolves and
+        # only `repair_replay_linked_flag_keys` reports it, as flag_missing.
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        set_linked_flag(self.team, {"id": flag.id, "key": "replay-gate"})
+
+        self._delete(flag)
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_linked_flag is None
+
+    def test_the_group_gating_on_the_flag_goes_and_the_others_stay(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        other = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="other-gate")
+        set_trigger_groups(self.team, {"flag": "replay-gate"}, {"flag": other.key}, {"events": ["signup"]})
+
+        self._delete(flag)
+
+        self.team.refresh_from_db()
+        assert [group["id"] for group in self.team.session_recording_trigger_groups["groups"]] == [
+            "group-1",
+            "group-2",
+        ]
+
+    def test_the_trigger_groups_column_is_cleared_when_its_last_group_gated_on_the_flag(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        # By id and a key the flag no longer holds, which is the reference the repair command
+        # cannot read at all.
+        set_trigger_groups(self.team, {"flag": {"id": flag.id, "key": "stale"}})
+
+        self._delete(flag)
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_trigger_groups is None
+
+    def test_a_group_naming_a_live_flag_by_id_keeps_the_key_the_deleted_flag_held(self) -> None:
+        # The group's key went stale when its flag was renamed, and a new flag then claimed the
+        # freed key. The id still names the live flag, so deleting the new flag must leave the
+        # group alone rather than take a working recording rule with it.
+        live = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="renamed-gate")
+        set_trigger_groups(self.team, {"flag": {"id": live.id, "key": "replay-gate"}})
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+
+        self._delete(flag)
+
+        self.team.refresh_from_db()
+        assert self.team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == {
+            "id": live.id,
+            "key": "replay-gate",
+        }
+
+    def test_a_surviving_environment_loses_its_reference_when_the_flags_own_team_goes(self) -> None:
+        # Deleting one environment keeps the project and its other environments. The flag picker
+        # is project-scoped, so a surviving environment can gate on the deleted one's flag, and
+        # the cascade takes that flag with no team left to resolve the project from.
+        owner = Team.objects.create(organization=self.organization, project=self.project)
+        FeatureFlag.objects.create(team=owner, created_by=self.user, key="replay-gate")
+        sibling = Team.objects.create(organization=self.organization, project=self.project)
+        set_trigger_groups(sibling, {"flag": "replay-gate"})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Team.objects.filter(pk=owner.pk).delete()
+
+        sibling.refresh_from_db()
+        assert sibling.session_recording_trigger_groups is None
+
+    def test_another_projects_team_keeps_its_own_flag(self) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="replay-gate")
+        other_team = Team.objects.create(organization=self.organization)
+        set_trigger_groups(other_team, {"flag": "replay-gate"})
+
+        self._delete(flag)
+
+        other_team.refresh_from_db()
+        assert other_team.session_recording_trigger_groups["groups"][0]["conditions"]["flag"] == "replay-gate"
 
 
 class TestRelinkTeamsConvergesOnTheStoredKey(BaseTest):
