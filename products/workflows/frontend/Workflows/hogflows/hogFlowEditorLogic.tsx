@@ -34,7 +34,7 @@ import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } 
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
-import { isWorkflowTreeComplete } from './tree/workflowTree'
+import { WorkflowTreeUnreachableStep, getWorkflowTreeUnreachableSteps } from './tree/workflowTree'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
 
@@ -210,6 +210,7 @@ export interface hogFlowEditorLogicValues {
     isCopyingNode: boolean
     isMovingNode: boolean
     isZoomedOutFar: boolean
+    listViewUnreachableSteps: WorkflowTreeUnreachableStep[]
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
@@ -2134,6 +2135,7 @@ export interface hogFlowEditorLogicMeta {
             nodes: HogFlowActionNode[],
             edges: HogFlowActionEdge[]
         ) => boolean
+        listViewUnreachableSteps: (workflow: HogFlow) => WorkflowTreeUnreachableStep[]
         selectedNodeCanBeCopiedOrMoved: (
             selectedNode: HogFlowActionNode | null,
             selectedNodeCanBeDeleted: boolean
@@ -2386,6 +2388,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                 return new Set(outgoingNodes.map((node) => node.id)).size === 1
             },
+        ],
+        listViewUnreachableSteps: [
+            (s) => [s.workflow],
+            (workflow: HogFlow): WorkflowTreeUnreachableStep[] => getWorkflowTreeUnreachableSteps(workflow),
         ],
         selectedNodeCanBeCopiedOrMoved: [
             (s) => [s.selectedNode, s.selectedNodeCanBeDeleted],
@@ -3005,7 +3011,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             // Auto-save round-trips can emit a deep-equal workflow; skipping the rebuild avoids
             // re-deriving every node and edge (including the async layout pass) for no change.
             if (hogFlow && !objectsEqual(hogFlow, oldHogFlow)) {
-                if (values.editorLayout === 'simple' && !isWorkflowTreeComplete(hogFlow)) {
+                if (values.editorLayout === 'simple' && values.listViewUnreachableSteps.length > 0) {
                     actions.setEditorLayout('advanced')
                 }
                 actions.resetFlowFromHogFlow(hogFlow)
@@ -3045,7 +3051,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             }
             const requestedEditorLayout = view === 'graph' ? 'advanced' : 'simple'
             const editorLayout =
-                requestedEditorLayout === 'simple' && !isWorkflowTreeComplete(values.workflow)
+                requestedEditorLayout === 'simple' && values.listViewUnreachableSteps.length > 0
                     ? 'advanced'
                     : requestedEditorLayout
             if (editorLayout !== values.editorLayout) {
@@ -3059,7 +3065,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
     events(({ actions, values }) => ({
         afterMount: () => {
-            if (values.editorLayout === 'simple' && !isWorkflowTreeComplete(values.workflow)) {
+            if (values.editorLayout === 'simple' && values.listViewUnreachableSteps.length > 0) {
                 actions.setEditorLayout('advanced')
             }
             actions.resetFlowFromHogFlow(values.workflow)

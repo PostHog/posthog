@@ -3,6 +3,7 @@ import {
     buildWorkflowTree,
     computeMoveTreeBranchEdges,
     getWorkflowBranchLabel,
+    getWorkflowTreeUnreachableSteps,
     isWorkflowTreeComplete,
 } from './workflowTree'
 import {
@@ -11,6 +12,7 @@ import {
     getWorkflowTreeContinuationPath,
     getWorkflowTreeStepId,
     getWorkflowTreeStepIds,
+    getWorkflowTreeUnreachableStepFix,
 } from './workflowTreePresentation'
 
 const action = (id: string, type: HogFlowAction['type'] = 'function'): HogFlowAction =>
@@ -38,6 +40,89 @@ describe('buildWorkflowTree', () => {
                 )
             )
         ).toBe(false)
+    })
+
+    it('lists unreachable steps with the unreachable steps that lead into them', () => {
+        const steps = getWorkflowTreeUnreachableSteps(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('exit', 'exit'),
+                    action('orphan'),
+                    action('after orphan'),
+                    action('loop'),
+                ],
+                [
+                    edge('trigger', 'exit'),
+                    edge('orphan', 'after orphan'),
+                    edge('after orphan', 'exit'),
+                    edge('loop', 'loop'),
+                ]
+            )
+        )
+
+        expect(
+            steps.map((step) => [step.action.id, step.unreachablePredecessors.map((predecessor) => predecessor.id)])
+        ).toEqual([
+            ['orphan', []],
+            ['after orphan', ['orphan']],
+            ['loop', []],
+        ])
+        expect(steps.map(getWorkflowTreeUnreachableStepFix)).toEqual([
+            'Not connected to the workflow. Connect a step to it, or delete it.',
+            'Only comes after "orphan", which is not connected either. Fix that step first.',
+            'Not connected to the workflow. Connect a step to it, or delete it.',
+        ])
+    })
+
+    it('lists each unreachable step after the unreachable steps that lead into it', () => {
+        const steps = getWorkflowTreeUnreachableSteps(
+            workflow(
+                [
+                    action('trigger', 'trigger'),
+                    action('exit', 'exit'),
+                    action('s1'),
+                    action('s2'),
+                    action('s3'),
+                    action('s4'),
+                    action('s5'),
+                    action('s6'),
+                ],
+                [
+                    edge('trigger', 'exit'),
+                    edge('s6', 's5'),
+                    edge('s5', 's4'),
+                    edge('s4', 's3'),
+                    edge('s3', 's2'),
+                    edge('s2', 's1'),
+                    edge('s1', 'exit'),
+                ]
+            )
+        )
+
+        expect(steps.map((step) => step.action.id)).toEqual(['s6', 's5', 's4', 's3', 's2', 's1'])
+    })
+
+    it('tells each step in a disconnected loop to connect or delete the loop', () => {
+        const steps = getWorkflowTreeUnreachableSteps(
+            workflow(
+                [action('trigger', 'trigger'), action('exit', 'exit'), action('a'), action('b')],
+                [edge('trigger', 'exit'), edge('a', 'b'), edge('b', 'a')]
+            )
+        )
+
+        expect(steps.map(getWorkflowTreeUnreachableStepFix)).toEqual([
+            'Part of a loop with "b" that is not connected to the workflow. Connect one of these steps to the workflow, or delete them.',
+            'Part of a loop with "a" that is not connected to the workflow. Connect one of these steps to the workflow, or delete them.',
+        ])
+    })
+
+    it('reports no unreachable steps for a connected workflow', () => {
+        expect(
+            getWorkflowTreeUnreachableSteps(
+                workflow([action('trigger', 'trigger'), action('exit', 'exit')], [edge('trigger', 'exit')])
+            )
+        ).toEqual([])
     })
 
     it('renders converging routes before one shared continuation', () => {

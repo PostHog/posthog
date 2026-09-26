@@ -14,12 +14,14 @@ type WorkflowStatusBarProps = WorkflowLogicProps & {
     editorLayout: HogFlowEditorLayout
     showEditorLayoutToggle: boolean
     onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
+    listViewDisabledReason?: JSX.Element
 }
 
 export function WorkflowStatusBar({
     editorLayout,
     showEditorLayoutToggle,
     onEditorLayoutChange,
+    listViewDisabledReason,
     ...props
 }: WorkflowStatusBarProps): JSX.Element | null {
     const logic = workflowLogic(props)
@@ -57,6 +59,7 @@ export function WorkflowStatusBar({
                                 value: 'simple',
                                 icon: <IconList />,
                                 tooltip: 'List view',
+                                disabledReason: listViewDisabledReason,
                                 'data-attr': 'workflow-switch-to-simple-view',
                             },
                             {
