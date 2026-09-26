@@ -7,6 +7,14 @@ gated field without an approval — every write either creates a pending ChangeR
 and leaves the flag untouched, or (for the control cases) applies normally because no
 policy guards it.
 
+Two writes are exempt from that invariant by design: a system write through the facade,
+and a product writing a flag it generates and manages on the user's behalf, such as a
+survey's internal targeting flag. The second exemption is path-based, so only the product's
+own write path sets the serializer context key that carries it, and the classes below lock
+every other way to reach the same flag. See INTERNAL_FLAG_WRITE_CONTEXT_KEY in
+products/feature_flags/backend/api/feature_flag.py, and TestSurveyApprovalGate in
+products/surveys/.../test_survey.py for the survey saves the exemption exists for.
+
 Each closed bypass below maps to a fix on this branch:
   - direct PATCH enable/disable/update        -> the baseline control the gate exists for
   - lifecycle enable/disable/archive actions   -> thin state endpoints routed through the same gate
@@ -17,6 +25,9 @@ Each closed bypass below maps to a fix on this branch:
   - create-active / create-rollout             -> create() born in a guarded state
   - delete + recreate-as-active                -> re-create path is gated like any other create
   - scheduled update_status / rollout change   -> gated at scheduling time, expired if the window closes first
+  - create declaring creation_context          -> a caller-declared origin is not a trust boundary
+  - direct PATCH of a survey's internal flag   -> the survey exemption is path-based, not owner-based
+  - survey write to an adopted user flag       -> adopting a flag onto a survey does not exempt it
 
 The per-path detection/extract/end-to-end edge cases live in the dedicated task test
 files (test_decorators, test_update_feature_flag_action, test_create_feature_flag_gate,
@@ -49,6 +60,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.api import set_flag_active
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
+from products.surveys.backend.models import Survey
 
 
 def _enable_policy_for(test: "FeatureFlagBypassMatrixBase", action_key: str) -> ApprovalPolicy:
@@ -315,6 +327,24 @@ class TestDirectAndCreateBypassMatrix(FeatureFlagBypassMatrixBase):
         assert response.status_code == 409
         assert response.json().get("code") == "approval_required"
         assert not FeatureFlag.objects.filter(team=self.team, key="recreate-flag", active=True, deleted=False).exists()
+        self._assert_one_pending_zero_applied()
+
+    def test_create_declaring_the_surveys_creation_context_is_gated(self, _mock_enabled):
+        # The caller writes creation_context, so a declared survey origin must not skip the policy.
+        _enable_policy_for(self, "feature_flag.enable")
+
+        response = self._post(
+            {
+                "key": "claims-a-survey-origin",
+                "active": True,
+                "creation_context": "surveys",
+                "filters": {"groups": [{"rollout_percentage": 100}]},
+            }
+        )
+
+        assert response.status_code == 409, response.content
+        assert response.json().get("code") == "approval_required"
+        assert not FeatureFlag.objects.filter(team=self.team, key="claims-a-survey-origin").exists()
         self._assert_one_pending_zero_applied()
 
 
@@ -620,6 +650,67 @@ class TestCopyBypassMatrix(APIBaseTest):
         assert response.json()["success"] == []
         existing.refresh_from_db()
         assert existing.active is False
+
+
+@patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
+class TestSurveyBypassMatrix(FeatureFlagBypassMatrixBase):
+    """Paths that reach a FeatureFlag row a survey points at.
+
+    A survey save writing one of the flags the survey generates is the sanctioned skip, locked by
+    TestSurveyApprovalGate in the surveys tests. Every other route to those rows stays gated.
+    """
+
+    def test_direct_patch_of_a_survey_internal_flag_is_gated(self, _mock_enabled):
+        # Reading the flag's owner instead would exempt this PATCH, which no survey made.
+        _any_rollout_change_policy(self)
+        flag = self._flag(active=True, key="survey-targeting-abc123-custom", rollout=20)
+        Survey.objects.create(team=self.team, name="Gated survey", internal_targeting_flag=flag)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {"filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}},
+            format="json",
+        )
+
+        assert response.status_code == 409, response.content
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 20
+        self._assert_one_pending_zero_applied()
+
+    def test_survey_write_to_an_adopted_user_flag_is_gated(self, _mock_enabled):
+        _any_rollout_change_policy(self)
+        flag = self._flag(active=True, key="user-made-flag", rollout=20)
+        survey = Survey.objects.create(team=self.team, name="Adopting survey", targeting_flag=flag)
+
+        # Survey targeting rejects a group that rolls out to everyone with no properties.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            {
+                "name": "Renamed survey",
+                "targeting_flag_filters": {
+                    "groups": [
+                        {
+                            "variant": None,
+                            "rollout_percentage": 50,
+                            "properties": [
+                                {"key": "billing_plan", "value": ["cloud"], "operator": "exact", "type": "person"}
+                            ],
+                        }
+                    ]
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == 409, response.content
+        flag.refresh_from_db()
+        assert flag.filters["groups"][0]["rollout_percentage"] == 20
+        self._assert_one_pending_zero_applied()
+
+        # update() writes the targeting flag before it saves the survey row, so the 409 leaves
+        # neither changed. Reordering those two would leave a half-saved survey behind.
+        survey.refresh_from_db()
+        assert survey.name == "Adopting survey"
 
 
 @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)

@@ -7,7 +7,7 @@ from django.db.models import Model
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.api.feature_flag import INTERNAL_FLAG_WRITE_CONTEXT_KEY, FeatureFlagSerializer
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -80,6 +80,25 @@ def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
         instance = args[0] if args else None
         return instance if isinstance(instance, FeatureFlag) else None
     return view.get_object()
+
+
+def _is_internal_flag_write(view) -> bool:
+    """Whether the owning product is writing a flag it generates and manages on the user's behalf.
+
+    A survey rewrites its internal targeting flag on every save, even a text edit, and the flags
+    list API hides that flag (Survey.get_internal_flag_ids). A feature flag policy would therefore
+    block the surveys product and hand the approver a flag they cannot open, while the survey change
+    the user actually made goes unreviewed, because a survey is not a gated resource.
+
+    Only the product's own write path sets this key, and only for a flag that no API field lets a
+    user point the product at. Reading the flag's owner instead would also exempt a direct PATCH
+    over the flag API, and would exempt a user's own flag as soon as a survey adopts it through
+    targeting_flag_id. The declared creation_context cannot stand in for a create either, because
+    the caller writes it.
+    """
+    context = getattr(view, "context", None)
+    # `is True` rather than truthiness, the way the gate itself reads `is_system`.
+    return isinstance(context, dict) and context.get(INTERNAL_FLAG_WRITE_CONTEXT_KEY) is True
 
 
 def _check_version_staleness(intent_data: dict[str, Any], context: Optional[dict[str, Any]] = None) -> bool:
@@ -224,6 +243,9 @@ class FeatureFlagActionBase(BaseAction):
 
     @classmethod
     def detect(cls, request, view, *args, **kwargs) -> bool:
+        if _is_internal_flag_write(view):
+            return False
+
         try:
             flag = _get_flag_instance(view, *args, **kwargs)
         except Exception:
@@ -509,6 +531,9 @@ class UpdateFeatureFlagAction(BaseAction):
 
     @classmethod
     def detect(cls, request, view, *args, **kwargs) -> bool:
+        if _is_internal_flag_write(view):
+            return False
+
         try:
             flag = _get_flag_instance(view, *args, **kwargs)
         except Exception:

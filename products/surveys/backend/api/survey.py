@@ -71,6 +71,7 @@ from products.actions.backend.models.action import Action
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+    INTERNAL_FLAG_WRITE_CONTEXT_KEY,
     FeatureFlagSerializer,
     MinimalFeatureFlagSerializer,
     assert_feature_flag_write_scope,
@@ -1777,9 +1778,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
     # Not @transaction.atomic: the targeting flag writes below route through the feature flag
     # approval gate, which can raise ApprovalRequired (surfacing as a 409 plus a pending
     # ChangeRequest). A transaction would roll that ChangeRequest back as the exception
-    # propagates, leaving the 409 pointing at a request that no longer exists. The cost is that
-    # super().update() has already saved the survey row by then, so a 409 leaves the survey
-    # changed while its flags keep their old state. Mirrors product tours and experiments.
+    # propagates, leaving the 409 pointing at a request that no longer exists. Mirrors product
+    # tours and experiments. Every gated write runs before super().update(), so a 409 leaves
+    # the survey row unchanged; keep that order, because moving the save up would half-apply it.
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
@@ -1966,7 +1967,12 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         }
 
         instance.internal_response_sampling_flag = self._create_or_update_targeting_flag(
-            None, sampling_filters, instance.name, bool(instance.start_date), flag_name_suffix="-sampling"
+            None,
+            sampling_filters,
+            instance.name,
+            bool(instance.start_date),
+            flag_name_suffix="-sampling",
+            internal=True,
         )
         instance.save()
 
@@ -2067,7 +2073,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             serialized_data_filters = {**existing_targeting_flag.filters, **user_submitted_dismissed_filter}
 
             internal_targeting_flag = self._create_or_update_targeting_flag(
-                instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"
+                instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom", internal=True
             )
 
             internal_targeting_flag.active = should_flag_be_active
@@ -2083,13 +2089,23 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 instance.name,
                 should_flag_be_active,
                 flag_name_suffix="-custom",
+                internal=True,
             )
             instance.internal_targeting_flag_id = new_flag.id
             instance.save()
 
     def _create_or_update_targeting_flag(
-        self, existing_flag=None, filters=None, name=None, active=False, flag_name_suffix=None
+        self, existing_flag=None, filters=None, name=None, active=False, flag_name_suffix=None, internal=False
     ):
+        """Write one of the survey's targeting flags through FeatureFlagSerializer.
+
+        `internal` marks a flag the survey generates and manages on its own, which the approval gate
+        reads to skip a feature flag policy. Set it only where no API field lets a user point the
+        survey at an existing flag, so `internal_targeting_flag` and
+        `internal_response_sampling_flag` qualify and `targeting_flag` does not: `targeting_flag_id`
+        adopts a flag the user made, and that flag must stay under the policy.
+        """
+        flag_context = {**self.context, INTERNAL_FLAG_WRITE_CONTEXT_KEY: True} if internal else self.context
         with create_flag_with_survey_errors():
             # Ensure the request method is set correctly for validation
             if existing_flag:
@@ -2098,7 +2114,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                     existing_flag,
                     data={"filters": filters},
                     partial=True,
-                    context=self.context,
+                    context=flag_context,
                 )
                 existing_flag_serializer.is_valid(raise_exception=True)
                 return existing_flag_serializer.save()
@@ -2114,7 +2130,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         "active": active,
                         "creation_context": "surveys",
                     },
-                    context=self.context,
+                    context=flag_context,
                 )
 
                 feature_flag_serializer.is_valid(raise_exception=True)

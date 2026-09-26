@@ -32,7 +32,7 @@ from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
-from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
@@ -7559,32 +7559,33 @@ class TestSurveyApprovalGate(APIBaseTest):
             created_by=self.user,
         )
 
-    def test_update_under_flag_update_policy_returns_approval_conflict(self) -> None:
+    def test_update_under_flag_update_policy_saves_without_approval(self) -> None:
         survey = self._create_survey()
-        flag = survey.internal_targeting_flag
-        assert flag is not None
-        filters_before = flag.filters
+        assert survey.internal_targeting_flag is not None
 
         self._add_flag_update_policy()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/surveys/{survey.id}/",
             # The wait period adds a second group to the internal targeting flag, which changes
-            # its rollout and so trips the feature_flag.update gate.
+            # its rollout. That is the shape the feature_flag.update gate fires on.
             data={"end_date": None, "conditions": {"seenSurveyWaitPeriodInDays": 7}},
             format="json",
         )
 
-        assert response.status_code == status.HTTP_409_CONFLICT, response.content
-        assert response.json()["change_request_id"]
-        assert ChangeRequest.objects.filter(state=ChangeRequestState.PENDING).count() == 1
-
-        # Half the write lands before the gate fires. Locked in here because making update()
-        # atomic to avoid that would also roll back the ChangeRequest the 409 points at.
+        assert response.status_code == status.HTTP_200_OK, response.content
         survey.refresh_from_db()
-        flag.refresh_from_db()
         assert survey.end_date is None
-        assert flag.filters == filters_before
+        assert ChangeRequest.objects.count() == 0
+
+    def test_create_under_flag_update_policy_gets_its_internal_flag(self) -> None:
+        self._add_flag_update_policy()
+
+        survey = self._create_survey()
+
+        # An approved change request creates the flag row but never points the survey at it.
+        assert survey.internal_targeting_flag is not None
+        assert ChangeRequest.objects.count() == 0
 
 
 class TestSurveyListTypeFilter(APIBaseTest):
