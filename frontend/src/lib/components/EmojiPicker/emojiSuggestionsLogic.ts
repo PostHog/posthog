@@ -33,12 +33,14 @@ export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
         loadSuggestions: async () => {
             const controller = new AbortController()
             const timeout = window.setTimeout(() => controller.abort(), 2500)
-            cache.disposables.add(() => {
-                return () => {
+            cache.disposables.add(
+                () => () => {
                     controller.abort()
                     window.clearTimeout(timeout)
-                }
-            })
+                },
+                undefined,
+                { pauseOnPageHidden: false }
+            )
             try {
                 const response = await emojiSearchSuggestRetrieve(
                     String(props.projectId),
