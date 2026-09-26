@@ -3694,6 +3694,7 @@ class DashboardsViewSet(
         methods=["POST"],
         detail=False,
         parser_classes=[DashboardTemplateCreationJSONSchemaParser],
+        required_scopes=["dashboard:write"],
     )
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = Dashboard.objects.create(
@@ -3739,7 +3740,7 @@ class DashboardsViewSet(
 
         return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, required_scopes=["dashboard:write"])
     def create_unlisted_dashboard(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Creates an unlisted dashboard from template by tag.
