@@ -6733,7 +6733,7 @@
         }
     },
     "insight-get": {
-        "description": "Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the same identifier. Optionally accepts `variables_override` and `filters_override` to apply one-off overrides to the returned query definition without mutating the saved insight.",
+        "description": "Fetch a saved insight by its numeric `id` or 8-character `short_id`. Returns the insight metadata and query definition, but NOT the query results. To retrieve the actual data, call the insight-query tool with the same identifier. Optionally accepts `variables_override` and `filters_override` to apply one-off overrides to the returned query definition without mutating the saved insight. Each entry in `alerts` is a summary without its nested insight, creator, subscribers, or check history. Call alert-get with the alert `id` for the full alert.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Get insight",
@@ -6803,7 +6803,7 @@
         }
     },
     "insights-list": {
-        "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`.",
+        "description": "List saved insights in the project with optional filtering by favorited status or search term. Returns metadata only (name, description, tags, dashboards, ownership) — NOT the query results. To retrieve the actual data for any insight in the list, call the insight-query tool with its `short_id` or numeric `id`. Each entry in `alerts` carries only its `id`, `name`, `state`, and `enabled` flag. Call alert-get with the alert `id` for the full alert.",
         "category": "Product analytics",
         "feature": "product_analytics",
         "summary": "Get all insights",
