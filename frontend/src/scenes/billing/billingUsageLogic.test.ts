@@ -484,6 +484,29 @@ describe('billing section URL scoping', () => {
         expect(usageRequests).toEqual(afterMount)
     })
 
+    // A link can still carry a usage type that has since been retired. Sending it on makes
+    // billing refuse the whole read, so the page shows an error instead of the usage.
+    it('drops a usage type the page no longer offers', async () => {
+        router.actions.push(urls.organizationBillingSection('usage'), {
+            usage_types: ['event_count_in_period', 'retired_type'],
+        })
+        logic = billingUsageLogic({ syncWithUrl: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.usage_types).toEqual(['event_count_in_period'])
+    })
+
+    // kea-router decodes a bare `?usage_types=retired_type` as a string, not an array.
+    it('survives a usage type the URL carries as a bare value', async () => {
+        router.actions.push(urls.organizationBillingSection('usage'), { usage_types: 'retired_type' })
+        logic = billingUsageLogic({ syncWithUrl: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.filters.usage_types).toEqual([])
+    })
+
     it('still follows filter changes made on its own page', async () => {
         router.actions.push(urls.organizationBillingSection('usage'))
         logic = billingUsageLogic({ syncWithUrl: true })

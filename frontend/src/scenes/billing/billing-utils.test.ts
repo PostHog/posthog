@@ -2,6 +2,7 @@ import {
     billingErrorGuidance,
     buildSpendTrackingProperties,
     filterSpendUsageTypes,
+    filterUsageTypes,
     getSpendTypeOptions,
     getUsageTypeOptions,
 } from './billing-utils'
@@ -44,6 +45,12 @@ describe('getUsageTypeOptions', () => {
             ])
         ).toEqual(['event_count_in_period'])
         expect(filterSpendUsageTypes(['sandbox_compute_cpu_millicore_seconds_in_period'])).toEqual([])
+    })
+
+    it('keeps Usage-only types but removes a type the page no longer offers', () => {
+        expect(
+            filterUsageTypes(['sandbox_compute_credits_used_in_period', 'retired_type', 'event_count_in_period'])
+        ).toEqual(['sandbox_compute_credits_used_in_period', 'event_count_in_period'])
     })
 })
 

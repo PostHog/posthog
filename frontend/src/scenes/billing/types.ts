@@ -28,7 +28,13 @@ export interface BillingFilters {
 }
 
 export type BillingUsageInteractionProps = {
-    action: 'filters_changed' | 'date_changed' | 'breakdown_toggled' | 'series_toggled' | 'filters_cleared'
+    action:
+        | 'filters_changed'
+        | 'date_changed'
+        | 'breakdown_toggled'
+        | 'series_toggled'
+        | 'filters_cleared'
+        | 'load_failed'
     filters: BillingFilters
     date_from: string | null
     date_to: string | null
@@ -39,6 +45,8 @@ export type BillingUsageInteractionProps = {
     teams_total: number
     has_team_breakdown: boolean
     interval: BillingFilters['interval']
+    /** The API error code on a `load_failed` action, so a refused read is countable. */
+    error_code?: string
 }
 
 /** How the usage and spend breakdowns are drawn.

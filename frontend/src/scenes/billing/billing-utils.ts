@@ -561,8 +561,17 @@ export const getSpendTypeOptions = (): { key: string; label: string }[] =>
 
 const SPEND_TYPE_VALUES = new Set<string>(SPEND_TYPES.map((option) => option.value))
 
+const USAGE_TYPE_VALUES = new Set<string>(USAGE_TYPES.map((option) => option.value))
+
 export const filterSpendUsageTypes = (usageTypes: string[] | undefined): string[] =>
     usageTypes?.filter((usageType) => SPEND_TYPE_VALUES.has(usageType)) ?? []
+
+/**
+ * Keep only the types this page still offers. A link can carry a type that has since been
+ * retired, and billing refuses the whole request for it, so the page would show nothing.
+ */
+export const filterUsageTypes = (usageTypes: string[] | undefined): string[] =>
+    usageTypes?.filter((usageType) => USAGE_TYPE_VALUES.has(usageType)) ?? []
 
 export const isAddonVisible = (
     product: BillingProductV2Type,

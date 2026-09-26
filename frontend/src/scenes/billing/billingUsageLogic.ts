@@ -24,6 +24,7 @@ import type { BillingPeriod, BillingType } from '../../types'
 import {
     buildTrackingProperties,
     calculateBillingPeriodMarkers,
+    filterUsageTypes,
     selectionCoversEveryProject,
     syncBillingSearchParams,
     updateBillingSearchParams,
@@ -533,6 +534,10 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
                         const isActionable =
                             !!billingUsageError && ACTIONABLE_BILLING_ERROR_CODES.includes(billingUsageError.code)
                         actions.setBillingUsageError(isActionable ? billingUsageError : null)
+                        actions.reportBillingUsageInteraction({
+                            ...buildTrackingProperties('load_failed', values),
+                            error_code: billingUsageError?.code || 'unknown',
+                        })
                         if (!isActionable) {
                             lemonToast.error('Failed to load billing usage. Please try again or contact support.')
                             throw error
@@ -877,8 +882,13 @@ export const billingUsageLogic = kea<billingUsageLogicType>([
 
             const filtersFromUrl: Partial<BillingFilters> = {}
 
-            if (params.usage_types && !equal(params.usage_types, values.filters.usage_types)) {
-                filtersFromUrl.usage_types = params.usage_types
+            if (params.usage_types) {
+                // A hand-made URL can carry a bare value where the page writes an array.
+                const fromUrl = Array.isArray(params.usage_types) ? params.usage_types : [params.usage_types]
+                const usageTypes = filterUsageTypes(fromUrl)
+                if (!equal(params.usage_types, usageTypes) || !equal(usageTypes, values.filters.usage_types)) {
+                    filtersFromUrl.usage_types = usageTypes
+                }
             }
             if (params.team_ids && !equal(params.team_ids, values.filters.team_ids)) {
                 filtersFromUrl.team_ids = params.team_ids
