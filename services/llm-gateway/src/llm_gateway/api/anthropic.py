@@ -36,6 +36,12 @@ from llm_gateway.cloudflare import (
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.inference_routing import is_inference_routed_model, send_inference_anthropic_messages
+from llm_gateway.litellm_passthrough import (
+    caller_anthropic_beta,
+    install,
+    with_caller_anthropic_beta,
+    without_passthrough_fields,
+)
 from llm_gateway.metrics.prometheus import (
     ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
     BEDROCK_COUNT_TOKENS_ERRORS,
@@ -57,6 +63,8 @@ from llm_gateway.request_context import (
 )
 
 logger = structlog.get_logger(__name__)
+
+install()
 
 anthropic_router = APIRouter()
 
@@ -374,9 +382,9 @@ async def _send_bedrock_messages(
     # ids like "us.anthropic.claude-opus-4-7", so prefix explicitly.
     data["model"] = f"bedrock/{bedrock_model}"
 
-    anthropic_beta = request.headers.get("anthropic-beta")
+    anthropic_beta = caller_anthropic_beta(request.headers)
     if anthropic_beta:
-        data["anthropic_beta"] = [h.strip() for h in anthropic_beta.split(",") if h.strip()]
+        data["anthropic_beta"] = anthropic_beta.split(",")
 
     data = sanitize_for_bedrock(data, model=bedrock_model, product=product)
 
@@ -534,10 +542,14 @@ async def _handle_anthropic_messages(
     # serves tools fine: litellm's Anthropic->chat/completions adapter translates Anthropic tools
     # into OpenAI function tools that both backends' OpenAI-compatible endpoints accept.
     if provider == "cloudflare" or is_inference_routed_model(body.model):
-        return await send_inference_anthropic_messages(data, user, body.stream or False, product)
+        return await send_inference_anthropic_messages(
+            without_passthrough_fields(data), user, body.stream or False, product
+        )
 
     if is_modal_served_model(body.model):
-        return await send_modal_anthropic_messages(data, user, body.stream or False, product)
+        return await send_modal_anthropic_messages(
+            without_passthrough_fields(data), user, body.stream or False, product
+        )
 
     if provider == "bedrock":
         return await _send_bedrock_messages(data, user, request, body.stream or False, product)
@@ -550,7 +562,9 @@ async def _handle_anthropic_messages(
     # context_management wholesale.
     data = drop_orphaned_clear_thinking(data, product=product)
 
-    litellm_data = {**data, "model": normalize_litellm_model_name(body.model, ANTHROPIC_CONFIG.name)}
+    litellm_data = with_caller_anthropic_beta(
+        {**data, "model": normalize_litellm_model_name(body.model, ANTHROPIC_CONFIG.name)}, request.headers
+    )
 
     try:
         result = await handle_llm_request(
@@ -643,7 +657,9 @@ async def _handle_count_tokens(
         return await _bedrock_count_tokens_impl(data, body.model, user, product)
 
     try:
-        result = await _anthropic_count_tokens_impl(data, body.model, user, product)
+        result = await _anthropic_count_tokens_impl(
+            data, body.model, user, product, anthropic_beta=caller_anthropic_beta(request.headers)
+        )
     except HTTPException as exc:
         await _record_anthropic_outcome(breaker, success=_is_breaker_success(exc.status_code))
         if not use_bedrock_fallback or _is_breaker_success(exc.status_code):
@@ -684,6 +700,8 @@ async def _anthropic_count_tokens_impl(
     model: str,
     user: RateLimitedUser,
     product: str,
+    *,
+    anthropic_beta: str | None = None,
 ) -> dict[str, Any]:
     settings = get_settings()
     start_time = time.monotonic()
@@ -701,6 +719,8 @@ async def _anthropic_count_tokens_impl(
         "anthropic-version": ANTHROPIC_API_VERSION,
         "content-type": "application/json",
     }
+    if anthropic_beta:
+        headers["anthropic-beta"] = anthropic_beta
 
     try:
         async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
