@@ -349,3 +349,14 @@ class TestTeam(BaseTest):
         assert button_tiles.count() == 3
         urls = {tile.button_tile.url for tile in button_tiles if tile.button_tile is not None}
         assert urls == {"/replay/home", "/web", "/activity/explore"}
+
+    def test_extension_config_is_cached_per_team_instance(self):
+        stale_instance = Team.objects.get(pk=self.team.pk)
+        assert stale_instance.marketing_analytics_config.attribution_window_days == 90
+
+        fresh_instance = Team.objects.get(pk=self.team.pk)
+        fresh_instance.marketing_analytics_config.attribution_window_days = 7
+        fresh_instance.marketing_analytics_config.save()
+
+        assert stale_instance.marketing_analytics_config is not fresh_instance.marketing_analytics_config
+        assert Team.objects.get(pk=self.team.pk).marketing_analytics_config.attribution_window_days == 7
