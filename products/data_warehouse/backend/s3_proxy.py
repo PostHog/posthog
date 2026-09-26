@@ -93,7 +93,7 @@ def warehouse_bucket_host() -> str | None:
 def _flag_enabled(_interval: int) -> bool:
     """Evaluate the rollout flag, keyed on a time bucket so the cache expires on its own.
 
-    Any evaluation failure returns False (fail closed, as in ``is_deltalite_write_enabled``): a flags
+    Any evaluation failure returns False (fail closed): a flags
     -service blip leaves traffic on the proxy rather than silently rerouting it.
     """
     try:
