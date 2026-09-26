@@ -13,6 +13,10 @@ from uuid import UUID
 JSONScalar = str | int | float | bool | None
 
 
+class RegistryReadTimedOut(Exception):
+    """A ranked read of the index hit its cap before the database answered."""
+
+
 @dataclass(frozen=True)
 class RegistryTool:
     name: str
