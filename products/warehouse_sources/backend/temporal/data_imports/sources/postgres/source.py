@@ -133,6 +133,20 @@ _HOST_RESOLUTION_RETRY_MESSAGE = (
     "PostHog couldn't resolve your database host right now. Check the host name, then try again in a moment."
 )
 
+# libpq and the raw socket layer word the same DNS failure three different ways, so they share one
+# message at validation time.
+_DNS_RESOLUTION_VALIDATION_ERROR = (
+    "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+    "from the public internet."
+)
+
+# libpq appends this hint both to a refused connection and to one the network dropped, which is what
+# a firewall that hasn't allowlisted PostHog looks like from our side.
+_HOST_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not connect to the database on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # A proxy/pooler in front of some providers rejects bad credentials during its own
@@ -203,7 +217,7 @@ PostgresErrors = {
         'authentication failures ("too many authentication failures"). This usually means the '
         "username or password is wrong. Check your credentials and try again."
     ),
-    "could not translate host name": "Could not connect to the host",
+    "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
     # prefix — "[Errno -2] Name or service not known" (EAI_NONAME) or its EAI_NODATA sibling
@@ -211,15 +225,15 @@ PostgresErrors = {
     # Python-side resolution. `get_non_retryable_errors` already treats both as non-retryable; map
     # them here too so credential validation returns an actionable message instead of surfacing the
     # customer's unresolvable host as captured error noise.
-    "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
-    "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    "Name or service not known": _DNS_RESOLUTION_VALIDATION_ERROR,
+    "No address associated with hostname": _DNS_RESOLUTION_VALIDATION_ERROR,
     # A public host PostHog resolved but can't route to (IPv6-only host, or a firewall dropping our
     # IPs). Placed before the "Is the server running..." entry — some libpq versions append that hint
     # to routing failures too, and the IPv4/pooler guidance here is more actionable. `get_non_retryable_errors`
     # already treats both as non-retryable on the streaming path.
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
-    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
     'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
     "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",

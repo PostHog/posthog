@@ -4900,6 +4900,21 @@ class TestValidateCredentialsErrorMapping:
                 "only tries an unencrypted connection after an encrypted one fails, so check that the host "
                 "is the hostname your database provider gave you rather than an IP address, then try again.",
             ),
+            # libpq's own DNS wording, which reaches validation without the socket-level suffix the
+            # entries above match on.
+            (
+                'could not translate host name "db.example.com" to address: Unknown host',
+                "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+                "from the public internet.",
+            ),
+            # A firewall that drops our packets shows up as a connect timeout carrying libpq's
+            # "Is the server running..." hint, so that entry has to name the firewall as a cause.
+            (
+                'connection to server at "203.0.113.10", port 5432 failed: Connection timed out\n\t'
+                "Is the server running on that host and accepting TCP/IP connections?",
+                "Could not connect to the database on the host and port given. Check the host and port are "
+                "correct, and that PostHog's IP addresses are allowed through your firewall.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
