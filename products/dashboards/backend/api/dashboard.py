@@ -73,7 +73,11 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
-from posthog.hogql_queries.apply_dashboard_filters import normalize_dashboard_filters_properties
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    normalize_dashboard_filters_properties,
+    resolve_effective_dashboard_filters,
+)
 from posthog.hogql_queries.refresh_policy import ComputeSurface
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system import FileSystem, create_or_update_file, delete_file, join_path, split_path
@@ -83,6 +87,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.session_recordings.session_recording_api import get_replay_listing_throttle_error
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
@@ -93,6 +98,7 @@ from posthog.utils import (
     safe_cache_add,
     safe_cache_delete,
     str_to_bool,
+    tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
 
@@ -3337,6 +3343,8 @@ class DashboardsViewSet(
             (order, tile, tile.insight) for order, tile in ordered_tiles if tile.insight and tile.insight.query
         ]
 
+        dashboard_filters = filters_override_requested_by_client(request, dashboard)
+
         tile_results = []
         used_chars = 0
         for index, (order, tile, insight) in enumerate(insight_tiles):
@@ -3351,7 +3359,12 @@ class DashboardsViewSet(
                 insight_data = tile_data.get("insight") or {}
                 raw_result = insight_data.get("result")
                 if insight_data and raw_result is not None:
-                    formatted = self._format_insight_for_llm(insight, insight_data)
+                    formatted = self._format_insight_for_llm(
+                        insight,
+                        insight_data,
+                        dashboard_filters=dashboard_filters,
+                        tile_filters=tile_filters_override_requested_by_client(request, tile),
+                    )
                     if formatted is None:
                         # No formatter covers this query type, so the raw result still has to be bounded.
                         formatted = render_unsupported_result(raw_result)
@@ -3672,15 +3685,19 @@ class DashboardsViewSet(
 
         return tile
 
-    def _format_insight_for_llm(self, insight: Insight, insight_data: dict) -> str | None:
+    def _format_insight_for_llm(
+        self, insight: Insight, insight_data: dict, *, dashboard_filters: dict, tile_filters: dict
+    ) -> str | None:
         if not settings.EE_AVAILABLE:
             return None
         try:
             from ee.hogai.context.insight.format import format_query_results_for_llm
 
-            query_dict = insight.query
-            if not query_dict:
+            if not insight.query:
                 return None
+            # Format with the query the tile ran, so text such as a funnel's date range follows filters_override.
+            effective = resolve_effective_dashboard_filters(upgrade(insight.query), dashboard_filters, tile_filters)
+            query_dict = apply_dashboard_filters_to_dict(effective.query, effective.filters, self.team)
             query = InsightVizNode.model_validate(query_dict)
             if not query.source:
                 return None
