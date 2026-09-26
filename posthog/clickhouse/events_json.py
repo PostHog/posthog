@@ -13,6 +13,40 @@ WRITABLE_EVENTS_JSON_TABLE = "writable_events_json"
 DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
 KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
+TEMPORARY_PROPERTIES_COLUMN = "temporary_properties"
+
+# Mirrors isTemporaryProperty in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go, so update both.
+_TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
+    {
+        "$set",
+        "$set_once",
+        "$unset",
+        "$group_set",
+        "$feature_flag_request_id",
+        "$debug_first_full_snapshot_timestamp",
+        "$snapshot_max_depth_exceeded",
+        "$sess_rec_flush_size",
+        "$session_recording_remote_config",
+        "$session_recording_network_payload_capture",
+        "$session_recording_canvas_recording",
+        "$replay_script_config",
+        "$sent_at",
+        "$lib_rate_limit_remaining_tokens",
+        "$lib_custom_api_host",
+    }
+)
+_TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX = "$sdk_debug_"
+
+
+def is_temporary_event_property(key: str) -> bool:
+    """Whether the native cleaner stores this top-level event property in `temporary_properties`.
+
+    A dotted key is classified by the part before its first dot, as the cleaner does before it expands the key.
+    """
+    if not key.startswith("$"):
+        return False
+    root = key.split(".", 1)[0]
+    return root in _TEMPORARY_EVENT_PROPERTY_ROOTS or root.startswith(_TEMPORARY_EVENT_PROPERTY_ROOT_PREFIX)
 
 
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
