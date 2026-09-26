@@ -184,6 +184,7 @@ the row lists both.
 | commercetools                    | HTTP                        | requests                                                        | ✅                          |
 | companycam                       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | concord                          | HTTP                        | requests                                                        | ✅                          |
+| coolify                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | conekta                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | configcat                        | HTTP                        | requests                                                        | ✅                          |
 | confluence                       | HTTP                        | requests                                                        | ✅                          |
@@ -968,7 +969,6 @@ doesn't conflict with concurrent PRs.
 - conta_azul
 - contentsquare
 - convonite
-- coolify
 - copper
 - cosmosdb
 - couchbase
