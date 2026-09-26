@@ -14,7 +14,9 @@ from posthog.api.health_issue import HealthIssueSerializer
 from posthog.constants import AvailableFeature
 from posthog.models.health_issue import HealthIssue
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -413,6 +415,26 @@ class TestHealthIssueAPI(APIBaseTest):
         summary = summary_response.json()
         self.assertEqual(summary["unsnoozed"]["total"], 1)
         self.assertEqual(summary["unsnoozed"]["by_kind"], {"sdk_outdated": 1})
+
+    @parameterized.expand(
+        [
+            ("write_scope", ["health_issue:write"], status.HTTP_200_OK, HealthIssue.Status.RESOLVED),
+            ("read_scope", ["health_issue:read"], status.HTTP_403_FORBIDDEN, HealthIssue.Status.ACTIVE),
+        ]
+    )
+    def test_resolve_with_personal_api_key(self, _name, scopes, expected_status, expected_issue_status):
+        issue = self._create_issue()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, secure_value=hash_key_value(key_value), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.post(self._url(f"/{issue.id}/resolve"), headers={"authorization": f"Bearer {key_value}"})
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, expected_issue_status)
 
     def test_resolve_already_resolved_returns_400(self):
         issue = self._create_issue(status=HealthIssue.Status.RESOLVED)
