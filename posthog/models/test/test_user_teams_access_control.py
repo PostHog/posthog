@@ -264,6 +264,66 @@ class TestUserTeamsAccessControl(BaseTest):
         self.assertIn(self.team, user_teams)
         self.assertIn(private_team, user_teams)
 
+    def test_user_teams_ignores_explicit_access_granted_to_another_member(self):
+        """Test that a grant on someone else's membership stays with that member."""
+        private_team = Team.objects.create(organization=self.organization, name="Private Team")
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            access_level="none",
+            organization_member=None,
+            role=None,
+        )
+
+        other_user = self._create_user("other@posthog.com")
+        other_membership = OrganizationMembership.objects.get(organization=self.organization, user=other_user)
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            access_level="member",
+            organization_member=other_membership,
+            role=None,
+        )
+
+        self.assertNotIn(private_team, self.user.teams.all())
+        self.assertIn(private_team, other_user.teams.all())
+
+    def test_organization_admin_does_not_see_private_teams_in_another_organization(self):
+        """Test that admin level in one organization grants no access in another."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        other_organization = Organization.objects.create(name="Other Organization")
+        # Both organizations carry the feature, because the gate reads whichever
+        # membership comes back first.
+        other_organization.available_product_features = self.organization.available_product_features
+        other_organization.save()
+        OrganizationMembership.objects.create(
+            organization=other_organization,
+            user=self.user,
+            level=OrganizationMembership.Level.MEMBER,
+        )
+
+        own_private_team = Team.objects.create(organization=self.organization, name="Own Private Team")
+        other_private_team = Team.objects.create(organization=other_organization, name="Other Private Team")
+        for team in [own_private_team, other_private_team]:
+            AccessControl.objects.create(
+                team=team,
+                resource="project",
+                resource_id=str(team.id),
+                access_level="none",
+                organization_member=None,
+                role=None,
+            )
+
+        del self.user.teams  # Clear cached property
+
+        user_teams = self.user.teams.all()
+        self.assertIn(own_private_team, user_teams)
+        self.assertNotIn(other_private_team, user_teams)
+
     def test_user_teams_multiple_organizations(self):
         """Test that user only sees teams from organizations they belong to."""
         # Create another organization with teams
@@ -391,19 +451,23 @@ class TestUserTeamsAccessControl(BaseTest):
 
     def test_user_teams_caching(self):
         """Test that the teams property is cached correctly."""
-        # Get teams once
-        teams_1 = self.user.teams.all()
-        initial_count = teams_1.count()
+        # The property is cached, so repeated access returns the same queryset.
+        teams_1 = self.user.teams
+        self.assertIs(self.user.teams, teams_1)
 
-        # Create a new team
         new_team = Team.objects.create(organization=self.organization, name="New Team")
 
-        # Teams should still be cached (same result)
-        teams_2 = self.user.teams.all()
-        self.assertEqual(teams_2.count(), initial_count)
+        # The cached value is a queryset, not a snapshot of ids, so it stays current.
+        self.assertIn(new_team, self.user.teams.all())
 
-        # Clear cache and check again
         del self.user.teams  # Clear cached property
-        teams_3 = self.user.teams.all()
-        self.assertEqual(teams_3.count(), initial_count + 1)
-        self.assertIn(new_team, teams_3)
+        self.assertIn(new_team, self.user.teams.all())
+
+    def test_user_teams_resolves_in_a_single_team_read(self):
+        for name in ["Team A", "Team B", "Team C"]:
+            Team.objects.create(organization=self.organization, name=name)
+
+        # One read for the organization's product features, one for the teams themselves.
+        with self.assertNumQueries(2):
+            teams = list(self.user.teams)
+        self.assertEqual(len(teams), 4)
