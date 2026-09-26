@@ -3,7 +3,7 @@ import json
 import base64
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -63,6 +63,7 @@ from posthog.tasks.usage_report import (
     _get_team_report,
     _get_teams_for_usage_reports,
     _get_teams_with_ai_credits_for_products,
+    apply_usage_counter_metadata,
     capture_event,
     capture_report,
     get_all_event_metrics_in_period,
@@ -75,8 +76,10 @@ from posthog.tasks.usage_report import (
     has_non_zero_usage,
     send_all_org_usage_reports,
 )
+from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.usage_counters import UsageCounter, UsageCounterQuery, UsageCounterService
 from posthog.utils import get_previous_day
 
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -1984,6 +1987,14 @@ class TestFeatureFlagsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_2_report["teams"]["5"]["local_evaluation_requests_count_in_period"] == 0
         assert org_2_report["teams"]["5"]["billable_feature_flag_requests_count_in_period"] == 0
 
+        with self.settings(DECIDE_BILLING_ANALYTICS_TOKEN="correct"):
+            for counter, expected in (
+                (UsageCounter.FEATURE_FLAG_REQUESTS, {}),
+                (UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, {3: 10, 4: 1}),
+            ):
+                query = cast(UsageCounterQuery, QUERY_INDEX[counter].fn)
+                assert {int(team_id): count for team_id, count in query(period.start, period.end)} == expected
+
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_active_hog_destinations_and_transformations_per_team(
@@ -3278,6 +3289,58 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["hog_function_fetch_calls_in_period"] == 2
         assert org_1_report["teams"]["4"]["cdp_billable_invocations_in_period"] == 3
 
+        query = cast(UsageCounterQuery, QUERY_INDEX[UsageCounter.CDP_INVOCATIONS].fn)
+        assert dict(query(period.start, period.end)) == {3: 5, 4: 3}
+
+        base_record = {
+            "schema_version": 1,
+            "record_id": "invocation-a",
+            "producer_id": "producer-a",
+            "team_id": 3,
+            "organization_id": self.org_1.id,
+            "usage_key": "cdp_billable_invocations",
+            "unit": "invocations",
+            "quantity": 2,
+            "timestamp": period.start + timedelta(hours=1),
+            "inserted_at": period.start + timedelta(hours=1),
+        }
+        corrected = {**base_record, "quantity": 5, "inserted_at": period.start + timedelta(hours=2)}
+        records = [
+            base_record,
+            corrected,
+            corrected,
+            {**base_record, "producer_id": "producer-b"},
+            {**base_record, "team_id": 4, "record_id": "invocation-b", "quantity": 3},
+            {**base_record, "usage_key": "workflow_emails_sent", "quantity": 90},
+            {**base_record, "timestamp": period.start - timedelta(days=1), "quantity": 100},
+            {**base_record, "record_id": "at-end", "timestamp": period.end, "quantity": 500},
+        ]
+        sync_execute(
+            """
+            INSERT INTO sharded_billing_usage_records
+            (schema_version, record_id, producer_id, team_id, organization_id, usage_key, unit, quantity, timestamp, inserted_at)
+            VALUES
+            """,
+            records,
+        )
+        with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
+            plan = UsageCounterService().resolve_plan(period, caller="daily_report")
+        counter_report = UsageCounterService().fetch_report(period, plan=plan)
+        assert counter_report.counter_comparisons is not None
+        assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_org == {
+            str(self.org_1.id): 10
+        }
+        apply_usage_counter_metadata(
+            all_reports, counter_report, caller="daily_report", date=period.start.date().isoformat()
+        )
+        with_shadow = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        assert with_shadow["cdp_billable_invocations_in_period"] == 8
+        assert with_shadow["counter_comparisons"] == {
+            "cdp_billable_invocations_in_period": {"legacy": 8, "realtime": 10}
+        }
+
     @patch("posthog.tasks.usage_report.get_ph_client")
     @patch("posthog.tasks.usage_report.send_report_to_billing_service")
     def test_workflow_usage_metrics(self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock) -> None:
@@ -3371,6 +3434,15 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
         assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
+
+        for counter, expected in (
+            (UsageCounter.WORKFLOW_EMAILS, {3: 10, 4: 15}),
+            (UsageCounter.WORKFLOW_PUSH, {3: 5, 4: 7}),
+            (UsageCounter.WORKFLOW_SMS, {3: 3, 4: 2}),
+            (UsageCounter.WORKFLOW_INVOCATIONS, {3: 13, 4: 19}),
+        ):
+            query = cast(UsageCounterQuery, QUERY_INDEX[counter].fn)
+            assert dict(query(period.start, period.end)) == expected
 
     @parameterized.expand(
         [
