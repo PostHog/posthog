@@ -4738,7 +4738,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
     def test_the_flag_switches_the_whole_ranker_between_weighted_score_and_jev(self) -> None:
         # The two rankers are independent: a cached Jev probability must not move the weighted-score
         # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
-        # probabilities alone, with unjudged rows below every judged row as filler.
+        # probabilities alone, with unjudged and judged-low rows in the recency filler tier.
         scanner = self._create_scanner(name="m")
         jev_high = self._succeeded_observation(scanner, "jev-high", 40, self._monitor_result("no"))
         self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
@@ -4754,6 +4754,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                 input_tokens=10,
                 estimated_cost_usd=0.0,
             ),
+            "window-fp",
         )
 
         ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
@@ -4773,12 +4774,14 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         with patch(ranker, return_value="jev"):
             resp = self.client.get(self.feed_url)
         items = resp.json()["results"]
+        # jev-high carries evidence; the 0.2 row and the unjudged row fall to the filler tier by
+        # recency, so neither claims the model judged it worth watching.
         self.assertEqual(
             [item["observation"]["session_id"] for item in items],
             ["jev-high", "jev-low", "signal"],
         )
         self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
-        self.assertEqual(items[1]["reason"], {"kind": "jev_watchable", "jev_probability": 0.2})
+        self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
         self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
 
     def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
