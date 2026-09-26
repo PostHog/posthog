@@ -1,4 +1,5 @@
 import api, { ApiMethodOptions, isAbortError } from 'lib/api'
+import { isTransientServerError } from 'lib/api-error'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -63,6 +64,8 @@ export function waitForPageVisible(signal?: AbortSignal): Promise<void> {
 }
 
 const QUERY_ASYNC_MAX_INTERVAL_SECONDS = 3
+/** Consecutive gateway failures a poll survives before it gives up on the query. */
+const QUERY_ASYNC_MAX_TRANSIENT_FAILURES = 3
 const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-side timeout (currently 10min) + a small buffer
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 /** Matches MANAGED_WAREHOUSE_QUERY_UNAVAILABLE_CODE in posthog/api/query.py. */
@@ -125,6 +128,7 @@ export async function pollForResults(
     // ever getting a chance to poll, and the query "times out" despite never really being tried.
     let activeElapsedMs = 0
     let currentDelay = 300 // start low, because all queries will take at minimum this
+    let consecutiveTransientFailures = 0
 
     while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
         await waitForPageVisible(methodOptions?.signal)
@@ -135,6 +139,7 @@ export async function pollForResults(
 
         try {
             const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
+            consecutiveTransientFailures = 0
             if (statusResponse.complete) {
                 return statusResponse
             }
@@ -142,6 +147,16 @@ export async function pollForResults(
                 onPoll(statusResponse)
             }
         } catch (e: any) {
+            // A 502/503/504 says the gateway could not reach the backend, which most likely still
+            // computes the query. Keep polling on the same backoff, so a blip shorter than one
+            // interval does not end a run that has already taken minutes.
+            if (isTransientServerError(e)) {
+                consecutiveTransientFailures += 1
+                if (consecutiveTransientFailures <= QUERY_ASYNC_MAX_TRANSIENT_FAILURES) {
+                    continue
+                }
+            }
+
             // Parse error message to extract clean message and code if present
             const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
