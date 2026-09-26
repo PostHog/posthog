@@ -41,6 +41,7 @@ jobs:
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}
+            ai_research_replay_files: ${{ steps.filter.outputs.ai_research_replay_files }}
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -68,6 +69,28 @@ jobs:
                         - 'common/replay-shared/**'
                         - 'common/replay-headless/**'
                         - 'rust/common/hogvm/**'
+                        - 'rust/replay-anonymizer/**'
+                        - 'rust/replay-anonymizer-node/**'
+                        - 'Dockerfile.node'
+                        - '.github/workflows/ci-nodejs-container.yml'
+                        - 'turbo.json'
+                        - 'package.json'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+                      # The AI research session replay lanes run this image from a separate deploy target, so that a deploy of unrelated node code does not restart them and empty their caches.
+                      # The servers of these lanes import across these trees, so the list holds whole trees and not single files.
+                      ai_research_replay_files:
+                        - 'nodejs/src/ingestion/pipelines/sessionreplay/**'
+                        - 'nodejs/src/ingestion/framework/**'
+                        - 'nodejs/src/ingestion/common/**'
+                        - 'nodejs/src/ingestion/config.ts'
+                        - 'nodejs/src/common/**'
+                        - 'nodejs/src/servers/**'
+                        - 'nodejs/src/index.ts'
+                        - 'nodejs/src/lifecycle.ts'
+                        - 'nodejs/src/capabilities.ts'
+                        - 'nodejs/src/types.ts'
+                        - 'nodejs/package.json'
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.node'
@@ -217,6 +240,28 @@ jobs:
                           }
                         },
                         "release": "node",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            # The ApplicationSets of the AI research replay lanes in PostHog/charts read state/node-ai-research-session-replay-data.yaml instead of state/node.yaml.
+            - name: Trigger node-ai-research-session-replay-data deployment
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true' && needs.changes.outputs.ai_research_replay_files == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "node-ai-research-session-replay-data",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},
