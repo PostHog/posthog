@@ -2990,14 +2990,14 @@ Note: Endpoint list extracted from the \*.api URLs on the developers page. Also 
 
 ## Factorial — **thin**
 
-Today (17): `allowances`, `applications`, `attendance_shifts`, `candidates`, `contract_versions`, `employees`, `expenses`, `flexible_time_records`, `job_postings`, `leave_types`, `leaves`, `legal_entities`, `locations`, `payroll_supplements`, `projects`, `team_memberships`, `teams`
+Today (21): `allowance_stats`, `allowances`, `applications`, `attendance_shifts`, `candidates`, `compensations`, `contract_versions`, `employees`, `expenses`, `flexible_time_records`, `job_postings`, `leave_types`, `leaves`, `legal_entities`, `locations`, `payroll_supplements`, `projects`, `team_memberships`, `teams`, `time_records`, `worked_times`
 
 Diffed against: <https://apidoc.factorialhr.com/reference>
 
-- [ ] `attendance/worked_times` — aggregated worked time per employee and day - the headline attendance metric, currently only raw shifts are synced (high)
-- [ ] `project_management/time_records` — time booked against projects; projects are synced but the time booked to them is not (high)
-- [ ] `contracts/compensations` — salary and compensation amounts attached to contract versions we already sync (high)
-- [ ] `timeoff/allowance_stats` — consumed vs remaining balance per employee and allowance - the number leave reporting actually needs (high)
+- [x] `attendance/worked_times` — aggregated worked time per employee and day - the headline attendance metric, currently only raw shifts are synced (high)
+- [x] `project_management/time_records` — time booked against projects; projects are synced but the time booked to them is not (high)
+- [x] `contracts/compensations` — salary and compensation amounts attached to contract versions we already sync (high)
+- [x] `timeoff/allowance_stats` — consumed vs remaining balance per employee and allowance - the number leave reporting actually needs (high)
 - [ ] `ats/hiring_stages and ats/application_phases` — lookup tables resolving the stage/phase id carried on every synced application (high)
 - [ ] `finance/cost_centers` — lookup table for cost allocation across employees, expenses and projects (high)
 - [ ] `employee_updates/terminations` — attrition events with dates and reasons; headcount churn is not derivable from the employees snapshot (high)
