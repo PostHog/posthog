@@ -1,16 +1,24 @@
 import re
 from typing import Optional, cast
 
+from django.db import transaction
+
+from posthog.models.integration import Integration, OauthIntegration
+
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     required_parents_from_endpoint_configs,
@@ -28,15 +36,43 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
     ZENDESK_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import (
+    ZendeskCredentials,
     normalize_subdomain,
     validate_credentials,
     zendesk_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+ZENDESK_AUTH_FAILED = (
+    "Zendesk authentication failed. Please check your API token and subdomain, or reconnect your Zendesk account."
+)
+
+
+def resolve_zendesk_oauth_token(integration_id: int, team_id: int) -> str:
+    """Return a valid access token, refreshing it under a row lock when it is near expiry.
+
+    Zendesk rotates the refresh token on every refresh. The lock stops parallel schema syncs that
+    share one integration from spending the same refresh token twice.
+    """
+    with transaction.atomic():
+        try:
+            integration = Integration.objects.select_for_update().get(
+                id=integration_id, team_id=team_id, kind="zendesk"
+            )
+        except Integration.DoesNotExist:
+            raise ValueError("Integration not found")
+        oauth = OauthIntegration(integration)
+        if oauth.access_token_expired():
+            oauth.refresh_access_token()
+        token = integration.access_token
+
+    if not token:
+        raise ValueError("Zendesk access token not found")
+    return token
+
 
 @SourceRegistry.register
-class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
+class ZendeskSource(OAuthMixin, SimpleSource[ZendeskSourceConfig]):
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.zendesk.com/api-reference"
@@ -57,10 +93,30 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "404 Client Error: Not Found for url": "Zendesk authentication failed. Please check your API token and subdomain.",
-            "403 Client Error: Forbidden for url": "Zendesk authentication failed. Please check your API token and subdomain.",
-            "401 Client Error": "Zendesk authentication failed. Please check your API token and subdomain.",
+            "404 Client Error: Not Found for url": ZENDESK_AUTH_FAILED,
+            "403 Client Error: Forbidden for url": ZENDESK_AUTH_FAILED,
+            "401 Client Error": ZENDESK_AUTH_FAILED,
+            "Missing Zendesk integration ID": "No Zendesk account is connected. Connect your Zendesk account and try again.",
+            "Integration not found": "The linked Zendesk connection no longer exists. Please reconnect your Zendesk account.",
+            "Zendesk access token not found": "The Zendesk connection has no access token. Please reconnect your Zendesk account.",
         }
+
+    def _credentials(self, config: ZendeskSourceConfig, team_id: int) -> ZendeskCredentials:
+        auth = config.auth_method
+        if auth.selection == "api_key":
+            if not auth.api_key or not auth.email_address:
+                raise ValueError("Enter your Zendesk email address and API token.")
+            return ZendeskCredentials(
+                subdomain=auth.subdomain or "", email_address=auth.email_address, api_key=auth.api_key
+            )
+
+        if not auth.zendesk_integration_id:
+            raise ValueError("Missing Zendesk integration ID")
+        integration = self.get_oauth_integration(auth.zendesk_integration_id, team_id)
+        return ZendeskCredentials(
+            subdomain=integration.config.get("subdomain") or "",
+            access_token=resolve_zendesk_oauth_token(integration.id, team_id),
+        )
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         return required_parents_from_endpoint_configs(ZENDESK_ENDPOINTS, schema_name)
@@ -105,14 +161,25 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        subdomain = normalize_subdomain(config.subdomain)
+        try:
+            credentials = self._credentials(config, team_id)
+        except ValueError as e:
+            raw = str(e)
+            for pattern, friendly in self.get_non_retryable_errors().items():
+                if friendly and pattern in raw:
+                    return False, friendly
+            return False, raw
+
+        subdomain = normalize_subdomain(credentials.subdomain)
         subdomain_regex = re.compile("^[a-zA-Z0-9-]+$")
         if not subdomain_regex.match(subdomain):
             return False, "Zendesk subdomain is incorrect"
 
-        if validate_credentials(subdomain, config.api_key, config.email_address):
+        if validate_credentials(credentials):
             return True, None
 
+        if config.auth_method.selection == "oauth":
+            return False, "Zendesk rejected the connection. Reconnect your Zendesk account, then try again."
         return (
             False,
             "Zendesk rejected the credentials. Check the subdomain, email address, and API token are correct, "
@@ -124,36 +191,68 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         return SourceConfig(
             name=ExternalDataSourceType.ZENDESK,
             category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
-            caption="Enter your Zendesk API key to automatically pull your Zendesk support data into the PostHog Data warehouse.",
+            caption="Connect your Zendesk account, or enter a Zendesk API token, to automatically pull your Zendesk support data into the PostHog Data warehouse.",
             iconPath="/static/services/zendesk.png",
             iconClassName="rounded dark:bg-white p-[2px]",
             docsUrl="https://posthog.com/docs/cdp/sources/zendesk",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="subdomain",
-                        label="Zendesk subdomain",
-                        type=SourceFieldInputConfigType.TEXT,
+                    SourceFieldSelectConfig(
+                        name="auth_method",
+                        label="Authentication type",
                         required=True,
-                        placeholder="",
-                        secret=False,
-                    ),
-                    SourceFieldInputConfig(
-                        name="api_key",
-                        label="API key",
-                        type=SourceFieldInputConfigType.PASSWORD,
-                        required=True,
-                        placeholder="",
-                        secret=True,
-                    ),
-                    SourceFieldInputConfig(
-                        name="email_address",
-                        label="Zendesk email address",
-                        type=SourceFieldInputConfigType.EMAIL,
-                        required=True,
-                        placeholder="",
-                        secret=False,
+                        defaultValue="api_key",
+                        options=[
+                            SourceFieldSelectConfigOption(
+                                label="API token",
+                                value="api_key",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldInputConfig(
+                                            name="subdomain",
+                                            label="Zendesk subdomain",
+                                            type=SourceFieldInputConfigType.TEXT,
+                                            required=False,
+                                            placeholder="",
+                                            secret=False,
+                                        ),
+                                        SourceFieldInputConfig(
+                                            name="api_key",
+                                            label="API key",
+                                            type=SourceFieldInputConfigType.PASSWORD,
+                                            required=False,
+                                            placeholder="",
+                                            secret=True,
+                                        ),
+                                        SourceFieldInputConfig(
+                                            name="email_address",
+                                            label="Zendesk email address",
+                                            type=SourceFieldInputConfigType.EMAIL,
+                                            required=False,
+                                            placeholder="",
+                                            secret=False,
+                                        ),
+                                    ],
+                                ),
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="OAuth",
+                                value="oauth",
+                                fields=cast(
+                                    list[FieldType],
+                                    [
+                                        SourceFieldOauthConfig(
+                                            name="zendesk_integration_id",
+                                            label="Zendesk account",
+                                            required=False,
+                                            kind="zendesk",
+                                        ),
+                                    ],
+                                ),
+                            ),
+                        ],
                     ),
                 ],
             ),
@@ -161,9 +260,7 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
 
     def source_for_pipeline(self, config: ZendeskSourceConfig, inputs: SourceInputs) -> SourceResponse:
         resource = zendesk_source(
-            subdomain=config.subdomain,
-            api_key=config.api_key,
-            email_address=config.email_address,
+            credentials=self._credentials(config, inputs.team_id),
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,

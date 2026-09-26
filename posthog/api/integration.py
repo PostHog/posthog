@@ -101,6 +101,7 @@ from posthog.models.integration import (
     StripeIntegration,
     TwilioIntegration,
     defer_repository_cache_fields,
+    normalize_zendesk_subdomain,
     resolve_aliased_oauth_kind,
 )
 from posthog.models.integration.github_audit import GitHubAudit
@@ -1489,6 +1490,13 @@ class IntegrationViewSet(
         if kind in OauthIntegration.supported_kinds:
             region: str | None = None
             scopes: list[str] | None = None
+            subdomain: str | None = None
+            if kind == "zendesk":
+                subdomain = normalize_zendesk_subdomain(request.GET.get("subdomain"))
+                if not subdomain:
+                    raise ValidationError(
+                        "Enter your Zendesk subdomain, for example 'mycompany' for mycompany.zendesk.com."
+                    )
             if kind == "posthog":
                 region = (request.GET.get("region") or "").upper()
                 if region not in POSTHOG_CONNECT_ALLOWED_REGIONS:
@@ -1505,7 +1513,13 @@ class IntegrationViewSet(
                         raise ValidationError(f"Unsupported connection scopes: {', '.join(invalid)}")
             try:
                 auth_url = OauthIntegration.authorize_url(
-                    kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
+                    kind,
+                    next=next,
+                    token=token,
+                    region=region,
+                    scopes=scopes,
+                    team_id=self.team_id,
+                    subdomain=subdomain,
                 )
                 # Capture the hand-off to the provider's authorize page. A rejection there (e.g.
                 # TikTok's "app has been blocked") never returns to us, so this is the only leg we

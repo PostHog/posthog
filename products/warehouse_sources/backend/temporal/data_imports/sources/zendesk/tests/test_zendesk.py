@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zendesk import (
+    ZendeskAuthMethodConfig,
     ZendeskSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.settings import (
@@ -33,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.se
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source import ZendeskSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import (
     ZendeskAfterUrlPaginator,
+    ZendeskCredentials,
     ZendeskCursorIncrementalPaginator,
     ZendeskIncrementalEndpointPaginator,
     get_declarative_resource,
@@ -52,6 +54,13 @@ def _make_response(json_body: dict[str, Any] | None = None) -> Response:
     return resp
 
 
+_TOKEN_CONFIG = ZendeskSourceConfig(
+    auth_method=ZendeskAuthMethodConfig(
+        selection="api_key", subdomain="nibbles", api_key="token", email_address="user@example.com"
+    )
+)
+
+
 def _endpoint(resource: Any) -> dict[str, Any]:
     # resource["endpoint"] is typed Optional[str | Endpoint]; narrow it for key access.
     return cast(dict[str, Any], resource["endpoint"])
@@ -59,7 +68,7 @@ def _endpoint(resource: Any) -> dict[str, Any]:
 
 class TestZendeskValidateCredentials:
     def _config(self) -> ZendeskSourceConfig:
-        return ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
+        return _TOKEN_CONFIG
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.validate_credentials",
@@ -80,6 +89,36 @@ class TestZendeskValidateCredentials:
     )
     def test_accepts_valid_credentials(self, _mock_validate) -> None:
         assert ZendeskSource().validate_credentials(self._config(), team_id=1) == (True, None)
+
+    def test_token_credentials_use_basic_auth(self) -> None:
+        credentials = ZendeskSource()._credentials(self._config(), team_id=1)
+
+        assert credentials.base_url == "https://nibbles.zendesk.com"
+        assert credentials.authorization_header.startswith("Basic ")
+
+    def test_oauth_credentials_use_the_integration_subdomain_and_bearer_token(self) -> None:
+        config = ZendeskSourceConfig(auth_method=ZendeskAuthMethodConfig(selection="oauth", zendesk_integration_id=7))
+        integration = SimpleNamespace(id=7, config={"subdomain": "acme"})
+
+        with (
+            patch.object(ZendeskSource, "get_oauth_integration", return_value=integration),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.resolve_zendesk_oauth_token",
+                return_value="at_1",
+            ),
+        ):
+            credentials = ZendeskSource()._credentials(config, team_id=1)
+
+        assert credentials.base_url == "https://acme.zendesk.com"
+        assert credentials.authorization_header == "Bearer at_1"
+
+    def test_oauth_without_integration_asks_to_connect(self) -> None:
+        config = ZendeskSourceConfig(auth_method=ZendeskAuthMethodConfig(selection="oauth"))
+
+        valid, error = ZendeskSource().validate_credentials(config, team_id=1)
+
+        assert not valid
+        assert error is not None and "Connect your Zendesk account" in error
 
 
 class TestNormalizeSubdomain:
@@ -570,9 +609,7 @@ class TestZendeskTicketCommentsFanout:
             return_value=[_FakeResource("tickets_for_comments"), child],
         ) as mock_resources:
             zendesk_source(
-                subdomain="nibbles",
-                api_key="token",
-                email_address="user@example.com",
+                credentials=ZendeskCredentials(subdomain="nibbles", email_address="user@example.com", api_key="token"),
                 endpoint="ticket_comments",
                 team_id=1,
                 job_id="job-1",
@@ -646,9 +683,7 @@ class TestZendeskTicketCommentsWarehouseParent:
             ) as mock_resolve,
         ):
             zendesk_source(
-                subdomain="nibbles",
-                api_key="token",
-                email_address="user@example.com",
+                credentials=ZendeskCredentials(subdomain="nibbles", email_address="user@example.com", api_key="token"),
                 endpoint="ticket_comments",
                 team_id=1,
                 job_id="job-1",
@@ -728,9 +763,7 @@ class TestZendeskTicketCommentsWarehouseParent:
             ),
         ):
             zendesk_source(
-                subdomain="nibbles",
-                api_key="token",
-                email_address="user@example.com",
+                credentials=ZendeskCredentials(subdomain="nibbles", email_address="user@example.com", api_key="token"),
                 endpoint="ticket_comments",
                 team_id=1,
                 job_id="job-1",
@@ -762,7 +795,7 @@ class TestZendeskRequiredParentSchemas:
         assert ZendeskSource().get_required_parent_schemas(schema_name) == expected
 
     def test_source_for_pipeline_forwards_the_source_and_the_reuse_decision(self) -> None:
-        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
+        config = _TOKEN_CONFIG
         inputs = _source_inputs("ticket_comments")
         inputs.fanout_warehouse_reuse = True
 
@@ -778,11 +811,11 @@ class TestZendeskRequiredParentSchemas:
 
 class TestZendeskSchemas:
     def _schemas(self) -> dict[str, Any]:
-        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
+        config = _TOKEN_CONFIG
         return {schema.name: schema for schema in ZendeskSource().get_schemas(config, team_id=1)}
 
     def test_every_declared_endpoint_is_offered_exactly_once(self) -> None:
-        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
+        config = _TOKEN_CONFIG
         names = [schema.name for schema in ZendeskSource().get_schemas(config, team_id=1)]
 
         assert len(names) == len(set(names))
@@ -804,7 +837,7 @@ class TestZendeskSchemas:
 
 class TestZendeskSourceForPipeline:
     def _response(self, schema_name: str) -> Any:
-        config = ZendeskSourceConfig(subdomain="nibbles", api_key="token", email_address="user@example.com")
+        config = _TOKEN_CONFIG
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.source.zendesk_source",
             return_value=SimpleNamespace(name=schema_name, column_hints=None),

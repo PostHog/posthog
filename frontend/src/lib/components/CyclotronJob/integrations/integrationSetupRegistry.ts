@@ -22,6 +22,8 @@ export type IntegrationSetupDefinition = {
         integration?: any
         onComplete: (id?: number) => void
         onClose: () => void
+        redirectUrl?: string
+        beforeRedirect?: () => void
     }>
 }
 
