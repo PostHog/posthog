@@ -4,6 +4,8 @@ ENDPOINTS = (
     "Customers",
     "Events",
     "Invoices",
+    "ItemPrices",
+    "Items",
     "Orders",
     "Subscriptions",
     "Transactions",
@@ -13,6 +15,8 @@ INCREMENTAL_ENDPOINTS = (
     "Customers",
     "Events",
     "Invoices",
+    "ItemPrices",
+    "Items",
     "Orders",
     "Subscriptions",
     "Transactions",
@@ -36,6 +40,22 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
         },
     ],
     "Invoices": [
+        {
+            "label": "updated_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "updated_at",
+            "field_type": IncrementalFieldType.Integer,
+        },
+    ],
+    "ItemPrices": [
+        {
+            "label": "updated_at",
+            "type": IncrementalFieldType.DateTime,
+            "field": "updated_at",
+            "field_type": IncrementalFieldType.Integer,
+        },
+    ],
+    "Items": [
         {
             "label": "updated_at",
             "type": IncrementalFieldType.DateTime,
