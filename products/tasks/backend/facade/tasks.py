@@ -11,8 +11,14 @@ from celery import shared_task
 from products.tasks.backend.loop_reconciliation import reconcile_loop_trigger_schedules_task
 from products.tasks.backend.loop_retention import sweep_loop_task_retention_task
 from products.tasks.backend.task_auto_archive import sweep_inactive_tasks_task
+from products.tasks.backend.task_run_reconciliation import reconcile_stale_in_progress_task_runs_task
 
-__all__ = ["reconcile_loop_trigger_schedules_task", "sweep_inactive_tasks_task", "sweep_loop_task_retention_task"]
+__all__ = [
+    "reconcile_loop_trigger_schedules_task",
+    "reconcile_stale_in_progress_task_runs_task",
+    "sweep_inactive_tasks_task",
+    "sweep_loop_task_retention_task",
+]
 
 logger = logging.getLogger(__name__)
 

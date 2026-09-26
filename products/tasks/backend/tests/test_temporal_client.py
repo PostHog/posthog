@@ -1,17 +1,25 @@
+import asyncio
+
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from asgiref.sync import async_to_sync
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
+from temporalio.api.common.v1 import GrpcStatus
+from temporalio.api.errordetails.v1 import NamespaceNotFoundFailure
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.client import (
+    describe_task_run_workflow_liveness,
     execute_task_processing_workflow,
     execute_task_processing_workflow_async,
     redispatch_orphaned_task_run,
@@ -572,3 +580,113 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         start_workflow.assert_not_called()
         run.refresh_from_db()
         self.assertEqual(run.status, TaskRun.Status.QUEUED)
+
+
+def _namespace_not_found_error() -> RPCError:
+    status = GrpcStatus(code=RPCStatusCode.NOT_FOUND.value, message="namespace not found")
+    status.details.add().Pack(NamespaceNotFoundFailure(namespace="missing-ns"))
+    return RPCError("namespace not found", RPCStatusCode.NOT_FOUND, status.SerializeToString())
+
+
+@override_settings(DEBUG=False)
+class TestDescribeTaskRunWorkflowLiveness(SimpleTestCase):
+    def _client(self, outcomes):
+        handles = []
+        for outcome in outcomes:
+            handle = Mock()
+            handle.describe = AsyncMock()
+            if isinstance(outcome, Exception):
+                handle.describe.side_effect = outcome
+            elif callable(outcome):
+                handle.describe.side_effect = outcome
+            else:
+                handle.describe.return_value = Mock(status=outcome)
+            handles.append(handle)
+        client = Mock()
+        client.get_workflow_handle.side_effect = handles
+        return client
+
+    @parameterized.expand(
+        [
+            (WorkflowExecutionStatus.RUNNING, "running"),
+            (WorkflowExecutionStatus.TERMINATED, "gone"),
+            (WorkflowExecutionStatus.COMPLETED, "gone"),
+        ]
+    )
+    def test_maps_execution_status_to_liveness(self, execution_status, expected):
+        client = self._client([execution_status])
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            result = describe_task_run_workflow_liveness(["wf-1"])
+
+        self.assertEqual(result, {"wf-1": expected})
+
+    @parameterized.expand(
+        [
+            # Absence is the only verdict an error may prove; a reaper acts on it.
+            (RPCStatusCode.NOT_FOUND, "gone"),
+            # Says nothing about the workflow, so the run keeps its benefit of the doubt.
+            (RPCStatusCode.PERMISSION_DENIED, "unknown"),
+        ]
+    )
+    def test_maps_per_workflow_rpc_error_to_liveness(self, status, expected):
+        client = self._client([RPCError("boom", status, b"")])
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            result = describe_task_run_workflow_liveness(["wf-1"])
+
+        self.assertEqual(result, {"wf-1": expected})
+
+    @parameterized.expand(
+        [
+            ("unavailable", RPCError("down", RPCStatusCode.UNAVAILABLE, b"")),
+            ("deadline_exceeded", RPCError("down", RPCStatusCode.DEADLINE_EXCEEDED, b"")),
+            ("resource_exhausted", RPCError("down", RPCStatusCode.RESOURCE_EXHAUSTED, b"")),
+            # Carries the same NOT_FOUND status as a missing workflow, so without the detail
+            # check a namespace anomaly would read as proof that every id in the batch ended.
+            ("namespace_not_found", _namespace_not_found_error()),
+        ]
+    )
+    def test_temporal_wide_failure_stops_the_batch(self, _name, error):
+        client = self._client([WorkflowExecutionStatus.RUNNING, error, WorkflowExecutionStatus.RUNNING])
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            result = describe_task_run_workflow_liveness(["wf-1", "wf-2", "wf-3"])
+
+        # The third workflow is never described: hammering a degraded Temporal would only burn
+        # the sweep's time limit. Omitting it reads as `unknown`, which is what it would have got.
+        self.assertEqual(result, {"wf-1": "running"})
+        self.assertEqual(client.get_workflow_handle.call_count, 2)
+
+    def test_batch_time_budget_keeps_the_verdicts_already_collected(self):
+        async def answers_too_late(**_):
+            await asyncio.sleep(5)
+            return Mock(status=WorkflowExecutionStatus.RUNNING)
+
+        client = self._client([WorkflowExecutionStatus.RUNNING, answers_too_late, WorkflowExecutionStatus.RUNNING])
+
+        with (
+            patch("products.tasks.backend.temporal.client._LIVENESS_BATCH_TIMEOUT_SECONDS", 0.05),
+            patch("products.tasks.backend.temporal.client.sync_connect", return_value=client),
+        ):
+            result = describe_task_run_workflow_liveness(["wf-1", "wf-2", "wf-3"])
+
+        # One hung frontend call must not spend the sweep's whole tick. The verdict already
+        # collected survives the budget, so the sweep still reaps on it; the two ids left out
+        # read as `unknown`.
+        self.assertEqual(result, {"wf-1": "running"})
+
+    def test_sweep_deadline_is_not_reported_as_a_workflow_verdict(self):
+        client = self._client([WorkflowExecutionStatus.RUNNING, SoftTimeLimitExceeded()])
+
+        with patch("products.tasks.backend.temporal.client.sync_connect", return_value=client):
+            # Celery's deadline says nothing about any workflow, so it must unwind the task
+            # instead of reading as one id Temporal could not answer for.
+            with self.assertRaises(SoftTimeLimitExceeded):
+                describe_task_run_workflow_liveness(["wf-1", "wf-2"])
+
+    def test_connect_failure_reports_every_workflow_unknown(self):
+        with patch("products.tasks.backend.temporal.client.sync_connect", side_effect=RuntimeError("no temporal")):
+            result = describe_task_run_workflow_liveness(["wf-1", "wf-2"])
+
+        self.assertEqual(result, {"wf-1": "unknown", "wf-2": "unknown"})
