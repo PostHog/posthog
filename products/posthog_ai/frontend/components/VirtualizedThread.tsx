@@ -984,7 +984,7 @@ function Root<T>({
                     </div>
                 </div>
                 {awayFromLatest && (
-                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
+                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded bg-surface-primary shadow">
                         <LemonButton
                             type="secondary"
                             size="small"
