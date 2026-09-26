@@ -16,6 +16,7 @@ use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 use std::result::Result::Ok;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::log::{debug, info};
 
@@ -117,6 +118,12 @@ pub struct KafkaSink {
     logs_topic: String,
     traces_topic: String,
     metrics_topic: String,
+    // Shared, because `KafkaSink` is cloned into every request's state and a `Schema` clone is
+    // a few hundred allocations.
+    logs_schema: Arc<Schema>,
+    traces_schema: Arc<Schema>,
+    metrics_schema: Arc<Schema>,
+    logs_message_max_bytes: usize,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -323,7 +330,17 @@ impl KafkaSink {
             logs_topic: config.kafka_topic,
             traces_topic: config.kafka_traces_topic,
             metrics_topic: config.kafka_metrics_topic,
+            logs_schema: Arc::new(Schema::parse_str(AVRO_SCHEMA)?),
+            traces_schema: Arc::new(Schema::parse_str(TRACES_AVRO_SCHEMA)?),
+            metrics_schema: Arc::new(Schema::parse_str(METRICS_AVRO_SCHEMA)?),
+            logs_message_max_bytes: config.kafka_producer_message_max_bytes as usize,
         })
+    }
+
+    /// The producer's `message.max.bytes` for the logs topic, so an intake that chunks a large
+    /// delivery can size its batches against the real cap instead of a guess.
+    pub fn logs_message_max_bytes(&self) -> usize {
+        self.logs_message_max_bytes
     }
 
     pub fn flush(&self) -> Result<(), KafkaError> {
@@ -338,16 +355,15 @@ impl KafkaSink {
         &self,
         producer: &FutureProducer<KafkaContext>,
         topic: &str,
-        avro_schema_str: &str,
+        schema: &Schema,
         token: &str,
         rows: &[T],
         uncompressed_bytes: u64,
         records_uncompressed_bytes: Option<u64>,
         timestamps_overridden: u64,
     ) -> Result<(), anyhow::Error> {
-        let schema = Schema::parse_str(avro_schema_str)?;
         let mut writer = Writer::with_codec(
-            &schema,
+            schema,
             Vec::new(),
             Codec::Zstandard(ZstandardSettings::new(1)),
         );
@@ -442,7 +458,7 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.logs_producer,
             &self.logs_topic,
-            AVRO_SCHEMA,
+            &self.logs_schema,
             token,
             &rows,
             uncompressed_bytes,
@@ -472,7 +488,7 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.traces_producer,
             &self.traces_topic,
-            TRACES_AVRO_SCHEMA,
+            &self.traces_schema,
             token,
             &rows,
             uncompressed_bytes,
@@ -502,7 +518,7 @@ impl KafkaSink {
         self.write_avro_batch(
             &self.metrics_producer,
             &self.metrics_topic,
-            METRICS_AVRO_SCHEMA,
+            &self.metrics_schema,
             token,
             &rows,
             uncompressed_bytes,
