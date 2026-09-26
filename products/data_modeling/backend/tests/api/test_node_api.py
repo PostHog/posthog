@@ -12,7 +12,9 @@ from rest_framework import status
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models import Team
+from posthog.models.organization import OrganizationMembership
 
+from products.data_modeling.backend.graph import Graph
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_modeling.backend.logic.node_materialization import start_node_materialization
 from products.data_modeling.backend.logic.node_suspension import (
@@ -20,9 +22,13 @@ from products.data_modeling.backend.logic.node_suspension import (
     suspension_reset_at,
     suspension_state,
 )
+from products.data_modeling.backend.logic.node_visibility import NodeVisibility
 from products.data_modeling.backend.models import DAG, DataModelingJob, DataModelingJobEngine, Edge, Node, NodeType
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.test.helpers import table_node
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestNodeViewSet(APIBaseTest):
@@ -851,19 +857,18 @@ class TestMetricNodeAPI(APIBaseTest):
 
 
 @pytest.mark.ee
-class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
+class TestNodeVisibility(WarehouseAccessControlTestMixin):
     resource = "warehouse_objects"
 
     def setUp(self):
         super().setUp()
         self.dag = DAG.objects.create(team=self.team, name=f"posthog_{self.team.id}")
+        self.accounts_query = self._saved_query("accounts")
         self.view_node = Node.objects.create(
-            team=self.team,
-            dag=self.dag,
-            saved_query=DataWarehouseSavedQuery.objects.create(
-                name="accounts", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
-            ),
-            type=NodeType.VIEW,
+            team=self.team, dag=self.dag, saved_query=self.accounts_query, type=NodeType.VIEW
+        )
+        self.orders_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self._saved_query("orders"), type=NodeType.VIEW
         )
         self.metric_node = Node.objects.create(
             team=self.team,
@@ -872,15 +877,76 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
             type=NodeType.METRIC,
             metric_id=uuid4(),
         )
+
+        self.stripe_source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="",
+        )
+        self.charges_table = DataWarehouseTable.objects.create(
+            name="charges", team=self.team, external_data_source=self.stripe_source
+        )
+        self.customers_table = DataWarehouseTable.objects.create(name="customers", team=self.team)
+
+        self.charges_node = table_node(
+            self.team, self.dag, "charges", {"origin": "warehouse", "warehouse_table_id": str(self.charges_table.id)}
+        )
+        self.charges_by_key_node = table_node(self.team, self.dag, "stripe.charges", {"origin": "warehouse"})
+        self.customers_by_row_name_node = table_node(self.team, self.dag, "customers", {"origin": "warehouse"})
+        self.events_node = table_node(self.team, self.dag, "events", {"origin": "posthog"})
+        self.accounts_placeholder_node = table_node(
+            self.team,
+            self.dag,
+            "accounts_ref",
+            {"origin": "cross_dag_view", "saved_query_id": str(self.accounts_query.id)},
+        )
+
+        self.stale_query = self._saved_query("stale")
+        self.stale_node = Node.objects.create(
+            team=self.team, dag=self.dag, saved_query=self.stale_query, type=NodeType.VIEW
+        )
+
         self.edge = Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=self.metric_node)
-        self._create_access_control(self.viewer_user, access_level="viewer")
+        self.orders_to_accounts = Edge.objects.create(
+            team=self.team, dag=self.dag, source=self.orders_node, target=self.view_node
+        )
+        self.charges_to_orders = Edge.objects.create(
+            team=self.team, dag=self.dag, source=self.charges_node, target=self.orders_node
+        )
+
+        self._create_access_control(self.viewer_user, access_level="editor")
         self.client.force_login(self.viewer_user)
+
+    def _saved_query(self, name: str) -> DataWarehouseSavedQuery:
+        return DataWarehouseSavedQuery.objects.create(
+            name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
 
     def _catalog_access(self, access_level: str) -> None:
         if access_level == "none":
             self._create_project_default(resource="data_catalog", access_level="none")
         else:
             self._create_access_control(self.viewer_user, resource="data_catalog", access_level=access_level)
+
+    def _deny(self, resource: str, resource_id) -> None:
+        self._create_access_control(
+            self.viewer_user, resource=resource, resource_id=str(resource_id), access_level="none"
+        )
+
+    def _node_url(self) -> str:
+        return f"/api/environments/{self.team.id}/data_modeling_nodes/"
+
+    def _listed_nodes(self) -> dict[str, dict]:
+        response = self.client.get(self._node_url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {node["id"]: node for node in response.json()["results"]}
+
+    def _lineage(self, **params) -> dict:
+        query = "&".join(f"{key}={value}" for key, value in params.items())
+        return self.client.get(f"{self._node_url()}lineage/?{query}").json()
 
     @parameterized.expand(
         [
@@ -891,9 +957,8 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
     def test_nodes_are_visible_only_with_catalog_access(self, _name, catalog_access, expected_visible):
         self._catalog_access(catalog_access)
 
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+        node_ids = self._listed_nodes().keys()
 
-        node_ids = {node["id"] for node in response.json()["results"]}
         self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
         self.assertIn(str(self.view_node.id), node_ids)
 
@@ -913,17 +978,14 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
-            ("counts_hidden", "none", 0),
-            ("counts_visible", "viewer", 1),
+            ("counts_hidden", "none", 1),
+            ("counts_visible", "viewer", 2),
         ]
     )
     def test_downstream_count_never_reports_a_metric_the_reader_cannot_see(self, _name, catalog_access, expected):
         self._catalog_access(catalog_access)
 
-        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
-
-        view = next(node for node in response.json()["results"] if node["id"] == str(self.view_node.id))
-        self.assertEqual(view["downstream_count"], expected)
+        self.assertEqual(self._listed_nodes()[str(self.orders_node.id)]["downstream_count"], expected)
 
     @parameterized.expand(
         [
@@ -934,14 +996,192 @@ class TestMetricNodeVisibility(WarehouseAccessControlTestMixin):
     def test_lineage_shows_metric_nodes_only_with_catalog_access(self, _name, catalog_access, expected_visible):
         self._catalog_access(catalog_access)
 
-        response = self.client.get(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.view_node.id}"
-        )
+        payload = self._lineage(node_id=self.view_node.id)
 
-        payload = response.json()
         node_ids = {node["id"] for node in payload["nodes"]}
         self.assertEqual(str(self.metric_node.id) in node_ids, expected_visible)
-        self.assertEqual(len(payload["edges"]) == 1, expected_visible)
+
+    @parameterized.expand(
+        [
+            ("view_denied_directly", "warehouse_view", "accounts_query", "view_node"),
+            ("cross_dag_placeholder_follows_its_view", "warehouse_view", "accounts_query", "accounts_placeholder_node"),
+            ("table_denied_directly", "warehouse_table", "charges_table", "charges_node"),
+            ("table_denied_through_its_source", "external_data_source", "stripe_source", "charges_node"),
+            ("unnamed_table_node_matched_by_queryable_key", "warehouse_table", "charges_table", "charges_by_key_node"),
+            (
+                "unnamed_table_node_matched_by_row_name",
+                "warehouse_table",
+                "customers_table",
+                "customers_by_row_name_node",
+            ),
+        ]
+    )
+    def test_a_denied_object_hides_its_node(self, _name, resource, denied_attr, hidden_attr):
+        self._deny(resource, getattr(self, denied_attr).id)
+
+        node_ids = self._listed_nodes().keys()
+
+        self.assertNotIn(str(getattr(self, hidden_attr).id), node_ids)
+        self.assertIn(str(self.events_node.id), node_ids)
+
+    @parameterized.expand(
+        [
+            ("deleted_view", "stale_query", "stale_node"),
+            ("deleted_table", "charges_table", "charges_node"),
+        ]
+    )
+    def test_a_node_whose_object_no_longer_resolves_is_hidden(self, _name, deleted_attr, hidden_attr):
+        getattr(self, deleted_attr).soft_delete()
+        self._deny("warehouse_table", self.customers_table.id)
+
+        self.assertNotIn(str(getattr(self, hidden_attr).id), self._listed_nodes())
+
+    def test_a_denied_view_hides_the_metric_it_feeds(self):
+        self._catalog_access("viewer")
+        self._deny("warehouse_view", self.accounts_query.id)
+
+        self.assertNotIn(str(self.metric_node.id), self._listed_nodes())
+
+    def test_a_denied_view_drops_the_edges_that_touch_it(self):
+        self._deny("warehouse_view", self.accounts_query.id)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+
+        edge_ids = {edge["id"] for edge in response.json()["results"]}
+        self.assertEqual(edge_ids, {str(self.charges_to_orders.id)})
+
+    @parameterized.expand(
+        [
+            ("from_the_list_graph", False),
+            ("from_the_recursive_helpers", True),
+        ]
+    )
+    def test_a_denied_view_stops_counting_towards_its_neighbour(self, _name, retrieve):
+        self._deny("warehouse_view", self.accounts_query.id)
+
+        if retrieve:
+            node = self.client.get(f"{self._node_url()}{self.orders_node.id}/").json()
+        else:
+            node = self._listed_nodes()[str(self.orders_node.id)]
+
+        self.assertEqual(node["downstream_count"], 0)
+
+    def test_lineage_counts_match_the_list(self):
+        listed = self._listed_nodes()[str(self.orders_node.id)]
+
+        payload = self._lineage(node_id=self.orders_node.id)
+
+        lineage_node = next(node for node in payload["nodes"] if node["id"] == str(self.orders_node.id))
+        self.assertEqual(
+            (lineage_node["upstream_count"], lineage_node["downstream_count"]),
+            (listed["upstream_count"], listed["downstream_count"]),
+        )
+
+    @parameterized.expand(
+        [
+            ("retrieve", "get", ""),
+            ("run", "post", "run/"),
+            ("materialize", "post", "materialize/"),
+            ("resume", "post", "resume/"),
+        ]
+    )
+    def test_a_hidden_node_is_not_found(self, _name, method, suffix):
+        self._deny("warehouse_view", self.accounts_query.id)
+
+        response = getattr(self.client, method)(f"{self._node_url()}{self.view_node.id}/{suffix}")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("by_node_id", "node_id", "view_node", "id"),
+            ("by_saved_query_id", "saved_query_id", "accounts_query", "id"),
+            ("by_metric_id", "metric_id", "metric_node", "metric_id"),
+        ]
+    )
+    def test_lineage_of_a_hidden_node_is_not_found(self, _name, param, source_attr, id_attr):
+        self._catalog_access("viewer")
+        self._deny("warehouse_view", self.accounts_query.id)
+
+        response = self.client.get(f"{self._node_url()}lineage/?{param}={getattr(getattr(self, source_attr), id_attr)}")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    def test_a_run_that_reaches_a_hidden_node_is_refused(self, mock_sync_connect):
+        self._deny("warehouse_view", self.accounts_query.id)
+
+        response = self.client.post(
+            f"{self._node_url()}{self.orders_node.id}/run/", data={"direction": "downstream"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        mock_sync_connect.assert_not_called()
+
+    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    def test_a_run_never_names_a_node_type_the_reader_cannot_see(self, mock_sync_connect):
+        mock_sync_connect.return_value = AsyncMock()
+        self._catalog_access("none")
+
+        response = self.client.post(
+            f"{self._node_url()}{self.view_node.id}/run/", data={"direction": "downstream"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn(str(self.metric_node.id), response.json()["node_ids"])
+
+    def test_an_allowlisted_reader_only_gets_the_edges_of_objects_they_were_granted(self):
+        self._create_project_default(access_level="none")
+        for saved_query_id in (self.orders_node.saved_query_id, self.accounts_query.id):
+            self._create_access_control(
+                self.no_access_user,
+                resource="warehouse_view",
+                resource_id=str(saved_query_id),
+                access_level="viewer",
+            )
+        self.client.force_login(self.no_access_user)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_edges/")
+
+        edge_ids = {edge["id"] for edge in response.json()["results"]}
+        self.assertIn(str(self.orders_to_accounts.id), edge_ids)
+        self.assertNotIn(str(self.charges_to_orders.id), edge_ids)
+
+    def test_a_hidden_id_given_as_a_uuid_still_drops_its_edges(self):
+        visibility = NodeVisibility(hidden_types=frozenset(), hidden_ids=frozenset({str(self.view_node.id)}))
+
+        graph = Graph(team_id=self.team.id, dag_id=self.dag.id, visibility=visibility)
+
+        self.assertEqual(graph.get_downstream_count(self.orders_node.id), 0)
+
+    def test_an_org_admin_reads_every_node_a_denial_row_names(self):
+        self._deny("warehouse_view", self.accounts_query.id)
+        membership = OrganizationMembership.objects.get(user=self.viewer_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        self.assertIn(str(self.view_node.id), self._listed_nodes())
+
+    @parameterized.expand(
+        [
+            ("without_a_denial_row", False, False),
+            ("with_a_denial_row", True, True),
+        ]
+    )
+    def test_the_object_scans_only_run_once_something_can_be_denied(self, _name, deny, expected_scanned):
+        if deny:
+            self._deny("warehouse_table", self.customers_table.id)
+
+        with (
+            patch("products.data_modeling.backend.logic.node_visibility.allowed_saved_query_ids") as saved_queries,
+            patch("products.data_modeling.backend.logic.node_visibility.allowed_table_ids") as tables,
+        ):
+            saved_queries.return_value = frozenset()
+            tables.return_value = frozenset()
+            self.client.get(self._node_url())
+
+        self.assertEqual(saved_queries.called, expected_scanned)
+        self.assertEqual(tables.called, expected_scanned)
 
 
 @pytest.mark.ee
