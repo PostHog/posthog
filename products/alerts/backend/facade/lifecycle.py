@@ -137,6 +137,7 @@ class AlertSnapshot:
     datapoints_to_alarm: int = 1
     # Breach flags of the most recent prior checks, newest first (excludes the current one).
     recent_events_breached: tuple[bool, ...] = ()
+    firing_unannounced: bool = False
 
 
 class StatefulSnapshot(Protocol):
@@ -160,6 +161,8 @@ class AlertCheckOutcome:
     disable: bool = False
     # What a mute held back, so a muted fire is distinguishable from a check that said nothing.
     muted_notification: NotificationAction = NotificationAction.NONE
+    # The alert is firing and nobody was told, so the next unmuted check has to announce it.
+    firing_unannounced: bool = False
 
 
 @dataclass(frozen=True)
@@ -208,6 +211,23 @@ def _muted(outcome: AlertCheckOutcome) -> AlertCheckOutcome:
 
 
 def evaluate_alert_check(
+    snapshot: AlertSnapshot,
+    check: CheckInput,
+    now: datetime,
+    *,
+    policy: AlertPolicy,
+) -> AlertCheckOutcome:
+    """Decide the transition for one scheduled/manual check, and whether a fire is still owed.
+
+    The held fire is resolved here rather than inside `_decide`, so every early return carries it.
+    A check that reaches no verdict leaves the alert firing, and clearing the flag there would
+    lose the announcement the mute was holding.
+    """
+    outcome = _decide(snapshot, check, now, policy=policy)
+    return replace(outcome, firing_unannounced=_still_unannounced(snapshot, outcome))
+
+
+def _decide(
     snapshot: AlertSnapshot,
     check: CheckInput,
     now: datetime,
@@ -272,7 +292,11 @@ def evaluate_alert_check(
             error_message=None,
         )
 
-    if snapshot.state == AlertState.SNOOZED:
+    if policy.mute_gates_notification_only and not muted and snapshot.firing_unannounced:
+        # Re-evaluating from scratch is what makes a condition that survived the mute announce
+        # itself, and is what the SNOOZED branch below does for an expired snooze.
+        effective_state = AlertState.NOT_FIRING
+    elif snapshot.state == AlertState.SNOOZED:
         # clear_check_ends_snooze: a snoozed alert was breached when parked, so a clear
         # check resolves it (FIRING-like). Otherwise the snooze simply expired and the
         # alert re-evaluates from scratch.
@@ -330,6 +354,19 @@ def evaluate_alert_check(
         error_message=None,
     )
     return _muted(outcome) if muted else outcome
+
+
+def _still_unannounced(snapshot: AlertSnapshot, outcome: AlertCheckOutcome) -> bool:
+    """Whether the alert is left firing with nobody told.
+
+    Set when a mute holds a fire, cleared when the condition ends or an announcement goes out, so
+    a held fire cannot outlive the incident it belongs to and force a re-fire on every later check.
+    """
+    if outcome.muted_notification == NotificationAction.FIRE:
+        return True
+    if outcome.new_state != AlertState.FIRING or outcome.update_last_notified_at:
+        return False
+    return snapshot.firing_unannounced
 
 
 def evaluate_alert_failure(

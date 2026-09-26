@@ -337,6 +337,20 @@ Three consequences worth stating:
 `AlertCheckOutcome.muted_notification` carries what was held, and
 `alerts_platform_notifications_muted_total{source,reason}` counts it by `snooze` or `quiet_hours`.
 
+A mute that swallowed a fire sets `PlatformAlert.firing_unannounced`, which the shared machine
+decides and the write path only persists.
+The first unmuted check re-evaluates the alert from scratch, so a condition that survived the mute
+announces itself and one that cleared stays quiet.
+The flag is scoped to a held fire rather than to any held announcement, so it clears itself when the
+condition ends or when an announcement finally goes out.
+A recovery that happened entirely inside a mute is not announced when the mute lifts, which is what
+Datadog does and what a person muting an alert expects.
+Without it an alert reaches the end of its quiet hours already FIRING, and `renotify_while_firing`
+is false, so nobody is ever told.
+This is also what production logs does on snooze expiry, by way of the SNOOZED branch in
+`evaluate_alert_check`; under mute semantics the state is never SNOOZED, so the reset needs its own
+signal.
+
 ### Evaluating and writing are separate activities
 
 `evaluate_logs_alerts_activity` reads and decides; it writes nothing.

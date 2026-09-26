@@ -35,17 +35,22 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
 
-    def _record(self, **overrides) -> None:
+    def _held_fire(self) -> bool:
+        with team_scope(self.team.id):
+            return PlatformAlert.objects.get(configuration=self.configuration, grouping_key="").firing_unannounced
+
+    def _record(self, *, at: datetime | None = None, **overrides) -> None:
+        at = at or self.cutoff
         fields = {
             "configuration_id": self.configuration.id,
-            "evaluation_key": f"window:{self.cutoff.isoformat()}",
             "kind": AlertEventKind.FIRING,
             "new_state": "firing",
             "notified": True,
             "consecutive_failures": 0,
         }
+        fields["evaluation_key"] = f"window:{at.isoformat()}"
         fields.update(overrides)
-        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], self.cutoff)
+        record_outcomes(self.team.id, [PlatformAlertOutcome(**fields)], at)
 
     def test_a_disabling_outcome_stops_the_configuration_being_discovered(self) -> None:
         self._record(new_state="broken", notified=False, consecutive_failures=5, disable=True)
@@ -88,6 +93,15 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
 
         # `insert_events` never raises, so without reading a row back a broken write is invisible.
         assert rows == [("firing", "not_firing", "firing", 47.0, "API errors", "fire", 10)]
+
+    def test_the_held_fire_flag_the_machine_decided_reaches_the_row(self) -> None:
+        # The rule itself lives in the state machine; this is the wiring guard that its answer is
+        # persisted, because nothing else would notice the column never being written.
+        self._record(new_state="firing", notified=False, firing_unannounced=True)
+        assert self._held_fire() is True
+
+        self._record(new_state="firing", notified=True, at=self.cutoff + timedelta(hours=1))
+        assert self._held_fire() is False
 
     def test_a_copied_snooze_mutes_without_holding_back_the_check(self) -> None:
         legacy_id = uuid4()

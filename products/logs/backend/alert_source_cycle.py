@@ -169,6 +169,7 @@ def _snapshot(check: PlatformAlertCheckInput, prior_breached: tuple[bool, ...]) 
         evaluation_periods=check.evaluation_periods,
         datapoints_to_alarm=check.datapoints_to_alarm,
         recent_events_breached=prior_breached,
+        firing_unannounced=check.firing_unannounced,
     )
 
 
@@ -245,6 +246,7 @@ def _recorded(
     error_message: str | None = None,
     query_duration_ms: int | None = None,
     muted_notification: str = "",
+    firing_unannounced: bool = False,
     disable: bool = False,
 ) -> PlatformAlertOutcome:
     """The one place a recorded outcome is built, so the evaluated and held paths cannot drift."""
@@ -259,6 +261,7 @@ def _recorded(
         error_message=error_message,
         query_duration_ms=query_duration_ms,
         muted_notification=muted_notification,
+        firing_unannounced=firing_unannounced,
         disable=disable,
     )
 
@@ -285,6 +288,7 @@ def _delivery(
         muted_notification=(
             "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
         ),
+        firing_unannounced=outcome.firing_unannounced,
         disable=outcome.disable,
     )
     if outcome.notification == NotificationAction.NONE:
@@ -300,11 +304,20 @@ def _delivery(
         source=SourceKind.LOGS,
         alert_id=str(check.id),
         alert_name=check.name,
-        evaluation_key=f"{check.id}:window:{window_end.isoformat()}",
+        evaluation_key=recorded.evaluation_key,
         destination_names=tuple(destination.name for destination in destinations),
         # One transition with an empty grouping key. Logs does not group yet, and delivery
         # reads a list either way, so fan-out changes this call and nothing downstream.
-        transitions=(GroupTransition(grouping_key="", notification=outcome.notification.value),),
+        transitions=(
+            GroupTransition(
+                grouping_key="",
+                notification=outcome.notification.value,
+                kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
+                previous_state=check.state,
+                state=outcome.new_state.value,
+                value=value,
+            ),
+        ),
     )
 
 

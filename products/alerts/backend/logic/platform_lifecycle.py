@@ -115,6 +115,7 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         state=alert.state if alert else PlatformAlert.State.NOT_FIRING.value,
         last_notified_at=alert.last_notified_at if alert else None,
         snooze_until=alert.snooze_until if alert else None,
+        firing_unannounced=alert.firing_unannounced if alert else False,
     )
 
 
@@ -214,6 +215,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
             alert.state = outcome.new_state
             if outcome.notified:
                 alert.last_notified_at = now
+            alert.firing_unannounced = outcome.firing_unannounced
 
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
@@ -227,7 +229,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 ),
             )
 
-        PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
+        PlatformAlert.objects.for_team(team_id).bulk_update(
+            list(alerts.values()), ["state", "last_notified_at", "firing_unannounced"]
+        )
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
             configurations, ["consecutive_failures", "enabled", "next_check_at"]
         )
