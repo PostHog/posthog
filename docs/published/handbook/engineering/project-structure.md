@@ -47,16 +47,6 @@ The PostHog web application, built with React and TypeScript. Uses [Kea](https:/
 - `src/queries` – Query builder and data visualization components
 - `src/toolbar` – Code for the [PostHog Toolbar](https://posthog.com/docs/user-guides/toolbar)
 
-The app-level terminal lives in `src/scenes/terminal`.
-SQL insights appear as editable `.sql` files; their full JSON remains editable under `/posthog/api/insight`.
-Saving SQL preserves the insight's other query options, and JSON saves send only changed fields through the existing APIs.
-`run report.sql` executes a SQL file in the current project and prints a Markdown table; `--json`, `--csv`, and `--tsv` select export formats.
-CSV and TSV exports escape text that spreadsheets could interpret as formulas.
-Use `--json` to inspect result metadata, including `hasMore`, and `/tmp` for export files.
-The interactive Bash shell completes `ph` command names, aliases, connected tools, and argument names with Tab.
-The terminal follows the current resource's folder while its prompt is empty.
-Running commands, editors, and partially typed input prevent a folder change.
-
 ### `posthog`
 
 The Django backend application. Key subdirectories:

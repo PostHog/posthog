@@ -85,6 +85,7 @@ __all__ = [
 
 tracer = trace.get_tracer(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
+MAX_ATTRIBUTE_KEYS = 100
 
 
 class DateRangeSerializer(serializers.Serializer):
@@ -212,6 +213,18 @@ class _LogsAttributesQuerySerializer(serializers.Serializer):
     dateRange = _DateRangeSerializer(
         required=False,
         help_text="Date range to search within. Defaults to last hour.",
+    )
+    keys = serializers.CharField(
+        required=False,
+        help_text="Comma-separated list of attribute keys. The endpoint returns only keys that exactly match an entry in the list.",
+    )
+    date_from = serializers.CharField(
+        required=False,
+        help_text="Start of the range as a top-level parameter. The endpoint ignores it when you send dateRange.",
+    )
+    date_to = serializers.CharField(
+        required=False,
+        help_text="End of the range as a top-level parameter. The endpoint ignores it when you send dateRange.",
     )
     serviceNames = serializers.ListField(
         child=serializers.CharField(),
@@ -1865,6 +1878,9 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except (json.JSONDecodeError, ValidationError, ValueError):
             # Default to last hour if dateRange is malformed
             dateRange = DateRange(date_from="-1h")
+        # Flat params let clients that cannot send a JSON query param (the generated frontend client) scope the window.
+        if "dateRange" not in request.GET and (request.GET.get("date_from") or request.GET.get("date_to")):
+            dateRange = DateRange(date_from=request.GET.get("date_from"), date_to=request.GET.get("date_to"))
 
         try:
             serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
@@ -1891,9 +1907,16 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         except ValueError:
             offset = 0
 
+        attribute_keys = list(dict.fromkeys(k.strip() for k in request.GET.get("keys", "").split(",") if k.strip()))
+        if len(attribute_keys) > MAX_ATTRIBUTE_KEYS:
+            return Response(
+                {"error": f"At most {MAX_ATTRIBUTE_KEYS} keys are allowed."}, status=status.HTTP_400_BAD_REQUEST
+            )
+
         query = LogAttributesQuery(
             dateRange=dateRange,
             attributeType=attributeType,
+            attributeKeys=attribute_keys or None,
             search=search,
             searchValues=search_values,
             limit=limit,

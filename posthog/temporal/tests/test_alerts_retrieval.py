@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime
 
 import pytest
@@ -11,9 +12,18 @@ from temporalio.testing import ActivityEnvironment
 from posthog.schema import AlertCalculationInterval
 
 from posthog.models import Team
+from posthog.redis import get_client
 from posthog.temporal.alerts.activities import _RetrievedAlerts, retrieve_due_alerts
+from posthog.temporal.alerts.admission import INFLIGHT_KEY, SLOT_LEASE_SECONDS, admit_evaluation_slots
 from posthog.temporal.alerts.types import AlertInfo, ScheduleDueAlertChecksWorkflowInputs
 from posthog.temporal.tests.test_alerts_activities import _create_alert
+
+
+@pytest.fixture(autouse=True)
+def clear_inflight_slots():
+    get_client().delete(INFLIGHT_KEY)
+    yield
+    get_client().delete(INFLIGHT_KEY)
 
 
 @pytest.mark.asyncio
@@ -105,7 +115,7 @@ async def test_retrieve_due_alerts_excludes_future_checks_and_applies_the_docume
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-async def test_retrieve_due_alerts_reselects_the_same_oldest_due_alerts_until_checks_advance(ateam: Team) -> None:
+async def test_retrieve_due_alerts_reselects_the_same_oldest_due_alerts_until_they_are_admitted(ateam: Team) -> None:
     due_alerts = [
         await _create_alert(
             ateam,
@@ -118,6 +128,9 @@ async def test_retrieve_due_alerts_reselects_the_same_oldest_due_alerts_until_ch
     with time_machine.travel("2026-09-10T12:00:00Z", tick=False):
         first_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
         second_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
+        admitted = [alert.alert_id for alert in first_sweep]
+        admit_evaluation_slots(admitted, limit=len(admitted), expires_at=time.time() + SLOT_LEASE_SECONDS)
+        third_sweep = await ActivityEnvironment().run(retrieve_due_alerts, inputs)
 
     oldest_due_alert_ids = [str(alert.id) for alert in due_alerts[:2]]
     first_sweep_ids = [alert.alert_id for alert in first_sweep]
@@ -126,6 +139,7 @@ async def test_retrieve_due_alerts_reselects_the_same_oldest_due_alerts_until_ch
     assert first_sweep_ids == oldest_due_alert_ids
     # Retrieval does not advance next_check_at, so the next sweep sees the same oldest cohort as due.
     assert second_sweep_ids == first_sweep_ids
+    assert [alert.alert_id for alert in third_sweep] == [str(due_alerts[2].id)]
 
 
 @pytest.mark.asyncio
@@ -142,7 +156,9 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
     polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
     async def fake_get_alerts() -> _RetrievedAlerts:
-        return _RetrievedAlerts(alerts=[MagicMock()] * 9, due_count=42, oldest_due_at=None, polled_at=polled_at)
+        return _RetrievedAlerts(
+            alerts=[MagicMock()] * 9, due_count=42, oldest_due_at=None, polled_at=polled_at, in_flight_count=3
+        )
 
     with (
         patch(
@@ -166,6 +182,10 @@ async def test_retrieve_due_alerts_records_capacity_and_selected_alert_counters(
     assert created_counter_names == expected_counter_names
     assert capacity_counter.add.call_args_list == [call(11), call(10), call(9)]
     assert selected_counter.add.call_args_list == [call(9), call(9), call(9)]
+    assert [gauge_call.args[0] for gauge_call in meter.create_gauge.call_args_list] == [
+        "insight_alert_evaluations_inflight"
+    ] * 3
+    assert meter.create_gauge.return_value.set.call_args_list == [call(3)] * 3
     meter.with_additional_attributes.assert_not_called()
 
 
@@ -176,7 +196,9 @@ async def test_retrieve_due_alerts_succeeds_when_metric_recording_fails(failing_
     polled_at = datetime(2026, 9, 10, 12, 0, tzinfo=UTC)
 
     async def fake_get_alerts() -> _RetrievedAlerts:
-        return _RetrievedAlerts(alerts=expected_alerts, due_count=1, oldest_due_at=None, polled_at=polled_at)
+        return _RetrievedAlerts(
+            alerts=expected_alerts, due_count=1, oldest_due_at=None, polled_at=polled_at, in_flight_count=0
+        )
 
     record_due_metrics = MagicMock()
     get_metric_meter = MagicMock(return_value=MagicMock(spec=MetricMeter))

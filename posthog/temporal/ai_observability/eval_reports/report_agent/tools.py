@@ -1407,6 +1407,14 @@ def list_recent_report_runs(
             entry["result_rates"] = normalized_metrics["result_rates"]
         if output_type in ("boolean", "numeric") and "pass_rate" in normalized_metrics:
             entry["pass_rate"] = normalized_metrics["pass_rate"]
+        if output_type == "numeric":
+            config = normalized_metrics.get("output_config") or {}
+            previous_rule = config.get("passing_rule")
+            current_rule = (state.get("output_config") or {}).get("passing_rule")
+            entry["output_config"] = config
+            entry["passing_rule_matches_current"] = (
+                previous_rule == current_rule if previous_rule and current_rule else None
+            )
         result.append(entry)
 
     return json.dumps(result, indent=2, default=str)

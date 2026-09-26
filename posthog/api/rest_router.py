@@ -2,7 +2,15 @@ from rest_framework import decorators, exceptions
 
 # Preload to work around circular imports in `ee.hogai.{core.agent_modes,chat_agent,tools}`.
 import posthog.temporal.ai  # noqa: F401
-from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
+from posthog.api import (
+    data_color_theme,
+    data_deletion_request,
+    metalytics,
+    my_notifications,
+    project,
+    user_integration,
+    user_push_token,
+)
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
 from posthog.api.product_enablement import ProductEnablementViewSet
@@ -77,6 +85,7 @@ from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
+from .taxonomic_search_intent import SearchIntentViewSet
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -234,6 +243,12 @@ projects_router.register(
     ["project_id"],
 )
 projects_router.register(
+    r"taxonomic_search_intent",
+    SearchIntentViewSet,
+    "project_taxonomic_search_intent",
+    ["team_id"],
+)
+projects_router.register(
     r"schema_property_groups",
     schema_property_group.SchemaPropertyGroupViewSet,
     "project_schema_property_groups",
@@ -257,6 +272,12 @@ projects_router.register(
 
 projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["project_id"])
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
+projects_router.register(
+    r"data_deletion_requests",
+    data_deletion_request.DataDeletionRequestViewSet,
+    "project_data_deletion_requests",
+    ["team_id"],
+)
 
 
 # Organizations nested endpoints

@@ -80,9 +80,21 @@ class _FallbackSerializer(serializers.Serializer):
     pass
 
 
+def _include_internal_operations() -> bool:
+    return os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
+
+
 class PostHogAutoSchema(AutoSchema):
     """AutoSchema subclass that silences path-parameter warnings for params
     handled by TeamAndOrgViewSetMixin (project_id, environment_id, etc.)."""
+
+    def is_excluded(self) -> bool:
+        if super().is_excluded():
+            return True
+        # `x-internal` keeps an operation out of the served schema (Swagger, Redoc, the public
+        # API docs) but in the codegen build, so MCP tools and frontend types still cover it
+        # without a public REST contract.
+        return bool(self.get_extensions().get("x-internal")) and not _include_internal_operations()
 
     def _resolve_path_parameters(self, variables):
         from drf_spectacular.plumbing import get_view_model, resolve_django_path_parameter, resolve_regex_path_parameter
@@ -746,7 +758,7 @@ def preprocess_exclude_path_format(endpoints, **kwargs):
     vs organization_id, etc.).
     """
     # For frontend type generation, include INTERNAL views if they have explicit tags
-    include_internal = os.environ.get("OPENAPI_INCLUDE_INTERNAL", "").lower() in ("1", "true")
+    include_internal = _include_internal_operations()
 
     # Clear previous mappings
     _endpoint_product_mapping.clear()

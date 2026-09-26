@@ -1,11 +1,11 @@
 # Dashboards development guide
 
-This product owns dashboards, dashboard tiles, templates, saved views, and widget tiles.
+This product owns dashboards, dashboard tiles, templates, and widget tiles.
 Do not treat every dashboard change as a widget change.
 
 ## Choose the change type
 
-- For dashboard metadata, layouts, insight tiles, text cards, button tiles, templates, or saved views, use the product models and API in this directory.
+- For dashboard metadata, layouts, insight tiles, text cards, button tiles, or templates, use the product models and API in this directory.
 - For a tile with `widget_id`, read [`CONTRIBUTING.md`](./CONTRIBUTING.md). It defines widget architecture, registry parity, generated files, and validation commands.
 - For dashboard creation or updates through PostHog tools, read [`building-a-dashboard`](./skills/building-a-dashboard/SKILL.md).
 - For scheduled dashboard delivery, read [`managing-subscriptions`](../subscriptions/skills/managing-subscriptions/SKILL.md).

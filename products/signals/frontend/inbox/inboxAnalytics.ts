@@ -212,6 +212,8 @@ export type ScoutActionType =
     | 'search_scouts'
     | 'expand_run_group'
     | 'sort_roster'
+    | 'choose_create_path'
+    | 'switch_create_path'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -884,16 +886,40 @@ export function captureInboxOnboardingDecided(params: {
     })
 }
 
-/** A scout CTA kicked off a cloud task ("Suggest a scout", the fleet-overview chips). */
+/** A scout CTA kicked off a cloud task ("Chat with an agent", the fleet-overview chips). */
 export function captureScoutChatStarted(params: {
     chatType: ScoutChatType
     surface: ScoutSurface
     skillName?: string | null
+    hasUserPrompt?: boolean
+    templateId?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_CHAT_STARTED, {
         chat_type: params.chatType,
         surface: params.surface,
         skill_name: params.skillName ?? null,
+        has_user_prompt: params.hasUserPrompt ?? false,
+        template_id: params.templateId ?? null,
+    })
+}
+
+/** How a person creates a scout: in a chat with an agent, or in the form. */
+export type ScoutCreatePath = 'chat' | 'form'
+
+/** A person picked a way to create a scout from the "New scout" entry. */
+export function captureScoutCreatePathChosen(params: { path: ScoutCreatePath; surface: ScoutSurface }): void {
+    captureScoutAction({ actionType: 'choose_create_path', surface: params.surface, extra: { path: params.path } })
+}
+
+/** A person left one create modal for the other, taking what they typed with them. */
+export function captureScoutCreatePathSwitched(params: {
+    direction: 'chat_to_form' | 'form_to_chat'
+    surface: ScoutSurface
+}): void {
+    captureScoutAction({
+        actionType: 'switch_create_path',
+        surface: params.surface,
+        extra: { direction: params.direction },
     })
 }
 

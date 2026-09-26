@@ -38,6 +38,8 @@ BASETEN_EXCLUSIVE_COST_MODELS: Final[dict[str, str]] = {
     BASETEN_GLM53_FLASH_PUBLIC_MODEL: BASETEN_GLM53_FLASH_METRIC_MODEL,
 }
 BASETEN_EXCLUSIVE_MODELS: frozenset[str] = frozenset(BASETEN_EXCLUSIVE_COST_MODELS)
+BASETEN_MIN_MAX_TOKENS: Final = 2
+BASETEN_MAX_TOKENS_PARAMS: Final = ("max_tokens", "max_completion_tokens", "max_output_tokens")
 
 
 def is_baseten_configured(settings: Settings) -> bool:
@@ -63,6 +65,9 @@ def _inject_baseten_params(kwargs: dict[str, Any], api_base: str, api_key: str) 
     kwargs["model"] = f"openai/{BASETEN_MODELS[model]}"
     kwargs.setdefault("drop_params", True)
     force_stream_usage(kwargs, continuous_usage_stats=True)
+    for param in BASETEN_MAX_TOKENS_PARAMS:
+        if isinstance(kwargs.get(param), int) and kwargs[param] < BASETEN_MIN_MAX_TOKENS:
+            kwargs[param] = BASETEN_MIN_MAX_TOKENS
 
 
 def make_baseten_anthropic_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:
