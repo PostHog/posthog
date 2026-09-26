@@ -8,6 +8,7 @@ from opentelemetry import trace
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.schema import (
+    EventMatchScope,
     HogQLQueryModifiers,
     PropertyOperator,
     RecordingOrder,
@@ -285,6 +286,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             listing_tags: dict[str, Any] = {}
             if in_session_narrowed:
                 listing_tags["experiment_exposures_in_session"] = True
+            if self._query.event_match_scope == EventMatchScope.RECORDING:
+                listing_tags["replay_event_match_scope"] = EventMatchScope.RECORDING.value
             plan = self._event_match_plan
             if plan is not None and plan.filter_count:
                 listing_tags["replay_event_query_strategy"] = plan.strategy

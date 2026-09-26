@@ -494,7 +494,11 @@ class QueryTags(BaseModel):
     # in-session exposure evidence, which adds a live events scan and a GLOBAL IN set on top of the
     # population read. Separates that heavier read from a plain exposure listing in the query log.
     experiment_exposures_in_session: Optional[bool] = None
-    # Set on recordings-list reads with positive events-table filters, to compare the combined scan.
+    # Set on a recordings-list read whose event filters only match inside each recording's window.
+    # That path adds a GLOBAL JOIN on the per-recording bounds to every events subquery, so the tag
+    # separates its cost from the default session-scoped listing in the query log.
+    replay_event_match_scope: Optional[str] = None  # "recording"; absent for the default session scope
+    # Set on recordings-list reads with positive events-table filters, in both scopes, to compare the combined scan.
     replay_event_query_strategy: Optional[Literal["separate", "combined"]] = None
     replay_event_filter_count: Optional[int] = None
     replay_event_query_property_filter_count: Optional[int] = None

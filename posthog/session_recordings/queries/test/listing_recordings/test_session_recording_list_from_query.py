@@ -877,6 +877,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             ("enabled", True, {}, {}, True, "combined", True),
             ("disabled", False, {}, {}, True, "separate", True),
             ("unavailable", None, {}, {}, True, "separate", True),
+            ("session_scope", True, {"event_match_scope": "session"}, {}, True, "combined", True),
             ("negative_property", True, {"category_operator": "is_not"}, {}, True, "separate", False),
             ("person_property", True, {"person_property": True}, {}, True, "separate", False),
             ("sampled", True, {}, {"sample_factor": 0.5}, True, "separate", False),
@@ -903,6 +904,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         expected_eligible: bool,
     ) -> None:
         query: dict[str, Any] = {
+            "event_match_scope": shape.get("event_match_scope", "recording"),
             "events": [
                 {
                     "id": "view_item",
@@ -2931,16 +2933,21 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
+    # Session 2 adds the item after its recording ends, so only whole-session matching counts it.
     @parameterized.expand(
         [
-            ("AND", False, [0, 1, 2, 3]),
-            ("AND", True, [0, 1, 2]),
-            ("OR", False, [0, 1, 2, 3]),
-            ("OR", True, [0, 1, 2, 3, 4]),
+            ("recording", "AND", False, [0, 1, 3]),
+            ("recording", "AND", True, [0, 1]),
+            ("recording", "OR", False, [0, 1, 2, 3]),
+            ("recording", "OR", True, [0, 1, 2, 3, 4]),
+            ("session", "AND", False, [0, 1, 2, 3]),
+            ("session", "AND", True, [0, 1, 2]),
+            ("session", "OR", False, [0, 1, 2, 3]),
+            ("session", "OR", True, [0, 1, 2, 3, 4]),
         ]
     )
     def test_combined_event_filters_preserve_results_and_cursors(
-        self, operand: str, with_properties: bool, expected_indexes: list[int]
+        self, scope: str, operand: str, with_properties: bool, expected_indexes: list[int]
     ) -> None:
         sessions = [str(uuid7()) for _ in range(5)]
         for index, session_id in enumerate(sessions):
@@ -2968,6 +2975,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                     properties={"$session_id": session_id, **properties},
                 )
         filters: dict[str, Any] = {
+            "event_match_scope": scope,
             "operand": operand,
             "events": [
                 {
@@ -3019,6 +3027,150 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert pages_by_strategy[0] == pages_by_strategy[1]
         expected = [sessions[index] for index in reversed(expected_indexes)]
         assert [row["session_id"] for page in pages_by_strategy[1] for row in page.results] == expected
+
+    @parameterized.expand(
+        [
+            ("session_scope_matches_before_the_recording", "session", relativedelta(minutes=-10), True),
+            ("recording_scope_rejects_before_the_recording", "recording", relativedelta(minutes=-10), False),
+            ("recording_scope_allows_the_margin_before_the_recording", "recording", relativedelta(seconds=-30), True),
+            ("recording_scope_matches_inside_the_recording", "recording", relativedelta(minutes=2), True),
+            ("recording_scope_rejects_after_the_recording", "recording", relativedelta(minutes=10), False),
+        ]
+    )
+    def test_event_match_scope_bounds_event_filters_to_the_recording(
+        self, _name: str, scope: str, event_offset: relativedelta, matches: bool
+    ) -> None:
+        distinct_id = f"event-match-scope-user-{uuid4()}"
+        create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla"})
+        session_id = f"event-match-scope-session-{uuid4()}"
+
+        produce_replay_summary(
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=distinct_id,
+            timestamp=self.an_hour_ago + event_offset,
+            event_name="$pageview",
+            properties={"$session_id": session_id},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}],
+                "event_match_scope": scope,
+            },
+            [session_id] if matches else [],
+        )
+
+    @parameterized.expand(
+        [
+            ("session_scope_excludes_on_an_event_before_the_recording", "session", False),
+            ("recording_scope_ignores_an_event_before_the_recording", "recording", True),
+        ]
+    )
+    def test_event_match_scope_applies_to_negated_events(self, _name: str, scope: str, is_listed: bool) -> None:
+        distinct_id = f"event-match-scope-negation-user-{uuid4()}"
+        create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla"})
+        session_id = f"event-match-scope-negation-session-{uuid4()}"
+
+        produce_replay_summary(
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+            team_id=self.team.id,
+        )
+        create_event(
+            team=self.team,
+            distinct_id=distinct_id,
+            timestamp=self.an_hour_ago - relativedelta(minutes=10),
+            event_name="purchase",
+            properties={"$session_id": session_id},
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "events": [{"id": "purchase", "type": "events", "order": 0, "name": "purchase", "negation": True}],
+                "event_match_scope": scope,
+            },
+            [session_id] if is_listed else [],
+        )
+
+    @parameterized.expand([(False,), (True,)])
+    def test_event_match_scope_includes_segments_across_the_date_boundary(self, negation: bool) -> None:
+        session_id = str(uuid4())
+        midnight = self.an_hour_ago.replace(hour=0, minute=0)
+        for start, end in [(-10, -1), (1, 10)]:
+            produce_replay_summary(
+                team_id=self.team.id,
+                session_id=session_id,
+                distinct_id="boundary-user",
+                first_timestamp=midnight + relativedelta(minutes=start),
+                last_timestamp=midnight + relativedelta(minutes=end),
+                ensure_analytics_event_in_session=False,
+            )
+        create_event(
+            team=self.team,
+            distinct_id="boundary-user",
+            timestamp=midnight + relativedelta(minutes=5),
+            event_name="purchase",
+            properties={"$session_id": session_id},
+        )
+        self._assert_query_matches_session_ids(
+            {
+                "date_from": (midnight - relativedelta(days=1)).isoformat(),
+                "date_to": (midnight - relativedelta(seconds=1)).isoformat(),
+                "event_match_scope": "recording",
+                "events": [{"id": "purchase", "type": "events", "order": 0, "negation": negation}],
+            },
+            [] if negation else [session_id],
+        )
+
+    @parameterized.expand(
+        [
+            ("session_scope_matches_a_person_property_before_the_recording", "session", True),
+            ("recording_scope_needs_the_carrying_event_inside_the_recording", "recording", False),
+        ]
+    )
+    def test_event_match_scope_applies_to_person_properties_resolved_on_events(
+        self, _name: str, scope: str, matches: bool
+    ) -> None:
+        with self.settings(PERSON_ON_EVENTS_V2_OVERRIDE=True):
+            assert self.team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+            distinct_id = f"event-match-scope-person-user-{uuid4()}"
+            create_person(team=self.team, distinct_ids=[distinct_id], properties={"email": "bla@example.com"})
+            session_id = f"event-match-scope-person-session-{uuid4()}"
+
+            produce_replay_summary(
+                distinct_id=distinct_id,
+                session_id=session_id,
+                first_timestamp=self.an_hour_ago,
+                last_timestamp=self.an_hour_ago + relativedelta(minutes=5),
+                team_id=self.team.id,
+                ensure_analytics_event_in_session=False,
+            )
+            create_event(
+                team=self.team,
+                distinct_id=distinct_id,
+                timestamp=self.an_hour_ago - relativedelta(minutes=10),
+                event_name="$pageview",
+                properties={"$session_id": session_id},
+            )
+
+            self._assert_query_matches_session_ids(
+                {
+                    "properties": [
+                        {"key": "email", "value": ["bla@example.com"], "operator": "exact", "type": "person"}
+                    ],
+                    "event_match_scope": scope,
+                },
+                [session_id] if matches else [],
+            )
 
     @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
     @snapshot_clickhouse_queries

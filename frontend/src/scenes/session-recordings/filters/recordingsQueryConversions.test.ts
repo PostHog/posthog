@@ -236,10 +236,12 @@ describe('convertUniversalFiltersToRecordingsQuery ∘ recordingsQueryToUniversa
         const query = rq({
             experiment_exposure: { experiment_id: 42, variant: 'test' },
             recommended_only: true,
+            event_match_scope: 'recording',
         })
         const back = roundTrip(query)
         expect(back.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
         expect(back.recommended_only).toBe(true)
+        expect(back.event_match_scope).toBe('recording')
     })
 })
 

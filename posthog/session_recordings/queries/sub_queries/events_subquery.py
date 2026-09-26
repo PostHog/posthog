@@ -1,14 +1,16 @@
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, cast
 
 import posthoganalytics
+from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
     DataWarehouseNode,
+    EventMatchScope,
     EventPropertyFilter,
     EventsNode,
     HogQLQueryModifiers,
@@ -18,7 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
@@ -58,6 +60,8 @@ REPLAY_NEGATIVE_BLOCKLIST_TRUNCATED_COUNTER = Counter(
     "A replay exclusion blocklist hit its row cap, so some sessions were not excluded from the results",
 )
 
+# Allow for the delay between an event and the recorder's first or last snapshot.
+RECORDING_MATCH_MARGIN_MINUTES = 1
 COMBINED_EVENT_FILTERS_FLAG = "replay-combined-event-filters"
 EVENTS_SUBQUERY_ROW_LIMIT = 1_000_000
 
@@ -144,13 +148,72 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self._resolve_group_properties = resolve_group_properties
         self.emitted_sampled_subquery = False
 
-    def _events_join(self, sample: bool = True) -> ast.JoinExpr:
+    def _events_join(self, sample: bool = True, scope_session_ids: list[str] | None = None) -> ast.JoinExpr:
         join = ast.JoinExpr(table=ast.Field(chain=["events"]))
         # Only positive session-selectors sample; a sampled exclusion blocklist would under-exclude.
         if sample and self._sample_factor is not None:
             join.sample = ast.SampleExpr(sample_value=ast.RatioExpr(left=ast.Constant(value=self._sample_factor)))
             self.emitted_sampled_subquery = True
+        if self._query.event_match_scope == EventMatchScope.RECORDING:
+            join.next_join = ast.JoinExpr(
+                # GLOBAL: the initiator builds the per-recording bounds once and ships them to each
+                # shard. Without it every shard would fan the replay scan out across the cluster again.
+                join_type="GLOBAL INNER JOIN",
+                table=self._recording_bounds_query(scope_session_ids=scope_session_ids),
+                alias="recording_bounds",
+                constraint=ast.JoinConstraint(
+                    expr=parse_expr("recording_bounds.session_id = events.properties.$session_id"),
+                    constraint_type="ON",
+                ),
+            )
         return join
+
+    def _recording_bounds_query(self, scope_session_ids: list[str] | None = None) -> ast.SelectQuery:
+        session_ids = scope_session_ids if scope_session_ids is not None else self._query.session_ids
+        if session_ids is not None:
+            scope = parse_expr(
+                "s.session_id IN {session_ids} AND s.min_first_timestamp >= {date_from}",
+                placeholders={
+                    "session_ids": ast.Constant(value=session_ids),
+                    "date_from": ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
+                },
+            )
+        else:
+            # Include adjacent segments because a recording can cross either date boundary.
+            scope = parse_expr(
+                "s.min_first_timestamp >= {date_from} AND s.min_first_timestamp <= {date_to}",
+                placeholders={
+                    "date_from": ast.Constant(value=self.query_date_range.date_from() - timedelta(days=1)),
+                    "date_to": ast.Constant(value=self.query_date_range.date_to() + timedelta(days=1)),
+                },
+            )
+        query = parse_select(
+            """
+            SELECT s.session_id AS session_id,
+                   min(s.min_first_timestamp) AS window_start,
+                   max(s.max_last_timestamp) AS window_end
+            FROM raw_session_replay_events AS s
+            WHERE {scope}
+            GROUP BY s.session_id
+            """,
+            placeholders={"scope": scope},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _recording_window_predicates(self) -> list[ast.Expr]:
+        if self._query.event_match_scope != EventMatchScope.RECORDING:
+            return []
+        return [
+            parse_expr(
+                "events.timestamp >= subtractMinutes(recording_bounds.window_start, {margin})",
+                placeholders={"margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES)},
+            ),
+            parse_expr(
+                "events.timestamp <= addMinutes(recording_bounds.window_end, {margin})",
+                placeholders={"margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES)},
+            ),
+        ]
 
     @staticmethod
     def _event_predicates(
@@ -340,6 +403,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     # true and reach the GROUP BY. The caller matches this against the replay
                     # table's non-nullable session_id, which rejects a NULL in the set.
                     ast.Call(name="notEmpty", args=[_event_session_id_field()]),
+                    *self._recording_window_predicates(),
                 ]
             ),
             group_by=[_event_session_id_field()],  # DISTINCT session_id
@@ -706,7 +770,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         )
         return ast.SelectQuery(
             select=[ast.Alias(alias="session_id", expr=_event_session_id_field())],
-            select_from=self._events_join(sample=False),
+            select_from=self._events_join(sample=False, scope_session_ids=session_ids),
             where=where,
             group_by=[_event_session_id_field()],
             # A session id can only be returned once, so the input bounds the output.
@@ -866,6 +930,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                     right=ast.Constant(value=self._query.session_ids),
                 )
             )
+
+        exprs += self._recording_window_predicates()
 
         return ast.And(exprs=exprs)
 
