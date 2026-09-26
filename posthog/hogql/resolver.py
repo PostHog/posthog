@@ -23,6 +23,11 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     is_dangerous_table_function,
 )
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.log_entries import (
+    BatchExportLogEntriesTable,
+    LogEntriesTable,
+    ReplayConsoleLogsLogEntriesTable,
+)
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
 from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
@@ -113,12 +118,24 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
     return []
 
 
+# Tables whose IN-subqueries should be built once on the initiator (GLOBAL IN) rather than
+# re-executed per shard of a distributed outer scan: sharded tables, and tables on another
+# cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
+# of the outer query issue its own remote read against aux).
+_GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
+_GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (ReplayConsoleLogsLogEntriesTable, BatchExportLogEntriesTable)
+
+
 class _ShardedTableFinder(TraversingVisitor):
     def __init__(self) -> None:
         self.found = False
 
     def visit_table_type(self, node: ast.TableType) -> None:
-        if isinstance(node.table, EventsTable):
+        if isinstance(node.table, _GLOBAL_IN_TABLES):
+            self.found = True
+
+    def visit_lazy_table_type(self, node: ast.LazyTableType) -> None:
+        if isinstance(node.table, _GLOBAL_IN_LAZY_TABLES):
             self.found = True
 
 
