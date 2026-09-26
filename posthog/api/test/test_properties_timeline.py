@@ -14,10 +14,13 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql_queries.properties_timeline.properties_timeline import PropertiesTimelineResult
+from posthog.models import PersonalAPIKey
 from posthog.models.filters.mixins.base import BreakdownType
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 MATERIALIZED_COLUMN_KWARGS = {"person_properties": ["foo", "bar"]}
 TEST_PERSON_ID = uuid.UUID("12345678-0000-0000-0000-000000000001")
@@ -778,3 +781,28 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
                 "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
             },
         )
+
+    @parameterized.expand(
+        [
+            ("person_read", ["person:read"], status.HTTP_200_OK),
+            ("unrelated_scope", ["insight:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_timeline_with_scoped_personal_api_key(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        self._create_person({"foo": "abc"})
+        flush_persons_and_events()
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test", user=self.user, secure_value=hash_key_value(key_value), scopes=scopes
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/persons/{TEST_PERSON_ID}/properties_timeline"
+            "?events=[]&actions=[]&properties=[]&display=ActionsTable&date_from=2020-01-01&date_to=2020-01-05",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(response.json()["points"], [])
