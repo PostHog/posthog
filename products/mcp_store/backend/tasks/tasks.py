@@ -1,6 +1,8 @@
 import structlog
 from celery import shared_task
+from celery.schedules import crontab
 
+from posthog.celery_queues import CeleryQueue
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -10,8 +12,27 @@ from ..tools import ToolsFetchError, sync_installation_tools
 
 logger = structlog.get_logger(__name__)
 
+# Registered centrally in posthog/tasks/scheduled.py (crontabs are not auto-collected).
+#
+# The poll is deliberately more frequent than DCR_REPROBE_INTERVAL, which is what actually
+# paces the probes. A once-a-day poll would alias against a 24-hour interval: a run that
+# stamps last_probed_at a few seconds after the hour leaves the next day's run just under
+# the interval, so every entry would skip a day and re-probe every 48 hours instead.
+MCP_STORE_CATALOG_SYNC_CRONTAB = crontab(hour="*/6", minute="45")
 
-@shared_task(ignore_result=True)
+# One probe makes several sequential requests at a 10 second timeout, and a whole catalog of
+# slow vendors would otherwise hold a worker for far longer than the sync is worth. The
+# limit sits well above a healthy run so it only binds when vendors are hanging.
+_CATALOG_SYNC_SOFT_TIME_LIMIT = 60 * 10
+_CATALOG_SYNC_HARD_TIME_LIMIT = _CATALOG_SYNC_SOFT_TIME_LIMIT + 60
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    soft_time_limit=_CATALOG_SYNC_SOFT_TIME_LIMIT,
+    time_limit=_CATALOG_SYNC_HARD_TIME_LIMIT,
+)
 @skip_team_scope_audit
 def sync_mcp_server_templates_task() -> None:
     sync_mcp_catalog()

@@ -108,6 +108,7 @@ from products.feature_flags.backend.tasks import (
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.mcp_registry.backend.facade.tasks import MCP_REGISTRY_SYNC_CRONTAB, run_mcp_registry_sync
+from products.mcp_store.backend.facade.tasks import MCP_STORE_CATALOG_SYNC_CRONTAB, sync_mcp_server_templates_task
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
@@ -1180,6 +1181,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         MCP_REGISTRY_SYNC_CRONTAB,
         run_mcp_registry_sync.s(),
         name="mcp registry daily sync",
+    )
+
+    # MCP store catalog sync: upsert the code-defined catalog, and re-probe an active DCR
+    # entry once its re-probe interval has elapsed so a server that stopped registering our
+    # client stops being offered. Process startup also queues this, but a deployment that
+    # stays up never restarts, and the re-probe is what needs the recurring cadence.
+    add_periodic_task_with_expiry(
+        sender,
+        MCP_STORE_CATALOG_SYNC_CRONTAB,
+        sync_mcp_server_templates_task.s(),
+        name="mcp store catalog sync",
+        # Under the poll interval, so a backed-up queue drops the stale dispatch rather than
+        # running two syncs back to back.
+        expires_seconds=60 * 60,
     )
 
     add_periodic_task_with_expiry(

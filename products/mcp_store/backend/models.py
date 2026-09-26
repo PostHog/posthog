@@ -175,6 +175,10 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     oauth_credentials_source = models.CharField(max_length=64, blank=True, default="", db_default="")
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
+    # When catalog sync last probed this url. A DCR probe registers a real client with the
+    # provider, so the sync uses this to re-probe an active entry on an interval instead of
+    # on every run.
+    last_probed_at = models.DateTimeField(null=True, blank=True)
 
     @classmethod
     def available_for_team(cls, team_id: int) -> models.QuerySet["MCPServerTemplate"]:

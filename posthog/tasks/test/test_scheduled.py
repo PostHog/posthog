@@ -35,6 +35,24 @@ class TestPrivacyTaskScheduling(SimpleTestCase):
             self.assertEqual(calls[0].args[1].type.queue, "ai_research_privacy")
 
 
+class TestMCPStoreCatalogScheduling(SimpleTestCase):
+    def test_catalog_sync_is_registered_on_the_long_running_queue(self) -> None:
+        # Process startup queues this too, but a deployment that never restarts would then
+        # never re-probe, and a catalog entry whose vendor stopped registering our client
+        # would stay installable forever. The probes are network-bound, so they belong off
+        # the default queue.
+        sender = MagicMock()
+        setup_periodic_tasks(sender)
+
+        calls = [
+            call
+            for call in sender.add_periodic_task.call_args_list
+            if call.kwargs.get("name") == "mcp store catalog sync"
+        ]
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].args[1].type.queue, "long_running")
+
+
 class TestInstanceSpreadMinute(SimpleTestCase):
     def test_one_installation_keeps_its_minute_in_every_process(self) -> None:
         # A literal, because the minute has to survive a beat restart. A hash that

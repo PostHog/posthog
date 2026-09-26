@@ -292,11 +292,32 @@ class TestProbeMCPServer(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("registration_http_500", lambda: _mock_response(500, text="boom", content_type="text/plain")),
-            ("registration_missing_client_id", lambda: _mock_response(201, json_body={"scope": "read"})),
+            # Only the provider's own decision about this client is evidence. Catalog sync
+            # retires an entry on a refusal, so a fault, a throttle or a dead request must
+            # not look like one.
+            (
+                "registration_refused",
+                lambda: _mock_response(403, text="not allowlisted", content_type="text/plain"),
+                True,
+            ),
+            ("registration_http_500", lambda: _mock_response(500, text="boom", content_type="text/plain"), False),
+            ("registration_throttled", lambda: _mock_response(429, text="slow down", content_type="text/plain"), False),
+            # A 408 is the server asking for the same request again, so it reads as a
+            # refusal on status range alone. Deactivating on it retires a working entry.
+            (
+                "registration_request_timeout",
+                lambda: _mock_response(408, text="took too long", content_type="text/plain"),
+                False,
+            ),
+            # The transport gave up before any status came back, which is a different path
+            # from the 408 above.
+            ("registration_timed_out", lambda: requests.Timeout("registration timed out"), False),
+            ("registration_missing_client_id", lambda: _mock_response(201, json_body={"scope": "read"}), False),
         ]
     )
-    def test_dcr_registration_failure_falls_back_to_oauth_shared(self, _name, registration_response_factory):
+    def test_dcr_registration_failure_falls_back_to_oauth_shared(
+        self, _name, registration_response_factory, expected_refused
+    ):
         result, _post, _get, _pinned = self._probe(
             post_routes={
                 SERVER_URL: _mock_response(401, text="unauthorized", content_type="text/plain"),
@@ -313,6 +334,7 @@ class TestProbeMCPServer(SimpleTestCase):
         self.assertFalse(result.authorize_endpoint_ok)
         self.assertTrue(any("Dynamic Client Registration" in error for error in result.errors))
         self.assertFalse(result.passed_activation_gate)
+        self.assertIs(result.dcr_registration_refused, expected_refused)
 
     def test_probe_never_raises_on_unexpected_error(self):
         result, _post, _get, _pinned = self._probe(post_routes={SERVER_URL: RuntimeError("boom")})
