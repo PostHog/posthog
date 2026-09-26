@@ -132,6 +132,15 @@ class TaskRunDTO:
 
 
 @dataclass(frozen=True)
+class InProgressGithubRunsDTO:
+    """In-progress runs that block disconnecting a team GitHub integration."""
+
+    count: int
+    oldest_task_id: UUID | None = None
+    oldest_task_title: str | None = None
+
+
+@dataclass(frozen=True)
 class WizardPrReadyEmailContextDTO:
     """Everything ``send_wizard_pr_ready_email`` needs to read off a task run's PR-ready state."""
 

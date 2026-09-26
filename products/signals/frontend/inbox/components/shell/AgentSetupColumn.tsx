@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { IconBolt, IconCheckCircle, IconChevronRight, IconCompass, IconGithub } from '@posthog/icons'
 import { LemonModal, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
@@ -201,18 +202,38 @@ function ScoutTroopWidget(): JSX.Element {
 }
 
 function CodeAccessWidget(): JSX.Element {
-    const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const { getIntegrationsByKind, integrations, integrationsLoading } = useValues(integrationsLogic)
+    const { loadIntegrations, startPolling, stopPolling } = useActions(integrationsLogic)
     const { openSetupModal } = useActions(agentSetupModalLogic)
     const hasGithub = getIntegrationsByKind(['github']).length > 0
+    // The loader keeps its last list on failure, so a null list after loading means the first fetch failed.
+    const loadFailed = integrations === null && !integrationsLoading
+
+    // The GitHub App install finishes on github.com and returns to a settings page, often in another tab.
+    // Refetch on an interval and on window focus until GitHub shows up, so the card does not stay stale.
+    useEffect(() => {
+        if (hasGithub) {
+            return
+        }
+        startPolling()
+        return () => stopPolling()
+    }, [hasGithub]) // eslint-disable-line react-hooks/exhaustive-deps
+
     return (
         <SetupWidgetCard
             icon={<IconGithub />}
             title="Code access"
             size="md"
-            tone={hasGithub ? 'done' : 'todo'}
+            tone={hasGithub ? 'done' : loadFailed ? 'neutral' : 'todo'}
             loading={integrationsLoading && !hasGithub}
-            status={hasGithub ? 'GitHub connected' : 'Foundational. Connect to start.'}
-            onClick={() => openSetupModal('github')}
+            status={
+                hasGithub
+                    ? 'GitHub connected'
+                    : loadFailed
+                      ? "Couldn't check GitHub. Click to retry."
+                      : 'Foundational. Connect to start.'
+            }
+            onClick={() => (loadFailed ? loadIntegrations() : openSetupModal('github'))}
         />
     )
 }

@@ -115,13 +115,14 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.tasks.email import send_integration_access_request
-from posthog.utils import is_relative_url
+from posthog.utils import absolute_uri, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
-from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
+from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
+from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
@@ -259,6 +260,26 @@ class _HasNameOrId(Protocol):
 
 def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
     return ", ".join(sorted(it.name or str(it.id) for it in items))
+
+
+def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO, team_id: int) -> str:
+    # Link one task so that the user can find what blocks the disconnect, and count the rest.
+    if live_runs.oldest_task_id is None:
+        runs = f"{live_runs.count} in-progress background agent run{'s' if live_runs.count != 1 else ''}"
+    else:
+        task_url = absolute_uri(f"/project/{team_id}/ai?task={live_runs.oldest_task_id}")
+        if live_runs.oldest_task_title:
+            runs = f'the in-progress background agent task "{live_runs.oldest_task_title}" ({task_url})'
+        else:
+            runs = f"an in-progress background agent task ({task_url})"
+        others = live_runs.count - 1
+        if others:
+            runs += f" and {others} other run{'s' if others != 1 else ''}"
+    pronoun = "it" if live_runs.count == 1 else "them"
+    return (
+        f"This GitHub integration is being used by {runs}. "
+        f"Wait for {pronoun} to finish or cancel {pronoun} before disconnecting it."
+    )
 
 
 class NativeEmailIntegrationSerializer(serializers.Serializer):
@@ -1405,15 +1426,11 @@ class IntegrationViewSet(
             )
 
         if instance.kind == "github":
-            live_run_count = count_in_progress_runs_for_github_integration(
+            live_runs = get_in_progress_runs_for_github_integration(
                 team_id=instance.team_id, integration_id=instance.id
             )
-            if live_run_count:
-                raise ValidationError(
-                    f"This GitHub integration is being used by {live_run_count} in-progress background agent "
-                    f"run{'s' if live_run_count != 1 else ''}. Wait for them to finish or cancel them before "
-                    "disconnecting it."
-                )
+            if live_runs.count:
+                raise ValidationError(_github_disconnect_blocked_message(live_runs, team_id=instance.team_id))
 
         if instance.kind == "stripe":
             try:
