@@ -654,6 +654,20 @@ class SurveyTabPosition(models.TextChoices):
 
 SURVEY_TAB_POSITION_CHOICES = list(SurveyTabPosition.values)
 
+# `bottom-right` is an old name for `right` that the create-survey tool wrote on every survey it
+# made, because it was the default appearance position. Both the web and the React Native SDK
+# render it as `right`. The API replaces it so a response always validates against the position
+# enum the API documents, which generated clients turn into a strict validator.
+LEGACY_SURVEY_POSITIONS = {"bottom-right": SurveyPosition.RIGHT.value}
+
+
+def normalize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
+    position = appearance.get("position")
+    replacement = LEGACY_SURVEY_POSITIONS.get(position) if isinstance(position, str) else None
+    if replacement is None:
+        return appearance
+    return {**appearance, "position": replacement}
+
 
 class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     backgroundColor = serializers.CharField(required=False)
@@ -679,6 +693,10 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     )
     whiteLabel = serializers.BooleanField(required=False)
     autoDisappear = serializers.BooleanField(required=False)
+    hideCancelButton = serializers.BooleanField(
+        required=False,
+        help_text="Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.",
+    )
     displayThankYouMessage = serializers.BooleanField(required=False)
     thankYouMessageHeader = serializers.CharField(required=False)
     thankYouMessageDescription = serializers.CharField(required=False)
@@ -1050,13 +1068,13 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
             return value
         if not isinstance(value, dict):
             raise serializers.ValidationError("Appearance must be an object")
-        return sanitize_survey_appearance(value)
+        return sanitize_survey_appearance(normalize_survey_appearance(value))
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
         appearance = data.get("appearance")
         if isinstance(appearance, dict):
-            data["appearance"] = sanitize_survey_appearance(appearance)
+            data["appearance"] = sanitize_survey_appearance(normalize_survey_appearance(appearance))
         questions = data.get("questions")
         if isinstance(questions, list):
             data["questions"] = [
@@ -1194,7 +1212,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Appearance must be an object")
 
-        value = sanitize_survey_appearance(value)
+        value = sanitize_survey_appearance(normalize_survey_appearance(value))
 
         thank_you_description_content_type = value.get("thankYouMessageDescriptionContentType")
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
@@ -3678,7 +3696,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         appearance = data.get("appearance")
         if isinstance(appearance, dict):
-            data["appearance"] = sanitize_survey_appearance(appearance)
+            data["appearance"] = sanitize_survey_appearance(normalize_survey_appearance(appearance))
         if data.get("translations") is None:
             data.pop("translations", None)
         return data

@@ -1370,6 +1370,8 @@ export interface SurveyAppearanceSchemaApi {
     inputTextColor?: string
     whiteLabel?: boolean
     autoDisappear?: boolean
+    /** Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it. */
+    hideCancelButton?: boolean
     displayThankYouMessage?: boolean
     thankYouMessageHeader?: string
     thankYouMessageDescription?: string

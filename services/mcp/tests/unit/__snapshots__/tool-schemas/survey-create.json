@@ -49,6 +49,10 @@
                         "fontFamily": {
                             "type": "string"
                         },
+                        "hideCancelButton": {
+                            "description": "Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.",
+                            "type": "boolean"
+                        },
                         "inputBackground": {
                             "description": "Background color of open text inputs and rating buttons.",
                             "type": "string"

@@ -42,6 +42,7 @@ from products.surveys.backend.api.survey import (
     get_survey_api_translations,
     get_surveys_response,
     nh3_clean_with_allow_list,
+    normalize_survey_appearance,
 )
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive
 
@@ -4397,6 +4398,23 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert "<strong>Details</strong>" in response.json()["questions"][0]["description"]
         assert "onerror" not in response.json()["questions"][0]["description"]
 
+    def test_read_replaces_the_legacy_appearance_position(self) -> None:
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey saved with the old default position",
+            type="popover",
+            questions=[],
+            appearance={"position": "bottom-right"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        appearance = response.json()["appearance"]
+        assert appearance["position"] == "right"
+        assert SurveyAppearanceSchemaSerializer(data=appearance).is_valid()
+
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
     def setUp(self):
@@ -5006,11 +5024,19 @@ class TestSurveyAppearanceSchema(SimpleTestCase):
             **DEFAULT_SURVEY_APPEARANCE,
             **{field: f"{field} text" for field in SURVEY_APPEARANCE_HTML_FIELDS},
             "inputTextColor": "black",
+            "hideCancelButton": True,
         }
         serializer = SurveyAppearanceSchemaSerializer(data=appearance)
 
         assert serializer.is_valid(), serializer.errors
         assert set(serializer.validated_data) == set(appearance)
+
+    def test_legacy_position_becomes_a_documented_position(self) -> None:
+        normalized = normalize_survey_appearance({**DEFAULT_SURVEY_APPEARANCE, "position": "bottom-right"})
+        serializer = SurveyAppearanceSchemaSerializer(data=normalized)
+
+        assert normalized["position"] == "right"
+        assert serializer.is_valid(), serializer.errors
 
 
 @time_machine.travel("2024-12-12 00:00:00", tick=False)

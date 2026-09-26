@@ -828,6 +828,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
+                hideCancelButton: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.'
+                    ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
                 thankYouMessageDescription: zod.string().optional(),
@@ -1750,6 +1756,12 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                     ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
+                hideCancelButton: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.'
+                    ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
                 thankYouMessageDescription: zod.string().optional(),
@@ -2674,6 +2686,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
+                hideCancelButton: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.'
+                    ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
                 thankYouMessageDescription: zod.string().optional(),
