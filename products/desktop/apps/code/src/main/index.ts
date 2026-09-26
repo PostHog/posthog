@@ -101,6 +101,7 @@ import {
   collectMemorySnapshot,
   flattenMemorySnapshot,
 } from "./utils/crash-diagnostics";
+import { reportCrashDumps } from "./utils/crash-dumps";
 import { ensureClaudeConfigDir } from "./utils/env";
 import {
   getChromiumLogFilePath,
@@ -284,6 +285,23 @@ app.on("child-process-gone", (_event, details) => {
   posthogNodeAnalytics.flush().catch(() => {});
 });
 
+// Crashpad writes a minidump for a native crash, which no JavaScript handler
+// sees. Reporting on the next launch is the only chance to learn about it.
+function reportCrashDumpsFromPreviousRun(): void {
+  try {
+    const report = reportCrashDumps(
+      app.getPath("crashDumps"),
+      (error, properties) =>
+        posthogNodeAnalytics.captureDeferredException(error, properties),
+    );
+    if (report.found === 0) return;
+    log.info("Reported native crash dumps from a previous run", report);
+    posthogNodeAnalytics.flush().catch(() => {});
+  } catch (error) {
+    log.warn("Failed to report native crash dumps", error);
+  }
+}
+
 async function initializeServices(): Promise<void> {
   initDevToolbar();
 
@@ -377,6 +395,10 @@ async function boot(): Promise<void> {
   log.info(
     `Logs: main=${getLogFilePath()} chromium=${getChromiumLogFilePath() ?? "(disabled)"} network=${getNetworkLogFilePath()}`,
   );
+  // This runs before the container and the services start, so a crash loop
+  // inside the boot window still reports the previous dump. The analytics
+  // client is live from module scope, so the report needs no service.
+  reportCrashDumpsFromPreviousRun();
   ensureClaudeConfigDir();
   setupExternalLinkPermissionHandlers(session.fromPartition("persist:main"));
   registerMcpSandboxProtocol();
