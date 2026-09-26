@@ -322,7 +322,16 @@ export function InsightVizDisplay({
             )
         }
         if (timedOutQueryId) {
-            return <InsightTimeoutState queryId={timedOutQueryId} />
+            return (
+                <InsightTimeoutState
+                    query={query}
+                    queryId={timedOutQueryId}
+                    onRetry={() => {
+                        // shouldQueryBeAsync reads the source, not the InsightVizNode that wraps it
+                        loadData(querySource && shouldQueryBeAsync(querySource) ? 'force_async' : 'force_blocking')
+                    }}
+                />
+            )
         }
 
         // On a dashboard, users sometimes see an empty chart even though the insight is valid—often because
