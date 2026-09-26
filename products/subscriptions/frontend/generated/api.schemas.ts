@@ -715,6 +715,16 @@ export interface AIReportChartApi {
     step_index: number
 }
 
+export interface SubscriptionDeliveryFailureReasonApi {
+    /** Server-generated classification of the failure: an exception class name or a stable pipeline key such as no_assets or AIReportQueryFailure. `unknown` when the run recorded no usable classification. */
+    type: string
+    /**
+     * First failure reason the run recorded that is vetted as safe for the subscription owner; null when the run only produced an internal error, which exposes `type` alone.
+     * @nullable
+     */
+    detail: string | null
+}
+
 export interface SubscriptionDeliveryApi {
     /** Primary key for this delivery row. */
     readonly id: string
@@ -790,6 +800,8 @@ export interface SubscriptionDeliveryApi {
     readonly ai_report_prompt: string | null
     /** Query plan state recorded for this delivery: frozen, not_frozen, or planner_updated. Null for older deliveries and non-AI deliveries. */
     readonly ai_query_plan_status: AIQueryPlanStatusEnumApi | null
+    /** Redacted diagnosis of a failed run: a failure classification and, when the pipeline produced an owner-safe message, a short reason. Null unless the run failed. Unlike `error` it carries no recipient identifiers and no upstream response bodies, so it is readable wherever delivery history is. */
+    readonly failure_reason: SubscriptionDeliveryFailureReasonApi | null
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
