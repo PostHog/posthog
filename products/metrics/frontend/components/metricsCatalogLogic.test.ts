@@ -232,7 +232,8 @@ describe('metricsCatalogLogic', () => {
         logic.actions.openMetric(CATALOG_ITEMS[0]) // a histogram
 
         expect(metricsViewerLogic.values.activeClause.selectedMetricType).toBe('histogram')
-        // The type drives the default aggregation: a histogram charts as a percentile.
-        expect(metricsViewerLogic.values.activeClause.aggregation).toBe('p95')
+        // The type drives the default aggregation: a histogram charts from its
+        // bucket distribution, not the cumulative sum in the scalar value column.
+        expect(metricsViewerLogic.values.activeClause.aggregation).toBe('histogram_quantile')
     })
 })
