@@ -309,6 +309,8 @@ SOCIAL_AUTH_PIPELINE = (
     # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
     "posthog.api.authentication.social_identity_matches_session",
     "posthog.api.authentication.social_reauth",
+    # Must stay ahead of associate_by_email, which links an existing account by email with no check of its own
+    "posthog.api.authentication.social_email_verified_by_provider",
     "social_core.pipeline.social_auth.associate_by_email",
     "posthog.api.signup.social_create_user",
     "social_core.pipeline.social_auth.associate_user",
