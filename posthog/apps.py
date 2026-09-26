@@ -67,7 +67,9 @@ class PostHogConfig(AppConfig):
             getattr(settings, "DEV_API_KEY", None) if settings.DEBUG else None,
         )
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
-        posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
+        # The SDK's autocapture replaces sys.excepthook, and Django's REPL routes an
+        # uncaught statement there, so a typo at the prompt would file a production issue.
+        posthoganalytics.enable_exception_autocapture = not settings.IS_INTERACTIVE_SHELL  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
