@@ -18,13 +18,15 @@ export type TaskPreviewGuestMessage =
   | { type: "picked"; element: TaskPreviewElement; rect: TaskPreviewRect }
   | { type: "pick-cancelled" }
   | { type: "activate"; id: string }
-  | { type: "pins-changed"; ids: string[] };
+  | { type: "pins-changed"; ids: string[] }
+  | { type: "tracked-rect"; rect: TaskPreviewRect };
 
 export type TaskPreviewHostMessage =
   | { type: "pick"; active: boolean }
   | { type: "pins"; items: TaskPreviewPin[] }
   | { type: "locate"; id: string }
-  | { type: "release" };
+  | { type: "release" }
+  | { type: "untrack" };
 
 function boundedId(value: unknown): value is string {
   return boundedString(value, MAX_ID_LENGTH) && value.length > 0;
@@ -43,6 +45,10 @@ export function sanitizeTaskPreviewGuestMessage(
     return value.ids.every(boundedId)
       ? { type: "pins-changed", ids: value.ids as string[] }
       : null;
+  }
+  if (value.type === "tracked-rect") {
+    const rect = finiteRect(value.rect) as TaskPreviewRect | null;
+    return rect ? { type: "tracked-rect", rect } : null;
   }
   if (value.type === "picked") {
     const element = elementSchema.safeParse(value.element);
@@ -85,6 +91,7 @@ export function sanitizeTaskPreviewHostMessage(
     return { type: "pick", active: value.active };
   }
   if (value.type === "release") return { type: "release" };
+  if (value.type === "untrack") return { type: "untrack" };
   if (value.type === "locate" && boundedId(value.id)) {
     return { type: "locate", id: value.id };
   }

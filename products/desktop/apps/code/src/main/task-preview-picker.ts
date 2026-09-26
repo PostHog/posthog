@@ -195,12 +195,24 @@ export function setupTaskPreviewPicker(
     reportChangedPins(changed);
   };
 
+  let tracked: Element | null = null;
+  let trackedKey = "";
+  const reportTracked = () => {
+    if (!tracked?.isConnected) return;
+    const rect = rectOf(tracked);
+    const key = `${rect.top},${rect.left},${rect.right},${rect.bottom}`;
+    if (key === trackedKey) return;
+    trackedKey = key;
+    send({ type: "tracked-rect", rect });
+  };
+
   let renderFrame = 0;
   const scheduleRender = () => {
     if (renderFrame) return;
     renderFrame = requestAnimationFrame(() => {
       renderFrame = 0;
       renderPins();
+      reportTracked();
     });
   };
 
@@ -267,6 +279,8 @@ export function setupTaskPreviewPicker(
     if (!target) return;
     stopPicking();
     showMarker(target);
+    tracked = target;
+    trackedKey = "";
     send({
       type: "picked",
       element: describeElement(target),
@@ -293,6 +307,10 @@ export function setupTaskPreviewPicker(
   return (message) => {
     if (message.type === "release") {
       releaseMarker();
+      return;
+    }
+    if (message.type === "untrack") {
+      tracked = null;
       return;
     }
     if (message.type === "pick") {

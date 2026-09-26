@@ -52,6 +52,8 @@ export type TaskPreviewFrameProps = {
   onActivatePin: (id: string) => void;
   onPinsChanged: (ids: string[]) => void;
   onLocationChange: (location: TaskPreviewLocation) => void;
+  tracking: boolean;
+  onTrackedRect: (rect: TaskPreviewRect) => void;
 };
 
 export type TaskPreviewFrameComponent = ComponentType<TaskPreviewFrameProps>;

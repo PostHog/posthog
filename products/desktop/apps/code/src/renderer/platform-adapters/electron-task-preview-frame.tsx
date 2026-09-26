@@ -90,6 +90,8 @@ export function ElectronTaskPreviewFrame({
   onPinsChanged,
   navigationRequest,
   onLocationChange,
+  tracking,
+  onTrackedRect,
 }: TaskPreviewFrameProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<TaskPreviewWebviewElement | null>(null);
@@ -105,6 +107,7 @@ export function ElectronTaskPreviewFrame({
     onActivatePin,
     onPinsChanged,
     onLocationChange,
+    onTrackedRect,
   });
 
   useEffect(() => {
@@ -115,8 +118,10 @@ export function ElectronTaskPreviewFrame({
       onActivatePin,
       onPinsChanged,
       onLocationChange,
+      onTrackedRect,
     };
   }, [
+    onTrackedRect,
     onLoadFailed,
     onPicked,
     onPickCancelled,
@@ -186,6 +191,8 @@ export function ElectronTaskPreviewFrame({
         });
       } else if (message.type === "pick-cancelled") {
         callbacksRef.current.onPickCancelled();
+      } else if (message.type === "tracked-rect") {
+        callbacksRef.current.onTrackedRect(message.rect);
       } else if (message.type === "pins-changed") {
         callbacksRef.current.onPinsChanged(message.ids);
       } else {
@@ -242,6 +249,10 @@ export function ElectronTaskPreviewFrame({
       sendRef.current({ type: "locate", id: locateRequest.id });
     }
   }, [locateRequest]);
+
+  useEffect(() => {
+    if (!tracking) sendRef.current({ type: "untrack" });
+  }, [tracking]);
 
   useEffect(() => {
     const webview = webviewRef.current;

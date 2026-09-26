@@ -106,6 +106,27 @@ export function AnnotatedTaskPreview({
     [requestCommentFocus, taskId, target],
   );
 
+  const placeCard = useCallback((rect: TaskPreviewRect) => {
+    const box = frameRef.current?.getBoundingClientRect();
+    if (!box) return null;
+    const clamp = (value: number) =>
+      Math.min(Math.max(value, box.top), box.bottom);
+    return {
+      top: clamp(box.top + rect.top),
+      endX: box.left + rect.right,
+      bottom: clamp(box.top + rect.bottom),
+    };
+  }, []);
+
+  const onTrackedRect = useCallback(
+    (rect: TaskPreviewRect) => {
+      const position = placeCard(rect);
+      if (!position) return;
+      setPending((current) => (current ? { ...current, position } : current));
+    },
+    [placeCard],
+  );
+
   const onPicked = useCallback(
     (
       element: TaskPreviewElement,
@@ -113,19 +134,15 @@ export function AnnotatedTaskPreview({
       screenshot: string | null,
     ) => {
       onCommentingChange(false);
-      const box = frameRef.current?.getBoundingClientRect();
-      if (!box) return;
+      const position = placeCard(rect);
+      if (!position) return;
       setPending({
         anchor: { kind: "element", ...element },
         screenshot,
-        position: {
-          top: box.top + rect.top,
-          endX: box.left + rect.right,
-          bottom: box.top + rect.bottom,
-        },
+        position,
       });
     },
-    [onCommentingChange],
+    [onCommentingChange, placeCard],
   );
 
   const dismissPending = useCallback(() => setPending(null), []);
@@ -190,6 +207,8 @@ export function AnnotatedTaskPreview({
           onPinsChanged={onPinsChanged}
           navigationRequest={navigationRequest}
           onLocationChange={onLocationChange}
+          tracking={!!pending}
+          onTrackedRect={onTrackedRect}
         />
         {commenting && (
           <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center">

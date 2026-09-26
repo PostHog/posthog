@@ -51,6 +51,16 @@ describe("task preview messages", () => {
       kept: false,
     },
     {
+      name: "a tracked element rect",
+      message: { type: "tracked-rect", rect },
+      kept: true,
+    },
+    {
+      name: "a tracked rect with a missing side",
+      message: { type: "tracked-rect", rect: { ...rect, left: Number.NaN } },
+      kept: false,
+    },
+    {
       name: "an unknown type",
       message: { type: "navigate", url: "https://x.test" },
       kept: false,
