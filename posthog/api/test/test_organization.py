@@ -495,6 +495,42 @@ class TestOrganizationAPI(APIBaseTest):
         )
         self.assertFalse(blocked.organization_memberships.exists())
 
+    @parameterized.expand(
+        [
+            ("write_scope", ["organization:write"], status.HTTP_200_OK),
+            ("read_scope", ["organization:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_personal_api_key_removal_action_requires_organization_write(
+        self, _name: str, scopes: list[str], expected_status: int
+    ):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
+        self.organization.save()
+        OrganizationDomain.objects.create(
+            domain="posthog.com", organization=self.organization, verified_at=timezone.now()
+        )
+        blocked = User.objects.create_and_join(self.organization, "blocked@hedgebox.net", None)
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=scopes,
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/remove_blocked_members_and_enforce_verified_domains/",
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.enforce_verified_domains is True, expected_status == status.HTTP_200_OK)
+        self.assertEqual(blocked.organization_memberships.exists(), expected_status != status.HTTP_200_OK)
+
     def test_members_cannot_enable_enforcement_through_the_removal_action(self):
         self.organization.available_product_features = [{"key": AvailableFeature.AUTOMATIC_PROVISIONING}]
         self.organization.save()
