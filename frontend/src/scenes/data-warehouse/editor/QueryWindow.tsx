@@ -37,6 +37,7 @@ import { BIEditorView } from './bi/biEditorTypes'
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
+import { EmbeddedSaveAsInsightButton } from './EmbeddedSaveAsInsightButton'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { OutputPane } from './OutputPane'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
@@ -66,6 +67,8 @@ interface QueryWindowProps {
     /** Drop the toolbar's run button, for hosts that offer the run affordance themselves
      * (a notebook code cell runs from the cell's top row). Cmd+Enter still runs. */
     hideRunButton?: boolean
+    /** Embedded mode only: show a save-as-insight button, for hosts whose queries are worth keeping. */
+    showSaveAsInsight?: boolean
     onShareTab?: () => void
     /** Whether the query pane's code editor may grab focus on mount. Defaults to true. */
     autoFocusQueryPane?: boolean
@@ -87,6 +90,7 @@ export function QueryWindow({
     onCancelQuery,
     cancelQueryLoading,
     hideRunButton,
+    showSaveAsInsight,
     onShareTab,
     autoFocusQueryPane,
 }: QueryWindowProps): JSX.Element {
@@ -342,6 +346,7 @@ export function QueryWindow({
                                 />
                             </LemonMenu>
                         ) : null}
+                        {mode === SQLEditorMode.Embedded && showSaveAsInsight && <EmbeddedSaveAsInsightButton />}
                         {mode === SQLEditorMode.Embedded && (
                             <SceneTitlePanelButton
                                 buttonClassName="size-[26px]"
