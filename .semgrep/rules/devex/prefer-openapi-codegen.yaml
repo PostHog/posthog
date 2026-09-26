@@ -1,0 +1,48 @@
+rules:
+    - id: prefer-openapi-codegen
+      message: |
+          A `*.generated.*` file outside a `generated/` directory is the output of a side
+          generator: a script that writes code next to the OpenAPI flow. Each side generator
+          adds its own hogli step, CI path filters, formatter exclusions and drift check.
+          DevEx then maintains them, and new generators copy the nearest old one.
+
+          Use the OpenAPI flow instead:
+          - The frontend or the MCP server needs the values that an API accepts or returns
+            (an enum, a list of kinds, scope objects): type the serializer field, for example
+            as a `ChoiceField`, run `hogli build:openapi`, and use the generated `*EnumApi`.
+            See the `/improving-drf-endpoints` skill.
+          - The data is rows that no endpoint serves (a catalog, a registry with labels):
+            ask #team-devex. If a projection is the right tool, give the generator a
+            `--check` mode, add it to `hogli build:projections` and
+            `hogli lint:projections`, and add its output to this rule's `paths.exclude`.
+
+          Background: docs/published/handbook/engineering/type-system.md
+          ("Side generators").
+      languages: [generic]
+      # WARNING, not ERROR, although nothing matches today: the ERROR pass in ci-security.yaml
+      # skips products/desktop, where projections also land. The baseline WARNING pass scans
+      # it and fails only a PR that adds a new file.
+      severity: WARNING
+      paths:
+          include:
+              - '*.generated.*'
+          exclude:
+              - '**/generated/**'
+              # Sanctioned projections: data rows that no endpoint serves, or outputs of the
+              # MCP codegen pipeline itself.
+              - '/products/tasks/frontend/modelCatalog.generated.ts'
+              - '/products/desktop/packages/shared/src/model-catalog.generated.ts'
+              - '/frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+              - '/products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
+              - '/products/desktop/packages/shared/src/objectTagKinds.generated.ts'
+              - '/services/mcp/src/lib/trace-property-allowlist.generated.ts'
+              - '/services/mcp/src/resources/ui-apps.generated.ts'
+              - '/frontend/src/lib/agentScopes.generated.ts'
+              - '/services/mcp/src/lib/oauth-scopes.generated.ts'
+      # Zero-width match at the start of the file: the finding is the file itself. The
+      # baseline pass keys findings on the text of line 1, so a header edit reads as new.
+      pattern-regex: '\A'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit
