@@ -235,7 +235,7 @@ def _mentions_allowed_for_comment_target(
     if scope == "desktop_canvas":
         if not item_id:
             return []
-        from products.canvas.backend.comment_access import visible_canvas_user_ids
+        from products.canvas.backend.facade.api import visible_canvas_user_ids  # noqa: PLC0415
 
         visible_ids = visible_canvas_user_ids(
             team_id=team_id,

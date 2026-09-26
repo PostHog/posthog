@@ -21,7 +21,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.canvas.backend.notebook_integration import CanvasGenerationState, NotebookCanvasVersion
+from products.canvas.backend.facade.notebooks import CanvasGenerationState, NotebookCanvasVersion
 from products.notebooks.backend.models import (
     GeneratedWidget,
     GeneratedWidgetGenerationJob,

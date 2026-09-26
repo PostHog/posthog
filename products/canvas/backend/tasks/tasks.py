@@ -35,9 +35,10 @@ def process_canvas_build(team_id: int, build_id: str) -> None:
     retry_backoff=True,
     soft_time_limit=60,
     time_limit=90,
+    name="products.canvas.backend.tasks.cleanup_notebook_canvas_draft",
 )
 def cleanup_notebook_canvas_draft(team_id: int, canvas_id: str, version_id: str) -> None:
-    from products.canvas.backend.notebook_integration import cleanup_discarded_notebook_canvas_draft  # noqa: PLC0415
+    from products.canvas.backend.facade.notebooks import cleanup_discarded_notebook_canvas_draft  # noqa: PLC0415
 
     cleanup_discarded_notebook_canvas_draft(team_id=team_id, canvas_id=UUID(canvas_id), version_id=UUID(version_id))
 
@@ -50,6 +51,7 @@ def cleanup_notebook_canvas_draft(team_id: int, canvas_id: str, version_id: str)
     retry_backoff=True,
     soft_time_limit=60,
     time_limit=90,
+    name="products.canvas.backend.tasks.cleanup_canvas_source_uploads",
 )
 def cleanup_canvas_source_uploads(team_id: int, canvas_id: str, object_keys: list[str]) -> None:
     from products.canvas.backend.build_service import cleanup_unreferenced_source_uploads  # noqa: PLC0415

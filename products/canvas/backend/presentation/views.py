@@ -9,6 +9,7 @@ from django.db.models import Q, QuerySet
 from django.http import HttpRequest, HttpResponse, HttpResponseBase
 from django.utils import timezone
 from django.utils.cache import get_conditional_response
+from django.views.decorators.clickjacking import xframe_options_exempt
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -105,6 +106,7 @@ from products.tasks.backend.facade.access import code_access_required_response
 logger = structlog.get_logger(__name__)
 
 
+@xframe_options_exempt
 def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> HttpResponse:
     result = render_canvas_artifact(
         host=request.get_host(),

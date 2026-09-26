@@ -108,6 +108,34 @@ def visible_canvas_ids(team_id: int, user: User | None) -> set[str]:
     return {str(canvas_id) for canvas_id in canvases.values_list("id", flat=True)}
 
 
+def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: set[int] | list[int]) -> set[int]:
+    """User IDs from the given list that can access the specified canvas.
+
+    Filters by channel visibility: public channels grant access to all, personal channels
+    to their creator, and private channels to their members.
+    """
+    candidate_ids = set(user_ids) if not isinstance(user_ids, set) else user_ids
+    if not candidate_ids:
+        return set()
+    try:
+        canvases = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False, channel__deleted=False)
+        if canvases.filter(channel__channel_type="public").exists():
+            return candidate_ids
+        visible_ids = set(
+            canvases.filter(channel__channel_type="personal", channel__created_by_id__in=candidate_ids).values_list(
+                "channel__created_by_id", flat=True
+            )
+        )
+        visible_ids.update(
+            canvases.filter(
+                channel__channel_type="private", channel__memberships__user_id__in=candidate_ids
+            ).values_list("channel__memberships__user_id", flat=True)
+        )
+        return visible_ids
+    except (ValueError, ValidationError):
+        return set()
+
+
 def hidden_canvas_ids_for_org(organization_id: str | UUID, user: User | None) -> set[str]:
     """Ids of canvases hidden by channel visibility or source policy across an org.
 

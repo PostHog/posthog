@@ -123,7 +123,7 @@ def project_comment_activity(
                 except (ValueError, DjangoValidationError):
                     pass
             if owner_id is None and comment.scope == "desktop_canvas" and comment.item_id:
-                from products.canvas.backend.comment_access import canvas_owner_id
+                from products.canvas.backend.facade.api import canvas_owner_id  # noqa: PLC0415
 
                 owner_id = canvas_owner_id(team_id=team_id, canvas_id=comment.item_id)
             if comment.scope != "desktop_canvas":
@@ -134,7 +134,7 @@ def project_comment_activity(
     recipients.update((user_id, TaskCommentActivity.Kind.MENTION) for user_id in mentioned_user_ids)
     recipients.pop(comment.created_by_id, None)
     if comment.scope == "desktop_canvas":
-        from products.canvas.backend.comment_access import visible_canvas_user_ids
+        from products.canvas.backend.facade.api import visible_canvas_user_ids  # noqa: PLC0415
 
         visible_user_ids = visible_canvas_user_ids(
             team_id=team_id,
