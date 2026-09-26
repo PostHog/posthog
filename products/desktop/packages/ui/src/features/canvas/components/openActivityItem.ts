@@ -12,11 +12,12 @@ import {
 export function openActivityItem(item: TaskActivityItem): void {
   const { channelId } = item;
 
-  if (channelId && item.commentTarget?.scope === "desktop_canvas") {
+  if (channelId && item.commentTarget?.scope === "canvas") {
     useCanvasChatPanelStore.getState().openComments();
     navigateToChannelDashboard(channelId, item.commentTarget.itemId);
     return;
   }
+  if (!item.taskId) return;
   // The channel thread route is the deep-link target; unfiled tasks fall back
   // to the plain task view.
   if (channelId) {

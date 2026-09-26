@@ -13,6 +13,7 @@ export const ONBOARDING_TEST_TOOLS_FLAG =
 // Gates the entire canvas feature: the app rail's Channels space, the /website
 // routes, channels and dashboards.
 export const PROJECT_BLUEBIRD_FLAG = featureFlagKeys.PROJECT_BLUEBIRD_FLAG;
+export const CANVAS_COMMENTS_FLAG = featureFlagKeys.CANVAS_COMMENTS_FLAG;
 /**
  * Gates the new channels layout (channel-scoped sidebar + task Activity panel).
  * Off keeps the previous experience and its "Enable channels" toggle. Requires

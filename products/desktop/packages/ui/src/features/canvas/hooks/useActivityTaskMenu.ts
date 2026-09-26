@@ -66,23 +66,24 @@ export function useActivityTaskMenu(): (
           },
         };
       }
+      const taskId = item.taskId ?? "";
       return {
         kind: "task",
-        id: item.taskId,
+        id: taskId,
         title: item.taskTitle,
-        isPinned: pinnedTaskIds.has(item.taskId),
+        isPinned: pinnedTaskIds.has(taskId),
         // Ticks the space the task is already filed to, inside "File to…".
         channelId: item.channelId ?? undefined,
-        onAddToCommandCenter: cells.includes(item.taskId)
+        onAddToCommandCenter: cells.includes(taskId)
           ? undefined
-          : () => placeTaskInCommandCenter(item.taskId, item.taskTitle),
+          : () => placeTaskInCommandCenter(taskId, item.taskTitle),
         onTogglePin: () => {
-          togglePin(item.taskId).catch(() => {
+          togglePin(taskId).catch(() => {
             toast.error("Couldn't update pin");
           });
         },
         onArchive: () => {
-          archiveRef.current({ taskId: item.taskId }).catch(() => {
+          archiveRef.current({ taskId }).catch(() => {
             toast.error("Couldn't archive task");
           });
         },

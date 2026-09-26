@@ -3,7 +3,10 @@ import type { TextCommentAnchor } from "@posthog/core/comments/anchors";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCreateComment } from "@posthog/ui/features/sessions/components/useComments";
 
 export function CanvasSelectionCommentAction({
@@ -23,7 +26,7 @@ export function CanvasSelectionCommentAction({
 }) {
   const { members } = useOrgMembers();
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
-  const target = { scope: "desktop_canvas" as const, itemId: dashboardId };
+  const target = { scope: "canvas" as const, itemId: dashboardId };
   const createComment = useCreateComment(target, taskId ?? undefined);
 
   const anchor: TextCommentAnchor | null = selection
@@ -53,7 +56,7 @@ export function CanvasSelectionCommentAction({
             }
           : null
       }
-      open={!!selection && !!taskId}
+      open={!!selection}
       filePath={canvasName}
       actionLabel="Add comment"
       placeholder="Add a comment about this selection"
@@ -61,7 +64,7 @@ export function CanvasSelectionCommentAction({
       members={members}
       onDismiss={onDismiss}
       onSubmit={async (_start, _end, content, mentions) => {
-        if (!anchor || !taskId) return;
+        if (!anchor) return;
         openComments();
         const comment = await createComment.mutateAsync({
           content,
@@ -73,9 +76,14 @@ export function CanvasSelectionCommentAction({
         });
         useCommentNavigationStore
           .getState()
-          .requestCommentFocus(taskId, target, comment.id, {
-            intent: "focus-only",
-          });
+          .requestCommentFocus(
+            canvasCommentFocusKey(dashboardId),
+            target,
+            comment.id,
+            {
+              intent: "focus-only",
+            },
+          );
       }}
     />
   );
