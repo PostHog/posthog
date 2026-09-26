@@ -20,6 +20,7 @@ export function PaginationControl<T>({
     pageCount,
     dataSourcePage,
     entryCount,
+    entryCountIsLowerBound,
     currentStartIndex,
     currentEndIndex,
     nouns = ['entry', 'entries'],
@@ -28,8 +29,10 @@ export function PaginationControl<T>({
     /** Whether pages previous and next are available. */
     const isPreviousAvailable: boolean =
         currentPage !== null ? currentPage > 1 : !!(pagination?.controlled && pagination.onBackward)
+    // A capped count does not tell where the rows end, so the next handler decides whether another page exists.
+    const lastPage: number = entryCountIsLowerBound ? Infinity : (pageCount as number)
     const isNextAvailable: boolean =
-        currentPage !== null && pageCount !== null
+        currentPage !== null && pageCount !== null && !entryCountIsLowerBound
             ? currentPage < pageCount
             : !!(pagination?.controlled && pagination.onForward)
     /** Whether there's reason to show pagination. */
@@ -45,8 +48,8 @@ export function PaginationControl<T>({
                     : entryCount === null
                       ? `${currentPageSize} ${currentPageSize === 1 ? nouns[0] : nouns[1]} on this page`
                       : currentPageSize === 1
-                        ? `${currentEndIndex} of ${entryCount} ${entryCount === 1 ? nouns[0] : nouns[1]}`
-                        : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount} ${nouns[1]}`}
+                        ? `${currentEndIndex} of ${entryCount}${entryCountIsLowerBound ? '+' : ''} ${entryCount === 1 ? nouns[0] : nouns[1]}`
+                        : `${currentStartIndex + 1}-${currentEndIndex} of ${entryCount}${entryCountIsLowerBound ? '+' : ''} ${nouns[1]}`}
             </span>
             <LemonButton
                 icon={<IconChevronLeft />}
@@ -56,7 +59,7 @@ export function PaginationControl<T>({
                 onClick={() => {
                     pagination?.controlled && pagination.onBackward?.()
                     if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
-                        setCurrentPage(Math.max(1, Math.min(pageCount as number, currentPage as number) - 1))
+                        setCurrentPage(Math.max(1, Math.min(lastPage, currentPage as number) - 1))
                     }
                 }}
             />
@@ -68,7 +71,7 @@ export function PaginationControl<T>({
                 onClick={() => {
                     pagination?.controlled && pagination.onForward?.()
                     if ((pagination?.controlled && currentPage) || !pagination?.controlled) {
-                        setCurrentPage(Math.min(pageCount as number, (currentPage as number) + 1))
+                        setCurrentPage(Math.min(lastPage, (currentPage as number) + 1))
                     }
                 }}
             />
