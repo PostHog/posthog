@@ -247,6 +247,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "PagePilot-SiteAudit/1.0 (+https://pagepilot-ai-24.polsia.app)",
         "double-ats-customer-discoverer/0.1 (+https://double.fyi; respectful crawler)",
         "BenchRankBot/1.0 (+https://benchrank.app/bot)",
+        "PathIntactResearch/0.1 (+https://pathintact.com; aggregate study)",
+        "PathIntactResearch/0.1 (+https://pathintact.com; GTM research)",
         "QlyzeBot/1.0 (+https://app.qlyze.io/bot)",
         "AutozellaBot/1.0 (+https://autozella.com/bot)",
     ],
