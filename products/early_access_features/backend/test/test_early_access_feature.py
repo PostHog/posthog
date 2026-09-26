@@ -672,6 +672,25 @@ class TestEarlyAccessFeature(APIBaseTest):
             "Group-based feature flags are not supported for Early Access Features.",
         )
 
+    def test_cant_create_early_access_feature_with_flag_in_another_config_format(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            filters={"version": 2, "return_type": "boolean", "default_value": False, "rules": []},
+            key="other-format",
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Other format", "stage": "beta", "feature_flag_id": flag.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "configuration format that an early access feature cannot use yet" in response.json()["detail"]
+        flag.refresh_from_db()
+        assert flag.filters == {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+
     def test_cant_create_early_access_feature_with_multivariate_flag(self):
         flag = FeatureFlag.objects.create(
             team=self.team,
