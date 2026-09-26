@@ -1457,6 +1457,21 @@ class TestEmitObservationEventActivity:
         properties = capture.call_args.kwargs["properties"]
         assert properties["credits"] == observation_credits_for_model(observation.scanner_snapshot["model"])
 
+    def test_event_opts_into_the_internal_lane(self) -> None:
+        scanner = _make_scanner()
+        observation = _make_observation(scanner)
+        inputs = EmitObservationEventInputs(
+            observation_id=observation.id,
+            model_output=MonitorOutput(verdict="yes", reasoning="ok", confidence=0.9),
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.emit_observation_event.capture_internal"
+        ) as capture:
+            _emit_event(inputs)
+
+        assert capture.call_args.kwargs["internal_producer"] is True
+
     def test_event_carries_indexed_and_named_group_keys(self) -> None:
         # `$group_N` is what group analytics filters and breaks down on; `$groups` is what a webhook or alert
         # consumer reads. Ingestion derives one from the other only when it processes a person profile, which

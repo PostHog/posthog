@@ -56,6 +56,8 @@ pub fn test_context() -> RequestContext {
         capture_internal: false,
         historical_migration: false,
         gateway_signature: None,
+        internal_signature: None,
+        internal_producer: false,
     }
 }
 
@@ -961,6 +963,7 @@ impl TestStateBuilder {
             v1_sink_router: Some(Arc::new(v1_router)),
             capture_v1_scatter_gather_min_batch: 8,
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
+            capture_internal_signing_secret: None,
             ai_events_overflow_enabled,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
             capture_mode: self.capture_mode,

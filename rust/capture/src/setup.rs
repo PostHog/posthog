@@ -417,6 +417,7 @@ pub async fn build_components(
         v1_sink_router.clone(),
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
+        config.capture_internal_signing_secret.clone(),
         ai_events_overflow_enabled,
         ingestion_warning_emitter,
     );
@@ -578,6 +579,7 @@ fn create_v1_sink_router(
     for cfg in sinks_cfg.configs.values_mut() {
         cfg.kafka.topic_ai = config.kafka_topics.ai_events.clone();
         cfg.kafka.topic_ai_overflow = config.kafka_topics.ai_events_overflow.clone();
+        cfg.kafka.topic_internal = config.kafka_topics.internal.clone();
     }
 
     warn_if_ai_ceiling_exceeds_v1_sink_caps(config, &sinks_cfg);

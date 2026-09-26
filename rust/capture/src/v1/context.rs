@@ -4,6 +4,7 @@ use axum::http::{header, HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
 use chrono::{DateTime, Utc};
 use common_ingestion_warnings::{WarningRequestContext, UNKNOWN_ATTRIBUTION};
+use sha2::Digest;
 use uuid::Uuid;
 
 use crate::token::validate_token;
@@ -35,6 +36,14 @@ pub struct RequestContext {
     pub historical_migration: bool,
     /// AI-gateway provenance signature parsed from the request headers, if present.
     pub gateway_signature: Option<super::gateway_provenance::GatewaySignature>,
+    pub internal_signature: Option<InternalSignature>,
+    pub internal_producer: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct InternalSignature {
+    pub signature: String,
+    pub signed_at: String,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -181,6 +190,20 @@ impl RequestContext {
         let sdk_info = header_str(headers, POSTHOG_SDK_INFO)?.to_string();
 
         let gateway_signature = super::gateway_provenance::parse_signature(headers);
+        let internal_signature = Option::zip(
+            crate::gateway_provenance::header_str(
+                headers,
+                super::constants::POSTHOG_INTERNAL_SIGNATURE,
+            ),
+            crate::gateway_provenance::header_str(
+                headers,
+                super::constants::POSTHOG_INTERNAL_SIGNED_AT,
+            ),
+        )
+        .map(|(signature, signed_at)| InternalSignature {
+            signature,
+            signed_at,
+        });
 
         Ok(Self {
             api_token,
@@ -200,7 +223,33 @@ impl RequestContext {
             capture_internal: false,
             historical_migration: false,
             gateway_signature,
+            internal_signature,
+            internal_producer: false,
         })
+    }
+
+    pub fn verify_internal_producer(&mut self, secret: Option<&str>, body: &[u8]) {
+        let (Some(secret), Some(sig)) = (
+            secret.filter(|s| !s.is_empty()),
+            self.internal_signature.as_ref(),
+        ) else {
+            return;
+        };
+        let request_id = self.request_id.to_string();
+        let body_digest = hex::encode(sha2::Sha256::digest(body));
+        let message = crate::gateway_provenance::canonical(&[
+            &self.api_token,
+            &request_id,
+            &sig.signed_at,
+            &body_digest,
+        ]);
+        self.internal_producer = crate::gateway_provenance::verify(
+            secret.as_bytes(),
+            &message,
+            &sig.signature,
+            &sig.signed_at,
+            self.server_received_at,
+        ) == crate::gateway_provenance::Provenance::Verified;
     }
 
     /// Stamp request-level batch metadata. Takes primitives (not an
@@ -221,6 +270,31 @@ impl RequestContext {
 #[cfg(test)]
 mod tests {
     use std::net::{IpAddr, Ipv4Addr};
+
+    #[test]
+    fn internal_producer_requires_a_valid_signature() {
+        let mut ctx = crate::v1::test_utils::test_context();
+        let signed_at = ctx.server_received_at.to_rfc3339();
+        let request_id = ctx.request_id.to_string();
+        let body_digest = hex::encode(sha2::Sha256::digest(b"body"));
+        let signature = crate::gateway_provenance::sign(
+            b"secret",
+            &[&ctx.api_token, &request_id, &signed_at, &body_digest],
+        );
+        ctx.internal_signature = Some(super::InternalSignature {
+            signature,
+            signed_at,
+        });
+
+        ctx.verify_internal_producer(Some("other"), b"body");
+        assert!(!ctx.internal_producer);
+        ctx.verify_internal_producer(None, b"body");
+        assert!(!ctx.internal_producer);
+        ctx.verify_internal_producer(Some("secret"), b"tampered");
+        assert!(!ctx.internal_producer);
+        ctx.verify_internal_producer(Some("secret"), b"body");
+        assert!(ctx.internal_producer);
+    }
 
     use axum::http::{HeaderMap, HeaderValue, Method};
     use axum_client_ip::InsecureClientIp;

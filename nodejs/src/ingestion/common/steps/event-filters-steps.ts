@@ -49,10 +49,10 @@ export interface ApplyEventFiltersInput {
  * producing individual Kafka messages per event.
  */
 export function createApplyEventFiltersStep<T extends ApplyEventFiltersInput>(
-    manager: EventFilterManager
+    manager: EventFilterManager | null
 ): ProcessingStep<T, T> {
     return function applyEventFiltersStep(input: T): Promise<PipelineResult<T>> {
-        const filter = manager.getFilter(input.team.id)
+        const filter = manager?.getFilter(input.team.id)
 
         if (!filter) {
             return Promise.resolve(ok(input))

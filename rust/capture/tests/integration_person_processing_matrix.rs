@@ -268,6 +268,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         None,
         8,
         None,
+        None,
         false,
         None,
     );
