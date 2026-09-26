@@ -97,6 +97,8 @@ def _route_classes() -> frozenset[type]:
     for _path, _method, callback in EndpointEnumerator().get_api_endpoints():
         view_class = getattr(callback, "cls", None)
         classes.update(getattr(view_class, "authentication_classes", None) or [])
+        # An `@action(authentication_classes=...)` overrides the view's classes for its own route.
+        classes.update((getattr(callback, "initkwargs", None) or {}).get("authentication_classes") or [])
     return frozenset(classes)
 
 
