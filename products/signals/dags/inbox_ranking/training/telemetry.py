@@ -19,6 +19,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.ph_client import get_client
 
+from products.signals.backend.ranking.serving_manifest import ServingManifest
 from products.signals.dags.inbox_ranking.common import snapshot_bounds
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
@@ -36,6 +37,7 @@ UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
 UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
 UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
 HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
+SERVING_MANIFEST_PUBLISHED_EVENT = "inbox_ranking_serving_manifest_published"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -155,6 +157,40 @@ def promotion_event(
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
         },
     )
+
+
+def serving_manifest_event(
+    *,
+    partition_key: str,
+    run_id: str,
+    served_family: str,
+    manifest: ServingManifest | None,
+    reason: str,
+    copied_keys: Sequence[str] = (),
+    present_keys: Sequence[str] = (),
+    bytes_copied: int = 0,
+) -> TrainingEvent:
+    """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
+    the manifest is what makes the sweep serve anything, so a silent gap in this series would read
+    the same as a day of ordinary publishing."""
+    properties: dict[str, object] = {
+        "model_version": partition_key,
+        "run_id": run_id,
+        "served_family": served_family,
+        "published": manifest is not None,
+        "reason": reason,
+        "entries_copied": len(copied_keys),
+        "entries_already_present": len(present_keys),
+        "bytes_copied": bytes_copied,
+    }
+    if manifest is not None:
+        properties |= {
+            "manifest_version": manifest.manifest_version,
+            "served_key": manifest.served.key,
+            "model_keys": [entry.key for entry in manifest.models],
+            "model_roles": {entry.key: entry.roles for entry in manifest.models},
+        }
+    return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
 
 
 def unseen_score_events(*, run_id: str, rows: Sequence[Mapping[str, Any]]) -> list[TrainingEvent]:

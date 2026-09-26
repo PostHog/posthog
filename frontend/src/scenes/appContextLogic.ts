@@ -59,6 +59,7 @@ export const appContextLogic = kea<appContextLogicType>([
         const preloadedUser = appContext?.current_user
 
         if (appContext && preloadedUser) {
+            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use usersRetrieve() from '~/generated/core/api' instead.
             void api.get('api/users/@me/').then((remoteUser: UserType) => {
                 if (remoteUser.uuid !== preloadedUser.uuid) {
                     console.error(`Preloaded user ${preloadedUser.uuid} does not match remote user ${remoteUser.uuid}`)

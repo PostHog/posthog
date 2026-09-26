@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { DashboardsPartialUpdateBody } from '@/generated/dashboards/api'
 import { GENERATED_TOOLS } from '@/tools/generated/dashboards'
+import { getToolDefinitions } from '@/tools/toolDefinitions'
 
 function getSchemaShape(schema: z.ZodTypeAny): Record<string, z.ZodTypeAny> {
     if ('shape' in schema && schema.shape && typeof schema.shape === 'object') {
@@ -56,5 +57,30 @@ describe('dashboard-update schema', () => {
         const result = tool.schema.safeParse({ id: 1, breakdown_colors: breakdownColors })
 
         expect(result.success).toBe(false)
+    })
+})
+
+describe('dashboard layout tool descriptions', () => {
+    it.each([
+        ['dashboard-update', /Resize, reposition, or update dashboard tiles/],
+        ['dashboard-reorder-tiles', /To repack the whole dashboard, include every tile ID/],
+        ['dashboard-transfer-tile', /source dashboard to another dashboard/],
+    ])('distinguishes %s from other layout tools', (name, expectedDescription) => {
+        expect(getToolDefinitions()[name]?.description).toMatch(expectedDescription)
+    })
+})
+
+describe('dashboard-transfer-tile schema', () => {
+    const tool = GENERATED_TOOLS['dashboard-transfer-tile']!()
+
+    it.each([
+        ['tile', { id: 1, to_dashboard: 2 }],
+        ['to_dashboard', { id: 1, tile: { id: 3 } }],
+    ])('rejects a request without %s', (_field, params) => {
+        expect(tool.schema.safeParse(params).success).toBe(false)
+    })
+
+    it('accepts a source dashboard, destination dashboard, and tile', () => {
+        expect(tool.schema.safeParse({ id: 1, to_dashboard: 2, tile: { id: 3 } }).success).toBe(true)
     })
 })

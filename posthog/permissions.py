@@ -41,6 +41,7 @@ from posthog.scopes import (
     MCP_BUILT_IN_AGENT_SCOPE,
     APIScopeObject,
     APIScopeObjectOrNotSupported,
+    scopes_not_covered,
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
@@ -884,16 +885,10 @@ class APIScopePermission(ScopeBasePermission):
         if "*" in key_scopes and scope_object != "INTERNAL" and not action_targets_internal:
             return True
 
-        for required_scope in required_scopes:
-            valid_scopes = [required_scope]
-
-            # For all valid scopes with :read we also add :write
-            if required_scope.endswith(":read"):
-                valid_scopes.append(required_scope.replace(":read", ":write"))
-
-            if not any(scope in key_scopes for scope in valid_scopes):
-                self.message = f"API key missing required scope '{required_scope}'"
-                return False
+        missing_scopes = scopes_not_covered(key_scopes, required_scopes)
+        if missing_scopes:
+            self.message = f"API key missing required scope '{missing_scopes[0]}'"
+            return False
 
         return True
 

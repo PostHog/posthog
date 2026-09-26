@@ -2,7 +2,7 @@ use crate::{
     api::errors::FlagError,
     flags::{
         flag_definitions_cache::FlagDefinitionsCache,
-        flag_models::{FeatureFlagList, HypercacheFlagsWrapper, PreparedFlagDefinitions},
+        flag_models::{HypercacheFlagsWrapper, PreparedFlagDefinitions},
     },
     handler::canonical_log::with_canonical_log,
     metrics::consts::{
@@ -282,7 +282,11 @@ impl FlagService {
                 );
 
                 // PG has no dependency metadata, so all flags go in a single stage.
-                let flags = FeatureFlagList::from_pg(self.pg_client.clone(), team_id).await?;
+                let flags = crate::flags::cache_builder::load_supported_flags(
+                    self.pg_client.clone(),
+                    team_id,
+                )
+                .await?;
                 let evaluation_metadata =
                     crate::flags::flag_models::EvaluationMetadata::single_stage(&flags);
                 let wrapper = HypercacheFlagsWrapper {
@@ -307,7 +311,7 @@ mod tests {
             feature_flag_list::PreparedFlags,
             flag_definitions_cache::FlagDefinitionsCache,
             flag_models::{
-                EvaluationMetadata, FeatureFlag, FlagFilters, FlagPropertyGroup,
+                EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
                 HypercacheFlagsWrapper,
             },
             test_helpers::{hypercache_test_key, update_flags_in_hypercache},

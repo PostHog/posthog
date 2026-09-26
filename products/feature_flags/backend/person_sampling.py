@@ -65,6 +65,22 @@ def count_settings(sample_modulus: Optional[int]) -> HogQLGlobalSettings:
     return bounded_memory_settings()
 
 
+def sampled_or_exact_estimate(run: Callable[[Optional[int]], tuple[int, float]]) -> int:
+    """
+    Estimate from a 1-in-SAMPLE_MODULUS sample and extrapolate, or exactly when the sample holds
+    too few matches for a stable extrapolation.
+
+    `run` takes the sample modulus, or None for an exact run, and returns the number of matched
+    persons with the estimate to extrapolate. The threshold reads the match count and not the
+    estimate, because the noise of the extrapolation depends on how many persons the sample
+    holds, not on how much each of them weighs.
+    """
+    matched, estimate = run(SAMPLE_MODULUS)
+    if matched >= MIN_SAMPLED_MATCHES:
+        return int(round(estimate * SAMPLE_MODULUS))
+    return int(round(run(None)[1]))
+
+
 def sampled_or_exact_count(run_count: Callable[[Optional[int]], int]) -> int:
     """
     Count from a 1-in-SAMPLE_MODULUS sample and extrapolate, or exactly when the sample holds
@@ -72,23 +88,37 @@ def sampled_or_exact_count(run_count: Callable[[Optional[int]], int]) -> int:
 
     `run_count` takes the sample modulus, or None for an exact run.
     """
-    sampled = run_count(SAMPLE_MODULUS)
-    if sampled >= MIN_SAMPLED_MATCHES:
-        return sampled * SAMPLE_MODULUS
-    return run_count(None)
+
+    def run(sample_modulus: Optional[int]) -> tuple[int, float]:
+        count = run_count(sample_modulus)
+        return count, count
+
+    return sampled_or_exact_estimate(run)
 
 
-def count_matching_persons(team: Team, filter: Optional[Filter], database: Database, query_type: str) -> int:
-    """Count the persons a filter matches, or every person on the team when filter is None."""
-    return sampled_or_exact_count(
-        lambda sample_modulus: _run_person_count(team, filter, database, query_type, sample_modulus)
+def count_matching_persons(
+    team: Team, filter: Optional[Filter], database: Database, query_type: str, weight: Optional[ast.Expr] = None
+) -> int:
+    """
+    Count the persons a filter matches, or every person on the team when filter is None.
+
+    `weight` is a per-person probability expression. With it, the result is the sum of the
+    weights over the matched persons instead of their number.
+    """
+    return sampled_or_exact_estimate(
+        lambda sample_modulus: _run_person_count(team, filter, database, query_type, sample_modulus, weight)
     )
 
 
 def _run_person_count(
-    team: Team, filter: Optional[Filter], database: Database, query_type: str, sample_modulus: Optional[int]
-) -> int:
-    query = build_person_count_query(team, filter, sample_modulus=sample_modulus)
+    team: Team,
+    filter: Optional[Filter],
+    database: Database,
+    query_type: str,
+    sample_modulus: Optional[int],
+    weight: Optional[ast.Expr] = None,
+) -> tuple[int, float]:
+    query = build_person_count_query(team, filter, sample_modulus=sample_modulus, weight=weight)
     response = execute_hogql_query(
         query=query,
         team=team,
@@ -104,10 +134,24 @@ def _run_person_count(
         context=HogQLContext(team_id=team.pk, database=database),
         settings=count_settings(sample_modulus),
     )
-    return response.results[0][0] if response.results else 0
+    return read_person_count(response.results, weighted=weight is not None)
 
 
-def build_person_count_query(team: Team, filter: Optional[Filter], sample_modulus: Optional[int]) -> ast.SelectQuery:
+def read_person_count(results: list, weighted: bool) -> tuple[int, float]:
+    """The matched persons and the estimate from a `build_person_count_query` result row."""
+    if not results:
+        return 0, 0.0
+    matched = results[0][0]
+    return matched, ((results[0][1] or 0.0) if weighted else matched)
+
+
+def build_person_count_query(
+    team: Team, filter: Optional[Filter], sample_modulus: Optional[int], weight: Optional[ast.Expr] = None
+) -> ast.SelectQuery:
+    """
+    Count the persons a filter matches. With `weight`, the query returns the number of matched
+    persons and the sum of one weight per person.
+    """
     where_exprs: list[ast.Expr] = [
         ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -120,19 +164,35 @@ def build_person_count_query(team: Team, filter: Optional[Filter], sample_modulu
     if filter is not None:
         where_exprs.append(property_to_expr(filter.property_groups, team, scope="person"))
 
-    # A filter can add a one-to-many join: a `distinct_id` person property resolves through
-    # persons.pdi, which gives a person one row per distinct id. So a filtered count dedups on
-    # the person id. The unfiltered total joins nothing, so it keeps the plain count() and
-    # avoids a uniqExact state over every person on the team.
-    if filter is None:
-        count_expr: ast.Expr = ast.Call(name="count", args=[])
-    else:
-        count_expr = ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])
+    if weight is None:
+        # A filter can add a one-to-many join: a `distinct_id` person property resolves through
+        # persons.pdi, which gives a person one row per distinct id. So a filtered count dedups on
+        # the person id. The unfiltered total joins nothing, so it keeps the plain count() and
+        # avoids a uniqExact state over every person on the team.
+        if filter is None:
+            count_expr: ast.Expr = ast.Call(name="count", args=[])
+        else:
+            count_expr = ast.Call(name="count", distinct=True, args=[ast.Field(chain=["persons", "id"])])
+        return ast.SelectQuery(
+            select=[count_expr],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            where=ast.And(exprs=where_exprs),
+        )
 
-    return ast.SelectQuery(
-        select=[count_expr],
+    # One weight per person, deduped with a GROUP BY rather than a DISTINCT: the GROUP BY can
+    # stream in id order and spill to disk under count_settings, which a DISTINCT cannot.
+    per_person = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["persons", "id"]),
+            ast.Alias(alias="weight", expr=ast.Call(name="max", args=[weight])),
+        ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
         where=ast.And(exprs=where_exprs),
+        group_by=[ast.Field(chain=["persons", "id"])],
+    )
+    return ast.SelectQuery(
+        select=[ast.Call(name="count", args=[]), ast.Call(name="sum", args=[ast.Field(chain=["weight"])])],
+        select_from=ast.JoinExpr(table=per_person),
     )
 
 

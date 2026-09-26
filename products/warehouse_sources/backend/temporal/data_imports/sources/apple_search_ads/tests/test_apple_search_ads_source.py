@@ -1,12 +1,19 @@
 from datetime import date
 from typing import Any, cast
 
+import pytest
 from unittest import mock
 
+import requests
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.facade.source_config import (
+    SourceFieldCredentialAccountSelectConfig,
+    SourceFieldInputConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.apple_search_ads import (
+    AppleAdAccount,
+    AppleSearchAdsAuthError,
     AppleSearchAdsResumeConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
@@ -22,6 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     error_message_matches,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccountListingError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applesearchads import (
@@ -186,20 +196,25 @@ class TestAppleSearchAdsSource:
 
         assert (credentials.ad_account_id, credentials.org_id) == ("123456789", "555")
 
-    def test_the_field_caption_and_step_five_describe_the_same_blank_connect_flow(self) -> None:
+    def test_the_field_caption_and_step_five_describe_the_same_flow(self) -> None:
+        # Two surfaces describe how someone gets their ad account id, and nothing renders them
+        # together, so one can be rewritten while the other keeps naming a flow that is gone.
         config = self.source.get_source_config
         field_caption = next(
             field.caption
             for field in config.fields
-            if isinstance(field, SourceFieldInputConfig) and field.name == "ad_account_id"
+            if isinstance(field, SourceFieldCredentialAccountSelectConfig) and field.name == "ad_account_id"
         )
         assert field_caption is not None
         assert config.caption is not None
         step_five = next(line for line in config.caption.splitlines() if line.startswith("5."))
 
         for text in (field_caption, step_five):
-            assert "connect again" in text
-            assert "expected" in text
+            # Both name the picker and the manual fallback, and neither still tells anyone to
+            # connect with the field blank.
+            assert "list" in text
+            assert "v1/acls" in text
+            assert "blank" not in text
 
     def test_the_connect_form_does_not_require_either_context_id(self) -> None:
         # `required` cannot express "depends on the version pin", so `validate_credentials`
@@ -207,8 +222,68 @@ class TestAppleSearchAdsSource:
         fields = {
             field.name: field
             for field in self.source.get_source_config.fields
-            if isinstance(field, SourceFieldInputConfig)
+            if isinstance(field, SourceFieldInputConfig | SourceFieldCredentialAccountSelectConfig)
         }
 
         assert fields["ad_account_id"].required is False
         assert fields["org_id"].required is False
+
+    def test_credential_accounts_map_apples_acl_onto_the_shared_picker_shape(self) -> None:
+        # Apple shows the ad account id nowhere in its UI, so the ACL read is the only way a user
+        # gets one. An account with no name falls back to its id rather than rendering "None".
+        with (
+            mock.patch(f"{SOURCE_MODULE}.AppleSearchAdsClient") as mock_client,
+            mock.patch(f"{SOURCE_MODULE}.readable_ad_accounts") as mock_accounts,
+        ):
+            mock_accounts.return_value = [
+                AppleAdAccount(id="1111111", name="Example Retail"),
+                AppleAdAccount(id="2222222", name=None),
+            ]
+
+            accounts = self.source.get_credential_accounts(self.config, self.team_id)
+
+        mock_client.return_value.authenticate.assert_called_once()
+        assert [(account.value, account.display_name) for account in accounts] == [
+            ("1111111", "Example Retail"),
+            ("2222222", "2222222"),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "a key apple will not accept",
+                AppleSearchAdsAuthError("Could not sign the Apple Ads client secret."),
+                "Could not sign the Apple Ads client secret.",
+            ),
+            (
+                "apple being unreachable",
+                requests.ConnectionError("connection refused"),
+                "Could not exchange the Apple Ads credentials for an access token",
+            ),
+        ]
+    )
+    def test_a_failed_token_exchange_becomes_a_listing_error(
+        self, _name: str, raised: Exception, expected: str
+    ) -> None:
+        # The endpoint turns `IntegrationAccountListingError` into a 400 carrying its message and
+        # lets everything else 500, so an auth failure that escapes as its own type shows someone
+        # mid-setup an opaque server error instead of the reason their key was refused.
+        with mock.patch(f"{SOURCE_MODULE}.AppleSearchAdsClient") as mock_client:
+            mock_client.return_value.authenticate.side_effect = raised
+
+            with pytest.raises(IntegrationAccountListingError) as error:
+                self.source.get_credential_accounts(self.config, self.team_id)
+
+        assert expected in str(error.value)
+
+    def test_the_older_api_version_lists_nothing_without_calling_apple(self) -> None:
+        # v5 scopes on an organization id, which Apple does show in its UI, so there is nothing to
+        # list. The picker fires on every completed edit, so spending a token exchange to return an
+        # empty list would burn the customer's Apple rate-limit budget for nothing.
+        with mock.patch(f"{SOURCE_MODULE}.AppleSearchAdsClient") as mock_client:
+            accounts = self.source.get_credential_accounts(
+                self.config, self.team_id, api_version=APPLE_SEARCH_ADS_API_VERSION_V5
+            )
+
+        assert accounts == []
+        mock_client.assert_not_called()

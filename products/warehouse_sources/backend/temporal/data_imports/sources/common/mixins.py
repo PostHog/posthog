@@ -5,7 +5,7 @@ import ipaddress
 import dataclasses
 from collections.abc import Callable, Generator, Sequence
 from contextlib import _GeneratorContextManager, contextmanager
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from django.conf import settings
 from django.db import OperationalError, close_old_connections
@@ -26,6 +26,7 @@ from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.util import _is_safe_public_ip
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccount,
 )
@@ -738,6 +739,29 @@ class OAuthMixin:
         # query for sources whose account/resource list is large enough to filter server-side (e.g. GitHub
         # repositories); small-list sources may ignore it and let the endpoint filter the result.
         raise NotImplementedError(f"{type(self).__name__} does not support listing OAuth accounts")
+
+
+# Contravariant because the config only ever appears as a parameter: a source narrows it to its
+# own generated config class, which a plain `Config` annotation would reject as unsubstitutable.
+_CredentialConfig = TypeVar("_CredentialConfig", bound=Config, contravariant=True)
+
+
+class CredentialAccountsMixin(Generic[_CredentialConfig]):
+    """Account listing for a source whose credentials are typed into the connect form.
+
+    The OAuth twin above reads its credentials from an `Integration` row, so the caller passes an id
+    and the token never leaves the server. Here the credentials are still in the form — the user has
+    not submitted them yet, which is the point: the account id they need is only discoverable by
+    calling the provider with the rest of what they typed.
+
+    Implementations take an already-parsed source config, so a half-filled form fails the same way it
+    would on connect rather than somewhere inside provider code.
+    """
+
+    def get_credential_accounts(
+        self, config: _CredentialConfig, team_id: int, api_version: str | None = None
+    ) -> list[IntegrationAccount]:
+        raise NotImplementedError(f"{type(self).__name__} does not support listing accounts from credentials")
 
 
 class ValidateDatabaseHostMixin:
