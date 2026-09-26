@@ -10,7 +10,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isUUIDLike } from 'lib/utils/guards'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -76,7 +76,7 @@ export function PersonsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs tabKey="persons" />
+            <ActivitySceneTabs activeKey="persons" />
 
             {sceneMenuBarEnabled && (
                 <SceneMenuBar>
