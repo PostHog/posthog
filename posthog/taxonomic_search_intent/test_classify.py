@@ -75,6 +75,8 @@ class TestClassifySearchIntent(SimpleTestCase):
             ("opaque_token", "sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("key_value_pair", "token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("url_inside_word", "visits:https://example.com/reset", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("only_a_phone", "+1 (415) 555-2671", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("only_a_host", "example.com", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("spaced_key_value", "token = sk_live_abcdefghijklmnop", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("value_after_marker", "token= sk_live_abcdefghijklmnop", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("spaced_email", "ada @ example.com", ALL_TABS, None, SearchIntentSource.SKIPPED),
@@ -102,6 +104,14 @@ class TestClassifySearchIntent(SimpleTestCase):
             ("bare_host_url", "visits example.com/reset/abc", "visits <path>"),
             ("windows_path", "opened C:\\Users\\ada\\notes.txt", "opened <path>"),
             ("key_value_in_words", "campaign utm_source=newsletter", "campaign <value>"),
+            ("formatted_phone", "call +1 (415) 555-2671", "call <number>"),
+            ("local_phone", "call 555-2671 today", "call <number> today"),
+            ("ip_address", "show 10.24.8.7", "show <ip>"),
+            ("short_ip_address", "show 10.0.0.1", "show <ip>"),
+            ("bare_host", "visits example.com", "visits <url>"),
+            ("bare_host_with_port", "visits app.example.io:8080", "visits <url>"),
+            ("dotted_property_reads", "user.plan is pro", "user.plan is pro"),
+            ("small_numbers_read", "top 10 events in 2024", "top 10 events in 2024"),
         ]
     )
     def test_asks_the_model_with_values_replaced(self, _name: str, query: str, model_reads: str) -> None:

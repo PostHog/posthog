@@ -43,6 +43,17 @@ _URL_VALUE = re.compile(r"^(https?://|www\.)", re.IGNORECASE)
 _PATH_VALUE = re.compile(r"^/")
 # Long digit runs are ids or phone numbers, which are not ours to send.
 _DIGIT_RUN = re.compile(r"\d{6,}")
+_MIN_ID_DIGITS = 6
+# A group of digits and separators, such as "+1", "(415)" or "555-2671". A run of them can be one phone number.
+_DIGIT_GROUP = re.compile(r"^\+?[\d.:-]*\d[\d.:-]*$")
+_IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+# A bare host such as "example.com". Only common top-level domains, so a dotted property such as "user.plan" still reads.
+_HOSTNAME = re.compile(
+    r"^([a-z0-9-]+\.)+"
+    r"(com|net|org|io|co|ai|app|dev|me|info|biz|xyz|tech|cloud|uk|us|eu|de|fr|es|it|nl|ca|au|in|jp|br)"
+    r"(:\d+)?$",
+    re.IGNORECASE,
+)
 # One word of 8+ characters that mixes letters with two or more digits is a token or an id, such as a session id.
 _OPAQUE_TOKEN = re.compile(r"^(?=\S*[a-z])(?=\S*\d\S*\d)\S{8,}$", re.IGNORECASE)
 _SCENE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -112,8 +123,10 @@ def _placeholder(word: str) -> str | None:
     bare = _bare(word)
     if "@" in bare:
         return "<email>"
-    if "://" in bare or "www." in bare.lower():
+    if "://" in bare or "www." in bare.lower() or _HOSTNAME.match(bare):
         return "<url>"
+    if _IPV4.match(bare):
+        return "<ip>"
     # A path can carry a token or personal data in any segment, a Windows path included.
     if "/" in bare or "\\" in bare:
         return "<path>"
@@ -135,10 +148,32 @@ def redact_values(query: str) -> str | None:
     # A marker at a word's edge, as in "token = sk_live_x" or "ada @ example.com", leaves its value in the next word.
     if any(bare[:1] in _VALUE_MARKERS or bare[-1:] in _VALUE_MARKERS for bare in map(_bare, words)):
         return None
-    placeholders = [_placeholder(word) for word in words]
-    if all(placeholders):
-        return None
-    return " ".join(placeholder or word for word, placeholder in zip(words, placeholders))
+    parts: list[str] = []
+    reads_a_word = False
+    start = 0
+    while start < len(words):
+        placeholder = _placeholder(words[start])
+        end = start if placeholder else _number_run_end(words, start)
+        if end > start:
+            parts.append("<number>")
+            start = end
+            continue
+        reads_a_word = reads_a_word or placeholder is None
+        parts.append(placeholder or words[start])
+        start += 1
+    return " ".join(parts) if reads_a_word else None
+
+
+def _number_run_end(words: list[str], start: int) -> int:
+    """The end of the digit groups from `start` when together they hold an id's worth of digits, else `start`.
+
+    A phone number such as "+1 (415) 555-2671" spreads its digits over several words, and no one word looks like an id.
+    """
+    end = start
+    while end < len(words) and _DIGIT_GROUP.match(_bare(words[end])):
+        end += 1
+    digits = sum(char.isdigit() for word in words[start:end] for char in word)
+    return end if digits >= _MIN_ID_DIGITS else start
 
 
 def search_intent_state(query: str, active_group_type: str, scene: str | None) -> str:
