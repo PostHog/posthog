@@ -11,6 +11,7 @@ from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import Throttled
 from rest_framework.test import APIRequestFactory
@@ -29,6 +30,7 @@ from posthog.schema import (
     SpendHistoryItem,
 )
 
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.rate_limit import AIBurstRateThrottle
@@ -2116,3 +2118,129 @@ class TestConversationCreateRuntime(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         m_routing.assert_not_called()
+
+
+class TestConversationScopedTokenAccess(APIBaseTest):
+    """Every custom action must be reachable with a correctly scoped personal API key or OAuth token.
+
+    Session-authenticated tests cannot catch a missing scope mapping, because session auth skips the
+    scope check. Only a token request proves the action declares a scope at all.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(
+            team=self.team,
+            user=self.user,
+            title="A chat",
+            type=Conversation.Type.ASSISTANT,
+        )
+        self.base_url = f"/api/environments/{self.team.id}/conversations/{self.conversation.id}"
+
+    def _oauth_bearer(self, scopes: list[str]) -> str:
+        application = OAuthApplication.objects.create(
+            name="Conversations test app",
+            client_id="test_conversations_client",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+            is_first_party=True,
+        )
+        token = OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_test_conversations_token",
+            scope=" ".join(scopes),
+            expires=timezone.now() + datetime.timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        return token.token
+
+    def _call(self, method: str, path: str, bearer: str, body: dict[str, Any] | None = None):
+        return getattr(self.client, method)(
+            f"{self.base_url}{path}",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {bearer}"},
+        )
+
+    @parameterized.expand(
+        [
+            ("queue_list", "get", "/queue/", None, "conversation:read"),
+            ("queue_enqueue", "post", "/queue/", {"content": "hello"}, "conversation:write"),
+            ("queue_update", "patch", "/queue/queued-message/", {"content": "updated"}, "conversation:write"),
+            ("queue_delete", "delete", "/queue/queued-message/", None, "conversation:write"),
+            ("queue_clear", "post", "/queue/clear/", None, "conversation:write"),
+            ("open", "post", "/open/", None, "conversation:write"),
+            ("cancel", "patch", "/cancel/", None, "conversation:write"),
+            ("append_message", "post", "/append_message/", {"content": "hello"}, "conversation:write"),
+        ]
+    )
+    def test_scoped_token_without_the_required_scope_is_denied(self, _name, method, path, body, required_scope):
+        # A read-scoped token must still be refused on a write action, and a token scoped to an
+        # unrelated object must be refused everywhere.
+        insufficient = "insight:read" if required_scope == "conversation:read" else "conversation:read"
+        bearer = self.create_personal_api_key_with_scopes([insufficient])
+
+        response = self._call(method, path, bearer, body)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+        self.assertEqual(response.json()["detail"], f"API key missing required scope '{required_scope}'")
+
+    @parameterized.expand([("personal_api_key", "create_personal_api_key_with_scopes"), ("oauth", "_oauth_bearer")])
+    def test_scoped_token_can_read_the_queue(self, _name, bearer_factory):
+        bearer = getattr(self, bearer_factory)(["conversation:read"])
+
+        response = self._call("get", "/queue/", bearer)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["messages"], [])
+
+    @parameterized.expand([("personal_api_key", "create_personal_api_key_with_scopes"), ("oauth", "_oauth_bearer")])
+    def test_scoped_token_can_write_the_queue(self, _name, bearer_factory):
+        bearer = getattr(self, bearer_factory)(["conversation:write"])
+
+        enqueued = self._call("post", "/queue/", bearer, {"content": "hello"})
+        self.assertEqual(enqueued.status_code, status.HTTP_200_OK, enqueued.content)
+        queue_id = enqueued.json()["messages"][0]["id"]
+
+        updated = self._call("patch", f"/queue/{queue_id}/", bearer, {"content": "updated"})
+        self.assertEqual(updated.status_code, status.HTTP_200_OK, updated.content)
+        self.assertEqual(updated.json()["messages"][0]["content"], "updated")
+
+        deleted = self._call("delete", f"/queue/{queue_id}/", bearer)
+        self.assertEqual(deleted.status_code, status.HTTP_200_OK, deleted.content)
+
+        cleared = self._call("post", "/queue/clear/", bearer)
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK, cleared.content)
+        self.assertEqual(cleared.json()["messages"], [])
+
+    def test_scoped_token_can_cancel(self):
+        self.conversation.status = Conversation.Status.CANCELING
+        self.conversation.save()
+        bearer = self.create_personal_api_key_with_scopes(["conversation:write"])
+
+        response = self._call("patch", "/cancel/", bearer)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+
+    def test_scoped_token_can_append_a_message(self):
+        bearer = self.create_personal_api_key_with_scopes(["conversation:write"])
+
+        with patch("ee.api.conversation.AssistantGraph") as mock_graph:
+            mock_graph.return_value.compile_full_graph.return_value.aupdate_state = AsyncMock()
+            response = self._call("post", "/append_message/", bearer, {"content": "hello"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+
+    def test_scoped_token_reaches_open(self):
+        # This conversation runs on LangGraph, so `open` rejects it at the runtime check. Reaching
+        # that rejection is the point: the scope check ran and passed.
+        bearer = self.create_personal_api_key_with_scopes(["conversation:write"])
+
+        response = self._call("post", "/open/", bearer)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("not on the sandbox runtime", str(response.json()))
