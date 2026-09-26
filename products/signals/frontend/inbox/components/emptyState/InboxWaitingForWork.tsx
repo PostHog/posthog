@@ -1,4 +1,5 @@
 import { useMountedLogic, useValues } from 'kea'
+import { useRef } from 'react'
 
 import { IconCheckCircle, IconPullRequest } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -9,6 +10,7 @@ import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { scoutFleetLogic } from '../../logics/scoutFleetLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
+import { InboxSetupIncomplete } from './InboxSetupIncomplete'
 import { InstallingFlowRow } from './InstallingFlowRow'
 import { ScoutFlowRow } from './ScoutFlowRow'
 import { SignalSourceFlowRow } from './SignalSourceFlowRow'
@@ -40,13 +42,36 @@ export function InboxWaitingForWork(): JSX.Element {
 
     const { sourceConfigs, sourceConfigsLoading } = useValues(signalSourcesLogic)
     const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
-    const { isWizardRunning } = useValues(inboxOnboardingLogic)
+    const { isSetupLoaded, isSelfDrivingSetUp, isWizardRunning, isWizardStateResolved, isRefetching, hasExistingWork } =
+        useValues(inboxOnboardingLogic)
     const enabledSources = uniqueEnabledSources(sourceConfigs)
     const enabledScouts = (scoutConfigs ?? []).filter((scout) => scout.enabled && scout.emit)
     const visibleSources = enabledSources.slice(0, MAX_VISIBLE_ITEMS)
     const visibleScouts = enabledScouts.slice(0, MAX_VISIBLE_ITEMS)
     const sourcesLoading = sourceConfigs === null || sourceConfigsLoading
     const scoutsLoading = scoutConfigs === null || scoutConfigsLoading
+
+    // A setup run that ends without enabling anything leaves this surface with nothing to wait for,
+    // and the welcome prompt that carries the setup command stays suppressed for the rest of the
+    // session once "Set up manually" has been pressed. Read from the same verdict the scene decides
+    // the onboarding with, not from the lists below: those exclude a non-emitting scout and a
+    // Replay Vision scanner, so a project watching through either would be told setup is unfinished.
+    // The same two holds the scene applies: before the detector reports, `isWizardRunning === false`
+    // only means nobody has asked yet, and a refetch in flight leaves every config on the value it
+    // had before the run that is about to land.
+    const isSetupVerdictSettled = isSetupLoaded && isWizardStateResolved && !isRefetching
+    // Keep the last settled answer through those windows instead of swapping the surface for one
+    // request round trip: the copy-the-command flow comes back to this tab, which refetches.
+    const setupIsUnfinished = useRef(false)
+    // Work elsewhere in the inbox means the scene already shows the dismissible paused banner, which
+    // carries the same command with the diagnosis that fits a team who set self-driving up and then
+    // turned it off. One empty tab under that banner is not a reason to say setup never finished.
+    if (isSetupVerdictSettled) {
+        setupIsUnfinished.current = !isSelfDrivingSetUp && !isWizardRunning && !hasExistingWork
+    }
+    if (setupIsUnfinished.current) {
+        return <InboxSetupIncomplete />
+    }
 
     return (
         <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 py-6">
