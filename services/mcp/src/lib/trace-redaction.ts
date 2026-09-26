@@ -9,11 +9,16 @@
  * an allowlist. A withheld property is reported by name, so an agent can see
  * that it exists and read it in PostHog.
  *
+ * An allowlist cannot cover the error values, because their text is retained AI
+ * payload that a provider wrote and can hold the rejected key. Those values go
+ * through the credential scrub beside this module as well.
+ *
  * This is a client-boundary safeguard on these two tools only. Stored events,
  * the PostHog UI, and property filters keep the complete bag, so a query can
  * still filter on a property it cannot read back.
  */
 
+import { redactCredentials } from '@/lib/credential-redaction'
 import { assignKey, isRecord } from '@/lib/plain-object'
 import { AI_TAXONOMY_EVENT_PROPERTIES } from '@/lib/trace-property-allowlist.generated'
 
@@ -73,6 +78,17 @@ function sanitizeUrl(value: unknown): string | undefined {
     return `${url.origin}${url.pathname}`
 }
 
+/**
+ * Whether a property holds an error message, whose value goes through the
+ * credential scrub in `credential-redaction.ts`. This is a prefix rule rather
+ * than a list of the three names the taxonomy describes today, because the
+ * allowlist above is generated: a taxonomy that gains another `$ai_error_*`
+ * property would otherwise return it unscrubbed, and nothing would report that.
+ */
+function isErrorProperty(key: string): boolean {
+    return key.startsWith('$ai_error')
+}
+
 function isRetained(key: string): boolean {
     return (
         RETAINED_AI_PROPERTIES.has(key) ||
@@ -91,6 +107,11 @@ function emptiedBag(owner: Record<string, unknown>): Record<string, unknown> {
     return { ...owner, properties: {}, [REDACTED_KEYS_FIELD]: ['properties'] }
 }
 
+/** Whether a key's value reaches the client as something other than itself. */
+function needsRewrite(key: string): boolean {
+    return !isRetained(key) || SANITIZED_URL_PROPERTIES.has(key) || isErrorProperty(key)
+}
+
 /**
  * Filter an event property bag. Returns the event unchanged when the bag holds
  * nothing to withhold or sanitize, which is the common shape of an SDK trace.
@@ -104,7 +125,7 @@ function redactEventBag(event: Record<string, unknown>): Record<string, unknown>
         return emptiedBag(event)
     }
     const keys = Object.keys(properties)
-    if (keys.every((key) => isRetained(key) && !SANITIZED_URL_PROPERTIES.has(key))) {
+    if (!keys.some(needsRewrite)) {
         return event
     }
     const retained: Record<string, unknown> = {}
@@ -117,10 +138,12 @@ function redactEventBag(event: Record<string, unknown>): Record<string, unknown>
             } else {
                 assignKey(retained, key, sanitized)
             }
-        } else if (isRetained(key)) {
-            assignKey(retained, key, properties[key])
-        } else {
+        } else if (!isRetained(key)) {
             withheld.push(key)
+        } else if (isErrorProperty(key)) {
+            assignKey(retained, key, redactCredentials(properties[key]))
+        } else {
+            assignKey(retained, key, properties[key])
         }
     }
     return {
