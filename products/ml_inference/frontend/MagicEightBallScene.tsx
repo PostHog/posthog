@@ -120,7 +120,7 @@ function MagicEightBall(): JSX.Element {
                     aria-busy={decisionLoading}
                     data-attr="magic-eight-ball"
                 >
-                    <div className="MagicEightBall__window" aria-live="polite">
+                    <div className="MagicEightBall__window">
                         {decisionLoading ? null : reveal ? (
                             <div className="MagicEightBall__triangle">
                                 <span>{reveal}</span>
@@ -130,6 +130,10 @@ function MagicEightBall(): JSX.Element {
                         )}
                     </div>
                 </button>
+                {/* The button's aria-label hides the answer inside it, so screen readers get it here. */}
+                <span role="status" className="sr-only">
+                    {decisionLoading ? null : reveal}
+                </span>
                 <p className="text-secondary text-center m-0">
                     {askError
                         ? `The model didn't answer: ${askError}`
