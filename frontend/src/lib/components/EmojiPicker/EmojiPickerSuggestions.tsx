@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -28,8 +29,18 @@ function SuggestedEmojis({
 
 export function EmojiPickerSuggestions({ query, onEmojiSelect }: EmojiPickerSuggestionsProps): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
-    if (query.trim().length < 3 || query.trim().length > 64 || !currentProjectId) {
+    const trimmedQuery = query.trim()
+    const [debouncedQuery, setDebouncedQuery] = useState('')
+    useEffect(() => {
+        const timeout = window.setTimeout(() => setDebouncedQuery(trimmedQuery), 200)
+        return () => window.clearTimeout(timeout)
+    }, [trimmedQuery])
+    const queryLength = [...trimmedQuery].length
+    if (queryLength < 3 || queryLength > 64 || !currentProjectId) {
         return <span>No emoji found.</span>
     }
-    return <SuggestedEmojis query={query.trim()} projectId={currentProjectId} onEmojiSelect={onEmojiSelect} />
+    if (debouncedQuery !== trimmedQuery) {
+        return <span>Finding related emojis…</span>
+    }
+    return <SuggestedEmojis query={debouncedQuery} projectId={currentProjectId} onEmojiSelect={onEmojiSelect} />
 }

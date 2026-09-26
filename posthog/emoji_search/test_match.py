@@ -2,6 +2,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -9,7 +10,7 @@ from django.test import SimpleTestCase
 
 from posthog.llm.system_one import ChoiceAnswer, SystemOneResult
 
-from .match import build_emoji_questions, build_subgroup_questions, load_catalog, suggest_emojis
+from .match import _ranked_probabilities, build_emoji_questions, build_subgroup_questions, load_catalog, suggest_emojis
 
 
 def answer_questions(questions, selected):
@@ -28,6 +29,36 @@ def answer_questions(questions, selected):
 
 
 class TestSuggestEmojis(SimpleTestCase):
+    def test_rank_scores_against_each_questions_none_option(self) -> None:
+        answers = {
+            "first": ChoiceAnswer(choice="a", confidence=0.6, probabilities={"a": 0.6, "none": 0.4}),
+            "second": ChoiceAnswer(choice="b", confidence=0.3, probabilities={"b": 0.3, "none": 0.1}),
+            "third": ChoiceAnswer(choice="c", confidence=0.06, probabilities={"c": 0.06, "none": 0.02}),
+            "tie": ChoiceAnswer(choice="none", confidence=0.5, probabilities={"d": 0.5, "none": 0.5}),
+        }
+
+        scores = _ranked_probabilities(answers, {"a", "b", "c", "d"})
+
+        assert scores["a"] == 0.6
+        assert scores["b"] == pytest.approx(0.75)
+        assert scores["c"] == pytest.approx(0.75)
+        assert "d" not in scores
+
+    @patch("posthog.emoji_search.match.build_system_one_client")
+    def test_cache_errors_do_not_discard_model_results(self, build_client) -> None:
+        cache.clear()
+
+        def decide(*, state, questions):
+            selected = ("reptiles",) if "subgroup" in next(iter(questions)) else ("T-Rex",)
+            return answer_questions(questions, selected)
+
+        build_client.return_value.decide.side_effect = decide
+        for cache_method in ("get", "set"):
+            with self.subTest(cache_method=cache_method):
+                with patch(f"posthog.emoji_search.match.cache.{cache_method}", side_effect=ConnectionError):
+                    assert [suggestion.emoji for suggestion in suggest_emojis("jurassic park", team_id=1)] == ["🦖"]
+                cache.clear()
+
     @patch("posthog.emoji_search.match.build_system_one_client")
     def test_case_distinct_queries_have_separate_cached_results(self, build_client) -> None:
         cache.clear()

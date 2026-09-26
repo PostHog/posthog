@@ -30,8 +30,7 @@ export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
         loading: [true, { setSuggestions: () => false }],
     }),
     listeners(({ actions, props, cache }) => ({
-        loadSuggestions: async (_, breakpoint) => {
-            await breakpoint(200)
+        loadSuggestions: async () => {
             const controller = new AbortController()
             const timeout = window.setTimeout(() => controller.abort(), 2500)
             cache.disposables.add(() => {

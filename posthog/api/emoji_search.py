@@ -11,6 +11,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+from rest_framework.views import APIView
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -22,7 +23,7 @@ logger = structlog.get_logger(__name__)
 
 
 class EmojiSearchRequestSerializer(serializers.Serializer):
-    query = serializers.CharField(max_length=64, help_text="Search text that had no direct emoji match.")
+    query = serializers.CharField(min_length=3, max_length=64, help_text="Search text that had no direct emoji match.")
 
 
 class EmojiSuggestionSerializer(serializers.Serializer):
@@ -53,7 +54,7 @@ class EmojiSearchDailyThrottle(UserRateThrottle):
 class EmojiSearchSessionPermission(BasePermission):
     message = "Emoji suggestions are available only in the web app."
 
-    def has_permission(self, request: Request, view: viewsets.GenericViewSet) -> bool:
+    def has_permission(self, request: Request, view: APIView) -> bool:
         return isinstance(request.successful_authenticator, SessionAuthentication)
 
 

@@ -1,5 +1,6 @@
 import os
 from types import SimpleNamespace
+from typing import cast
 
 from unittest.mock import patch
 
@@ -8,8 +9,9 @@ from django.urls import path
 
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework import status
+from rest_framework.request import Request
 
-from posthog.api.emoji_search import EmojiSearchUnavailable, EmojiSearchViewSet
+from posthog.api.emoji_search import EmojiSearchRequestSerializer, EmojiSearchUnavailable, EmojiSearchViewSet
 from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
@@ -30,8 +32,13 @@ class TestEmojiSearch(SimpleTestCase):
             (PersonalAPIKeyAuthentication(), False),
         ):
             with self.subTest(authenticator=type(authenticator).__name__):
-                request = SimpleNamespace(successful_authenticator=authenticator)
+                request = cast(Request, SimpleNamespace(successful_authenticator=authenticator))
                 assert permission.has_permission(request, EmojiSearchViewSet()) is allowed
+
+    def test_query_length_is_validated(self) -> None:
+        for query, expected in (("ab", False), ("abc", True)):
+            with self.subTest(query=query):
+                assert EmojiSearchRequestSerializer(data={"query": query}).is_valid() is expected
 
     def test_endpoint_is_only_in_the_codegen_schema(self) -> None:
         route = "/api/projects/{project_id}/emoji_search/suggest/"

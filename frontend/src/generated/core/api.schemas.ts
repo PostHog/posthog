@@ -5644,7 +5644,7 @@ export type DataDeletionRequestsListParams = {
 export type EmojiSearchSuggestRetrieveParams = {
     /**
      * Search text that had no direct emoji match.
-     * @minLength 1
+     * @minLength 3
      * @maxLength 64
      */
     query: string

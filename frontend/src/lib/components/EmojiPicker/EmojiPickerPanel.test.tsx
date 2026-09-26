@@ -85,6 +85,31 @@ describe('EmojiPickerPanel', () => {
         expect(emojiSearchSuggestRetrieve).not.toHaveBeenCalled()
     })
 
+    it('counts Unicode characters when checking the endpoint limit', async () => {
+        const query = '🦖'.repeat(33)
+        jest.mocked(emojiSearchSuggestRetrieve).mockResolvedValue({ suggestions: [] })
+        render(<EmojiPickerPanel initialSearch={query} onEmojiSelect={jest.fn()} />)
+
+        await waitFor(() => expect(emojiSearchSuggestRetrieve).toHaveBeenCalledWith('1', { query }, expect.anything()))
+    })
+
+    it('only requests suggestions for the last query typed in a burst', async () => {
+        jest.mocked(emojiSearchSuggestRetrieve).mockResolvedValue({ suggestions: [] })
+        const { container } = render(<EmojiPickerPanel onEmojiSelect={jest.fn()} />)
+        await waitFor(() =>
+            expect(container.querySelector('[role="row"] [data-attr="emoji-picker-button"]')).toBeInTheDocument()
+        )
+        const search = screen.getByRole('searchbox')
+
+        fireEvent.change(search, { target: { value: 'qzx' } })
+        await screen.findByText('Finding related emojis…')
+        fireEvent.change(search, { target: { value: 'qzxy' } })
+        fireEvent.change(search, { target: { value: 'qzxyz' } })
+
+        await waitFor(() => expect(emojiSearchSuggestRetrieve).toHaveBeenCalled())
+        expect(jest.mocked(emojiSearchSuggestRetrieve).mock.calls.map((call) => call[1].query)).toEqual(['qzxyz'])
+    })
+
     it('aborts a suggestion request when the picker closes', async () => {
         jest.mocked(emojiSearchSuggestRetrieve).mockImplementation(() => new Promise(() => {}))
         const { unmount } = render(<EmojiPickerPanel initialSearch="jurassic park" onEmojiSelect={jest.fn()} />)

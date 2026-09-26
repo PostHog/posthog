@@ -7,6 +7,8 @@ from pathlib import Path
 
 from django.core.cache import cache
 
+import structlog
+
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
@@ -14,6 +16,7 @@ from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_on
 MODEL = "posthog/hogference/jevk5-fp8-0.2"
 CACHE_SECONDS = 30 * 24 * 60 * 60
 OPTIONS_PER_QUESTION = 15
+logger = structlog.get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -104,12 +107,19 @@ def _ranked_probabilities(answers, valid_keys: set[str]) -> dict[str, float]:
             none_probability = answer.probabilities["none"]
             scores.update(
                 {
-                    key: probability
+                    key: probability / (probability + none_probability)
                     for key, probability in answer.probabilities.items()
-                    if key in valid_keys and probability > none_probability and probability >= 0.1
+                    if key in valid_keys and probability > none_probability
                 }
             )
     return scores
+
+
+def _cache_suggestions(cache_key: str, keys: list[str]) -> None:
+    try:
+        cache.set(cache_key, json.dumps(keys), CACHE_SECONDS)
+    except Exception:
+        logger.warning("emoji_search_cache_write_failed", exc_info=True)
 
 
 def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
@@ -118,8 +128,12 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
         return []
 
     catalog = load_catalog()
-    cache_key = f"emoji_search:v3:{catalog.fingerprint}:{team_id}:{hashlib.sha256(query.encode()).hexdigest()}"
-    cached = cache.get(cache_key)
+    cache_key = f"emoji_search:v4:{catalog.fingerprint}:{team_id}:{hashlib.sha256(query.encode()).hexdigest()}"
+    try:
+        cached = cache.get(cache_key)
+    except Exception:
+        logger.warning("emoji_search_cache_read_failed", exc_info=True)
+        cached = None
     if isinstance(cached, str):
         try:
             keys = json.loads(cached)
@@ -138,7 +152,7 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
     )
     subgroup_ids = [key[1:] for key in sorted(subgroup_scores, key=lambda key: -subgroup_scores[key])[:5]]
     if not subgroup_ids:
-        cache.set(cache_key, "[]", CACHE_SECONDS)
+        _cache_suggestions(cache_key, [])
         return []
 
     emoji_questions = list(build_emoji_questions(catalog, subgroup_ids).items())
@@ -157,5 +171,5 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
         emoji_scores,
         key=lambda key: -emoji_scores[key] * subgroup_scores[f"s{catalog.emojis[key].subgroup}"],
     )[:5]
-    cache.set(cache_key, json.dumps(keys), CACHE_SECONDS)
+    _cache_suggestions(cache_key, keys)
     return [catalog.emojis[key].suggestion for key in keys]
