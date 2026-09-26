@@ -107,8 +107,9 @@ class EventMatchFound(Scorer):
         acceptable = _event_spec(expected)
         if not acceptable:
             return Score(name=self._name(), score=None, metadata={"reason": "No core event fits this search"})
+        # A failed gateway call says nothing about the model, so it skips rather than scores as a miss.
         if output and output.get("error"):
-            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
         suggested = _suggested(output)
         found = any(name in acceptable for name in suggested)
         return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"suggested": suggested})

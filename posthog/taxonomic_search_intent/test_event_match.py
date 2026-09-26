@@ -1,10 +1,10 @@
 from collections.abc import Mapping
+from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -16,6 +16,8 @@ from posthog.taxonomic_search_intent.event_match import CORE_EVENT_CANDIDATES, _
 
 BUILD_CLIENT = "posthog.taxonomic_search_intent.event_match.build_system_one_client"
 CAPTURE = "posthog.taxonomic_search_intent.event_match.capture_exception"
+# Any past time works: the check only asks whether an event was ever seen.
+SEEN_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 LABEL_BY_INSTRUCTIONS = {
@@ -46,7 +48,7 @@ class TestMatchCoreEvents(BaseTest):
         cache.clear()
         for name in ("$autocapture", "$rageclick", "$pageview", "$exception"):
             EventDefinition.objects.create(
-                team=self.team, project_id=self.team.project_id, name=name, last_seen_at=timezone.now()
+                team=self.team, project_id=self.team.project_id, name=name, last_seen_at=SEEN_AT
             )
         # Defined but never seen, so it has no data to show.
         EventDefinition.objects.create(team=self.team, project_id=self.team.project_id, name="$screen")
@@ -114,7 +116,7 @@ class TestMatchCoreEvents(BaseTest):
     def test_keeps_the_answers_of_the_requests_that_succeed(self) -> None:
         late_event = list(CORE_EVENT_CANDIDATES)[-1]
         EventDefinition.objects.create(
-            team=self.team, project_id=self.team.project_id, name=late_event, last_seen_at=timezone.now()
+            team=self.team, project_id=self.team.project_id, name=late_event, last_seen_at=SEEN_AT
         )
         client = _model_that_believes(
             {"Autocapture": 0.95, CORE_EVENT_CANDIDATES[late_event].label: 0.8}, failing_label="Autocapture"

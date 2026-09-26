@@ -99,8 +99,8 @@ def rule_intent(query: str, available_group_types: tuple[str, ...]) -> SearchInt
         return _skipped()
     # Brackets, quotes and trailing punctuation around a value would otherwise hide it from the anchored patterns.
     words = [word.strip("()[]{}<>.,;:!?\"'`") for word in query.split()]
-    # A slash, a www host or a key=value pair anywhere in a word marks a URL or a path, which can carry a token.
-    if any("/" in word or "=" in word or "www." in word.lower() for word in words):
+    # A slash or backslash, a www host or a key=value pair anywhere in a word marks a URL or a path, which can carry a token.
+    if any("/" in word or "\\" in word or "=" in word or "www." in word.lower() for word in words):
         return _skipped()
     if _DIGIT_RUN.search(query) or any(_OPAQUE_TOKEN.match(word) for word in words):
         return _skipped()

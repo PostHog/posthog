@@ -56,8 +56,9 @@ def _candidates() -> dict[str, CoreEventCandidate]:
     """Every core event a picker can select, by event name."""
     candidates: dict[str, CoreEventCandidate] = {}
     for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP["events"].items():
-        # "All events" is not an event, and an event hidden from query builders cannot be selected here.
-        if name == "All events" or definition.get("hidden_in_query_builders"):
+        # "All events" is not an event. Events hidden from query builders stay in: the picker drops them from
+        # the suggestions when it hides them, which depends on flags only the frontend knows.
+        if name == "All events":
             continue
         meaning = definition.get("description_llm") or definition.get("description") or ""
         candidates[name] = CoreEventCandidate(label=definition["label"], meaning=meaning)
