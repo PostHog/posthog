@@ -21,6 +21,8 @@ import {
 // Mirrors MIN_QUERY_CHARS and MAX_QUERY_CHARS in posthog/taxonomic_search_intent/classify.py.
 const MIN_QUERY_LENGTH = 2
 const MAX_QUERY_LENGTH = 64
+// Mirrors MAX_MATCHES in posthog/taxonomic_search_intent/event_match.py. Applied after exclusions, so they never empty the list.
+const MAX_SUGGESTIONS = 3
 // Longer than a keystroke gap, so a person who types a phrase asks once and not once per letter.
 const EVENT_MATCH_DEBOUNCE_MS = 350
 
@@ -143,7 +145,7 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
                 const excluded =
                     taxonomicGroups.find((group) => group.type === TaxonomicFilterGroupType.Events)
                         ?.excludedProperties ?? []
-                return eventMatches.matches.filter((match) => !excluded.includes(match.name))
+                return eventMatches.matches.filter((match) => !excluded.includes(match.name)).slice(0, MAX_SUGGESTIONS)
             },
         ],
     }),

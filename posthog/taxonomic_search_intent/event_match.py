@@ -39,6 +39,7 @@ logger = structlog.get_logger(__name__)
 EVENT_MATCH_FEATURE_FLAG = "taxonomic-filter-event-match"
 # The picker shows a suggestion only above this probability. Tune it from the eval suite, not by feel.
 MATCH_THRESHOLD = 0.7
+# The picker shows at most this many, after it removes the events it excludes, so the endpoint returns them all.
 MAX_MATCHES = 3
 CACHE_KEY_PREFIX = "taxonomic_search_intent:event_match:v1"
 
@@ -213,4 +214,4 @@ def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> 
         return []
     # A suggestion for an event the project never sent would lead to an empty insight.
     ingested = _ingested(request.project_id, [match.name for match in likely])
-    return [match for match in likely if match.name in ingested][:MAX_MATCHES]
+    return [match for match in likely if match.name in ingested]

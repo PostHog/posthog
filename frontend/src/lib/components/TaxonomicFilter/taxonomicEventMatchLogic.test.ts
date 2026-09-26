@@ -31,10 +31,12 @@ describe('taxonomicEventMatchLogic', () => {
     let logic: ReturnType<typeof taxonomicEventMatchLogic.build>
     let matchRequests: Record<string, any>[]
     let status: number
+    let matches: Record<string, any>[]
 
     beforeEach(() => {
         matchRequests = []
         status = 200
+        matches = [AUTOCAPTURE]
         resetEventMatchAvailabilityForTests()
         useMocks({
             get: {
@@ -43,7 +45,7 @@ describe('taxonomicEventMatchLogic', () => {
             post: {
                 '/api/projects/:team/taxonomic_search_intent/match_events/': async ({ request }) => {
                     matchRequests.push((await request.json()) as Record<string, any>)
-                    return status === 200 ? [200, { matches: [AUTOCAPTURE] }] : [status, {}]
+                    return status === 200 ? [200, { matches }] : [status, {}]
                 },
             },
         })
@@ -123,6 +125,35 @@ describe('taxonomicEventMatchLogic', () => {
         expect(matchRequests).toHaveLength(1)
         expect(excludingLogic.values.suggestedEvents).toEqual([])
         expect(captureSpy).not.toHaveBeenCalledWith('taxonomic filter event match suggested', expect.anything())
+    })
+
+    it('fills the suggestions from the events the picker does not exclude', async () => {
+        const excludingProps: TaxonomicFilterLogicProps = {
+            ...PROPS,
+            taxonomicFilterLogicKey: 'event-match-limit-test',
+            excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$autocapture'] },
+        }
+        const excludingFilterLogic = taxonomicFilterLogic(excludingProps)
+        excludingFilterLogic.mount()
+        const excludingLogic = taxonomicEventMatchLogic(excludingProps)
+        excludingLogic.mount()
+        enroll(true)
+        matches = [
+            AUTOCAPTURE,
+            { name: '$rageclick', display_name: 'Rageclick', probability: 0.9 },
+            { name: '$dead_click', display_name: 'Dead click', probability: 0.85 },
+            { name: '$pageview', display_name: 'Pageview', probability: 0.8 },
+            { name: '$exception', display_name: 'Exception', probability: 0.75 },
+        ]
+
+        excludingFilterLogic.actions.setSearchQuery('browser capture')
+        await expectLogic(excludingLogic).toFinishAllListeners()
+
+        expect(excludingLogic.values.suggestedEvents.map((match) => match.name)).toEqual([
+            '$rageclick',
+            '$dead_click',
+            '$pageview',
+        ])
     })
 
     it('stops asking for the project after a 404', async () => {
