@@ -10,6 +10,7 @@ import { AccessControlLevel, AccessControlResourceType, TeamType } from '~/types
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { NavProductRow } from './NavProductRow'
+import { navProductsTabLogic } from './navProductsTabLogic'
 
 const defaultAccess = Object.fromEntries(
     Object.values(AccessControlResourceType).map((type) => [type, AccessControlLevel.Editor])
@@ -63,39 +64,48 @@ describe('NavProductRow', () => {
         expect(getByLabelText('Add to starred').getAttribute('aria-disabled')).toBe('true')
     })
 
-    it.each([
-        ['Feature flags', 'feature_flag', '/feature_flags', false],
-        ['Home', 'home', '/', true],
-    ])('adds and removes a star for %s through the shortcut API', async (path, type, href, hasMenu) => {
+    it('adds a star and removes it only after confirming', async () => {
+        const [path, type, href] = ['Feature flags', 'feature_flag', '/feature_flags']
         const create = jest.fn(() => [201, { id: 'star-test', path, type, href }])
         const remove = jest.fn(() => [204])
         useMocks({
             post: { '/api/environments/:team_id/file_system_shortcut/': create },
             delete: { '/api/environments/:team_id/file_system_shortcut/star-test/': remove },
         })
-        const { getByLabelText, queryByLabelText, findByText } = render(<NavProductRow item={{ path, type, href }} />)
+        const { getByLabelText } = render(<NavProductRow item={{ path, type, href }} />)
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
         const initialPath = router.values.location.pathname
-        const starButton = async (name: string): Promise<HTMLElement> => {
-            if (hasMenu) {
-                fireEvent.click(getByLabelText(`Open ${path} menu`))
-                expect(await findByText('Configure home')).toBeTruthy()
-                return await findByText(name)
-            }
-            expect(queryByLabelText(`Open ${path} menu`)).toBeNull()
-            return getByLabelText(name)
-        }
-        const add = await starButton('Add to starred')
+        const add = getByLabelText('Add to starred')
         fireEvent.click(add)
         fireEvent.click(add)
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toHaveLength(1))
         expect(create).toHaveBeenCalledTimes(1)
-        const removeButton = await starButton('Remove from starred')
-        fireEvent.click(removeButton)
-        fireEvent.click(removeButton)
+        fireEvent.click(getByLabelText('Remove from starred'))
+        const confirm = await waitFor(() => {
+            const button = document.querySelector<HTMLButtonElement>('[data-attr="nav-apps-unstar-confirm"]')
+            expect(button).not.toBeNull()
+            return button!
+        })
+        expect(remove).not.toHaveBeenCalled()
+        fireEvent.click(confirm)
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toHaveLength(0))
         expect(remove).toHaveBeenCalledTimes(1)
-        expect(await starButton('Add to starred')).toBeTruthy()
+        expect(getByLabelText('Add to starred')).toBeTruthy()
         expect(router.values.location.pathname).toBe(initialPath)
+    })
+
+    it('offers customize on the pinned Home row and no star on any pinned row', () => {
+        navProductsTabLogic.mount()
+        const activity = render(
+            <NavProductRow item={{ path: 'Activity', iconType: 'activity', href: '/activity/events' }} pinned />
+        )
+        expect(activity.queryByLabelText('Add to starred')).toBeNull()
+        expect(activity.queryByLabelText('Customize sidebar')).toBeNull()
+        activity.unmount()
+
+        const home = render(<NavProductRow item={{ path: 'Home', iconType: 'home', href: '/' }} pinned />)
+        expect(home.queryByLabelText('Add to starred')).toBeNull()
+        fireEvent.click(home.getByLabelText('Customize sidebar'))
+        expect(navProductsTabLogic.values.customizeSidebarOpen).toBe(true)
     })
 })

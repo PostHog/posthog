@@ -1,19 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
-import { IconChevronDown, IconEllipsis, IconGear, IconPlusSmall, IconStar, IconStarFilled } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { IconChevronDown, IconGear, IconPlusSmall, IconStar, IconStarFilled } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
 
+import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
@@ -22,17 +21,17 @@ import { ProductIconWrapper, iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '../../ProjectTree/utils'
 import { NavProductMenu } from './NavProductMenu'
+import { navProductsTabLogic } from './navProductsTabLogic'
 import { NavProductTooltip } from './NavProductTooltip'
 import { productsItemName } from './productsCatalog'
 
-export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element {
+export function NavProductRow({ item, pinned = false }: { item: FileSystemImport; pinned?: boolean }): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { shortcutData, shortcutDataLoading } = useValues(projectTreeDataLogic)
     const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)
     const { reportNavItemClicked } = useActions(eventUsageLogic)
-    const { showConfigureHomeModal } = useActions(navigationLogic)
-    const { uiCustomizationEnabled } = useValues(uiCustomizationLogic)
+    const { setCustomizeSidebarOpen } = useActions(navProductsTabLogic)
     const label = productsItemName(item)
     const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
     const shortcut = shortcutData.find((entry) => entry.type !== 'folder' && entry.path === shortcutPath)
@@ -47,40 +46,37 @@ export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element
     const CustomIcon = getCustomIcon(item.type, item.href)
     const iconType = item.iconType ?? (item.type as FileSystemIconType | undefined)
 
+    const isHome = item.path === 'Home'
     const hasProductMenu = ['Product analytics', 'Dashboards', 'Session replay'].includes(item.path)
+    const hasSideAction = isHome || !pinned
     const starAction = {
         label: shortcut ? 'Remove from starred' : 'Add to starred',
         icon: shortcut ? <IconStarFilled /> : <IconStar />,
         'data-attr': 'nav-apps-star',
         disabledReason: disabledReason || (shortcutDataLoading ? 'Updating starred items' : undefined),
-        onClick: () => (shortcut ? deleteShortcut(shortcut.id) : addShortcutItem(item as FileSystemEntry)),
-    }
-    const menuItems: LemonMenuItems = [
-        ...(hasProductMenu ? [{ label: () => <NavProductMenu product={item.path} /> }] : []),
-        ...(item.path === 'Home'
-            ? [
-                  {
-                      items: [
-                          {
-                              label: 'Configure home',
-                              icon: <IconGear />,
-                              'data-attr': 'nav-configure-home',
-                              onClick: () => {
-                                  if (uiCustomizationEnabled) {
-                                      router.actions.push(urls.settings('user-navigation', 'homepage'))
-                                  } else {
-                                      showConfigureHomeModal()
-                                  }
-                              },
-                          },
-                      ],
-                  },
-              ]
-            : []),
-        {
-            items: [starAction],
+        onClick: () => {
+            if (!shortcut) {
+                addShortcutItem(item as FileSystemEntry)
+                return
+            }
+            LemonDialog.open({
+                title: `Remove ${label} from starred?`,
+                description: 'It will no longer appear in the starred section of the sidebar.',
+                maxWidth: '30rem',
+                primaryButton: {
+                    children: 'Remove',
+                    status: 'danger',
+                    onClick: () => deleteShortcut(shortcut.id),
+                    'data-attr': 'nav-apps-unstar-confirm',
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
         },
-    ]
+    }
+    const menuItems: LemonMenuItems = [{ label: () => <NavProductMenu product={item.path} /> }, { items: [starAction] }]
+    // Appears at once like a tree row's side action, while keeping LemonButton's press animation.
+    const sideActionClassName =
+        'absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-has-[:focus-visible]/product-row:opacity-100 [--lemon-button-transition:transform_200ms_ease]'
 
     return (
         <div className="group/product-row relative flex items-center gap-px min-w-0">
@@ -92,8 +88,11 @@ export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element
                         menuItem: true,
                         active,
                         disabled: !!disabledReason,
-                        className:
-                            'flex-1 min-w-0 -outline-offset-2 group-hover/product-row:pr-7 group-focus-within/product-row:pr-7',
+                        className: cn(
+                            'flex-1 min-w-0 -outline-offset-2 motion-safe:transition-[padding] duration-50',
+                            hasSideAction && 'group-hover/product-row:pr-7 group-has-[:focus-visible]/product-row:pr-7',
+                            !pinned && !hasProductMenu && shortcut && 'pr-7'
+                        ),
                     }}
                     data-attr="nav-apps-item"
                     onClick={() => {
@@ -111,40 +110,25 @@ export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element
                         )}
                     </span>
                     <span className="flex-1 truncate">{label}</span>
-                    {item.tags?.[0] && (
-                        <LemonTag type={item.tags[0] === 'alpha' ? 'completion' : 'warning'} size="small">
-                            {item.tags[0]}
-                        </LemonTag>
-                    )}
+                    {item.tags?.[0] && <ProductTag tag={item.tags[0]} />}
                 </Link>
             </Tooltip>
-            {menuItems.length === 1 ? (
+            {isHome ? (
                 <LemonButton
                     size="xsmall"
-                    className="absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-focus-within/product-row:opacity-100"
-                    icon={starAction.icon}
-                    tooltip={starAction.label}
-                    aria-label={starAction.label}
-                    disabledReason={starAction.disabledReason}
-                    onClick={starAction.onClick}
-                    data-attr={starAction['data-attr']}
+                    className={sideActionClassName}
+                    icon={<IconGear />}
+                    tooltip="Customize sidebar"
+                    aria-label="Customize sidebar"
+                    onClick={() => setCustomizeSidebarOpen(true)}
+                    data-attr="nav-customize-sidebar"
                 />
-            ) : (
+            ) : pinned ? null : hasProductMenu ? (
                 <LemonMenu placement="right-start" items={menuItems}>
                     <LemonButton
                         size="xsmall"
-                        className="absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-focus-within/product-row:opacity-100"
-                        icon={
-                            hasProductMenu ? (
-                                item.path === 'Product analytics' ? (
-                                    <IconPlusSmall />
-                                ) : (
-                                    <IconChevronDown />
-                                )
-                            ) : (
-                                <IconEllipsis />
-                            )
-                        }
+                        className={sideActionClassName}
+                        icon={item.path === 'Product analytics' ? <IconPlusSmall /> : <IconChevronDown />}
                         tooltip={`Open ${label} menu`}
                         aria-label={`Open ${label} menu`}
                         disabledReason={disabledReason}
@@ -153,12 +137,21 @@ export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element
                                 ? 'flat-nav-tool-menu-insight'
                                 : item.path === 'Dashboards'
                                   ? 'flat-nav-tool-menu-dashboards'
-                                  : item.path === 'Session replay'
-                                    ? 'flat-nav-tool-menu-session-replay'
-                                    : 'nav-apps-menu'
+                                  : 'flat-nav-tool-menu-session-replay'
                         }
                     />
                 </LemonMenu>
+            ) : (
+                <LemonButton
+                    size="xsmall"
+                    className={cn(sideActionClassName, shortcut && 'opacity-100')}
+                    icon={starAction.icon}
+                    tooltip={starAction.label}
+                    aria-label={starAction.label}
+                    disabledReason={starAction.disabledReason}
+                    onClick={starAction.onClick}
+                    data-attr={starAction['data-attr']}
+                />
             )}
         </div>
     )
