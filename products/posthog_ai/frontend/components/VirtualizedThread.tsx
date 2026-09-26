@@ -908,13 +908,24 @@ function Root<T>({
         if (!virtualized || !el) {
             return
         }
-        const onScroll = (): void => {
+        const updateAwayFromLatest = (): void => {
             const distanceFromEnd = el.scrollHeight - el.clientHeight - el.scrollTop
             setAwayFromLatest(distanceFromEnd > el.clientHeight * JUMP_TO_LATEST_MIN_VIEWPORTS)
         }
-        onScroll()
-        el.addEventListener('scroll', onScroll, { passive: true })
-        return () => el.removeEventListener('scroll', onScroll)
+        updateAwayFromLatest()
+        el.addEventListener('scroll', updateAwayFromLatest, { passive: true })
+        // The distance to the end also changes with no scroll event: the virtualizer writes the content height
+        // straight to the DOM as rows load or grow, and the viewport can resize. Observe the viewport and the
+        // content container (its only child) so a still reader gets the button too.
+        const resizeObserver = new ResizeObserver(updateAwayFromLatest)
+        resizeObserver.observe(el)
+        if (el.firstElementChild) {
+            resizeObserver.observe(el.firstElementChild)
+        }
+        return () => {
+            el.removeEventListener('scroll', updateAwayFromLatest)
+            resizeObserver.disconnect()
+        }
     }, [virtualized])
 
     const jumpToLatest = useCallback((): void => {
