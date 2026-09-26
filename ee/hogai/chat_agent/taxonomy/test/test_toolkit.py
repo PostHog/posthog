@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -13,6 +15,7 @@ from products.event_definitions.backend.models.property_definition import Proper
 
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool
+from ee.hogai.chat_agent.taxonomy.virtual_properties import PropertyDefinitionOrVirtual
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -341,7 +344,9 @@ class TestTaxonomyAgentToolkit(BaseTest):
             ),
         ]
     )
-    def test_property_definitions_resolve_across_sibling_environments(self, _name, lookup):
+    def test_property_definitions_resolve_across_sibling_environments(
+        self, _name: str, lookup: Callable[[TaxonomyAgentToolkit], dict[str, PropertyDefinitionOrVirtual]]
+    ) -> None:
         # Both lookups are `database_sync_to_async(thread_sensitive=False)`, which runs them on another thread and
         # connection. The wrapper's `.func` runs them on the test's connection, the only one that sees its rows.
         sibling = Team.objects.create(organization=self.organization, project=self.team.project)
@@ -353,9 +358,10 @@ class TestTaxonomyAgentToolkit(BaseTest):
             property_type="String",
         )
 
-        definitions = lookup(self.toolkit)
+        definition = lookup(self.toolkit)["sibling_tier"]
 
-        self.assertEqual(definitions["sibling_tier"].property_type, "String")
+        assert isinstance(definition, PropertyDefinition)
+        self.assertEqual(definition.property_type, "String")
 
     @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
     async def test_retrieve_multiple_entity_property_values_hides_restricted(self, mock_restricted):

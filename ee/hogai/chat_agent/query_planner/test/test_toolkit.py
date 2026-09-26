@@ -3,7 +3,7 @@ from textwrap import dedent
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
@@ -554,7 +554,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         assert toolkit.retrieve_event_or_action_property_values("event1", "$virt_is_bot") == "true, false"
 
     @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
-    def test_retrieve_event_or_action_property_values_resolves_sibling_environment_definitions(self, mock_retrieve):
+    def test_retrieve_event_or_action_property_values_resolves_sibling_environment_definitions(
+        self, mock_retrieve: MagicMock
+    ) -> None:
         # The stored definition decides the formatting: found as a String the value is quoted, not found
         # the toolkit reports the property as missing from the taxonomy.
         sibling = Team.objects.create(organization=self.organization, project=self.team.project)
@@ -582,7 +584,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(toolkit.retrieve_event_or_action_property_values("event1", "sibling_tier"), '"gold"')
 
     @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
-    def test_retrieve_entity_property_values_resolves_sibling_environment_definitions(self, mock_runner_class):
+    def test_retrieve_entity_property_values_resolves_sibling_environment_definitions(
+        self, mock_runner_class: MagicMock
+    ) -> None:
         sibling = Team.objects.create(organization=self.organization, project=self.team.project)
         PropertyDefinition.objects.create(
             team=sibling,
