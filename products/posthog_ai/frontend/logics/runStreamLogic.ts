@@ -1277,11 +1277,18 @@ function retainedFramesWithoutOptimisticEchoes(retained: StoredEntry[]): StoredL
     })
 }
 
+/**
+ * A persisted turn replaces its local echo whichever run of the resume chain it belongs to, because
+ * a follow-up sent to a live run persists under that run while its echo waits for the successor
+ * run's bootstrap. The dedupe below keeps that from eating a repeat: a turn already covered by a
+ * retained frame is one the thread showed before this fetch, so an identical later send is its own.
+ * `unconfirmedMessage` is the send no persisted copy covers yet — hold one echo of it back.
+ */
 export function reconcileRunLog(
     history: StoredLogEntry[],
     retained: StoredEntry[],
     buffered: StoredLogEntry[],
-    optimisticRunId?: string
+    unconfirmedMessage?: string
 ): RunLog {
     let entries: StoredEntry[] = history.map((entry) => ({ entry, source: 'replay' }))
     const coverage = new RunEventCoverage(history)
@@ -1289,7 +1296,7 @@ export function reconcileRunLog(
     const rememberedHumanTexts = new Map<string, number>()
     for (const entry of dedupeBufferedAgainstHistory(history, retainedFramesWithoutOptimisticEchoes(retained))) {
         const text = persistedHumanText(entry)
-        if (!text || (optimisticRunId && entry.source_run_id !== optimisticRunId)) {
+        if (!text) {
             continue
         }
         if (entry.notification.method === '_posthog/user_message') {
@@ -1302,6 +1309,9 @@ export function reconcileRunLog(
             }
         }
         savedHumanCounts.set(text, (savedHumanCounts.get(text) ?? 0) + 1)
+    }
+    if (unconfirmedMessage) {
+        savedHumanCounts.set(unconfirmedMessage, Math.max((savedHumanCounts.get(unconfirmedMessage) ?? 0) - 1, 0))
     }
     for (const [tailIndex, tail] of [
         retained,
@@ -3406,6 +3416,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             })
             const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
             let retained = values.log.entries
+            let unconfirmedMessage: string | undefined = cache.retainedMessage
             if (
                 cache.retainedMessage &&
                 history.some(
@@ -3419,8 +3430,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                         entry.notification.params?.content === cache.retainedMessage
                 )
                 retained = retained.filter((_, index) => index !== optimisticIndex)
+                unconfirmedMessage = undefined
             }
-            const log = reconcileRunLog(history, retained, session.buffer, session.runId)
+            const log = reconcileRunLog(history, retained, session.buffer, unconfirmedMessage)
             const bufferedEntries = new Set(session.buffer)
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             // Rebuild state without publishing a partial transcript or repeating live reactions.

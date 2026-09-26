@@ -2871,6 +2871,66 @@ describe('runStreamLogic', () => {
             }
         )
 
+        it('renders a follow-up sent to the previous run once after the successor bootstraps', async () => {
+            const run = {
+                id: 'run-2',
+                task: 'task-1',
+                stage: null,
+                branch: null,
+                status: TaskRunStatus.QUEUED,
+                environment: TaskRunEnvironment.CLOUD,
+                error_message: null,
+                output: null,
+                task_summary: null,
+                artifacts: [],
+                state: { resume_from_run_id: 'run-1' },
+                runtime_adapter: null,
+                model: null,
+                reasoning_effort: null,
+                log_url: null,
+                created_at: '2026-01-01T00:00:00Z',
+                updated_at: '2026-01-01T00:00:00Z',
+                completed_at: null,
+            } satisfies TaskRunDetailDTOApi
+            const firstTurn = [
+                notification('_posthog/run_started', { runId: 'run-1' }),
+                notification('_posthog/user_message', { content: 'First question' }),
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
+                notification('_posthog/turn_complete', {}),
+            ]
+            jest.mocked(tasksRunsRetrieve).mockResolvedValue(run)
+            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue(firstTurn)
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+
+            // A follow-up typed into the still-running run-1: an optimistic echo, then the server's.
+            const wireEcho = sessionUpdate({
+                sessionUpdate: 'user_message_chunk',
+                content: { type: 'text', text: 'Follow-up' },
+            })
+            logic.actions.pushHumanMessage('Follow-up')
+            await MockStream.latest().emitMessage(wireEcho)
+            await MockStream.latest().emitMessage(notification('_posthog/turn_complete', {}))
+            logic.actions.handleTerminalStatus({ status: 'completed' })
+
+            // run-1 has since persisted the follow-up, and the next send opens run-2 over that chain.
+            jest.mocked(api.tasks.runs.getLogEntries).mockResolvedValue([
+                ...firstTurn,
+                notification('_posthog/user_message', { content: 'Follow-up' }),
+                wireEcho,
+                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Later answer' } }),
+                notification('_posthog/turn_complete', {}),
+                notification('_posthog/run_started', { runId: 'run-2' }),
+                notification('_posthog/user_message', { content: 'Next question' }),
+            ])
+            logic.actions.startOptimisticResume('Next question')
+            await expectLogic(logic, () => logic.actions.attachOptimisticResume('task-1', run)).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems.filter((item) => item.type === 'human_message').map((item) => item.text)
+            ).toEqual(['First question', 'Follow-up', 'Next question'])
+        })
+
         it.each(['history', 'retained', 'buffered'])(
             'preserves neutral notifications inside a coalesced range from %s',
             (source) => {
