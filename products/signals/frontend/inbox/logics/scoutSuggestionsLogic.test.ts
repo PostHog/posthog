@@ -191,6 +191,78 @@ describe('scoutSuggestionsLogic', () => {
         expect(logic.values.hasPicks).toBe(true)
     })
 
+    // The 500 row is the point of this case: a guard wide enough to swallow it would leave a real
+    // suggestions outage looking identical to a project the member cannot read.
+    it.each([
+        [403, 'loadSuggestionsSuccess'],
+        [404, 'loadSuggestionsSuccess'],
+        [500, 'loadSuggestionsFailure'],
+    ])('resolves a %s from the batch read to %s', async (status, expectedAction) => {
+        mockList.mockRejectedValueOnce(new ApiError('nope', status))
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions([expectedAction])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // The members this guard serves send the read on every tab open, so leaving before the 403
+    // lands is routine and must not turn the refusal into a report.
+    it('reports nothing when a refusal lands after the strip unmounts', async () => {
+        let refuse: (error: ApiError) => void = () => {}
+        mockList.mockReturnValueOnce(
+            new Promise((_, reject) => {
+                refuse = reject
+            })
+        )
+        logic = scoutSuggestionsLogic()
+        logic.mount()
+
+        logic.unmount()
+        refuse(new ApiError('nope', 403))
+        await new Promise(setImmediate)
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    // Access can go away between reads — a role change, or a project switch leaving a stale id in
+    // the URL. Every button on a pick would be refused, so the picks go with the access.
+    it('takes the strip away when a later read is refused', async () => {
+        await mountWithBatch()
+        expect(logic.values.stripVisible).toBe(true)
+
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
+
+        await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess'])
+        expect(logic.values.stripVisible).toBe(false)
+    })
+
+    // A refused read returns no batch, which the scan-settled check would otherwise read as a scan
+    // that found nothing (baseline set) or as a scan still running (no baseline).
+    it.each([
+        ['after an earlier scan', '2026-09-01T00:00:00Z'],
+        ['before any scan', null],
+    ])('stops waiting on a scan when a read during it is refused: %s', async (_name, generatedAt) => {
+        const info = jest.spyOn(lemonToast, 'info').mockReturnValue('toast-1')
+        const error = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-1')
+        await mountWithBatch(suggestionSet({ generated_at: generatedAt }))
+        logic.actions.requestRefresh('strip')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.isRefreshing).toBe(true)
+
+        mockList.mockRejectedValueOnce(new ApiError('nope', 403))
+        logic.actions.loadSuggestions()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.isRefreshing).toBe(false)
+        expect(logic.values.refreshScan).toBeNull()
+        expect(info).not.toHaveBeenCalled()
+        expect(error).not.toHaveBeenCalled()
+        info.mockRestore()
+        error.mockRestore()
+    })
+
     // Whatever the batch row says, a batch with no picks has nothing to put on the roster.
     it.each([
         ['never scanned', 'empty', null],

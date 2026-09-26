@@ -321,7 +321,7 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
         reportSuggestionsShown: (surface: ScoutSuggestionSurface) => ({ surface }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         suggestionSet: [
             null as ScoutSuggestionSetApi | null,
             {
@@ -331,9 +331,30 @@ export const scoutSuggestionsLogic = kea<scoutSuggestionsLogicType>([
                     if (!teamId || !values.suggestionsEnabled) {
                         return values.suggestionSet
                     }
-                    const set = await signalsScoutSuggestionsList(String(teamId))
-                    breakpoint()
-                    return set
+                    try {
+                        const set = await signalsScoutSuggestionsList(String(teamId))
+                        breakpoint()
+                        return set
+                    } catch (error) {
+                        // A member without resource-level scout access, or a stale project id left
+                        // by a project switch, are expected — degrade to the empty batch instead of
+                        // reporting them. Keeping the picks an earlier read returned would leave a
+                        // strip whose every button is refused. Anything else, notably a 5xx, still
+                        // throws so a real backend failure reaches error tracking.
+                        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+                            // The strip can unmount before the refusal lands, and a loader that
+                            // resolves into a dead store is what reports next.
+                            breakpoint()
+                            // Without access the scan's batch can never be read. End the wait here,
+                            // because the success listener would read the empty batch as the scan's
+                            // result and show a false toast, or poll until the timeout.
+                            if (values.isRefreshing) {
+                                actions.refreshFinished()
+                            }
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
