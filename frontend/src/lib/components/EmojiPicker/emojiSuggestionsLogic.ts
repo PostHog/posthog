@@ -29,11 +29,15 @@ export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
         suggestions: [[] as EmojiSuggestionApi[], { setSuggestions: (_, { suggestions }) => suggestions }],
         loading: [true, { setSuggestions: () => false }],
     }),
-    listeners(({ actions, props }) => ({
+    listeners(({ actions, props, cache }) => ({
         loadSuggestions: async (_, breakpoint) => {
             await breakpoint(200)
             const controller = new AbortController()
             const timeout = window.setTimeout(() => controller.abort(), 2500)
+            cache.disposables.add(() => {
+                controller.abort()
+                window.clearTimeout(timeout)
+            })
             try {
                 const response = await emojiSearchSuggestRetrieve(
                     String(props.projectId),

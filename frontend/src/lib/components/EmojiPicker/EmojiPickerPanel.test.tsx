@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import emojibaseData from 'emojibase-data/en/data.json'
 import emojibaseMessages from 'emojibase-data/en/messages.json'
 
@@ -76,5 +76,42 @@ describe('EmojiPickerPanel', () => {
         )
         screen.getByLabelText('T-Rex').click()
         expect(onEmojiSelect).toHaveBeenCalledWith('🦖')
+    })
+
+    it('does not request suggestions for queries above the endpoint limit', async () => {
+        render(<EmojiPickerPanel initialSearch={'x'.repeat(65)} onEmojiSelect={jest.fn()} />)
+
+        await waitFor(() => expect(screen.getByText('No emoji found.')).toBeInTheDocument())
+        expect(emojiSearchSuggestRetrieve).not.toHaveBeenCalled()
+    })
+
+    it('aborts a suggestion request when the picker closes', async () => {
+        jest.mocked(emojiSearchSuggestRetrieve).mockImplementation(() => new Promise(() => {}))
+        const { unmount } = render(<EmojiPickerPanel initialSearch="jurassic park" onEmojiSelect={jest.fn()} />)
+
+        await waitFor(() => expect(emojiSearchSuggestRetrieve).toHaveBeenCalled())
+        const signal = jest.mocked(emojiSearchSuggestRetrieve).mock.calls[0][2]?.signal
+        unmount()
+
+        expect(signal?.aborted).toBe(true)
+    })
+
+    it('moves from search to related emojis with arrow keys', async () => {
+        jest.mocked(emojiSearchSuggestRetrieve).mockResolvedValue({
+            suggestions: [
+                { emoji: '🦖', label: 'T-Rex' },
+                { emoji: '🎢', label: 'roller coaster' },
+            ],
+        })
+        render(<EmojiPickerPanel initialSearch="jurassic park" onEmojiSelect={jest.fn()} />)
+
+        const first = await screen.findByLabelText('T-Rex')
+        const second = screen.getByLabelText('roller coaster')
+        const search = screen.getByRole('searchbox')
+        search.focus()
+        fireEvent.keyDown(search, { key: 'ArrowDown' })
+        expect(first).toHaveFocus()
+        fireEvent.keyDown(first, { key: 'ArrowRight' })
+        expect(second).toHaveFocus()
     })
 })

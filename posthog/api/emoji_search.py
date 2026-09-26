@@ -2,6 +2,7 @@ from typing import Any
 
 from django.utils.cache import patch_vary_headers
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -14,6 +15,8 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.emoji_search.match import suggest_emojis
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
+
+logger = structlog.get_logger(__name__)
 
 
 class EmojiSearchRequestSerializer(serializers.Serializer):
@@ -40,11 +43,16 @@ class EmojiSearchThrottle(UserRateThrottle):
     rate = "60/minute"
 
 
+class EmojiSearchDailyThrottle(UserRateThrottle):
+    scope = "emoji_search_daily"
+    rate = "3000/day"
+
+
 @extend_schema(extensions={"x-product": "core"})
 class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = EmojiSearchRequestSerializer
-    throttle_classes = [EmojiSearchThrottle]
+    throttle_classes = [EmojiSearchThrottle, EmojiSearchDailyThrottle]
 
     @validated_request(
         query_serializer=EmojiSearchRequestSerializer,
@@ -59,6 +67,7 @@ class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         try:
             suggestions = suggest_emojis(request.validated_query_data["query"], team_id=self.team_id)
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
+            logger.warning("emoji_search_unavailable", team_id=self.team_id, reason=type(error).__name__)
             raise EmojiSearchUnavailable() from error
         response = Response(
             EmojiSearchResponseSerializer({"suggestions": suggestions}).data,

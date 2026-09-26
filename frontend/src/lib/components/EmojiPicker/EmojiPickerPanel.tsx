@@ -5,6 +5,7 @@ import {
     EmojiPickerListEmojiProps,
     EmojiPickerListRowProps,
 } from 'frimousse'
+import { useRef } from 'react'
 
 import { EmojiPickerSuggestions } from './EmojiPickerSuggestions'
 
@@ -54,8 +55,11 @@ export function EmojiPickerPanel({
     initialSearch,
     autoFocusSearch,
 }: EmojiPickerPanelProps): JSX.Element {
+    const rootRef = useRef<HTMLDivElement>(null)
+
     return (
         <EmojiPicker.Root
+            ref={rootRef}
             className={clsx('isolate flex h-[368px] w-fit flex-col bg-bg-light', className)}
             emojibaseUrl={EMOJIBASE_URL}
             onEmojiSelect={({ emoji }) => {
@@ -66,6 +70,17 @@ export function EmojiPickerPanel({
                 className="z-10 mx-2 mt-2 appearance-none rounded bg-fill-input px-2.5 py-2 text-sm border"
                 defaultValue={initialSearch}
                 autoFocus={autoFocusSearch}
+                onKeyDown={(event) => {
+                    if (event.key === 'ArrowDown') {
+                        const firstSuggestion = rootRef.current?.querySelector<HTMLButtonElement>(
+                            '[data-attr="emoji-picker-related-button"]'
+                        )
+                        if (firstSuggestion) {
+                            event.preventDefault()
+                            firstSuggestion.focus()
+                        }
+                    }
+                }}
             />
             <EmojiPicker.Viewport className="relative flex-1 outline-hidden">
                 <EmojiPicker.Loading className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
