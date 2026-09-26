@@ -9,6 +9,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.utils import ActivityCredential, record_activity_actor
 from posthog.models.identity_provider_config import IdentityProviderConfig
 
 
@@ -73,6 +74,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         if not check_password(token, hashed_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
+        record_activity_actor(None, ActivityCredential(type="scim", id=str(config.id)))
         return (SCIMAuthToken(config), config)
 
     def _extract_scim_slug_from_path(self, path: str) -> Optional[str]:

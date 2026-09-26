@@ -36,6 +36,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.session.activity import session_public_id
 
 from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
 from ee.api.test.base import APILicensedTest
@@ -898,6 +899,11 @@ class TestEEAuthenticationAPI(APILicensedTest):
         login_context = cast(dict, login_activity.detail)["context"]
         self.assertEqual(login_context["reauth"], True)
         self.assertEqual(login_context["login_method"], "Google OAuth")
+        # The row has to name the session the rotation created, not the one it retired.
+        self.assertEqual(login_activity.credential_type, "session")
+        self.assertEqual(
+            login_activity.credential_id, str(session_public_id(cast(str, self.client.session.session_key)))
+        )
 
         # Opening the sensitive-action window has to retire the session id that existed before it,
         # so a cookie copied earlier can't ride the window the victim just opened.

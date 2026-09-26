@@ -6,17 +6,35 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.db.utils import IntegrityError
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.authentication import BaseAuthentication
+from rest_framework.request import Request
+from rest_framework.test import APIRequestFactory
 
-from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.auth import (
+    InternalAPIAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    ScopedServiceJWTAuthentication,
+)
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, Trigger, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    Change,
+    Detail,
+    Trigger,
+    bulk_log_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.model_activity import ActivityTriggerContext
 from posthog.models.activity_logging.utils import (
     ACTIVITY_LOG_INTENT_MAX_LENGTH,
+    ActivityCredential,
     activity_storage,
     activity_visibility_manager,
 )
@@ -24,7 +42,9 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 
@@ -58,6 +78,7 @@ class TestActivityLogModel(BaseTest):
         self.assertEqual(log.activity, "updated")
         assert log.detail is not None
         self.assertEqual(log.detail["changes"], [change.__dict__])
+        self.assertEqual((log.credential_type, log.credential_id, log.impersonated_by_id), (None, None, None))
 
     def test_can_save_a_log_that_has_no_model_changes(self) -> None:
         log_activity(
@@ -294,6 +315,51 @@ class TestActivityLogModel(BaseTest):
         log: ActivityLog = ActivityLog.objects.latest("id")
         self.assertIsNone(log.ip_address)
 
+    def test_a_request_that_recorded_no_credential_is_marked_unattributed(self) -> None:
+        activity_storage.mark_request_scoped()
+        try:
+            log = log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=self.user,
+                was_impersonated=False,
+                item_id=13,
+                scope="FeatureFlag",
+                activity="created",
+                detail=Detail(),
+            )
+        finally:
+            activity_storage.clear_all()
+
+        assert log is not None
+        assert (log.credential_type, log.credential_id) == ("unattributed", None)
+
+    def test_bulk_log_activity_records_the_request_credential(self) -> None:
+        activity_storage.set_credential(ActivityCredential(type="personal_api_key", id="key-id", impersonated_by_id=7))
+        try:
+            bulk_log_activity(
+                [
+                    {
+                        "organization_id": self.organization.id,
+                        "team_id": self.team.id,
+                        "user": self.user,
+                        "was_impersonated": False,
+                        "item_id": item_id,
+                        "scope": "FeatureFlag",
+                        "activity": "created",
+                        "detail": Detail(),
+                    }
+                    for item_id in (11, 12)
+                ]
+            )
+        finally:
+            activity_storage.clear_credential()
+
+        rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="FeatureFlag", item_id__in=["11", "12"]))
+        assert [(row.credential_type, row.credential_id, row.impersonated_by_id) for row in rows] == [
+            ("personal_api_key", "key-id", 7)
+        ] * 2
+
     def test_does_not_save_impersonated_activity_without_user(self) -> None:
         log_activity(
             organization_id=self.organization.id,
@@ -375,6 +441,72 @@ class TestActivityLogModel(BaseTest):
             self.assertEqual(warning.kwargs["team"], 1)
             self.assertEqual(warning.kwargs["activity"], "does not explode")
             self.assertIsInstance(warning.kwargs["exception"], ValueError)
+
+
+class _ServiceJWTAuthentication(ScopedServiceJWTAuthentication):
+    purpose = ScopedServiceJwtPurpose(
+        audience=PosthogJwtAudience.RECORDING_API, settings_name="ACTIVITY_LOG_TEST_SERVICE_JWT_KEYS"
+    )
+
+
+@override_settings(
+    ACTIVITY_LOG_TEST_SERVICE_JWT_KEYS="activity-log-test-signing-key",
+    INTERNAL_API_SECRET="activity-log-test-internal-secret",
+    INTERNAL_API_SECRET_FALLBACKS=[],
+)
+class TestBearerAuthenticationReplacesSessionActor(BaseTest):
+    def _authenticator_and_headers(
+        self, credential_type: str
+    ) -> tuple[BaseAuthentication, dict[str, str], User | None, str | None]:
+        if credential_type == "project_secret_key":
+            psak, token = create_project_secret_api_key(self.team, scopes=["endpoint:read"])
+            return ProjectSecretAPIKeyAuthentication(), {"Authorization": f"Bearer {token}"}, None, psak.id
+        if credential_type == "personal_api_key":
+            token = generate_random_token_personal()
+            pak = PersonalAPIKey.objects.create(
+                label="pak", user=self.user, secure_value=hash_key_value(token), scopes=["*"]
+            )
+            return PersonalAPIKeyAuthentication(), {"Authorization": f"Bearer {token}"}, self.user, pak.id
+        if credential_type == "service_jwt":
+            token = _ServiceJWTAuthentication.purpose.mint({"team_id": self.team.id})
+            headers = {"Authorization": f"Bearer {token}"}
+            return _ServiceJWTAuthentication(), headers, None, PosthogJwtAudience.RECORDING_API.value
+        headers = {"X-Internal-Api-Secret": "activity-log-test-internal-secret"}
+        return InternalAPIAuthentication(), headers, None, None
+
+    @parameterized.expand([("project_secret_key",), ("personal_api_key",), ("service_jwt",), ("internal_api_secret",)])
+    def test_rows_name_the_bearer_credential_not_an_impersonated_session(self, credential_type: str) -> None:
+        session_user = User.objects.create_and_join(self.organization, "session-user@example.com", None)
+        authenticator, headers, expected_user, expected_id = self._authenticator_and_headers(credential_type)
+        # ActivityLoggingMiddleware has already recorded an impersonated session on the same request.
+        activity_storage.mark_request_scoped()
+        activity_storage.set_user(session_user)
+        activity_storage.set_was_impersonated(True)
+        activity_storage.set_credential(ActivityCredential(type="session", id="session-id", impersonated_by_id=1))
+        try:
+            authenticator.authenticate(Request(APIRequestFactory().get("/", headers=headers)))
+            log = log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=activity_storage.get_user(),
+                was_impersonated=activity_storage.get_was_impersonated(),
+                item_id=1,
+                scope="Loop",
+                activity="updated",
+                detail=Detail(),
+                force_save=True,
+            )
+        finally:
+            activity_storage.clear_all()
+
+        assert log is not None
+        assert (log.user, log.was_impersonated, log.credential_type, log.credential_id, log.impersonated_by_id) == (
+            expected_user,
+            False,
+            credential_type,
+            expected_id,
+            None,
+        )
 
 
 class TestModelActivityMixinTeamScoping(BaseTest):

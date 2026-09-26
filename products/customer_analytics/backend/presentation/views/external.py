@@ -46,6 +46,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ErrorResponseSerializer
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.models import Team
+from posthog.models.activity_logging.utils import ActivityCredential, record_activity_actor
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
@@ -190,6 +191,7 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     if not _customer_analytics_enabled(team):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
+    record_activity_actor(None, ActivityCredential(type="team_secret_token"))
     return team, None
 
 

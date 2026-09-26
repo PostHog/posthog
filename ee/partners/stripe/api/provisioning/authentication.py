@@ -17,6 +17,7 @@ from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
 
+from posthog.models.activity_logging.utils import oauth_activity_credential, record_activity_actor
 from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.user import User
 
@@ -63,6 +64,7 @@ class StripeBearerAuthentication(BaseAuthentication):
         if user is None or not user.is_active:
             raise SpecError("unauthorized", "Authentication failed", status=401)
 
+        record_activity_actor(user, oauth_activity_credential(access_token))
         return user, access_token
 
     def authenticate_header(self, request: Request) -> str:
