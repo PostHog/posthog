@@ -7,7 +7,6 @@ model (through the ml_inference facade) picks which of the ball's answers that k
 
 import json
 import math
-from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -15,6 +14,7 @@ from django.core.exceptions import PermissionDenied
 
 import posthoganalytics
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 
 from products.ml_inference.backend.facade import api as decision_api
@@ -72,14 +72,14 @@ class EightBallDisabledError(Exception):
     pass
 
 
-@dataclass(frozen=True)
+@frozen
 class EightBallSource:
     source_id: UUID
     source_name: str
     document_title: str
 
 
-@dataclass(frozen=True)
+@frozen
 class EightBallAnswer:
     answer: str
     confidence: float
