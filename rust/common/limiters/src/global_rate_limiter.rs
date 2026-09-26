@@ -215,9 +215,8 @@ pub struct GlobalRateLimiterConfig {
     ///
     /// Set to 0 to sync every key, restoring the pre-floor behavior.
     pub min_sync_floor: u64,
-    /// How long reads to a Redis instance must keep failing, in wall-clock time,
-    /// before its keys stop limiting on this node's unconfirmed counts. `None`
-    /// uses `window_interval`. `Some(Duration::ZERO)` disables the guard.
+    /// Wall-clock time reads to an instance must keep failing before its keys stop
+    /// limiting on this node's own counts. `None` uses `window_interval`; `Some(ZERO)` disables.
     pub max_read_outage: Option<Duration>,
     /// Maximum keys drained from `pending_sync` per tick. The remainder stays
     /// queued for the next tick, so a backlog degrades into staleness instead of
@@ -352,8 +351,8 @@ pub fn effective_level(entry: &CacheEntry, leak_rate: f64, now: Instant) -> f64 
     decayed_global(entry, leak_rate, now) + entry.local_pending as f64
 }
 
-/// The last fleet count read from Redis, decayed to `now`, without this node's
-/// unconfirmed events. Zero for an entry that has never read.
+/// The last fleet count read from Redis, decayed to `now`, excluding this node's
+/// unconfirmed events; zero if never read.
 pub fn decayed_global(entry: &CacheEntry, leak_rate: f64, now: Instant) -> f64 {
     let Some(synced_at) = entry.synced_at else {
         return 0.0;
@@ -451,15 +450,12 @@ enum CheckMode {
     Custom,
 }
 
-/// When each Redis instance's current run of failed reads began, shared by the
-/// background task and the request path. A tick with no reads leaves it alone, so
-/// a quiet node never looks down. It holds a time rather than a tick count because
-/// during an outage one tick can stall for seconds on timeouts and reconnects.
+/// When each instance's current run of failed reads began; a tick with no reads
+/// leaves it alone. Time, not tick counts, because an outage can stall one tick for seconds.
 struct ReadHealth {
     /// Reference point for `failing_since`, because an atomic cannot hold an `Instant`.
     base: Instant,
-    /// Per instance: milliseconds from `base` to the first failed read of the
-    /// current run, plus one. Zero while reads succeed.
+    /// Per instance: ms from `base` to the run's first failed read, plus one; zero while healthy.
     failing_since: Vec<AtomicU64>,
 }
 
@@ -499,13 +495,8 @@ impl ReadHealth {
     }
 }
 
-/// Index of the Redis instance that owns `key`, shared by the background task
-/// and the request path so both judge a key by the same instance.
-///
-/// Uses SipHash-1-3 rather than `DefaultHasher`, whose algorithm the standard
-/// library does not guarantee across releases. Every pod has to agree on the
-/// owner of a key, so a toolchain bump mid-rollout would otherwise split one
-/// entity's counter across two instances and under-enforce its limit.
+/// Index of the Redis instance that owns `key`. SipHash-1-3, not `DefaultHasher`, because
+/// every pod must agree on the owner across Rust releases or the key's counter splits.
 fn instance_index(key: &str, instances: usize) -> usize {
     if instances <= 1 {
         return 0;
@@ -838,9 +829,8 @@ impl GlobalRateLimiterImpl {
             (count as f64, 0.0, false)
         };
 
-        // While reads keep failing, `local_pending` piles up with no fleet count to
-        // correct it and would limit a key under its limit. Judge the key by its
-        // last fleet count alone, which still drains as the window moves.
+        // While reads fail, `local_pending` grows with nothing to correct it, so judge
+        // the key by its decayed fleet count alone.
         let over_threshold = entry_exists && level >= threshold as f64;
         let read_outage = over_threshold && self.read_outage(key, now_instant);
         let is_limited = over_threshold && (!read_outage || global_level >= threshold as f64);
@@ -1411,8 +1401,7 @@ impl GlobalRateLimiterImpl {
         let chunks: Vec<&[String]> = sync_keys.chunks(entities_per_chunk).collect();
         let issued = chunks.len();
         let mut any_read_ok = false;
-        // An outage starts when its first failed reads went out, not when their
-        // tick finished, which during an outage can be seconds later.
+        // Start the outage clock when the reads went out, not when a stalled tick ends.
         let reads_started = Instant::now();
 
         // See `run_writes` for why this is waves of `join_all` rather than a

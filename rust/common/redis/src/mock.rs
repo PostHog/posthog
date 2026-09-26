@@ -215,9 +215,7 @@ impl MockRedisClient {
         self.clone()
     }
 
-    /// Fail the Nth `mget` call (0-indexed across the lifetime of this mock)
-    /// with the given error. Other calls proceed normally. Takes precedence
-    /// over `mget_error`. Use to exercise a tick where some reads fail.
+    /// Fail the Nth `mget` call (0-indexed) with `err`; takes precedence over `mget_error`.
     pub fn mget_error_at_call(&mut self, call_index: usize, err: CustomRedisError) -> Self {
         self.mget_errors_by_call.insert(call_index, err);
         self.clone()
