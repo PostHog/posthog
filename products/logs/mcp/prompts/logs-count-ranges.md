@@ -42,7 +42,7 @@ Pick a value based on what you're doing:
 - **20–30** — characterising a known busy window
 - **50+** — high-resolution drill-down, only when you know the window is small
 
-## query.severityLevels, query.serviceNames, query.searchTerm, query.filterGroup
+## query.severityLevels, query.serviceNames, query.searchTerm, query.filterGroup, query.personId, query.sessionId
 
 Same shape as `query-logs`. Applied **before** bucketing.
 
@@ -98,4 +98,5 @@ After picking the densest bucket from the response above (say `{date_from: "2026
 
 - Cap recursion at ~3–4 levels. If your bucket width drops below your precision goal (e.g. 1 minute), stop and call `query-logs`.
 - Empty windows return `{"ranges": [], "interval": "..."}` — that's not an error, it's "I asked, nothing matched."
+- A window that scans too much data comes back as a 400 whose `error` names the cap it went past. Narrow the window or add a `serviceNames` filter, then retry. This tool reads no more than `logs-count` does, so a window one of them can measure is a window both can.
 - Always include `serviceNames` or a resource attribute filter, just like `query-logs`. Don't bucket the entire team's log stream.

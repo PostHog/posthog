@@ -5,13 +5,21 @@ from datetime import datetime
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.schema import DateRange, LogsQuery, PropertyGroupFilter
+
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManyBytes
+
+from products.logs.backend.count_query_runner import CountQueryRunner
+from products.logs.backend.count_ranges_query_runner import CountRangesQueryRunner
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
+_SEVEN_DAY_WINDOW = {"date_from": "2025-12-12T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 _DENSE_DAY = {"date_from": "2025-12-16T00:00:00Z", "date_to": "2025-12-17T00:00:00Z"}
 _INTERVAL_RE = re.compile(r"^\d+[smhd]$")
 
@@ -149,3 +157,50 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
     def test_defaults_date_range_to_last_hour(self):
         response = self._ranges({})
         self.assertEqual(response["ranges"], [])
+
+    @parameterized.expand(
+        [
+            ("severity_error", {"severityLevels": ["error"]}),
+            ("service_argo_rollouts", {"serviceNames": ["argo-rollouts"]}),
+        ]
+    )
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_seven_day_filtered_range_matches_count_endpoint(self, _name, filters):
+        params = {"dateRange": _SEVEN_DAY_WINDOW, **filters}
+        bucket_sum = sum(b["count"] for b in self._ranges({**params, "targetBuckets": 10})["ranges"])
+
+        count_response = self.client.post(f"/api/projects/{self.team.id}/logs/count", data={"query": params})
+        self.assertEqual(count_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(bucket_sum, count_response.json()["count"])
+
+    def test_read_cap_matches_the_count_endpoint(self):
+        # A tighter cap here than on count made a bucketed range fail on a window whose plain
+        # count succeeded, with the same filters.
+        query = LogsQuery(
+            dateRange=DateRange(**_SEVEN_DAY_WINDOW),
+            severityLevels=[],
+            serviceNames=[],
+            filterGroup=PropertyGroupFilter(type="AND", values=[]),
+        )
+        ranges_runner = CountRangesQueryRunner(team=self.team, query=query)
+        count_runner = CountQueryRunner(team=self.team, query=query)
+        self.assertEqual(ranges_runner.settings.max_bytes_to_read, count_runner.settings.max_bytes_to_read)
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_read_cap_breach_returns_the_cause(self):
+        with patch(
+            "products.logs.backend.presentation.views.api.CountRangesQueryRunner.run",
+            side_effect=CHQueryErrorTooManyBytes("DB::Exception: Limit for bytes to read exceeded"),
+        ):
+            response = self._ranges({"dateRange": _FIXTURE_WINDOW}, expected_status=status.HTTP_400_BAD_REQUEST)
+        self.assertIn("bytes to read", response.json()["error"])
+
+    @time_machine.travel("2025-12-18T12:00:00Z", tick=False)
+    def test_session_scope_narrows_the_buckets(self):
+        # count applies personId / sessionId; count-ranges used to drop them and bucket the whole
+        # project under a session's name.
+        unscoped = self._ranges({"dateRange": _FIXTURE_WINDOW})
+        self.assertGreater(len(unscoped["ranges"]), 0)
+
+        scoped = self._ranges({"dateRange": _FIXTURE_WINDOW, "sessionId": "01234567-89ab-cdef-0123-456789abcdef"})
+        self.assertEqual(scoped["ranges"], [])
