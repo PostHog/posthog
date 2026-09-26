@@ -72,6 +72,26 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
     return param_snapshots
 
 
+def _wire_urls(session: mock.MagicMock, responses: list[Response]) -> list[str]:
+    """Wire a mock session and capture each request's URL at send time.
+
+    Fan-out binds the parent id into the child path, so the URL — not the params — is what
+    proves the right parent was requested.
+    """
+    session.headers = {}
+    urls: list[str] = []
+
+    def _prepare(request: Any) -> mock.MagicMock:
+        urls.append(request.url)
+        prepared = mock.MagicMock()
+        prepared.url = request.url
+        return prepared
+
+    session.prepare_request.side_effect = _prepare
+    session.send.side_effect = responses
+    return urls
+
+
 def _rows(source_response) -> list[dict[str, Any]]:
     return [row for page in source_response.items() for row in page]
 
@@ -379,11 +399,114 @@ class TestV2Pagination:
         manager.save_state.assert_not_called()
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_uses_renamed_v2_selector(self, MockSession) -> None:
-        # v2 renamed the inventory list key from `volatile_assets` to `inventory`; a wrong selector
-        # would silently yield zero rows.
+    @pytest.mark.parametrize(
+        ("endpoint", "body_key", "row"),
+        [
+            # v2 renamed the inventory list key from `volatile_assets` to `inventory`.
+            ("inventories", "inventory", {"identifier": 7}),
+            # The v2 path is `tasks`-free: work orders list under `work_orders`.
+            ("work_orders", "work_orders", {"id": 3}),
+            ("teams", "teams", {"id": 4}),
+        ],
+    )
+    def test_uses_v2_selector(self, MockSession, endpoint: str, body_key: str, row: dict) -> None:
+        # A selector that does not match the response envelope silently yields zero rows.
         session = MockSession.return_value
-        _wire(session, [_response({"inventory": [{"identifier": 7}], "metadata": {"next_page": None}})])
+        _wire(session, [_response({body_key: [row], "metadata": {"next_page": None}})])
 
-        rows = _rows(_source("inventories", _make_manager(), api_version=EZOFFICEINVENTORY_API_VERSION_V2))
-        assert rows == [{"identifier": 7}]
+        rows = _rows(_source(endpoint, _make_manager(), api_version=EZOFFICEINVENTORY_API_VERSION_V2))
+        assert rows == [row]
+
+
+class TestHistoryFanout:
+    """The history tables are per-item sub-resources fanned out over their list endpoint."""
+
+    @staticmethod
+    def _fanout_source(endpoint: str, manager: mock.MagicMock):
+        return _source(endpoint, manager, api_version=EZOFFICEINVENTORY_API_VERSION_V2)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fetches_each_parent_and_injects_parent_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        urls = _wire_urls(
+            session,
+            [
+                _response(
+                    {"assets": [{"id": 1, "identifier": "A1"}, {"id": 2, "identifier": "A2"}], "metadata": {}},
+                ),
+                _response({"histories": [{"id": 10}], "metadata": {}}),
+                _response({"histories": [{"id": 20}], "metadata": {}}),
+            ],
+        )
+
+        rows = _rows(self._fanout_source("asset_checkout_history", _make_manager()))
+
+        # The child path binds the parent's record id, not its identification number.
+        assert urls[1:] == [
+            "https://acme.ezofficeinventory.com/api/v2/assets/1/history",
+            "https://acme.ezofficeinventory.com/api/v2/assets/2/history",
+        ]
+        # A history row carries no back-reference to its asset, so the parent id is injected —
+        # without it the composite primary key would collapse every asset's history together.
+        assert rows == [{"id": 10, "asset_id": 1}, {"id": 20, "asset_id": 2}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_member_fanout_binds_member_id(self, MockSession) -> None:
+        session = MockSession.return_value
+        urls = _wire_urls(
+            session,
+            [
+                _response({"members": [{"id": 8}], "metadata": {}}),
+                _response({"stock_histories": [{"id": 99}], "metadata": {}}),
+            ],
+        )
+
+        rows = _rows(self._fanout_source("member_stock_histories", _make_manager()))
+
+        assert urls[1] == "https://acme.ezofficeinventory.com/api/v2/members/8/stock_histories"
+        assert rows == [{"id": 99, "member_id": 8}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_parent_deleted_mid_sync_does_not_fail_the_table(self, MockSession) -> None:
+        # An asset retired or deleted between the parent listing and its history fetch answers
+        # 404. Failing there would lose every other asset's history for the whole sync.
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response({"assets": [{"id": 1}, {"id": 2}], "metadata": {}}),
+                _response({"messages": {"errors": ["Resource not found"]}}, status_code=404),
+                _response({"histories": [{"id": 20}], "metadata": {}}),
+            ],
+        )
+
+        rows = _rows(self._fanout_source("asset_checkout_history", _make_manager()))
+        assert rows == [{"id": 20, "asset_id": 2}]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_pages_are_followed_per_parent(self, MockSession) -> None:
+        session = MockSession.return_value
+        next_url = "https://acme.ezofficeinventory.com/api/v2/assets/1/history?page=2"
+        manager = _make_manager()
+        _wire(
+            session,
+            [
+                _response({"assets": [{"id": 1}], "metadata": {}}),
+                _response({"histories": [{"id": 10}], "metadata": {"next_page": next_url}}),
+                _response({"histories": [{"id": 11}], "metadata": {"next_page": None}}),
+            ],
+        )
+
+        rows = _rows(self._fanout_source("asset_checkout_history", manager))
+
+        assert rows == [{"id": 10, "asset_id": 1}, {"id": 11, "asset_id": 1}]
+        # A fan-out run is full refresh with no resumable cursor: a mid-run checkpoint would
+        # point at a child page without recording which parents were already walked.
+        manager.save_state.assert_not_called()
+
+    def test_source_response_keys_on_parent_and_row_id(self) -> None:
+        response = self._fanout_source("asset_checkout_history", _make_manager())
+        assert response.name == "asset_checkout_history"
+        assert response.primary_keys == ["asset_id", "id"]
+        assert response.partition_mode == "datetime"
+        assert response.partition_keys == ["created_at"]
