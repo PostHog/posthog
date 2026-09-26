@@ -1611,11 +1611,22 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     }
                 }
 
-                // Copied before the mappings are merged in: these arrays are the form's own state.
-                const allPossibleEventFilters = [...(configuration.filters?.events ?? [])]
-                const allPossibleActionFilters = [...(configuration.filters?.actions ?? [])]
+                // Mapped destinations execute mapping-level matchers, not global event/action filters.
+                // Keep these arrays separate from configuration so preview calculation cannot mutate form state.
+                const allPossibleEventFilters = useMapping ? [] : [...(configuration.filters?.events ?? [])]
+                const allPossibleActionFilters = useMapping ? [] : [...(configuration.filters?.actions ?? [])]
 
-                if (Array.isArray(configuration.mappings)) {
+                const mappingMatchesAllEvents =
+                    useMapping &&
+                    configuration.mappings?.some(
+                        (mapping) =>
+                            (mapping.filters?.events?.length ?? 0) === 0 &&
+                            (mapping.filters?.actions?.length ?? 0) === 0
+                    )
+
+                if (mappingMatchesAllEvents) {
+                    allPossibleEventFilters.push({ id: '', type: 'events' })
+                } else if (useMapping && Array.isArray(configuration.mappings)) {
                     for (const mapping of configuration.mappings) {
                         if (mapping.filters?.events) {
                             allPossibleEventFilters.push(...mapping.filters.events)
