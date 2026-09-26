@@ -6,7 +6,7 @@ import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-member
 import { CyclotronJobInvocationHogFlow, HogFunctionFilters } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
-import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
+import { actionIdForLogging, findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
@@ -118,6 +118,14 @@ export class ConditionalBranchHandler implements ActionHandler {
 
         const isWait = action.type === 'wait_until_condition'
 
+        if (!isWait) {
+            result.logs.push({
+                level: 'info',
+                timestamp: DateTime.now(),
+                message: `${actionIdForLogging(action)} ${describeConditionOutcome(conditionalAction, conditionResult.matchedConditionIndex)}`,
+            })
+        }
+
         if (conditionResult.scheduledAt) {
             // Record that this wait has re-parked at least once, so a later condition match is
             // attributable to the polling re-check rather than an evaluate-on-entry match.
@@ -184,6 +192,20 @@ function conditionReferencesCohorts(condition: { filters?: unknown }): boolean {
     )
 }
 
+// Uses the same labels as the editor: a custom name, else "Condition N". It states only the outcome,
+// because the executor logs the next action after routing succeeds.
+function describeConditionOutcome(
+    action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
+    matchedConditionIndex: number | undefined
+): string {
+    if (matchedConditionIndex === undefined) {
+        return 'No condition matched.'
+    }
+    const label = `Condition ${matchedConditionIndex + 1}`
+    const name = action.config.conditions[matchedConditionIndex]?.name?.trim()
+    return name ? `Matched ${label} (${name}).` : `Matched ${label}.`
+}
+
 export async function checkConditions(
     invocation: CyclotronJobInvocationHogFlow,
     action: Extract<HogFlowAction, { type: 'conditional_branch' }>,
@@ -194,6 +216,7 @@ export async function checkConditions(
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
+    matchedConditionIndex?: number
 }> {
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
@@ -221,6 +244,7 @@ export async function checkConditions(
         if (filterResults.match) {
             return {
                 nextAction: findNextAction(invocation.hogFlow, action.id, index),
+                matchedConditionIndex: index,
             }
         }
     }
