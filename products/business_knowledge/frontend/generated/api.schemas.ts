@@ -49,7 +49,11 @@ export interface EightBallSourceApi {
 export interface EightBallAnswerApi {
     /** The magic 8 ball answer the decision model picked. */
     readonly answer: string
-    /** The model's confidence in that answer, 0 to 1. */
+    /**
+     * The model's confidence in that answer, 0 to 1.
+     * @minimum 0
+     * @maximum 1
+     */
     readonly confidence: number
     /** Knowledge sources the answer drew on, most relevant first. Empty when nothing matched. */
     readonly sources: readonly EightBallSourceApi[]

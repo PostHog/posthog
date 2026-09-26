@@ -625,6 +625,9 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request=EightBallQuestionSerializer,
         responses={
             200: EightBallAnswerSerializer,
+            403: OpenApiResponse(
+                description="AI data processing is not approved for this organization, or the request does not come from the web app."
+            ),
             404: OpenApiResponse(description="The decision model is not enabled for this project."),
             503: OpenApiResponse(description="The decision service is unavailable."),
         },

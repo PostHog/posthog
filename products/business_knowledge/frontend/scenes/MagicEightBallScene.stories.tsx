@@ -69,6 +69,7 @@ export const Answered: Story = {
     play: async ({ canvasElement }) => {
         await askQuestion(canvasElement)
         await within(canvasElement).findByRole('link', { name: 'Product handbook' })
+        await within(canvasElement).findByText('Signs point to yes', { selector: '.MagicEightBall__triangle span' })
         await waitForReveal(canvasElement)
     },
 }

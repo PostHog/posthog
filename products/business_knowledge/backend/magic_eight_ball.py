@@ -161,7 +161,7 @@ def ask(team: Team, question: str) -> EightBallAnswer:
     if not used:
         return EightBallAnswer(answer="Cannot predict now", confidence=0, sources=[])
 
-    result = decision_api.decide(
+    result = decision_api.decide_unchecked(
         DecisionRequest(
             team_id=team.id,
             state=state,

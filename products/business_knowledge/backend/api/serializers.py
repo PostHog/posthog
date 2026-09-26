@@ -692,7 +692,9 @@ class EightBallSourceSerializer(serializers.Serializer):
 
 class EightBallAnswerSerializer(serializers.Serializer):
     answer = serializers.CharField(read_only=True, help_text="The magic 8 ball answer the decision model picked.")
-    confidence = serializers.FloatField(read_only=True, help_text="The model's confidence in that answer, 0 to 1.")
+    confidence = serializers.FloatField(
+        read_only=True, min_value=0, max_value=1, help_text="The model's confidence in that answer, 0 to 1."
+    )
     sources = EightBallSourceSerializer(
         many=True,
         read_only=True,

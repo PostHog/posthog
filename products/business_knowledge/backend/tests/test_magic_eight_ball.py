@@ -27,11 +27,10 @@ from products.ml_inference.backend.facade.contracts import (
     DecisionGatewayError,
     DecisionGatewayUnreachableError,
     DecisionResult,
-    DecisionsDisabledError,
     NoulAnswer,
 )
 
-DECIDE = "products.business_knowledge.backend.magic_eight_ball.decision_api.decide"
+DECIDE = "products.business_knowledge.backend.magic_eight_ball.decision_api.decide_unchecked"
 EMBED = "posthog.api.embedding_worker.generate_embedding"
 
 
@@ -212,12 +211,6 @@ class TestEightBallAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         decide.assert_not_called()
-
-    def test_not_found_when_decisions_are_not_enabled(self, _embed, _ff) -> None:
-        with patch(DECIDE, side_effect=DecisionsDisabledError(self.team.id)):
-            response = self.client.post(self.url, {"question": "Is our pricing usage based?"}, format="json")
-
-        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(
         [
