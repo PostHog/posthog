@@ -61,7 +61,13 @@ import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseCon
 import { groupFilters } from './FeatureFlags'
 import { featureFlagScheduleEditLogic } from './featureFlagScheduleEditLogic'
 import { FeatureFlagVariantsForm } from './FeatureFlagVariantsForm'
-import { isSchedulePaused, maxRolloutPercentage } from './scheduleOccurrences'
+import {
+    isSchedulePaused,
+    maxRolloutPercentage,
+    maxUntargetedRolloutPercentage,
+    projectedRolloutPercentage,
+    sharedAggregationTarget,
+} from './scheduleOccurrences'
 import { ScheduleTimeline } from './ScheduleTimeline'
 
 export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
@@ -485,6 +491,27 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
 
+    // Release condition sets are OR'd, and the sets that bucket on one identifier share a hash, so
+    // a condition at or below a rollout the flag already serves to everyone reaches nobody new.
+    const scheduledAggregationTarget = sharedAggregationTarget(
+        schedulePayload.filters?.groups,
+        aggregationGroupTypeIndex
+    )
+    const servedToEveryone = maxUntargetedRolloutPercentage(
+        featureFlag.filters.groups,
+        aggregationGroupTypeIndex,
+        scheduledAggregationTarget
+    )
+    const scheduledConditionRollout = maxRolloutPercentage(schedulePayload.filters?.groups)
+    const conditionReachesNobodyNew =
+        scheduledChangeOperation === ScheduledChangeOperationType.AddReleaseCondition &&
+        featureFlag.active &&
+        servedToEveryone !== null &&
+        scheduledConditionRollout !== null &&
+        // An untouched form starts at 0%, where nobody has said what they want yet.
+        scheduledConditionRollout > 0 &&
+        scheduledConditionRollout <= servedToEveryone
+
     const { variants: displayVariants, payloads: displayPayloads } = getScheduledVariantsPayloads(
         featureFlag,
         schedulePayload
@@ -560,7 +587,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         </div>
                         <ScheduleTimeline
                             occurrences={scheduleTimelineOccurrences}
-                            currentRolloutPercentage={maxRolloutPercentage(featureFlag.filters.groups)}
+                            currentRolloutPercentage={projectedRolloutPercentage(featureFlag.filters)}
                             timezone={scheduleTimezone}
                         />
                     </div>
@@ -959,6 +986,21 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 />
                             </div>
                         )}
+
+                    {/* Warning when the added condition is already covered by what the flag serves */}
+                    {conditionReachesNobodyNew && (
+                        <LemonBanner type="warning">
+                            {/* These values move while the banner stays up, so each is its own element rather
+                                than a bare text node among siblings. A page-translation extension swaps such a node
+                                for a <font>, and React then writes the new value to the detached one. */}
+                            This flag already serves <span translate="no">{`${servedToEveryone}%`}</span> of all{' '}
+                            <span>{aggregationLabel(scheduledAggregationTarget, true).plural}</span>, and release
+                            conditions are combined with OR. A condition at{' '}
+                            <span translate="no">{`${scheduledConditionRollout}%`}</span> will not change who sees the
+                            flag when this change runs. To stage a rollout, lower the existing condition first, then
+                            schedule the increases.
+                        </LemonBanner>
+                    )}
 
                     {/* Warning when updating variants won't actually change what anyone sees */}
                     {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
