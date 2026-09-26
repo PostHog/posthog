@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSelect, LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -11,6 +12,8 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { PROPERTY_ACCESS_LEVEL_OPTIONS } from 'lib/utils/accessControlUtils'
+
+import { AvailableFeature } from '~/types'
 
 import type { AccessLevelEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 
@@ -79,12 +82,17 @@ export function PropertyAccessControl({ propertyDefinitionId, teamId }: Property
                         key: 'roles',
                         label: 'Roles',
                         content: (
-                            <RolesTab
-                                roles={allRoles}
-                                overrides={roleOverrides}
-                                onSetOverride={setLocalRoleOverride}
-                                restrictedReason={restrictedReason}
-                            />
+                            <PayGateMini
+                                feature={AvailableFeature.ROLE_BASED_ACCESS}
+                                featureDetail="property-access-control-roles"
+                            >
+                                <RolesTab
+                                    roles={allRoles}
+                                    overrides={roleOverrides}
+                                    onSetOverride={setLocalRoleOverride}
+                                    restrictedReason={restrictedReason}
+                                />
+                            </PayGateMini>
                         ),
                     },
                 ]}

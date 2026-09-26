@@ -223,6 +223,11 @@ class TestRestrictPropertiesInHogQL(BaseTest):
     def test_role_override_allows_access(self):
         from products.access_control.backend.models.role import Role, RoleMembership
 
+        self.organization.available_product_features = [
+            {"name": feature, "key": feature}
+            for feature in (AvailableFeature.PROPERTY_ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save()
         role = Role.objects.create(name="Analyst", organization=self.organization)
         RoleMembership.objects.create(role=role, user=self.user, organization_member=self.organization_membership)
 
