@@ -92,16 +92,34 @@ def _select_incremental_field(incremental_fields: list[IncrementalField]) -> Inc
     return candidates[0]
 
 
+def has_usable_primary_key(
+    source_schema: SourceSchema | None, primary_key_columns: Collection[str] | None = None
+) -> bool:
+    """Return whether an incremental schema can resolve a primary key safely.
+
+    Introspected tables need either a discovered key or an ``id`` column. Sources that do not
+    expose columns during discovery resolve their key at sync time, so the absence of a detected
+    key is not evidence that they are keyless.
+    """
+    if primary_key_columns or source_schema is None:
+        return True
+    if source_schema.detected_primary_keys or not source_schema.columns:
+        return True
+    return any(str(column[0]).lower() == "id" for column in source_schema.columns)
+
+
 def build_default_sync_settings(source_schema: SourceSchema) -> dict[str, Any]:
     """Default sync settings for one discovered table.
 
-    Picks ``incremental`` when the source supports it and a tracking column exists (cheapest
-    ongoing sync), else ``append`` when supported, else ``full_refresh``. Never picks ``cdc``
-    or ``webhook`` — both need prerequisites (Postgres setup, webhook registration) and
-    explicit opt-in.
+    Picks ``incremental`` when the source supports it, a tracking column exists, and at least one
+    primary key is detected (incremental syncs require a primary key to deduplicate/merge). Falls
+    back to ``append`` when supported and a tracking column exists, else ``full_refresh``. Never
+    picks ``cdc`` or ``webhook`` — both need prerequisites (Postgres setup, webhook registration)
+    and explicit opt-in.
     """
     chosen = _select_incremental_field(source_schema.incremental_fields)
-    if source_schema.supports_incremental and chosen is not None:
+    has_primary_keys = has_usable_primary_key(source_schema)
+    if source_schema.supports_incremental and chosen is not None and has_primary_keys:
         sync_type = "incremental"
     elif source_schema.supports_append and chosen is not None:
         sync_type = "append"

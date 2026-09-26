@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     _select_incremental_field,
     build_default_schemas,
     build_endpoint_schemas,
+    has_usable_primary_key,
 )
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -68,6 +69,94 @@ class TestBuildDefaultSchemas:
         assert schemas[0]["sync_type"] == "append"
         assert schemas[0]["incremental_field"] == "created_at"
         assert "primary_key_columns" not in schemas[0]
+
+    def test_keyless_table_falls_back_to_append_when_supported(self) -> None:
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events_keyless",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("created_at")],
+                    detected_primary_keys=[],
+                    columns=[("email", "String", False)],
+                )
+            ]
+        )
+        assert schemas == [
+            {
+                "name": "events_keyless",
+                "should_sync": True,
+                "sync_type": "append",
+                "incremental_field": "created_at",
+                "incremental_field_type": "datetime",
+            }
+        ]
+
+    @parameterized.expand(
+        [
+            ("keyless", [("email", "String", False)], "append"),
+            ("id_column", [("id", "Int64", False)], "incremental"),
+        ]
+    )
+    def test_introspected_primary_key_cases(
+        self, _name: str, columns: list[tuple[str, str, bool]], expected: str
+    ) -> None:
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events_introspected",
+                    supports_incremental=True,
+                    supports_append=True,
+                    incremental_fields=[_field("created_at")],
+                    columns=columns,
+                )
+            ]
+        )
+        assert schemas[0]["sync_type"] == expected
+
+    def test_non_introspected_source_keeps_incremental_default(self) -> None:
+        schemas = build_endpoint_schemas(["events"], {"events": [_field("created_at")]})
+        assert build_default_schemas(schemas)[0]["sync_type"] == "incremental"
+
+    def test_detected_primary_key_without_columns_keeps_incremental_default(self) -> None:
+        schema = SourceSchema(
+            name="events",
+            supports_incremental=True,
+            incremental_fields=[_field("created_at")],
+            detected_primary_keys=["id"],
+        )
+        assert build_default_schemas([schema])[0]["sync_type"] == "incremental"
+
+    def test_primary_key_predicate_honors_explicit_keys(self) -> None:
+        schema = SourceSchema(
+            name="events",
+            supports_incremental=True,
+            supports_append=True,
+            columns=[("email", "String", False)],
+        )
+        assert has_usable_primary_key(schema, ["email"])
+
+    def test_keyless_table_falls_back_to_full_refresh_when_append_unsupported(self) -> None:
+        schemas = build_default_schemas(
+            [
+                SourceSchema(
+                    name="events_keyless_no_append",
+                    supports_incremental=True,
+                    supports_append=False,
+                    incremental_fields=[_field("created_at")],
+                    detected_primary_keys=[],
+                    columns=[("email", "String", False)],
+                )
+            ]
+        )
+        assert schemas == [
+            {
+                "name": "events_keyless_no_append",
+                "should_sync": True,
+                "sync_type": "full_refresh",
+            }
+        ]
 
     @parameterized.expand(
         [

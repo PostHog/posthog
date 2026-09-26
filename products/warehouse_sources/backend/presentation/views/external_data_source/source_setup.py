@@ -67,6 +67,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    has_usable_primary_key,
     new_source_requires_ssl,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
@@ -1455,20 +1456,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             # An incremental sync merges rows on a primary key. Created without one, the table
             # syncs once (the first write overwrites) and then fails on every later run, so the
-            # configuration is refused here rather than at the second sync.
-            # Only for a table discovery introspected. A source that reports no columns here
-            # (a managed REST source, say) resolves its key at sync time instead, so the absence
-            # of a detected key says nothing about whether the merge has one. `id` counts for the
-            # same reason it does at sync time: resolution falls back to it.
-            introspected_columns = (source_schema.columns if source_schema else None) or []
-            has_id_column = any(str(column[0]).lower() == "id" for column in introspected_columns)
+            # configuration is refused here rather than at the second sync. The shared predicate
+            # also preserves the sync-time fallbacks for non-introspected sources and `id` columns.
             if (
                 should_sync
                 and sync_type == "incremental"
-                and not primary_key_columns
-                and introspected_columns
-                and not source_schema.detected_primary_keys  # type: ignore[union-attr]
-                and not has_id_column
+                and not has_usable_primary_key(source_schema, primary_key_columns)
             ):
                 new_source_model.delete()
                 return Response(
