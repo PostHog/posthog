@@ -3877,6 +3877,32 @@ def list_account_presence_viewers(
     )
 
 
+def list_accounts_presence(
+    team_id: int,
+    account_ids: list[str],
+    user_access_control: "UserAccessControl",
+    *,
+    viewer_user_id: int | None,
+) -> list[contracts.AccountPresence]:
+    accessible_account_ids = list(
+        user_access_control.filter_queryset_by_access_level(
+            Account.objects.unscoped().filter(team_id=team_id, id__in=account_ids)
+        ).values_list("id", flat=True)
+    )
+    viewers_by_account_id = _account_presence_logic.list_account_presence(
+        team_id=team_id, account_ids=[str(account_id) for account_id in accessible_account_ids]
+    )
+    return [
+        contracts.AccountPresence(
+            account_id=account_id,
+            viewers=[
+                viewer for viewer in viewers_by_account_id.get(str(account_id), []) if viewer.user_id != viewer_user_id
+            ],
+        )
+        for account_id in accessible_account_ids
+    ]
+
+
 def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
     """The account_id when the caller can edit that account, else None."""
     account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id)

@@ -153,8 +153,8 @@ export const urls = {
     variables: (): string => '/data-management/variables',
     variable: (id: string | ':id'): string => `/data-management/variables/${id}`,
     variableEdit: (id: string | ':id'): string => `/data-management/variables/${id}/edit`,
-    resourceTransfer: (resourceKind: string, resourceId: string | number): string =>
-        `/resource-transfer/${resourceKind}/${resourceId}`,
+    resourceTransfer: (resourceKind: string, resourceId: string | number, insightShortId?: string): string =>
+        combineUrl(`/resource-transfer/${resourceKind}/${resourceId}`, { insight_short_id: insightShortId }).url,
     dashboardTemplateCopyToProject: (templateId: string | ':sourceTemplateId', sourceTeamId?: number): string => {
         const path = `/dashboard/templates/${templateId}/copy-to-project`
         return sourceTeamId === undefined
