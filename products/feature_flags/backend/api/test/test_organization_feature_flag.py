@@ -445,6 +445,32 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         ]
         self.organization.save()
 
+    @parameterized.expand(["evaluation_contexts", "tags"])
+    def test_copy_succeeds_when_target_requires_flag_metadata(self, requirement):
+        from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
+
+        if requirement == "evaluation_contexts":
+            self.team_2.require_evaluation_contexts = True
+            self.team_2.save()
+        else:
+            TeamFeatureFlagPolicyConfig.objects.update_or_create(team=self.team_2, defaults={"require_tags": True})
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        data = {
+            "feature_flag_key": self.feature_flag_to_copy.key,
+            "from_project": self.feature_flag_to_copy.team_id,
+            "target_project_ids": [self.team_2.id],
+        }
+
+        # The evaluation contexts requirement sits behind FLAG_EVALUATION_TAGS, so without this
+        # the contexts case would pass whether or not the copy is exempt.
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(url, data)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["failed"] == []
+        assert FeatureFlag.objects.filter(team=self.team_2, key=self.feature_flag_key).exists()
+
     @snapshot_postgres_queries
     def test_copy_feature_flag_create_new(self):
         url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
@@ -1219,7 +1245,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         real_save = FeatureFlagSerializer.save
 
         def gated_save(serializer_self, **kwargs):
-            if kwargs.get("team_id") == self.team_2.id:
+            if serializer_self.context.get("team_id") == self.team_2.id:
                 raise ApprovalRequired(
                     change_request=change_request,
                     message="Approval required",
