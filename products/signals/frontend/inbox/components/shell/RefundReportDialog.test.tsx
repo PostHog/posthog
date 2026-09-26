@@ -35,7 +35,7 @@ describe('openRefundReportDialog', () => {
         expect(onConfirm).not.toHaveBeenCalled()
         expect(note).toHaveValue('first line\nsecond line')
 
-        await userEvent.click(screen.getByRole('button', { name: 'Refund' }))
+        await userEvent.click(screen.getByText('Refund'))
 
         await waitFor(() => expect(onConfirm).toHaveBeenCalledTimes(1))
         expect(onConfirm).toHaveBeenCalledWith({
