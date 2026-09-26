@@ -3487,7 +3487,7 @@ describe('maxThreadLogic', () => {
                             {
                                 id: 'create-form-tc-1',
                                 name: 'create_form',
-                                args: { questions: [] },
+                                args: { questions: [{ id: 'q1', question: 'What is your name?' }] },
                                 type: 'tool_call',
                             },
                         ],
@@ -3512,7 +3512,7 @@ describe('maxThreadLogic', () => {
                             {
                                 id: 'create-form-tc-1',
                                 name: 'create_form',
-                                args: { questions: [] },
+                                args: { questions: [{ id: 'q1', question: 'What is your name?' }] },
                                 type: 'tool_call',
                             },
                         ],
