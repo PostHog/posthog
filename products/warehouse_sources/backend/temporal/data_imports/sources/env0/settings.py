@@ -1,13 +1,15 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 Env0EndpointScope = Literal["root", "organization", "project", "environment", "deployment"]
 
 
-@dataclass
+@frozen
 class Env0EndpointConfig:
     name: str
     # Path template; `{parent_id}` is replaced with the fan-out parent's id (organization,
