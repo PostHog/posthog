@@ -85,4 +85,22 @@ describe('SankeyChart', () => {
         tap()
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
     })
+
+    it('fires the click on the first tap when the tooltip is disabled', () => {
+        const onNodeClick = jest.fn()
+        const { chart } = renderHogChart(
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                onNodeClick={onNodeClick}
+                config={{ tooltip: { enabled: false } }}
+            />
+        )
+        const down = Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' })
+        fireEvent(chart.element, down)
+        fireEvent.click(chart.element, nodeCenter('a'))
+
+        expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a' }))
+    })
 })
