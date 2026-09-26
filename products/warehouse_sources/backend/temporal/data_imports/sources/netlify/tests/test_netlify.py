@@ -307,6 +307,17 @@ class TestValidateCredentials:
         mock_session.return_value.get.side_effect = requests.ConnectionError()
         assert validate_credentials("tok") == (False, netlify_module._NETLIFY_UNREACHABLE_ERROR)
 
+    @mock.patch(NETLIFY_SESSION_PATCH)
+    def test_unexpected_status_reaches_error_tracking(self, mock_session) -> None:
+        mock_session.return_value.get.return_value = mock.Mock(status_code=418)
+        with mock.patch.object(netlify_module, "capture_exception") as capture:
+            ok, error = validate_credentials("tok")
+
+        assert (ok, error) == (False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR)
+        assert "418" not in error
+        # The status has to reach error tracking, or a later triage has only the generic message.
+        assert "418" in str(capture.call_args.args[0])
+
 
 class TestNetlifySourceResponse:
     @parameterized.expand(list(NETLIFY_ENDPOINTS.keys()))
