@@ -44,11 +44,15 @@ export function useSignalSourceManager() {
     handleUpdateAutostartBaseBranches:
       teamMutations.handleUpdateAutostartBaseBranches,
     handleUpdateMaxReportsPerDay: teamMutations.handleUpdateMaxReportsPerDay,
+    handleUpdateDefaultOpenPullRequestReady:
+      teamMutations.handleUpdateDefaultOpenPullRequestReady,
 
     // User autonomy
     userAutonomyConfig,
     userAutonomyConfigLoading,
     handleUpdateSlackNotifications:
       userAutonomyMutations.handleUpdateSlackNotifications,
+    handleUpdateOpenPullRequestReady:
+      userAutonomyMutations.handleUpdateOpenPullRequestReady,
   };
 }
