@@ -1,0 +1,60 @@
+name: Workflows as code
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - products/workflows/workflows/**
+            - .github/workflows/workflows-as-code.yml
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    workflows:
+        name: Push workflows
+        if: github.ref == 'refs/heads/master'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        environment: workflows-as-code
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter "@posthog/workflows..." --filter "@posthog/products-workflows"
+
+            - name: Push workflows to PostHog
+              env:
+                  POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_WORKFLOWS_API_KEY }}
+                  POSTHOG_CLI_PROJECT_ID: ${{ vars.POSTHOG_WORKFLOWS_PROJECT_ID || '2' }}
+                  POSTHOG_CLI_HOST: ${{ vars.POSTHOG_WORKFLOWS_HOST || 'https://us.posthog.com' }}
+                  POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID: ${{ vars.POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID }}
+              run: |
+                  if [[ -z "$POSTHOG_CLI_API_KEY" ]]; then
+                      echo "::warning::Push skipped: set the POSTHOG_WORKFLOWS_API_KEY secret on the workflows-as-code environment to push these workflows to project $POSTHOG_CLI_PROJECT_ID on $POSTHOG_CLI_HOST."
+                      exit 0
+                  fi
+                  if [[ -z "$POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID" ]]; then
+                      echo "::warning::Push skipped: set the POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID variable to the id of an email integration in project $POSTHOG_CLI_PROJECT_ID."
+                      exit 0
+                  fi
+                  log="$RUNNER_TEMP/workflows-push.log"
+                  set +e
+                  pnpm --filter=@posthog/workflows repo:push 2>&1 | tee "$log"
+                  status=${PIPESTATUS[0]}
+                  set -e
+                  if [[ "$status" -ne 0 ]] && grep -qx 'status: key_not_supported' "$log"; then
+                      echo "::warning::Push skipped: $POSTHOG_CLI_HOST does not store a workflow key yet, so the push stopped. It runs again on the next change to a workflow file or on a manual dispatch."
+                      exit 0
+                  fi
+                  exit "$status"

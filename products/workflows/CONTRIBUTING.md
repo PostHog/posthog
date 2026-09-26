@@ -8,6 +8,9 @@ At a high level:
 - **Backend (CDP Hog templates)** defines what a “function node” actually does via a Hog function template (`template_id`).
 - **Backend (async functions)** provides any custom runtime functionality used by Hog code (e.g. HTTP requests, enriched lookups, etc.).
 
+PostHog's own workflows live in [`workflows/`](./workflows/README.md) as TypeScript files written with [`@posthog/workflows`](./packages/workflows/README.md), the package this product owns.
+The README there says how to check and push them from the repository root.
+
 ## How the pieces connect
 
 When you add a new “hog function” action node, the wiring is:

@@ -389,6 +389,7 @@ const EXPECTATIONS: Expectation[] = [
                 'dynamic-ci-filter',
                 'select-jest-tests',
                 'jest',
+                'workflows-sdk',
                 'frontend-typescript-checks',
                 'frontend_tests',
             ],
@@ -397,7 +398,7 @@ const EXPECTATIONS: Expectation[] = [
     frontend(
         { name: 'merge queue', github: mergeQueue() },
         {
-            runs: ['jest', 'frontend_tests'],
+            runs: ['jest', 'workflows-sdk', 'frontend_tests'],
             skipped: ['select-jest-tests', 'dynamic-ci-filter'],
         }
     ),
@@ -418,21 +419,21 @@ const EXPECTATIONS: Expectation[] = [
     frontend(
         { name: 'fork PR', github: pullRequest({ fork: true }) },
         {
-            runs: ['jest', 'frontend_tests'],
+            runs: ['jest', 'workflows-sdk', 'frontend_tests'],
             skipped: ['dynamic-ci-filter', 'capture-jest-selection', 'report-test-signals', 'calculate-running-time'],
         }
     ),
     frontend(
         { name: 'master push', github: push() },
         {
-            runs: ['frontend-format', 'frontend-typescript-checks', 'frontend_tests'],
+            runs: ['frontend-format', 'workflows-sdk', 'frontend-typescript-checks', 'frontend_tests'],
             skipped: ['jest', 'select-jest-tests', 'dynamic-ci-filter'],
         }
     ),
     frontend(
         { name: 'hourly schedule', github: schedule() },
         {
-            runs: ['jest', 'jest-replay-shared', 'frontend_tests'],
+            runs: ['jest', 'jest-replay-shared', 'workflows-sdk', 'frontend_tests'],
             skipped: ['frontend-format', 'frontend-bundle-size', 'frontend-typescript-checks'],
         }
     ),

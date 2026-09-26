@@ -1,0 +1,49 @@
+{
+    "name": "@posthog/workflows",
+    "version": "0.0.0",
+    "private": true,
+    "description": "Declare a PostHog workflow in TypeScript, review it as a diff, and deploy it from CI.",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "products/workflows/packages/workflows"
+    },
+    "bin": {
+        "posthog-workflows": "./dist/cli/main.js"
+    },
+    "files": [
+        "dist",
+        "src"
+    ],
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.js",
+            "default": "./dist/index.js"
+        },
+        "./package.json": "./package.json"
+    },
+    "scripts": {
+        "build": "tsc -p tsconfig.build.json",
+        "prepack": "pnpm run build",
+        "typecheck": "tsc -p tsconfig.json",
+        "test": "tsc -p tsconfig.build.json && tsc -p tsconfig.test.json && node --test \".test-build/tests/**/*.test.js\"",
+        "repo:check": "pnpm run build && if [ -z \"$POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID\" ]; then echo 'POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID is not set, so the check uses the stand-in sender id 1.'; export POSTHOG_WORKFLOWS_EMAIL_INTEGRATION_ID=1; fi && for file in ../../workflows/*.ts; do [ -e \"$file\" ] || continue; node dist/cli/main.js check \"$file\" || exit 1; done",
+        "repo:push": "pnpm run build && for file in ../../workflows/*.ts; do [ -e \"$file\" ] || continue; node dist/cli/main.js push \"$file\" || exit 1; done"
+    },
+    "dependencies": {
+        "jiti": "^2.7.0"
+    },
+    "devDependencies": {
+        "@types/node": "^25.8.0",
+        "typescript": "catalog:"
+    },
+    "engines": {
+        "node": ">=22.12"
+    }
+}
