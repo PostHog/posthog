@@ -17,7 +17,9 @@ EZOFFICEINVENTORY_API_VERSION_V1 = "v1"
 EZOFFICEINVENTORY_API_VERSION_V2 = "v2"
 
 
-@dataclass
+# frozen=False: the shared FanoutEndpointLike protocol is satisfied either way, but the config
+# stays mutable to match the other endpoint-catalog dataclasses in this tree.
+@dataclass(frozen=False)
 class EZOfficeInventoryEndpointConfig:
     name: str
     # Path relative to https://<subdomain>.ezofficeinventory.com (no leading slash).
