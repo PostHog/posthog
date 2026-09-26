@@ -1,4 +1,5 @@
 import posthog, { BeforeSendFn, BrowserMetricsConfig, SessionRecordingOptions } from 'posthog-js'
+import { PERSISTENCE_FEATURE_FLAG_ERRORS } from 'posthog-js/lib/src/constants'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
@@ -38,6 +39,56 @@ export interface LoadPostHogJSOptions {
      * token out of the captured `path`. See `frontend/src/exporter/index.tsx`.
      */
     metrics?: Partial<BrowserMetricsConfig>
+}
+
+/*
+ * posthog-js builds these codes in `FeatureFlagError`, which its public entry does not export, and
+ * whose module carries the whole flag implementation. So they are repeated here instead of
+ * deep-imported. Keep them in sync with `FeatureFlagError` in posthog-js.
+ */
+const API_ERROR_PREFIX = 'api_error_'
+/** The codes posthog-js uses when no HTTP response came back at all. */
+const TRANSPORT_ERROR_CODES = ['timeout', 'connection_error', 'unknown_error']
+
+export interface FeatureFlagsFailureProperties {
+    /** Comma-joined posthog-js error codes, the same vocabulary as `$feature_flag_called`. */
+    $feature_flag_error: string
+    /** HTTP status of the failed `/flags` request, or null when no response came back. */
+    feature_flag_error_status: number | null
+    /**
+     * Whether an HTTP response came back at all. False points at the network, an ad blocker, or a
+     * browser timeout. It does not prove that PostHog never saw the request, because the browser
+     * aborts on its own deadline.
+     */
+    feature_flag_response_received: boolean
+}
+
+/**
+ * The SDK callback only says that loading failed, so read the codes posthog-js persisted for the
+ * same failure. Without them an outage and ad blocker noise look identical on the alert.
+ *
+ * The codes are SDK internals, so an unreadable or unfamiliar value degrades to `unknown_error`
+ * rather than throwing.
+ */
+export function describeFeatureFlagsFailure(sdkErrors: unknown): FeatureFlagsFailureProperties {
+    const codes = Array.isArray(sdkErrors) ? sdkErrors.filter((code): code is string => typeof code === 'string') : []
+    if (!codes.length) {
+        return {
+            $feature_flag_error: 'unknown_error',
+            feature_flag_error_status: null,
+            feature_flag_response_received: false,
+        }
+    }
+
+    const apiErrorCode = codes.find((code) => code.startsWith(API_ERROR_PREFIX))
+    const apiErrorStatus = apiErrorCode?.slice(API_ERROR_PREFIX.length)
+
+    return {
+        $feature_flag_error: codes.join(','),
+        // A suffix that is not a status would parse to NaN, which is not a value worth capturing.
+        feature_flag_error_status: apiErrorStatus && /^\d{3}$/.test(apiErrorStatus) ? Number(apiErrorStatus) : null,
+        feature_flag_response_received: !codes.some((code) => TRANSPORT_ERROR_CODES.includes(code)),
+    }
 }
 
 export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
@@ -181,7 +232,14 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 return
             }
 
-            posthog.capture('onFeatureFlags error')
+            posthog.capture('onFeatureFlags error', {
+                ...describeFeatureFlagsFailure(posthog.persistence?.props?.[PERSISTENCE_FEATURE_FLAG_ERRORS]),
+                // The callback argument holds enabled flags only, so read the cache for its real
+                // size. Zero means the app fell back to nothing.
+                feature_flag_count: Object.keys(posthog.featureFlags?.getFlagVariants() ?? {}).length,
+                // Separates a machine that is offline from a request that only our endpoint refused.
+                browser_online: window.navigator.onLine,
+            })
 
             // Track that we failed to load feature flags
             window.POSTHOG_GLOBAL_ERRORS ||= {}
