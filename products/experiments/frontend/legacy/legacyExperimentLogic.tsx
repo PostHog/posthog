@@ -4,7 +4,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { runWithLimit } from 'scenes/dashboard/dashboardUtils'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
-import { isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
+import { getDisplayOrderedIndices, isLegacyExperimentQuery, isLegacySharedMetric } from 'scenes/experiments/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -112,48 +112,6 @@ function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: bool
     } catch {
         return { detail: error.detail || error.message, hasDiagnostics: false }
     }
-}
-
-/**
- * Returns metric indices in display order. Metrics whose UUID appears in
- * orderedUuids come first (in that order), followed by any remaining metrics
- * in their original array position. Each entry is the original index into the
- * metrics array so callers can write results to the correct positional slot.
- */
-export function getDisplayOrderedIndices(
-    metrics: { uuid?: string }[],
-    orderedUuids: string[] | null | undefined
-): number[] {
-    if (!orderedUuids || orderedUuids.length === 0) {
-        return metrics.map((_, i) => i)
-    }
-
-    const uuidToIndex = new Map<string, number>()
-    for (let i = 0; i < metrics.length; i++) {
-        const uuid = metrics[i].uuid
-        if (uuid) {
-            uuidToIndex.set(uuid, i)
-        }
-    }
-
-    const ordered: number[] = []
-    const seen = new Set<number>()
-
-    for (const uuid of orderedUuids) {
-        const idx = uuidToIndex.get(uuid)
-        if (idx !== undefined && !seen.has(idx)) {
-            ordered.push(idx)
-            seen.add(idx)
-        }
-    }
-
-    for (let i = 0; i < metrics.length; i++) {
-        if (!seen.has(i)) {
-            ordered.push(i)
-        }
-    }
-
-    return ordered
 }
 
 // Max concurrent metric queries to avoid overwhelming the celery queue's
