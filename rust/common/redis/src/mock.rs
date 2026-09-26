@@ -294,6 +294,21 @@ impl Client for MockRedisClient {
         Ok(())
     }
 
+    async fn zadd_nx(
+        &self,
+        key: String,
+        member: String,
+        score: i64,
+    ) -> Result<(), CustomRedisError> {
+        self.record_call("zadd_nx", key, MockRedisValue::MemberScore(member, score));
+        Ok(())
+    }
+
+    async fn zrem(&self, key: String, member: String) -> Result<(), CustomRedisError> {
+        self.record_call("zrem", key, MockRedisValue::String(member));
+        Ok(())
+    }
+
     async fn hincrby(
         &self,
         key: String,

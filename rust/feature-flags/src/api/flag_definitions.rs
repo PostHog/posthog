@@ -21,25 +21,34 @@ use axum::{
     http::{HeaderMap, Method, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use common_hypercache::{HyperCacheError, KeyType};
+use common_hypercache::{CacheSource, HyperCacheError, KeyType};
 use common_metrics::inc;
+use common_redis::Client as RedisClient;
 use common_types::TeamId;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
 
-/// Redis sorted set holding team IDs whose flag-definitions cache is missing and
-/// needs a rebuild. A Celery worker drains it (member = team_id, score = enqueue
-/// time in epoch millis). Must stay in sync with `REBUILD_REQUESTS_ZSET` in
-/// `products/feature_flags/backend/rebuild_queue.py` (pinned by the Python test
-/// `test_request_zset_key_matches_rust_contract`).
+/// Redis sorted set holding team IDs whose flag-definitions Redis entry is gone and
+/// needs a rebuild. A Celery worker drains it (member = team_id, score = the first
+/// request's time in epoch millis, kept by the NX write below). Must stay in sync with
+/// `REBUILD_REQUESTS_ZSET` in `products/feature_flags/backend/rebuild_queue.py` (pinned by
+/// the Python test `test_request_zset_key_matches_rust_contract`).
 pub(crate) const FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET: &str = "flag_definitions:rebuild_requests";
+pub(crate) const FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET: &str =
+    "flag_definitions:rebuild_s3_requests";
+
+/// `trigger` label values for `FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER`. The two triggers
+/// ramp independently, so the dashboard has to separate them.
+const REBUILD_TRIGGER_CACHE_MISS: &str = "cache_miss";
+const REBUILD_TRIGGER_S3_HIT: &str = "s3_hit";
 static CONSTANCE_KEY: Lazy<String> = Lazy::new(|| constance_key("RATE_LIMITING_ALLOW_LIST_TEAMS"));
 
 /// Refresh the rate limit allowlist from the database if stale, then update the limiter.
@@ -426,6 +435,12 @@ async fn get_from_cache(
                 source = source_name,
                 "Cache hit for flag definitions"
             );
+            if should_rebuild_after_hit(
+                &source,
+                *state.config.flag_definitions_rebuild_on_s3_hit_enabled,
+            ) {
+                enqueue_flag_definitions_rebuild(state, team_id, REBUILD_TRIGGER_S3_HIT);
+            }
             Ok(data)
         }
         Err(e) => {
@@ -451,15 +466,24 @@ async fn get_from_cache(
             // Self-heal: a genuinely empty cache (not a transient redis/s3/parse
             // error) has no DB fallback here, so it would 503 until something
             // rewrites it. Enqueue a debounced rebuild request for a Celery worker.
-            if reason == "cache_miss" && *state.config.flag_definitions_self_heal_enabled {
-                enqueue_flag_definitions_rebuild(state, team_id);
+            if reason == "cache_miss" {
+                enqueue_flag_definitions_rebuild(state, team_id, REBUILD_TRIGGER_CACHE_MISS);
             }
             Err(FlagError::from(e))
         }
     }
 }
 
-/// Fire-and-forget enqueue of a flag-definitions rebuild request on cache miss.
+/// Only `CacheSource::S3` qualifies, because only that source proves Redis answered and did
+/// not hold the key. `S3AfterRedisError` reaches S3 because the Redis read failed, timed out,
+/// or would not decode, which says nothing about whether the entry exists. Queueing on that
+/// would enqueue every team served during a Redis incident and point a rebuild storm at the
+/// cluster that is already failing.
+fn should_rebuild_after_hit(source: &CacheSource, enabled: bool) -> bool {
+    enabled && matches!(source, CacheSource::S3)
+}
+
+/// Fire-and-forget enqueue of a flag-definitions rebuild request.
 ///
 /// Writes to a Redis sorted set on the flags-namespace client, because that is where the
 /// Django writer lives. The Celery drain derives its Redis from
@@ -480,32 +504,58 @@ async fn get_from_cache(
 /// drains. Unifying the queue with the reader severs the queue from the drain whenever the two
 /// clusters differ.
 ///
-/// Re-enqueuing a team only updates its score, so a client polling a missing team
-/// every ~30s occupies a single slot. Spawned so it never adds latency to (or
-/// changes) the failing response.
-fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32) {
-    let redis = state.flags_namespace_redis_client();
-    tokio::spawn(async move {
-        let score = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as i64)
-            .unwrap_or(0);
-        let result = redis
-            .zadd(
-                FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
-                team_id.to_string(),
-                score,
-            )
-            .await;
-        inc(
-            FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
-            &[(
+/// Spawned so it never adds response latency. `write_rebuild_request` holds the write.
+///
+/// `FLAG_DEFINITIONS_SELF_HEAL_ENABLED` is checked here rather than at each call site, so it
+/// stops every trigger. A trigger that also needs its own ramp adds that switch at its call
+/// site.
+fn enqueue_flag_definitions_rebuild(state: &AppState, team_id: i32, trigger: &'static str) {
+    if !*state.config.flag_definitions_self_heal_enabled {
+        return;
+    }
+
+    tokio::spawn(write_rebuild_request(
+        state.flags_namespace_redis_client(),
+        team_id,
+        trigger,
+    ));
+}
+
+async fn write_rebuild_request(
+    redis: Arc<dyn RedisClient + Send + Sync>,
+    team_id: i32,
+    trigger: &'static str,
+) {
+    let score = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    // NX, so a team that has been waiting keeps the score it was queued with. An
+    // overwriting write would move it behind requests made later, and the drain takes the
+    // lowest scores first.
+    let result = redis
+        .zadd_nx(
+            if trigger == REBUILD_TRIGGER_S3_HIT {
+                FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET
+            } else {
+                FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET
+            }
+            .to_string(),
+            team_id.to_string(),
+            score,
+        )
+        .await;
+    inc(
+        FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER,
+        &[
+            (
                 "result".to_string(),
                 if result.is_ok() { "ok" } else { "error" }.to_string(),
-            )],
-            1,
-        );
-    });
+            ),
+            ("trigger".to_string(), trigger.to_string()),
+        ],
+        1,
+    );
 }
 
 /// Authenticates flag definitions requests using team secret API tokens or personal API keys
@@ -592,6 +642,44 @@ mod tests {
     #[case::only_survey_and_tour_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "product-tour-targeting-xyz"}]}), false)]
     fn test_has_billable_flags(#[case] response: Value, #[case] expected: bool) {
         assert_eq!(has_billable_flags(&response), expected);
+    }
+
+    #[rstest]
+    #[case::confirmed_redis_miss(CacheSource::S3, true, true)]
+    #[case::redis_read_failed(CacheSource::S3AfterRedisError, true, false)]
+    #[case::served_by_redis(CacheSource::Redis, true, false)]
+    #[case::served_by_fallback(CacheSource::Fallback, true, false)]
+    #[case::switch_off(CacheSource::S3, false, false)]
+    fn test_should_rebuild_after_hit(
+        #[case] source: CacheSource,
+        #[case] enabled: bool,
+        #[case] expected: bool,
+    ) {
+        assert_eq!(should_rebuild_after_hit(&source, enabled), expected);
+    }
+
+    #[tokio::test]
+    async fn test_rebuild_request_does_not_overwrite_an_earlier_score() {
+        let mock = common_redis::MockRedisClient::new();
+        let redis: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock.clone());
+
+        write_rebuild_request(redis.clone(), 42, REBUILD_TRIGGER_S3_HIT).await;
+        write_rebuild_request(redis, 42, REBUILD_TRIGGER_S3_HIT).await;
+
+        let calls = mock.get_calls();
+        assert_eq!(calls.len(), 2, "one queue write per request");
+        for call in calls {
+            assert_eq!(
+                call.op, "zadd_nx",
+                "repeated requests must keep the first score"
+            );
+            assert_eq!(call.key, FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET);
+            assert!(
+                matches!(&call.value, common_redis::MockRedisValue::MemberScore(member, _) if member == "42"),
+                "the member is the team id the drain parses, got {:?}",
+                call.value
+            );
+        }
     }
 
     #[test]

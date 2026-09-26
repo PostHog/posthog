@@ -23,6 +23,7 @@ from products.feature_flags.backend.rebuild_queue import (
     COOLDOWN_KEY,
     FAILURE_STREAK_KEY,
     REBUILD_REQUESTS_ZSET,
+    S3_REBUILD_REQUESTS_ZSET,
     drain_rebuild_requests,
 )
 
@@ -51,14 +52,15 @@ def _rebuilds(error=None, skip_write=False, load_error=None, omit=()):
         patch.object(rebuild_queue, "Team") as team,
         patch.object(rebuild_queue, "_skip_write_if_group_mapping_emptied", return_value=skip_write),
         patch.object(rebuild_queue.flag_definitions_hypercache, "batch_load_fn", new=_load),
+        patch.object(rebuild_queue.flag_definitions_hypercache.cache_client, "get_many", return_value={}),
         patch.object(rebuild_queue.flag_definitions_hypercache, "set_cache_value", side_effect=error) as set_cache,
     ):
         team.objects.filter.side_effect = lambda id__in: [SimpleNamespace(id=int(t)) for t in id__in]
         yield set_cache
 
 
-def _enqueue(client, team_id, score=0):
-    client.zadd(REBUILD_REQUESTS_ZSET, {str(team_id): score})
+def _enqueue(client, team_id, score=0, queue=REBUILD_REQUESTS_ZSET):
+    client.zadd(queue, {str(team_id): score})
 
 
 DEDICATED_REDIS_URL = "redis://flags-dedicated:6379/"
@@ -83,11 +85,122 @@ def _dedicated_cache(registered: bool) -> Iterator[None]:
 
 def test_drain_rebuilds_queued_team_and_clears_it(fake_redis):
     _enqueue(fake_redis, 140414)
-    with _rebuilds():
+    with _rebuilds() as set_cache:
+
+        def poll_during_rebuild(team, payload):
+            overlap = drain_rebuild_requests(batch_size=1)
+            assert overlap["skipped_cooldown"] == 1
+            assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, str(team.id)) is not None
+            assert fake_redis.zadd(REBUILD_REQUESTS_ZSET, {str(team.id): 1000}, nx=True) == 0
+
+        set_cache.side_effect = poll_during_rebuild
         stats = drain_rebuild_requests()
+        next_stats = drain_rebuild_requests()
 
     assert stats["success"] == 1
     assert fake_redis.zcard(REBUILD_REQUESTS_ZSET) == 0
+    assert next_stats == {"success": 0, "failure": 0, "restored": 0, "skipped_cooldown": 0, "circuit_open": 0}
+    set_cache.assert_called_once()
+    assert fake_redis.get(COOLDOWN_KEY.format(team_id=140414)) == b"cooldown"
+    assert 0 < fake_redis.ttl(COOLDOWN_KEY.format(team_id=140414)) <= rebuild_queue.COOLDOWN_SECONDS
+
+
+def test_cache_misses_take_priority_over_older_s3_hits(fake_redis):
+    _enqueue(fake_redis, 1, score=1, queue=S3_REBUILD_REQUESTS_ZSET)
+    _enqueue(fake_redis, 2, score=2)
+
+    with _rebuilds() as set_cache:
+        first = drain_rebuild_requests(batch_size=1)
+        second = drain_rebuild_requests(batch_size=1)
+
+    assert first["success"] == second["success"] == 1
+    assert [call.args[0].id for call in set_cache.call_args_list] == [2, 1]
+
+
+def test_restored_redis_entry_skips_rebuild(fake_redis):
+    _enqueue(fake_redis, 3)
+    cache = rebuild_queue.flag_definitions_hypercache
+    with _rebuilds() as set_cache:
+        with patch.object(
+            cache.cache_client,
+            "get_many",
+            return_value={cache.get_cache_key(3): '{"flags": []}', cache.get_etag_key(3): "etag"},
+        ):
+            stats = drain_rebuild_requests()
+
+    assert stats["restored"] == 1
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "3") is None
+    set_cache.assert_not_called()
+
+
+def test_restored_entries_do_not_use_batch_slots(fake_redis):
+    _enqueue(fake_redis, 3, score=1)
+    _enqueue(fake_redis, 4, score=2)
+    cache = rebuild_queue.flag_definitions_hypercache
+    restored = {cache.get_cache_key(3): '{"flags": []}', cache.get_etag_key(3): "etag"}
+    with _rebuilds() as set_cache:
+        with patch.object(cache.cache_client, "get_many", return_value=restored):
+            stats = drain_rebuild_requests(batch_size=1)
+
+    assert stats["restored"] == 1 and stats["success"] == 1
+    assert set_cache.call_args.args[0].id == 4
+
+
+def test_corrupt_redis_entry_does_not_block_other_rebuilds(fake_redis):
+    _enqueue(fake_redis, 3)
+    _enqueue(fake_redis, 4)
+    cache = rebuild_queue.flag_definitions_hypercache
+    values = {
+        cache.get_cache_key(3): "not JSON",
+        cache.get_etag_key(3): "etag",
+        cache.get_cache_key(4): '{"flags": []}',
+        cache.get_etag_key(4): "etag",
+    }
+    with _rebuilds() as set_cache:
+        with patch.object(cache.cache_client, "get_many", return_value=values):
+            stats = drain_rebuild_requests()
+
+    assert stats["restored"] == 1 and stats["success"] == 1
+    assert set_cache.call_args.args[0].id == 3
+
+
+def test_entry_restored_after_claim_skips_batch_load(fake_redis):
+    _enqueue(fake_redis, 3)
+    cache = rebuild_queue.flag_definitions_hypercache
+    restored = {cache.get_cache_key(3): '{"flags": []}', cache.get_etag_key(3): "etag"}
+    with _rebuilds() as set_cache:
+        with patch.object(cache.cache_client, "get_many", side_effect=[{}, restored]):
+            stats = drain_rebuild_requests()
+
+    assert stats["restored"] == 1
+    set_cache.assert_not_called()
+
+
+def test_cache_presence_check_propagates_soft_time_limit(fake_redis):
+    _enqueue(fake_redis, 3)
+    cache = rebuild_queue.flag_definitions_hypercache
+    with _rebuilds():
+        with patch.object(cache.cache_client, "get_many", side_effect=SoftTimeLimitExceeded()):
+            with pytest.raises(SoftTimeLimitExceeded):
+                drain_rebuild_requests()
+
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "3") is not None
+    assert not fake_redis.exists(COOLDOWN_KEY.format(team_id=3))
+
+
+def test_claims_left_by_a_dead_drain_do_not_block_later_teams(fake_redis):
+    for score, team_id in enumerate((1, 2, 3)):
+        _enqueue(fake_redis, team_id, score=score)
+    # A drain killed before its finally block leaves its claims queued at the head.
+    for team_id in (1, 2):
+        fake_redis.set(COOLDOWN_KEY.format(team_id=team_id), "inflight", ex=300)
+
+    with _rebuilds() as set_cache:
+        stats = drain_rebuild_requests(batch_size=2)
+
+    assert [call.args[0].id for call in set_cache.call_args_list] == [3]
+    assert stats["success"] == 1 and stats["skipped_cooldown"] == 2
+    assert fake_redis.zrange(REBUILD_REQUESTS_ZSET, 0, -1) == [b"1", b"2"]
 
 
 def test_invalid_member_is_discarded_without_rebuild(fake_redis):
@@ -96,7 +209,7 @@ def test_invalid_member_is_discarded_without_rebuild(fake_redis):
         stats = drain_rebuild_requests()
 
     assert fake_redis.zcard(REBUILD_REQUESTS_ZSET) == 0
-    assert stats == {"success": 0, "failure": 0, "skipped_cooldown": 0, "circuit_open": 0}
+    assert stats == {"success": 0, "failure": 0, "restored": 0, "skipped_cooldown": 0, "circuit_open": 0}
 
 
 def test_cooldown_prevents_a_second_rebuild_within_the_window(fake_redis):
@@ -111,6 +224,7 @@ def test_cooldown_prevents_a_second_rebuild_within_the_window(fake_redis):
 
     assert stats["skipped_cooldown"] == 1
     assert stats["success"] == 0  # not retried during cooldown
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "1") is None
 
 
 def test_circuit_opens_after_repeated_failures_then_skips(fake_redis):
@@ -128,6 +242,7 @@ def test_circuit_opens_after_repeated_failures_then_skips(fake_redis):
 
     assert stats["circuit_open"] == 1
     assert fake_redis.zscore(CIRCUIT_ZSET, str(team_id)) is not None
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, str(team_id)) is None
 
 
 def test_successful_rebuild_after_circuit_expiry_clears_streak_and_circuit(fake_redis):
@@ -163,6 +278,12 @@ def test_rebuild_exception_is_caught_and_counts_as_failure(fake_redis):
     # that advances the streak.
     assert stats["failure"] == 1
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=5)) == b"1"
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "5") is None
+    assert fake_redis.zadd(REBUILD_REQUESTS_ZSET, {"5": 1}, nx=True) == 1
+    fake_redis.delete(COOLDOWN_KEY.format(team_id=5))
+    with _rebuilds():
+        retry = drain_rebuild_requests()
+    assert retry["success"] == 1
 
 
 def test_batch_load_failure_counts_every_team_as_failure(fake_redis):
@@ -199,6 +320,7 @@ def test_group_mapping_guard_skips_write_without_counting_failure(fake_redis):
     set_cache.assert_not_called()
     assert stats["success"] == 0 and stats["failure"] == 0
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=8)) is None
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "8") is None
     # Cooldown released so the team retries next drain once the mapping is available.
     assert not fake_redis.exists(COOLDOWN_KEY.format(team_id=8))
 
@@ -211,6 +333,8 @@ def test_soft_time_limit_propagates_and_is_not_counted_as_failure(fake_redis):
             drain_rebuild_requests()
 
     assert fake_redis.get(FAILURE_STREAK_KEY.format(team_id=3)) is None
+    assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "3") is None
+    assert fake_redis.zadd(REBUILD_REQUESTS_ZSET, {"3": 1}, nx=True) == 1
     # Cooldown released on wind-down so the next drain retries promptly (~1 min).
     assert not fake_redis.exists(COOLDOWN_KEY.format(team_id=3))
 
@@ -235,6 +359,7 @@ def test_request_zset_key_matches_rust_contract():
     # Tripwire for the hand-synced cross-language key: a Python-side rename trips here
     # and prompts updating FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET in the Rust service.
     assert REBUILD_REQUESTS_ZSET == "flag_definitions:rebuild_requests"
+    assert S3_REBUILD_REQUESTS_ZSET == "flag_definitions:rebuild_s3_requests"
 
 
 def test_drain_reads_the_dedicated_cluster_and_ignores_the_shared_one():

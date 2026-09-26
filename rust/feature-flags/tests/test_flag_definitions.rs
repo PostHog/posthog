@@ -2909,12 +2909,18 @@ async fn test_flag_definitions_billing_counter(#[case] skip_writes: bool) {
 /// Poll the self-heal rebuild-requests set until it contains `team_id`, or return
 /// false after ~2s. The enqueue runs in a background task, so a bounded retry is
 /// needed rather than a single read.
-async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32) -> bool {
-    use feature_flags::utils::test_utils::read_flag_definitions_rebuild_requests;
+async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32, s3_hit: bool) -> bool {
+    use feature_flags::utils::test_utils::{
+        read_flag_definitions_rebuild_requests, read_s3_rebuild_requests,
+    };
     use tokio::time::{sleep, Duration};
 
     for _ in 0..40 {
-        let members = read_flag_definitions_rebuild_requests(redis_url).await;
+        let members = if s3_hit {
+            read_s3_rebuild_requests(redis_url).await
+        } else {
+            read_flag_definitions_rebuild_requests(redis_url).await
+        };
         if members.contains(&team_id.to_string()) {
             return true;
         }
@@ -2927,7 +2933,9 @@ async fn poll_for_rebuild_enqueue(redis_url: &str, team_id: i32) -> bool {
 async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
     use feature_flags::{
         config::{Config, FlexBool},
-        utils::test_utils::{dummy_s3_client, TestContext},
+        utils::test_utils::{
+            dummy_s3_client, remove_flag_definitions_rebuild_request, TestContext,
+        },
     };
     use reqwest;
 
@@ -2939,6 +2947,7 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
+    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
     // Don't populate the cache, and inject a NotFound S3 so the read is a genuine
     // cache_miss (the flags test job has no object store, so real S3 would error).
     let server =
@@ -2955,7 +2964,7 @@ async fn test_cache_miss_enqueues_rebuild_when_self_heal_enabled() {
 
     assert_eq!(response.status(), 503, "expected a cache-miss 503");
     assert!(
-        poll_for_rebuild_enqueue(&config.redis_url, team.id).await,
+        poll_for_rebuild_enqueue(&config.redis_url, team.id, false).await,
         "team {} should be enqueued for rebuild after a cache-miss 503",
         team.id
     );
@@ -2966,8 +2975,8 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
     use feature_flags::{
         config::{Config, FlexBool},
         utils::test_utils::{
-            clear_flag_definitions_rebuild_requests, dummy_s3_client,
-            read_flag_definitions_rebuild_requests, TestContext,
+            dummy_s3_client, read_flag_definitions_rebuild_requests,
+            remove_flag_definitions_rebuild_request, TestContext,
         },
     };
     use reqwest;
@@ -2984,10 +2993,8 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
-    // Only the dedicated db is cleared: the shared one is polled concurrently by the
-    // sibling self-heal tests in this binary, so the shared assertion below compares
-    // membership before and after instead of requiring an empty set.
-    clear_flag_definitions_rebuild_requests(&config.flags_redis_url).await;
+    remove_flag_definitions_rebuild_request(&config.flags_redis_url, team.id).await;
+    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
     let shared_before = read_flag_definitions_rebuild_requests(&config.redis_url).await;
 
     // Leave both caches unseeded and inject a NotFound S3 so the read is a genuine
@@ -3006,7 +3013,7 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
 
     assert_eq!(response.status(), 503, "expected a cache-miss 503");
     assert!(
-        poll_for_rebuild_enqueue(&config.flags_redis_url, team.id).await,
+        poll_for_rebuild_enqueue(&config.flags_redis_url, team.id, false).await,
         "team {} should be enqueued on the dedicated redis, where the drain reads",
         team.id
     );
@@ -3024,10 +3031,94 @@ async fn test_cache_miss_enqueues_rebuild_on_dedicated_redis() {
 }
 
 #[tokio::test]
+async fn test_s3_hit_enqueues_rebuild_and_keeps_first_score() {
+    use feature_flags::{
+        config::{Config, FlexBool},
+        utils::test_utils::{
+            remove_s3_rebuild_request, setup_redis_client, static_s3_client, TestContext,
+        },
+    };
+    use reqwest;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let mut config = Config::default_test_config();
+    config.flag_definitions_self_heal_enabled = FlexBool(true);
+    config.flag_definitions_rebuild_on_s3_hit_enabled = FlexBool(true);
+    let context = TestContext::new(Some(&config)).await;
+
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    remove_s3_rebuild_request(&config.redis_url, team.id).await;
+
+    let server = common::ServerHandle::for_config_with_s3(
+        config.clone(),
+        Some(static_s3_client(r#"{"flags": [], "cohorts": {}}"#)),
+    )
+    .await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "expected the S3 payload to be served"
+    );
+    assert!(
+        response.headers().get("etag").is_none(),
+        "an S3-served response has no ETag to send, which is what the rebuild repairs"
+    );
+
+    assert!(
+        poll_for_rebuild_enqueue(&config.redis_url, team.id, true).await,
+        "team {} should be enqueued for rebuild after an S3-served response",
+        team.id
+    );
+
+    let redis = setup_redis_client(Some(config.redis_url.clone())).await;
+    let first_score_upper_bound = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as i64;
+    let queue = "flag_definitions:rebuild_s3_requests".to_string();
+    redis
+        .zadd_nx(
+            queue.clone(),
+            team.id.to_string(),
+            first_score_upper_bound + 60_000,
+        )
+        .await
+        .unwrap();
+    let original_score_members = redis
+        .zrangebyscore(
+            queue,
+            "-inf".to_string(),
+            first_score_upper_bound.to_string(),
+        )
+        .await
+        .unwrap();
+    assert!(
+        original_score_members.contains(&team.id.to_string()),
+        "a repeated NX write must keep the first enqueue score"
+    );
+}
+
+#[tokio::test]
 async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
     use feature_flags::{
         config::Config,
-        utils::test_utils::{dummy_s3_client, read_flag_definitions_rebuild_requests, TestContext},
+        utils::test_utils::{
+            dummy_s3_client, read_flag_definitions_rebuild_requests,
+            remove_flag_definitions_rebuild_request, TestContext,
+        },
     };
     use reqwest;
     use tokio::time::{sleep, Duration};
@@ -3040,6 +3131,7 @@ async fn test_cache_miss_does_not_enqueue_rebuild_when_self_heal_disabled() {
         .create_team_with_secret_token(None, None, None)
         .await
         .unwrap();
+    remove_flag_definitions_rebuild_request(&config.redis_url, team.id).await;
 
     // Inject a NotFound S3 so this is a genuine cache_miss: the only reason no enqueue
     // happens is the flag being off, not the miss classifying as s3_error.

@@ -1,5 +1,7 @@
 use crate::{
-    api::flag_definitions::FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET,
+    api::flag_definitions::{
+        FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET, FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET,
+    },
     cohorts::cohort_models::{Cohort, CohortId, CohortType},
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::{
@@ -221,24 +223,38 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
 /// Read the members of the flag-definitions self-heal rebuild-requests sorted set.
 /// Used by tests asserting the endpoint enqueues (or doesn't) on a cache miss.
 pub async fn read_flag_definitions_rebuild_requests(redis_url: &str) -> Vec<String> {
+    read_rebuild_requests(redis_url, FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET).await
+}
+
+pub async fn read_s3_rebuild_requests(redis_url: &str) -> Vec<String> {
+    read_rebuild_requests(redis_url, FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET).await
+}
+
+async fn read_rebuild_requests(redis_url: &str, queue: &str) -> Vec<String> {
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
-        .zrangebyscore(
-            FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string(),
-            "-inf".to_string(),
-            "+inf".to_string(),
-        )
+        .zrangebyscore(queue.to_string(), "-inf".to_string(), "+inf".to_string())
         .await
         .unwrap_or_default()
 }
 
-/// Clear the flag-definitions self-heal rebuild-requests sorted set. Nothing flushes the
-/// test redis between runs, and team ids restart when the test database is recreated, so a
-/// stale member with a reused id would satisfy a poll on its first read.
-pub async fn clear_flag_definitions_rebuild_requests(redis_url: &str) {
+pub async fn remove_flag_definitions_rebuild_request(redis_url: &str, team_id: i32) {
+    remove_rebuild_request(redis_url, team_id, FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET).await;
+}
+
+pub async fn remove_s3_rebuild_request(redis_url: &str, team_id: i32) {
+    remove_rebuild_request(
+        redis_url,
+        team_id,
+        FLAG_DEFINITIONS_S3_REBUILD_REQUESTS_ZSET,
+    )
+    .await;
+}
+
+async fn remove_rebuild_request(redis_url: &str, team_id: i32, queue: &str) {
     let redis = setup_redis_client(Some(redis_url.to_string())).await;
     redis
-        .del(FLAG_DEFINITIONS_REBUILD_REQUESTS_ZSET.to_string())
+        .zrem(queue.to_string(), team_id.to_string())
         .await
         .unwrap();
 }
@@ -276,6 +292,40 @@ impl common_hypercache::S3Client for AlwaysMissS3Client {
 /// A dummy S3 client (always NotFound) for injecting into the test server.
 pub fn dummy_s3_client() -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
     Arc::new(AlwaysMissS3Client)
+}
+
+/// An S3 client that answers every key with one fixed JSON body. Lets integration tests
+/// force the HyperCache read to fall through an empty Redis and hit S3, which is the state
+/// a team lands in when its Redis entry is evicted while S3 still holds the payload.
+pub struct StaticS3Client(pub String);
+
+#[async_trait]
+impl common_hypercache::S3Client for StaticS3Client {
+    async fn get_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+    ) -> Result<String, common_hypercache::S3Error> {
+        Ok(self.0.clone())
+    }
+
+    async fn put_string(
+        &self,
+        _bucket: &str,
+        _key: &str,
+        _value: &str,
+    ) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+
+    async fn delete(&self, _bucket: &str, _key: &str) -> Result<(), common_hypercache::S3Error> {
+        Ok(())
+    }
+}
+
+/// An S3 client that serves `body` for every key, for injecting into the test server.
+pub fn static_s3_client(body: &str) -> Arc<dyn common_hypercache::S3Client + Send + Sync> {
+    Arc::new(StaticS3Client(body.to_string()))
 }
 
 pub async fn insert_v1_v2_and_unsupported_flags(context: &TestContext, team_id: i32) {
