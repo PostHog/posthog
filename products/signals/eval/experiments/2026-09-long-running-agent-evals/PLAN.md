@@ -255,6 +255,9 @@ The manifest saves each launch UUID and its exact request before sending it, and
 It downloads reports, proposed edits, memory changes, and session logs into the private output directory.
 Existing task/run IDs support normal log and cancellation tools.
 A polling timeout leaves executions available for later polling; it does not cancel them.
+If a controlling workflow ends while its task is still active, the script saves the result and stops before launching another trial.
+Cancel the task identified in the error through the Tasks API, or wait for it to finish, then use `--resume`.
+The script keeps that launch's identity and checks its task status again before freeing the concurrency slot.
 
 V0 accepts report-channel scouts without extra product write scopes, external MCP connections, or structured output.
 Automatic downstream implementation and repository-selection agents do not run; authored report payloads are retained, with skipped enrichment recorded for the operator.

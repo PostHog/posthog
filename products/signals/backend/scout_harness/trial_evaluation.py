@@ -4,7 +4,7 @@ import json
 import asyncio
 import hashlib
 from dataclasses import field
-from typing import Literal, TypeVar
+from typing import Literal, TypeVar, cast
 from uuid import UUID
 
 from django.utils import timezone
@@ -39,9 +39,9 @@ from products.signals.backend.scout_harness.trial_launch import (
     read_trial_launch,
 )
 from products.signals.backend.scout_harness.trial_result import (
-    export_trial_result,
     get_trial_workflow_status,
     read_trial_result,
+    recover_trial_result,
 )
 from products.signals.backend.scout_harness.trial_rubrics import MockScoutRubricReader
 from products.signals.backend.scout_harness.trial_state import ScoutTrialStore
@@ -54,7 +54,7 @@ MAX_EVIDENCE_CHARS = 80_000
 MAX_SOURCE_CHARS = 12_000
 MAX_EVIDENCE_SOURCES = 200
 JUDGE_MODEL = "gpt-5.5"
-JUDGE_PROMPT_VERSION = "1"
+JUDGE_PROMPT_VERSION = "4"
 _Document = TypeVar("_Document", bound=BaseModel)
 
 
@@ -272,7 +272,9 @@ def _add_trace(builder: _EvidenceBuilder, run: SignalScoutRun) -> None:
         if len(content.encode()) > MAX_TRACE_BYTES:
             builder.limitations.append("The trial trace exceeded the 2 MiB read limit and was omitted.")
             return
-        trace = evidence_sources_from_logs(content)
+        trace = evidence_sources_from_logs(
+            content, max_characters=builder.remaining, max_sources=MAX_EVIDENCE_SOURCES - len(builder.sources)
+        )
         builder.limitations.extend(trace.limitations)
         for source in trace.sources:
             builder.add(source.id, source.kind, source.text)
@@ -287,13 +289,22 @@ def _usage(value: JsonValue, field: str) -> int | None:
 
 def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) -> TrialRunEvidence:
     run = _bound_run(launch)
-    status = (
-        run.task_run.status
-        if run is not None
-        else get_trial_workflow_status(team_id=launch.team_id, launch_id=launch.id).status
-    )
+    result = read_trial_result(run) if run is not None else None
+    workflow = None
+    status: str
+    if result is None:
+        workflow = get_trial_workflow_status(team_id=launch.team_id, launch_id=launch.id)
+        status = workflow.status
+    else:
+        status = cast(str, result["status"])
     if status not in {"completed", "failed", "cancelled", "skipped"} or (run is None and status == "completed"):
         raise TrialEvaluationError("Every selected trial must have a known terminal state before scoring.")
+    if run is not None:
+        run.task_run.refresh_from_db(fields=["status", "state"])
+        if status == "completed":
+            if run.task_run.status not in {"completed", "failed", "cancelled"}:
+                raise TrialEvaluationError("Every selected trial task must finish before scoring.")
+            status = run.task_run.status
     evidence = TrialRunEvidence(
         launch_id=launch.id,
         variant_id=variant_id,
@@ -310,15 +321,14 @@ def _run_evidence(launch: TrialLaunch, context: TrialContext, variant_id: UUID) 
     )
     if run is None or evidence.exclusion_reason:
         return evidence
-    result = read_trial_result(run)
-    if result is None:
-        export_trial_result(run)
-        result = read_trial_result(run)
+    if result is None and workflow is not None:
+        result = recover_trial_result(run, workflow=workflow)
     if result is None or result.get("launch_id") != str(launch.id) or result.get("context_id") != str(context.id):
         raise TrialEvaluationError("A selected trial result could not be frozen safely.")
     if (
         ScoutTrialStore(run).invalid_reason() is not None
         or result.get("valid_comparison") is not True
+        or run.task_run.status != "completed"
         or result.get("status") != "completed"
         or result.get("skill_body_sha256") != evidence.skill_body_sha256
         or result.get("runtime")

@@ -143,6 +143,9 @@ class TestScoutTrialEvaluation(BaseTest):
         )
         self.enterContext(patch.object(object_storage, "write", side_effect=self._write))
         self.enterContext(patch(f"{MODULE}.get_task_run_log_urls", return_value=None))
+        self.enterContext(
+            patch(f"{MODULE}.get_trial_workflow_status", return_value=TrialWorkflowStatus(status="completed"))
+        )
         marker = {"version": 1, "context_id": str(self.context.id), "launch_id": str(self.launch.id)}
         self.scout_run = _make_run(
             self.team,
@@ -179,8 +182,14 @@ class TestScoutTrialEvaluation(BaseTest):
             raise object_storage.ObjectStorageError("Object already exists")
         self.documents[key] = content
 
-    def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self) -> None:
+    @parameterized.expand([("1",), ("2",), ("3",), ("4",)])
+    def test_snapshot_is_frozen_and_reused_only_for_the_same_request(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        assert snapshot.judge_prompt_version == "4"
+        snapshot = snapshot.model_copy(update={"judge_prompt_version": prompt_version})
+        self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"] = (
+            snapshot.model_dump_json()
+        )
         self.scout_run.summary = "A later edit must not change the evidence."
         self.scout_run.save(update_fields=["summary"])
         self.skill.body = "The current skill changed after capture."
@@ -199,20 +208,32 @@ class TestScoutTrialEvaluation(BaseTest):
         with self.assertRaisesMessage(TrialEvaluationError, "different request"):
             prepare_trial_evaluation(config=self.config, user=self.user, request=changed)
 
-    def test_saved_report_remains_readable_when_launches_are_disabled(self) -> None:
+    @parameterized.expand([("1",), ("2",), ("3",), ("4",)])
+    def test_saved_report_remains_readable_when_launches_are_disabled(self, prompt_version: str) -> None:
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        snapshot = snapshot.model_copy(update={"judge_prompt_version": prompt_version})
+        self.documents[f"signals/scout-trials/{self.team.id}/evaluations/{snapshot.evaluation_id}/snapshot.json"] = (
+            snapshot.model_dump_json()
+        )
         report = finish_trial_evaluation(self.team.id, snapshot.evaluation_id)
+        assert report.judge_prompt_version == prompt_version
         with override_settings(SCOUT_LIVE_TRIALS_ENABLED=False, SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False):
             assert_evaluation_access(snapshot, config=self.config, user=self.user)
             assert read_trial_evaluation_report(snapshot) == report
             with self.assertRaises(ScoutTrialLaunchError):
                 prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
 
-    def test_invalidation_after_export_excludes_the_trial(self) -> None:
-        export_trial_result(self.scout_run)
-        ScoutTrialStore(self.scout_run).invalidate("The runtime changed after export.", allow_terminal=True)
+    @parameterized.expand([(None,), ("failed",), ("cancelled",)])
+    def test_invalidation_after_export_excludes_the_trial(self, task_status: str | None) -> None:
+        export_trial_result(self.scout_run, status="completed")
+        if task_status is None:
+            ScoutTrialStore(self.scout_run).invalidate("The runtime changed after export.", allow_terminal=True)
+        else:
+            self.scout_run.task_run.status = task_status
+            self.scout_run.task_run.save(update_fields=["status"])
         snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         assert snapshot.runs[0].exclusion_reason is not None
+        assert snapshot.runs[0].execution_status == (task_status or "completed")
         judge = AsyncMock()
         with patch(f"{JUDGE_MODULE}.judge_trial_run", judge):
             async_to_sync(run_evaluation_run)(self.team.id, snapshot.evaluation_id, self.launch.id)
@@ -248,17 +269,32 @@ class TestScoutTrialEvaluation(BaseTest):
         with self.assertRaisesMessage(TrialEvaluationError, "private task and operator"):
             prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
 
-    @parameterized.expand(["pending", "unknown", "not_started"])
-    def test_unbound_launch_needs_a_known_terminal_workflow(
-        self, status: Literal["pending", "unknown", "not_started"]
+    @parameterized.expand(
+        [(bound, status, None) for bound in (False, True) for status in ("pending", "unknown", "not_started")]
+        + [(True, "completed", task_status) for task_status in ("not_started", "queued", "in_progress")]
+    )
+    def test_launch_needs_finalized_scout_and_task_before_scoring(
+        self,
+        bound: bool,
+        status: Literal["pending", "unknown", "not_started", "completed"],
+        task_status: str | None,
     ) -> None:
-        other = self.launch.model_copy(update={"id": uuid4()})
+        other = self.launch if bound else self.launch.model_copy(update={"id": uuid4()})
         self._save("launches", other.id, other)
         variant = self.request.variants[0].model_copy(update={"launch_ids": [other.id]})
         request = self.request.model_copy(update={"variants": [variant]})
+        if task_status is not None:
+            self.scout_run.task_run.status = task_status
+            self.scout_run.task_run.save(update_fields=["status"])
+            export_trial_result(self.scout_run, status="completed")
         with patch(f"{MODULE}.get_trial_workflow_status", return_value=TrialWorkflowStatus(status=status)):
-            with self.assertRaisesMessage(TrialEvaluationError, "known terminal state"):
+            with self.assertRaisesMessage(
+                TrialEvaluationError, "task must finish" if task_status is not None else "known terminal state"
+            ):
                 prepare_trial_evaluation(config=self.config, user=self.user, request=request)
+        assert not any("/evaluations/" in key for key in self.documents)
+        if task_status is None:
+            assert not any("/results/" in key for key in self.documents)
 
     @parameterized.expand(["foreign_chain", "oversized"])
     def test_trace_reads_are_limited_to_the_exact_bounded_run(self, scenario: str) -> None:
@@ -278,11 +314,38 @@ class TestScoutTrialEvaluation(BaseTest):
     def test_truncated_evidence_is_explicit_and_snapshot_is_bounded(self) -> None:
         self.scout_run.summary = "Synthetic finding. " * MAX_SOURCE_CHARS
         self.scout_run.save(update_fields=["summary"])
-        snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
+        updates = [
+            {"sessionUpdate": "tool_call_update", "toolCallId": f"call-{index}", "rawOutput": "x" * 6000}
+            for index in range(20)
+        ]
+        updates.append(
+            {
+                "sessionUpdate": "tool_call_update",
+                "toolCallId": "last-call",
+                "status": "failed",
+                "rawOutput": "The check failed.",
+            }
+        )
+        log = "\n".join(
+            json.dumps({"notification": {"method": "session/update", "params": {"update": update}}})
+            for update in updates
+        )
+        with (
+            patch(f"{MODULE}.MAX_EVIDENCE_CHARS", 18_000),
+            patch(f"{MODULE}.get_task_run_log_urls", return_value=[self.scout_run.task_run.log_url]),
+            patch(f"{MODULE}.get_task_run_log_size", return_value=len(log)),
+            patch(f"{MODULE}.read_task_run_log_content", return_value=log),
+        ):
+            snapshot = prepare_trial_evaluation(config=self.config, user=self.user, request=self.request)
         source = next(source for source in snapshot.runs[0].sources if source.kind == "summary")
         assert len(source.text) == MAX_SOURCE_CHARS
         assert source.text.endswith("[Evidence truncated]")
         assert any("summary was truncated" in value for value in snapshot.runs[0].limitations)
+        assert sum(len(source.text) for source in snapshot.runs[0].sources) <= 18_000
+        traces = [source for source in snapshot.runs[0].sources if source.kind == "trace"]
+        assert [source.id for source in traces] == [f"trace:{index + 1}" for index in range(len(updates))]
+        assert "rawOutput (text):\nThe check failed." in traces[-1].text
+        assert any("Tool trace evidence was truncated" in value for value in snapshot.runs[0].limitations)
 
     @parameterized.expand([False, True])
     def test_retries_do_not_repeat_paid_judgments(self, interrupted: bool) -> None:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from types import SimpleNamespace
+from typing import Literal
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -362,15 +363,30 @@ class TestScoutTrialLaunch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("completed_task_cancelled_runner", "completed", "cancelled", False),
-            ("failed_task_cancelled_runner", "failed", "cancelled", False),
-            ("task_still_ending", "in_progress", "cancelled", False),
-            ("recover_missing_export", "completed", None, False),
-            ("concurrent_runner_export", "completed", "cancelled", True),
+            ("completed_task_cancelled_runner", "completed", "cancelled", False, "unknown"),
+            ("failed_task_cancelled_runner", "failed", "cancelled", False, "unknown"),
+            ("task_still_ending", "in_progress", "cancelled", False, "unknown"),
+            ("recover_missing_export", "completed", None, False, "completed"),
+            ("concurrent_runner_export", "completed", "cancelled", True, "completed"),
+            ("task_finished_before_scout", "completed", None, False, "pending"),
+            ("task_finished_controller_unavailable", "completed", None, False, "unknown"),
+            ("controller_failed_task_active", "in_progress", None, False, "failed"),
+            ("controller_cancelled_task_active", "in_progress", None, False, "cancelled"),
+            ("runner_export_after_row_read", "completed", "completed", False, "pending"),
+            ("scout_finished_task_not_started", "not_started", "completed", False, "unknown"),
+            ("scout_finished_task_queued", "queued", "completed", False, "unknown"),
+            ("scout_finished_task_active", "in_progress", "completed", False, "unknown"),
+            ("scout_finished_task_failed", "failed", "completed", False, "unknown"),
+            ("scout_finished_task_cancelled", "cancelled", "completed", False, "unknown"),
         ]
     )
     def test_poll_preserves_terminal_result(
-        self, _label: str, task_status: str, saved_status: str | None, concurrent_export: bool
+        self,
+        _label: str,
+        task_status: str,
+        saved_status: str | None,
+        concurrent_export: bool,
+        workflow_status: Literal["unknown", "completed", "pending", "failed", "cancelled"],
     ) -> None:
         launch = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
         run = _make_run(
@@ -378,6 +394,7 @@ class TestScoutTrialLaunch(APIBaseTest):
             scout_config=self.config,
             skill_name=self.skill.name,
             task_run_status=task_status,
+            summary="The scout's final observation.",
             metadata={"scout_trial": {"version": 1, "launch_id": str(launch.id), "context_id": str(launch.context_id)}},
         )
         run.task_run.task.created_by = self.user
@@ -389,8 +406,18 @@ class TestScoutTrialLaunch(APIBaseTest):
             "service_tier": launch.service_tier,
         }
         run.task_run.save(update_fields=["state"])
-        if saved_status is not None and not concurrent_export:
+        concurrent_read = _label == "runner_export_after_row_read"
+        if saved_status is not None and not concurrent_export and not concurrent_read:
             export_trial_result(run, status=saved_status)
+
+        def read(key: str, **kwargs: object) -> str | None:
+            if concurrent_read and "/results/" in key and key not in self.documents:
+                run.summary = "The finalized summary arrived after the database read."
+                run.save(update_fields=["summary"])
+                run.task_run.state["token_usage"] = {"input_tokens": 120, "output_tokens": 30}
+                run.task_run.save(update_fields=["state"])
+                export_trial_result(run, status="completed")
+            return self.documents.get(key)
 
         def concurrent_write(key: str, content: str, **kwargs: object) -> None:
             result = json.loads(content)
@@ -404,10 +431,11 @@ class TestScoutTrialLaunch(APIBaseTest):
         url = f"/api/projects/{self.team.id}/signals/scout/configs/{self.config.id}/trial_result/"
         with (
             patch("products.signals.backend.scout_harness.trial_views.withheld_skills_for_team", return_value=set()),
+            patch("posthog.storage.object_storage.read", side_effect=read),
             patch(
                 "products.signals.backend.scout_harness.trial_views.get_trial_workflow_status",
-                return_value=TrialWorkflowStatus(status="unknown"),
-            ),
+                return_value=TrialWorkflowStatus(status=workflow_status),
+            ) as workflow,
             patch(
                 "posthog.storage.object_storage.write",
                 side_effect=concurrent_write if concurrent_export else self._write,
@@ -416,9 +444,47 @@ class TestScoutTrialLaunch(APIBaseTest):
             first = self.client.get(url, {"launch_id": str(launch.id)})
             assert first.status_code == 200, first.data
             result = first.json()
-            assert result["status"] == (saved_status or task_status)
+            waiting = saved_status is None and workflow_status in {"pending", "unknown"}
+            expected_status: str = "in_progress" if workflow_status == "pending" else workflow_status
+            expected_status = saved_status or expected_status
+            task_cleanup_pending = saved_status == "completed" and task_status not in {
+                "completed",
+                "failed",
+                "cancelled",
+            }
+            if task_cleanup_pending:
+                expected_status = "in_progress"
+            elif saved_status == "completed" and task_status in {"failed", "cancelled"}:
+                expected_status = task_status
+            assert result["status"] == expected_status
             assert result["task_status"] == task_status
             assert result["export_error"] is None
+            if concurrent_read:
+                assert result["summary"] == run.summary
+                assert result["input_tokens"] == 120
+                assert result["output_tokens"] == 30
+            if waiting:
+                assert result["result_key"] is None
+                assert not any("/results/" in key for key in self.documents)
+                run.summary = "The scout finished after the task's completion signal."
+                run.save(update_fields=["summary"])
+                workflow.return_value = TrialWorkflowStatus(status="completed")
+                finalized = self.client.get(url, {"launch_id": str(launch.id)})
+                assert finalized.status_code == 200, finalized.data
+                result = finalized.json()
+                assert result["status"] == "completed"
+                assert result["summary"] == run.summary
+                assert json.loads(self.documents[result["result_key"]])["summary"] == run.summary
+            if task_cleanup_pending:
+                assert result["result_key"] is not None
+                run.task_run.status = "completed"
+                run.task_run.save(update_fields=["status"])
+                finalized = self.client.get(url, {"launch_id": str(launch.id)})
+                assert finalized.status_code == 200, finalized.data
+                result = finalized.json()
+                assert result["status"] == "completed"
+                assert result["task_status"] == "completed"
+                assert result["summary"] == run.summary
             saved_content = self.documents[result["result_key"]]
             second = self.client.get(url, {"launch_id": str(launch.id)})
         assert second.status_code == 200, second.data
@@ -462,6 +528,10 @@ class TestScoutTrialLaunch(APIBaseTest):
             patch("products.signals.backend.scout_harness.trial_views.check_fleet_gates", return_value=None),
             patch("products.signals.backend.scout_harness.trial_views.check_spend_gates", return_value=None),
             patch("posthog.storage.object_storage.head_object", return_value=None),
+            patch(
+                "products.signals.backend.scout_harness.trial_evaluation.get_trial_workflow_status",
+                return_value=TrialWorkflowStatus(status="completed"),
+            ),
             patch(
                 "products.signals.backend.temporal.agentic.scout_trial_evaluation.start_trial_evaluation",
                 return_value="synthetic-workflow",

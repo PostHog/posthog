@@ -39,7 +39,13 @@ from llm_gateway.rate_limiting.cost_throttles import (
 )
 from llm_gateway.rate_limiting.denial_event import PosthogDenialCapturer
 from llm_gateway.rate_limiting.runner import ThrottleRunner
-from llm_gateway.request_context import RequestContext, auth_user_var, drop_private_scout_log, request_context_var
+from llm_gateway.request_context import (
+    PrivateScoutLogFilter,
+    RequestContext,
+    auth_user_var,
+    drop_private_scout_log,
+    request_context_var,
+)
 from llm_gateway.services.billing_period_resolver import BillingPeriodResolver
 from llm_gateway.services.desktop_access_resolver import DesktopAccessResolver
 from llm_gateway.services.quota_resolver import QuotaResolver
@@ -47,6 +53,16 @@ from llm_gateway.services.quota_resolver import QuotaResolver
 
 def configure_logging(debug: bool = False) -> None:
     log_level = logging.DEBUG if debug else logging.INFO
+    private_scout_filter = PrivateScoutLogFilter()
+    # Provider libraries use stdlib logging, including handlers that bypass the root logger.
+    loggers = [logging.getLogger(), *logging.Logger.manager.loggerDict.values()]
+    for stdlib_logger in loggers:
+        if isinstance(stdlib_logger, logging.Logger):
+            stdlib_logger.addFilter(private_scout_filter)
+            for handler in stdlib_logger.handlers:
+                handler.addFilter(private_scout_filter)
+    if logging.lastResort is not None:
+        logging.lastResort.addFilter(private_scout_filter)
     structlog.configure(
         processors=[
             structlog.contextvars.merge_contextvars,

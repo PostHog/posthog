@@ -35,7 +35,12 @@ from products.signals.backend.scout_harness.trial_launch import (
     create_trial_launch,
     read_trial_launch,
 )
-from products.signals.backend.scout_harness.trial_result import export_trial_result, get_trial_workflow_status
+from products.signals.backend.scout_harness.trial_result import (
+    get_trial_workflow_status,
+    read_trial_result,
+    recover_trial_result,
+    trial_result_key,
+)
 from products.signals.backend.scout_harness.trial_serializers import (
     ScoutTrialHistoryQuerySerializer,
     ScoutTrialHistorySerializer,
@@ -203,24 +208,49 @@ class ScoutTrialConfigMixin:
         export_error = None
         error = None
         trial_status = run.task_run.status if run else "pending"
-        if run is None or run.task_run.status in {"queued", "in_progress"}:
+        saved_result = None
+        if run is not None:
+            try:
+                saved_result = read_trial_result(run)
+                if saved_result is not None:
+                    result_key = trial_result_key(run)
+                    trial_status = cast(str, saved_result["status"])
+            except (object_storage.ObjectStorageError, ValueError):
+                export_error = "The result export failed. Retry this request to save it again."
+        if saved_result is None:
             workflow = get_trial_workflow_status(team_id=config.team_id, launch_id=launch.id)
+            error = workflow.error
             if run is None:
                 trial_status = "pending" if workflow.status == "completed" and workflow.run_id else workflow.status
-                error = workflow.error
-            elif workflow.status in {"failed", "cancelled", "skipped"}:
-                trial_status = workflow.status
-                error = workflow.error
-                ScoutTrialStore(run).invalidate(
-                    error or "The controlling scout workflow ended before its task.", allow_terminal=True
-                )
-        usage: dict[str, JsonValue] = {}
-        if run is not None:
-            if run.task_run.status in {"completed", "failed", "cancelled"}:
+            else:
+                trial_status = "in_progress" if workflow.status == "pending" else workflow.status
+                if workflow.status in {"failed", "cancelled", "skipped"}:
+                    ScoutTrialStore(run).invalidate(
+                        error or "The controlling scout workflow ended before its task.", allow_terminal=True
+                    )
+                if workflow.status == "completed":
+                    trial_status = "unknown"
                 try:
-                    result_key = export_trial_result(run)
+                    saved_result = recover_trial_result(run, workflow=workflow)
+                    if saved_result is not None:
+                        result_key = trial_result_key(run)
+                        trial_status = cast(str, saved_result["status"])
                 except (object_storage.ObjectStorageError, ValueError):
                     export_error = "The result export failed. Retry this request to save it again."
+        usage: dict[str, JsonValue] = {}
+        summary = run.summary if run else ""
+        if run is not None:
+            if saved_result is not None:
+                saved_summary = saved_result.get("summary")
+                if isinstance(saved_summary, str):
+                    summary = saved_summary
+                run.task_run.refresh_from_db(fields=["status", "state", "completed_at"])
+                if trial_status == "completed":
+                    if run.task_run.status not in {"completed", "failed", "cancelled"}:
+                        trial_status = "in_progress"
+                    elif run.task_run.status != "completed":
+                        trial_status = run.task_run.status
+                        error = "The scout task stopped before completion."
             private = ScoutTrialStore(run).export()
             stored_reports = private["reports"]
             reports = list(stored_reports.values()) if isinstance(stored_reports, dict) else []
@@ -247,7 +277,7 @@ class ScoutTrialConfigMixin:
                     "status": trial_status,
                     "task_status": run.task_run.status if run else None,
                     "error": error,
-                    "summary": run.summary if run else "",
+                    "summary": summary,
                     "invalid_reason": invalid_reason,
                     "reports": reports,
                     "memory": memory,

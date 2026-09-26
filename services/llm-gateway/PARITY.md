@@ -26,6 +26,10 @@ Live scout comparisons retain the Python route because their model overrides inc
 Restricting comparisons to another model catalog would prevent testing the same models as the source scout.
 The capture change is limited to authenticated, task-bound Signals experiment credentials, including gateway-only credentials used for backend report validation.
 It suppresses generation, exception, and denial events while keeping rate limits and cost counters active.
+Its request context also suppresses provider-library logs, including stdlib logging handlers.
+Chat, Responses, and translated Anthropic stream callbacks retain this context when LiteLLM starts background threads.
+Signals streams on the standard Anthropic route must include a complete `message_stop` event; premature EOF produces a generic protocol error instead of a successful partial scout response.
+Exception events from ordinary comparison-control traffic use the configured capture host.
 Other products retain their existing capture and billing behavior.
 Deploy this gateway support before enabling live trials; the backend capture setting is an operator attestation, not automatic capability detection.
 

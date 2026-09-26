@@ -18,6 +18,7 @@ def _reset_initialized():
 def _make_settings(**overrides):
     settings = MagicMock()
     settings.posthog_project_token = overrides.get("posthog_project_token", "test-token")
+    settings.posthog_host = "https://capture.example.com"
     return settings
 
 
@@ -51,6 +52,8 @@ class TestCaptureException:
 
             assert mock_ph.capture_exception.call_count == (0 if private_scout else 1)
             mock_ph.capture.assert_not_called()
+            if not private_scout:
+                assert mock_ph.host == "https://capture.example.com"
 
     def test_passes_properties(self):
         with (

@@ -10,7 +10,7 @@ from uuid import UUID
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
-from pydantic import JsonValue
+from pydantic import JsonValue, TypeAdapter
 from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -109,7 +109,29 @@ def validate_trial_runtime(run: SignalScoutRun, launch: TrialLaunch) -> str | No
     return store.invalid_reason()
 
 
-def export_trial_result(run: SignalScoutRun, *, status: str | None = None) -> str:
+def trial_result_key(run: SignalScoutRun) -> str:
+    return f"signals/scout-trials/{run.team_id}/results/{run.id}.json"
+
+
+def read_trial_result(run: SignalScoutRun) -> dict[str, JsonValue] | None:
+    content = object_storage.read(trial_result_key(run), missing_ok=True)
+    if content is None:
+        return None
+    result = TypeAdapter(dict[str, JsonValue]).validate_json(content)
+    if (
+        result.get("version") != 1
+        or result.get("run_id") != str(run.id)
+        or result.get("task_run_id") != str(run.task_run_id)
+        or result.get("status") not in ("completed", "failed", "cancelled")
+    ):
+        raise ValueError("The saved result does not match this scout trial.")
+    return result
+
+
+def export_trial_result(run: SignalScoutRun, *, status: str, overwrite: bool = True) -> str:
+    key = trial_result_key(run)
+    if not overwrite and read_trial_result(run) is not None:
+        return key
     marker = (run.metadata or {})[SCOUT_TRIAL_METADATA_KEY]
     launch = read_trial_launch(run.team_id, marker["launch_id"])
     invalid_reason = validate_trial_runtime(run, launch)
@@ -122,7 +144,7 @@ def export_trial_result(run: SignalScoutRun, *, status: str | None = None) -> st
         "context_id": str(launch.context_id),
         "created_at": run.created_at.isoformat(),
         "exported_at": timezone.now().isoformat(),
-        "status": status or run.task_run.status,
+        "status": status,
         "task_status": run.task_run.status,
         "valid_comparison": invalid_reason is None,
         "invalid_reason": invalid_reason,
@@ -139,6 +161,22 @@ def export_trial_result(run: SignalScoutRun, *, status: str | None = None) -> st
     content = json.dumps(result)
     if len(content.encode()) > MAX_TRIAL_RESULT_BYTES:
         raise ValueError("The scout trial result is too large to export.")
-    key = f"signals/scout-trials/{run.team_id}/results/{run.id}.json"
-    object_storage.write(key, content, extras={"ContentType": "application/json"})
+    extras = {"ContentType": "application/json"}
+    if not overwrite:
+        # Polling may recover a missing export, but only the runner can replace a saved outcome.
+        extras["IfNoneMatch"] = "*"
+    try:
+        object_storage.write(key, content, extras=extras)
+    except object_storage.ObjectStorageError:
+        if overwrite or read_trial_result(run) is None:
+            raise
     return key
+
+
+def recover_trial_result(run: SignalScoutRun, *, workflow: TrialWorkflowStatus) -> dict[str, JsonValue] | None:
+    if workflow.status not in {"completed", "failed", "cancelled"}:
+        return None
+    # The task can finish before the scout saves its summary and final private state.
+    run.refresh_from_db(fields=["summary", "metadata"])
+    export_trial_result(run, status=workflow.status, overwrite=False)
+    return read_trial_result(run)
