@@ -78,6 +78,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { FeatureFlagNotificationsTab } from 'products/feature_flags/frontend/FeatureFlagNotificationsTab'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
@@ -293,6 +294,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 content: (
                     <>{featureFlag.id && <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />}</>
                 ),
+            },
+            {
+                label: 'Notifications',
+                key: FeatureFlagsTab.NOTIFICATIONS,
+                content: <FeatureFlagNotificationsTab featureFlag={featureFlag} />,
             },
             {
                 label: 'Permissions',

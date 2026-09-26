@@ -22,12 +22,16 @@ from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_regist
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.flag_status import ROLLOUT_FULLY_ROLLED_OUT, ROLLOUT_NOT_ROLLED_OUT, ROLLOUT_PARTIAL
+from products.feature_flags.backend.flag_status import (
+    EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA,
+    EVIDENCE_NOT_CALLED_RECENTLY,
+    ROLLOUT_FULLY_ROLLED_OUT,
+    ROLLOUT_NOT_ROLLED_OUT,
+    ROLLOUT_PARTIAL,
+)
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.temporal.health_checks.stale_flags import (
     EVIDENCE_EFFECTIVELY_FULL_ROLLOUT,
-    EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA,
-    EVIDENCE_NOT_CALLED_RECENTLY,
     StaleFeatureFlagsCheck,
 )
 from products.feature_flags.backend.test.replay_gate_fixtures import trigger_groups

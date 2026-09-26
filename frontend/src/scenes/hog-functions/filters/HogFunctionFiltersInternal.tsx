@@ -23,12 +23,24 @@ const getSimpleFilterValue = (value?: CyclotronJobFiltersType): string | undefin
     return value?.events?.[0]?.id
 }
 
-const setSimpleFilterValue = (
+// Contexts bound to a parent resource through a top-level property (alert_id, batch_export_id,
+// item_id, flag_id). The binding must survive a change of trigger event, except for activity-log:
+// its other events carry no item_id, and a binding written for one scope must not follow the
+// switch back to "Team activity" without that scope.
+const CONTEXTS_WITH_RESOURCE_BINDING: HogFunctionConfigurationContextId[] = [
+    'logs-alerting',
+    'batch-export-alerts',
+    'activity-log',
+    'feature-flag-alerts',
+]
+
+export const setSimpleFilterValue = (
     options: FilterOption[],
     value: string,
     previous: CyclotronJobFiltersType | undefined,
     contextId: HogFunctionConfigurationContextId
 ): CyclotronJobFiltersType => {
+    const previousEvent = previous?.events?.[0]
     const next: CyclotronJobFiltersType = {
         source: 'internal-events',
         events: [
@@ -36,17 +48,17 @@ const setSimpleFilterValue = (
                 name: options.find((option) => option.value === value)?.label,
                 id: value,
                 type: 'events',
+                // Same event re-selected: keep its property filters, e.g. scope on activity log events
+                ...(previousEvent?.id === value && previousEvent.properties
+                    ? { properties: previousEvent.properties }
+                    : {}),
             },
         ],
     }
-    // Preserve properties bound by Logs alerting (alert_id) and batch export alerts
-    // (batch_export_id) — the trigger event id changes between the context's events, but the
-    // binding to the parent resource must survive.
-    if (
-        (contextId === 'logs-alerting' || contextId === 'batch-export-alerts') &&
-        previous?.properties &&
-        previous.properties.length > 0
-    ) {
+    const keepsBinding =
+        CONTEXTS_WITH_RESOURCE_BINDING.includes(contextId) &&
+        (contextId !== 'activity-log' || previousEvent?.id === value)
+    if (keepsBinding && previous?.properties && previous.properties.length > 0) {
         next.properties = previous.properties
     }
     return next
@@ -79,7 +91,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
             return [TaxonomicFilterGroupType.EventProperties]
         } else if (contextId === 'health-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
-        } else if (contextId === 'batch-export-alerts') {
+        } else if (contextId === 'batch-export-alerts' || contextId === 'feature-flag-alerts') {
             return [TaxonomicFilterGroupType.EventProperties]
         }
         return []

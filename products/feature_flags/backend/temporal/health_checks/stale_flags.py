@@ -19,12 +19,14 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import EVALUATED_BEFORE_RELEASE_CONDITIONS
 from products.feature_flags.backend.flag_status import (
+    EVIDENCE_NOT_CALLED_RECENTLY,
     ROLLOUT_FULLY_ROLLED_OUT,
     ROLLOUT_NOT_ROLLED_OUT,
     ROLLOUT_PARTIAL,
     FeatureFlagStatusChecker,
     filter_effectively_full_rollout_flags,
     filter_stale_flags,
+    stale_evidence,
     stale_flag_threshold,
 )
 from products.feature_flags.backend.flag_version_sync import direct_flag_dependency_ids, flags_with_flag_dependencies
@@ -35,12 +37,7 @@ from products.surveys.backend.models import Survey
 
 logger = structlog.get_logger(__name__)
 
-# `last_called_at` exists and predates the stale threshold. The column only records received
-# `$feature_flag_called` events, so it says nothing about evaluations that send no event.
-EVIDENCE_NOT_CALLED_RECENTLY = "not_called_recently"
-# No call evidence at all; the flag is old enough and its configuration serves a fixed
-# result. This says nothing about whether SDKs still evaluate the flag.
-EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA = "fully_rolled_out_without_usage_data"
+# The other two evidence classes live in `flag_status`, next to the query that finds their flags.
 # The configuration serves one fixed result and PostHog received a call inside the stale window.
 # `filter_stale_flags` needs a call older than the threshold or no call data at all, so a flag at
 # 100% that SDKs evaluate every day falls outside both of its branches and only this class sees it.
@@ -430,17 +427,13 @@ def _build_result(flag: FeatureFlag, now: datetime, stale_threshold: datetime) -
     # Read off the flag rather than off the query that found it, so the payload describes the row
     # a reader opens. Every candidate is old enough and serves a fixed result or went cold, so the
     # call column is what separates the three classes.
-    if flag.last_called_at is None:
-        evidence_class = EVIDENCE_FULLY_ROLLED_OUT_WITHOUT_USAGE_DATA
-        evidence_date = flag.created_at
-    elif flag.last_called_at < stale_threshold:
-        evidence_class = EVIDENCE_NOT_CALLED_RECENTLY
-        evidence_date = flag.last_called_at
-    else:
+    if flag.last_called_at is not None and flag.last_called_at >= stale_threshold:
         evidence_class = EVIDENCE_EFFECTIVELY_FULL_ROLLOUT
         # No column records when the flag reached 100%, and `last_called_at` reads as about zero
         # days on a flag that is called every day, which is the opposite of the point.
         evidence_date = flag.created_at
+    else:
+        evidence_class, evidence_date = stale_evidence(flag)
 
     return HealthCheckResult(
         severity=HealthIssue.Severity.INFO,

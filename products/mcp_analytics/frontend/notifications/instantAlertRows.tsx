@@ -123,7 +123,10 @@ export function useInstantAlertRows(): InstantAlertRows {
 
     // One dialog logic per use case, called in a fixed order so the hook calls stay stable.
     const { openDialog: openToolErrorDialog } = useActions(
-        newNotificationDialogLogic({ subTemplateId: 'mcp-tool-error', onCreated: loadNotifications })
+        newNotificationDialogLogic({
+            triggers: [{ subTemplateId: 'mcp-tool-error', label: 'MCP tool error' }],
+            onCreated: loadNotifications,
+        })
     )
     const openDialogFor: Record<MCPNotificationSubTemplateId, () => void> = {
         'mcp-tool-error': openToolErrorDialog,
