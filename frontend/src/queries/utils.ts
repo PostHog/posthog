@@ -898,6 +898,10 @@ export function taxonomicPersonFilterToHogQL(
     if (groupType === TaxonomicFilterGroupType.PersonProperties) {
         return `properties.${escapePropertyAsHogQLIdentifier(String(value))}`
     }
+    // Person metadata is a column on the persons table itself, not an entry in its property map.
+    if (groupType === TaxonomicFilterGroupType.PersonMetadata && value) {
+        return escapePropertyAsHogQLIdentifier(String(value))
+    }
     if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
         return String(value)
     }

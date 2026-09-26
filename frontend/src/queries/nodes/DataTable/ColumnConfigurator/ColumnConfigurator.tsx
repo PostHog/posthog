@@ -144,7 +144,11 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             TaxonomicFilterGroupType.HogQLExpression,
         ]
     } else if (isActorsQuery(query.source)) {
-        taxonomicGroupTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.HogQLExpression]
+        taxonomicGroupTypes = [
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.PersonMetadata,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
     } else if (isSessionsQuery(query.source)) {
         taxonomicGroupTypes = [
             TaxonomicFilterGroupType.SessionProperties,
@@ -250,6 +254,8 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                             height={height}
                                             width={width}
                                             taxonomicGroupTypes={taxonomicGroupTypes}
+                                            // Every branch above leads with the substantive group.
+                                            defaultGroupType={taxonomicGroupTypes[0]}
                                             value={undefined}
                                             onChange={(group, value) => {
                                                 const column = isGroupsQuery(query.source)
