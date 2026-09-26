@@ -32,8 +32,35 @@ tools:
     ai-observability-offline-experiments-fail-create:
         operation: ai_observability_offline_experiments_fail_create
         enabled: false
+    ai-observability-offline-experiments-items-list:
+        operation: ai_observability_offline_experiments_items_list
+        enabled: false
+    ai-observability-offline-experiments-items-payload-retrieve:
+        operation: ai_observability_offline_experiments_items_payload_retrieve
+        enabled: false
+    ai-observability-offline-experiments-items-results-retrieve:
+        operation: ai_observability_offline_experiments_items_results_retrieve
+        enabled: false
+    ai-observability-offline-experiments-items-retrieve:
+        operation: ai_observability_offline_experiments_items_retrieve
+        enabled: false
+    ai-observability-offline-experiments-list:
+        operation: ai_observability_offline_experiments_list
+        enabled: false
+    ai-observability-offline-experiments-results-payload-retrieve:
+        operation: ai_observability_offline_experiments_results_payload_retrieve
+        enabled: false
+    ai-observability-offline-experiments-retrieve:
+        operation: ai_observability_offline_experiments_retrieve
+        enabled: false
+    ai-observability-offline-experiments-scorer-summaries-retrieve:
+        operation: ai_observability_offline_experiments_scorer_summaries_retrieve
+        enabled: false
     ai-observability-offline-experiments-upload-create:
         operation: ai_observability_offline_experiments_upload_create
+        enabled: false
+    ai-observability-offline-scorers-history-retrieve:
+        operation: ai_observability_offline_scorers_history_retrieve
         enabled: false
     datasets-exports-content-retrieve:
         operation: datasets_exports_content_retrieve
@@ -76,6 +103,12 @@ tools:
         enabled: false
     llm-analytics-parser-recipes-retrieve:
         operation: llm_analytics_parser_recipes_retrieve
+        enabled: false
+    llm-analytics-score-definitions-versions-list:
+        operation: llm_analytics_score_definitions_versions_list
+        enabled: false
+    llm-analytics-score-definitions-versions-retrieve:
+        operation: llm_analytics_score_definitions_versions_retrieve
         enabled: false
     llma-clustering-config-get:
         operation: llm_analytics_clustering_config_list

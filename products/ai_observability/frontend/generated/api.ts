@@ -10,6 +10,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AiObservabilityInstrumentationChecklistRetrieveParams,
+    AiObservabilityOfflineExperimentsItemsListParams,
+    AiObservabilityOfflineExperimentsItemsResultsRetrieveParams,
+    AiObservabilityOfflineExperimentsListParams,
+    AiObservabilityOfflineExperimentsScorerSummariesRetrieveParams,
+    AiObservabilityOfflineScorersHistoryRetrieveParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
@@ -66,6 +71,7 @@ import type {
     LlmAnalyticsReviewQueueItemsListParams,
     LlmAnalyticsReviewQueuesListParams,
     LlmAnalyticsScoreDefinitionsListParams,
+    LlmAnalyticsScoreDefinitionsVersionsListParams,
     LlmAnalyticsTraceReviewsListParams,
     LlmAnalyticsTranslateCreate200,
     LlmPromptsListParams,
@@ -73,6 +79,15 @@ import type {
     LlmPromptsResolveNameRetrieveParams,
     OfflineExperimentItemsRequestApi,
     OfflineExperimentItemsResponseApi,
+    OfflineExperimentPageApi,
+    OfflineExperimentReadApi,
+    OfflineHistoryPageApi,
+    OfflineItemPageApi,
+    OfflineItemPayloadReadApi,
+    OfflineItemReadApi,
+    OfflineResultPageApi,
+    OfflineResultPayloadReadApi,
+    OfflineSummaryPageApi,
     PaginatedClusteringJobListApi,
     PaginatedDatasetItemReadListApi,
     PaginatedDatasetReadListApi,
@@ -111,6 +126,8 @@ import type {
     ScoreDefinitionApi,
     ScoreDefinitionCreateApi,
     ScoreDefinitionNewVersionApi,
+    ScoreDefinitionVersionApi,
+    ScoreDefinitionVersionPageApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
@@ -258,6 +275,36 @@ export const aiObservabilityInstrumentationChecklistRestoreCreate = async (
     )
 }
 
+export const getAiObservabilityOfflineExperimentsListUrl = (
+    projectId: string,
+    params?: AiObservabilityOfflineExperimentsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/`
+}
+
+export const aiObservabilityOfflineExperimentsList = async (
+    projectId: string,
+    params?: AiObservabilityOfflineExperimentsListParams,
+    options?: RequestInit
+): Promise<OfflineExperimentPageApi> => {
+    return apiMutator<OfflineExperimentPageApi>(getAiObservabilityOfflineExperimentsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAiObservabilityOfflineExperimentsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/ai_observability/offline_experiments/`
 }
@@ -272,6 +319,21 @@ export const aiObservabilityOfflineExperimentsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(experimentSubmissionApi),
+    })
+}
+
+export const getAiObservabilityOfflineExperimentsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/`
+}
+
+export const aiObservabilityOfflineExperimentsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OfflineExperimentReadApi> => {
+    return apiMutator<OfflineExperimentReadApi>(getAiObservabilityOfflineExperimentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -305,6 +367,172 @@ export const aiObservabilityOfflineExperimentsFailCreate = async (
     })
 }
 
+export const getAiObservabilityOfflineExperimentsItemsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityOfflineExperimentsItemsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsList = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityOfflineExperimentsItemsListParams,
+    options?: RequestInit
+): Promise<OfflineItemPageApi> => {
+    return apiMutator<OfflineItemPageApi>(getAiObservabilityOfflineExperimentsItemsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityOfflineExperimentsItemsRetrieveUrl = (projectId: string, id: string, itemId: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsRetrieve = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    options?: RequestInit
+): Promise<OfflineItemReadApi> => {
+    return apiMutator<OfflineItemReadApi>(getAiObservabilityOfflineExperimentsItemsRetrieveUrl(projectId, id, itemId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityOfflineExperimentsItemsPayloadRetrieveUrl = (
+    projectId: string,
+    id: string,
+    itemId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsPayloadRetrieve = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    options?: RequestInit
+): Promise<OfflineItemPayloadReadApi> => {
+    return apiMutator<OfflineItemPayloadReadApi>(
+        getAiObservabilityOfflineExperimentsItemsPayloadRetrieveUrl(projectId, id, itemId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsItemsResultsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params?: AiObservabilityOfflineExperimentsItemsResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/items/${itemId}/results/`
+}
+
+export const aiObservabilityOfflineExperimentsItemsResultsRetrieve = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    params?: AiObservabilityOfflineExperimentsItemsResultsRetrieveParams,
+    options?: RequestInit
+): Promise<OfflineResultPageApi> => {
+    return apiMutator<OfflineResultPageApi>(
+        getAiObservabilityOfflineExperimentsItemsResultsRetrieveUrl(projectId, id, itemId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsResultsPayloadRetrieveUrl = (
+    projectId: string,
+    id: string,
+    resultId: string
+) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/results/${resultId}/payload/`
+}
+
+export const aiObservabilityOfflineExperimentsResultsPayloadRetrieve = async (
+    projectId: string,
+    id: string,
+    resultId: string,
+    options?: RequestInit
+): Promise<OfflineResultPayloadReadApi> => {
+    return apiMutator<OfflineResultPayloadReadApi>(
+        getAiObservabilityOfflineExperimentsResultsPayloadRetrieveUrl(projectId, id, resultId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityOfflineExperimentsScorerSummariesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityOfflineExperimentsScorerSummariesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/scorer_summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/scorer_summaries/`
+}
+
+export const aiObservabilityOfflineExperimentsScorerSummariesRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityOfflineExperimentsScorerSummariesRetrieveParams,
+    options?: RequestInit
+): Promise<OfflineSummaryPageApi> => {
+    return apiMutator<OfflineSummaryPageApi>(
+        getAiObservabilityOfflineExperimentsScorerSummariesRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getAiObservabilityOfflineExperimentsUploadCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/upload/`
 }
@@ -321,6 +549,41 @@ export const aiObservabilityOfflineExperimentsUploadCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(uploadSubmissionApi),
     })
+}
+
+export const getAiObservabilityOfflineScorersHistoryRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityOfflineScorersHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_scorers/${id}/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_scorers/${id}/history/`
+}
+
+export const aiObservabilityOfflineScorersHistoryRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityOfflineScorersHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<OfflineHistoryPageApi> => {
+    return apiMutator<OfflineHistoryPageApi>(
+        getAiObservabilityOfflineScorersHistoryRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getDatasetItemsListUrl = (projectId: string, params: DatasetItemsListParams) => {
@@ -2085,6 +2348,64 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoreDefinitionNewVersionApi),
     })
+}
+
+export const getLlmAnalyticsScoreDefinitionsVersionsListUrl = (
+    projectId: string,
+    id: string,
+    params?: LlmAnalyticsScoreDefinitionsVersionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/llm_analytics/score_definitions/${id}/versions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/llm_analytics/score_definitions/${id}/versions/`
+}
+
+export const llmAnalyticsScoreDefinitionsVersionsList = async (
+    projectId: string,
+    id: string,
+    params?: LlmAnalyticsScoreDefinitionsVersionsListParams,
+    options?: RequestInit
+): Promise<ScoreDefinitionVersionPageApi> => {
+    return apiMutator<ScoreDefinitionVersionPageApi>(
+        getLlmAnalyticsScoreDefinitionsVersionsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getLlmAnalyticsScoreDefinitionsVersionsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    versionId: string
+) => {
+    return `/api/projects/${projectId}/llm_analytics/score_definitions/${id}/versions/${versionId}/`
+}
+
+export const llmAnalyticsScoreDefinitionsVersionsRetrieve = async (
+    projectId: string,
+    id: string,
+    versionId: string,
+    options?: RequestInit
+): Promise<ScoreDefinitionVersionApi> => {
+    return apiMutator<ScoreDefinitionVersionApi>(
+        getLlmAnalyticsScoreDefinitionsVersionsRetrieveUrl(projectId, id, versionId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getLlmAnalyticsSummarizationCreateUrl = (projectId: string) => {

@@ -104,6 +104,55 @@ class TestOfflineEvaluationService(TestCase):
             OfflineEvaluationResultPayload.objects.for_team(self.team.id).get(result=result).data, self.result.payload
         )
 
+    def test_child_environment_keeps_the_entire_experiment_graph_and_hosted_links(self) -> None:
+        child = Team.objects.create(organization=self.team.organization, parent_team=self.team)
+        lifecycle = OfflineExperimentService(team_id=child.id, user_access_control=None)
+        ingestion = OfflineEvaluationIngestionService(team_id=child.id, user_access_control=None)
+        scorer = ScoreDefinition.objects.create(team=child, name="Child accuracy", kind="numeric")
+        version = scorer.create_new_version(config={"min": 0, "max": 1}, created_by=None)
+        dataset = Dataset.objects.for_team(child.id, canonical=True).create(team=child, name="Child examples")
+        revision = DatasetRevision.objects.for_team(child.id, canonical=True).create(
+            team=child, dataset=dataset, revision=1
+        )
+        dataset_item = DatasetItem.objects.for_team(child.id, canonical=True).create(team=child, dataset=dataset)
+        item_version = DatasetItemVersion.objects.for_team(child.id, canonical=True).create(
+            team=child, dataset=dataset, dataset_item=dataset_item, dataset_revision=revision, version=1, input={}
+        )
+        experiment = lifecycle.create(
+            replace(self.experiment_submission, id=uuid4(), dataset_revision_id=revision.id)
+        ).experiment
+        accepted = ingestion.upload(
+            experiment.id,
+            UploadSubmission(
+                items=[replace(self.item, dataset_item_version_id=item_version.id)],
+                results=[replace(self.result, scorer_version_id=version.id)],
+            ),
+        )
+        closed = lifecycle.close(experiment.id, status="completed")
+
+        self.assertEqual(closed.counts.accepted_item_count, 1)
+        self.assertEqual(closed.counts.accepted_result_count, 1)
+        for model, row_id in (
+            (OfflineExperiment, experiment.id),
+            (OfflineExperimentItem, self.item.id),
+            (OfflineEvaluationResult, accepted.results[0].id),
+            (OfflineExperimentItemPayload, self.item.id),
+            (OfflineEvaluationResultPayload, accepted.results[0].id),
+        ):
+            with self.subTest(model=model.__name__):
+                row = model.objects.for_team(child.id).get(pk=row_id)
+                row.save()
+                row.refresh_from_db()
+                self.assertEqual(row.team_id, child.id)
+                self.assertFalse(model.objects.for_team(self.team.id).filter(pk=row_id).exists())
+
+        with self.assertRaises(OfflineEvaluationNotFound):
+            lifecycle.close(self.experiment.id, status="completed")
+        with self.assertRaises(OfflineEvaluationNotFound):
+            self.lifecycle.close(experiment.id, status="completed")
+        self.experiment.refresh_from_db()
+        self.assertEqual(self.experiment.team_id, self.team.id)
+
     @parameterized.expand([("item",), ("result",)])
     def test_changed_accepted_content_conflicts(self, target: str) -> None:
         self.ingestion.upload(self.experiment.id, self.submission)
