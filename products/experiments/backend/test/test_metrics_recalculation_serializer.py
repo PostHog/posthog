@@ -105,13 +105,11 @@ class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("manual",),
+            ("manual_retry",),
             ("cold_run",),
-            ("stale_refresh",),
-            ("auto_refresh",),
-            ("config_change",),
-            ("experiment_launch",),
-            ("experiment_stop",),
-            ("experiment_update",),
+            ("heal_latest_run",),
+            ("experiment_config_change",),
+            ("metric_config_change",),
         ]
     )
     def test_accepts_valid_trigger(self, trigger: str):
@@ -119,10 +117,23 @@ class TestRecalculateMetricsRequestSerializer(SimpleTestCase):
         assert s.is_valid(), s.errors
         assert s.validated_data["trigger"] == trigger
 
-    def test_rejects_unknown_trigger(self):
-        s = RecalculateMetricsRequestSerializer(data={"trigger": "nonsense"})
+    @parameterized.expand(
+        [
+            ("nonsense",),
+            (ExperimentMetricsRecalculation.Trigger.AGENT_MCP,),
+            (ExperimentMetricsRecalculation.Trigger.TIMESERIES_SYNC,),
+            (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH,),
+        ]
+    )
+    def test_rejects_unknown_or_server_only_trigger(self, trigger: str):
+        s = RecalculateMetricsRequestSerializer(data={"trigger": trigger})
         assert not s.is_valid()
-        assert "trigger" in s.errors
+        assert s.errors["trigger"][0].code == "invalid_choice"
+
+    def test_every_request_trigger_is_a_trigger(self):
+        assert set(ExperimentMetricsRecalculation.RequestTrigger.values) <= set(
+            ExperimentMetricsRecalculation.Trigger.values
+        )
 
 
 class TestMetricRecalculationResultSerializer(SimpleTestCase):

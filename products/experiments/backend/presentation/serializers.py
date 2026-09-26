@@ -1401,10 +1401,13 @@ class RecalculateMetricsRequestSerializer(serializers.Serializer):
     """Request body for triggering a metrics recalculation."""
 
     trigger = serializers.ChoiceField(
-        choices=ExperimentMetricsRecalculation.Trigger.choices,
+        choices=ExperimentMetricsRecalculation.RequestTrigger.choices,
         required=False,
         default="manual",
-        help_text="What triggered this recalculation (manual is the default for user-initiated runs)",
+        help_text=(
+            "What triggered this recalculation (manual is the default for user-initiated runs). Only client "
+            "triggers are accepted; agent_mcp and timeseries_sync are set by the server."
+        ),
     )
 
 

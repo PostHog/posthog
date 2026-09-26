@@ -532,6 +532,7 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
+        # Deprecated: feature no longer available.
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
         # Experiment-scoped change (start/end date, excluded variants, exposure criteria): advances the
         # window to now, so every metric recomputes.
@@ -539,6 +540,13 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         # Metric-scoped change (add metric, breakdown add/remove/attribution/limit): reuses the latest
         # completed window, so unchanged metrics load from cache and only new or changed metrics recompute.
         METRIC_CONFIG_CHANGE = "metric_config_change", "Metric Config Change"
+        # A user retries the failed metrics of the latest run: reuses its window, so the metrics that already
+        # have rows load from cache and only the failed ones recompute.
+        MANUAL_RETRY = "manual_retry", "Manual Retry"
+        # The frontend fills a gap it found in the latest run on page load (a metric with no row, or one
+        # added after the run finished). Same window reuse as MANUAL_RETRY; kept separate so analytics can
+        # tell a user action from an automatic heal.
+        HEAL_LATEST_RUN = "heal_latest_run", "Heal Latest Run"
         # Deprecated: never emitted, retained for old rows.
         CONFIG_CHANGE = "config_change", "Config Change"
         EXPERIMENT_LAUNCH = "experiment_launch", "Experiment Launch"
@@ -547,6 +555,20 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         # Written by the daily timeseries workflow, not by a user: a completed run assembled from the
         # timeseries points of one daily run, so the latest read serves fresh data without a recompute.
         TIMESERIES_SYNC = "timeseries_sync", "Timeseries Sync"
+
+    class RequestTrigger(models.TextChoices):
+        """The subset of Trigger a client may send on POST. Each value must also exist on Trigger.
+
+        The rest are set server side: agent_mcp by the view from the client header, timeseries_sync by
+        the daily workflow. stale_refresh, auto_refresh and the deprecated values have no sender.
+        """
+
+        MANUAL = "manual", "Manual"
+        MANUAL_RETRY = "manual_retry", "Manual Retry"
+        COLD_RUN = "cold_run", "Cold Run"
+        HEAL_LATEST_RUN = "heal_latest_run", "Heal Latest Run"
+        EXPERIMENT_CONFIG_CHANGE = "experiment_config_change", "Experiment Config Change"
+        METRIC_CONFIG_CHANGE = "metric_config_change", "Metric Config Change"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)

@@ -104,6 +104,12 @@ class TestMetricsRecalculationAPI(APIBaseTest):
         assert resp.status_code == status.HTTP_201_CREATED, resp.content
         assert resp.json()["trigger"] == ExperimentMetricsRecalculation.Trigger.MANUAL
 
+    def test_post_rejects_server_only_trigger(self):
+        exp = self._launched_experiment()
+        resp = self.client.post(self._post_url(exp.id), {"trigger": "timeseries_sync"}, format="json")
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.content
+        assert not ExperimentMetricsRecalculation.objects.filter(experiment=exp).exists()
+
     @mock.patch("products.experiments.backend.presentation.views.sync_connect")
     @mock.patch("products.experiments.backend.presentation.views.asyncio.run")
     def test_post_is_idempotent_returns_200(self, mock_run, mock_connect):

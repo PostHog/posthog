@@ -2122,12 +2122,65 @@ export interface ExperimentInSessionExposureApi {
 
 /**
  * * `manual` - Manual
+ * * `manual_retry` - Manual Retry
+ * * `cold_run` - Cold Run
+ * * `heal_latest_run` - Heal Latest Run
+ * * `experiment_config_change` - Experiment Config Change
+ * * `metric_config_change` - Metric Config Change
+ */
+export type ExperimentMetricsRecalculationRequestTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationRequestTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationRequestTriggerEnumApi]
+
+export const ExperimentMetricsRecalculationRequestTriggerEnumApi = {
+    Manual: 'manual',
+    ManualRetry: 'manual_retry',
+    ColdRun: 'cold_run',
+    HealLatestRun: 'heal_latest_run',
+    ExperimentConfigChange: 'experiment_config_change',
+    MetricConfigChange: 'metric_config_change',
+} as const
+
+/**
+ * Request body for triggering a metrics recalculation.
+ */
+export interface RecalculateMetricsRequestApi {
+    /** What triggered this recalculation (manual is the default for user-initiated runs). Only client triggers are accepted; agent_mcp and timeseries_sync are set by the server.
+     *
+     * * `manual` - Manual
+     * * `manual_retry` - Manual Retry
+     * * `cold_run` - Cold Run
+     * * `heal_latest_run` - Heal Latest Run
+     * * `experiment_config_change` - Experiment Config Change
+     * * `metric_config_change` - Metric Config Change */
+    trigger?: ExperimentMetricsRecalculationRequestTriggerEnumApi
+}
+
+/**
+ * * `pending` - Pending
+ * * `in_progress` - In Progress
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type MetricsRecalculationStatusEnumApi =
+    (typeof MetricsRecalculationStatusEnumApi)[keyof typeof MetricsRecalculationStatusEnumApi]
+
+export const MetricsRecalculationStatusEnumApi = {
+    Pending: 'pending',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+/**
+ * * `manual` - Manual
  * * `agent_mcp` - Agent (MCP)
  * * `cold_run` - Cold Run
  * * `stale_refresh` - Stale Refresh
  * * `auto_refresh` - Auto Refresh
  * * `experiment_config_change` - Experiment Config Change
  * * `metric_config_change` - Metric Config Change
+ * * `manual_retry` - Manual Retry
+ * * `heal_latest_run` - Heal Latest Run
  * * `config_change` - Config Change
  * * `experiment_launch` - Experiment Launch
  * * `experiment_stop` - Experiment Stop
@@ -2145,48 +2198,13 @@ export const ExperimentMetricsRecalculationTriggerEnumApi = {
     AutoRefresh: 'auto_refresh',
     ExperimentConfigChange: 'experiment_config_change',
     MetricConfigChange: 'metric_config_change',
+    ManualRetry: 'manual_retry',
+    HealLatestRun: 'heal_latest_run',
     ConfigChange: 'config_change',
     ExperimentLaunch: 'experiment_launch',
     ExperimentStop: 'experiment_stop',
     ExperimentUpdate: 'experiment_update',
     TimeseriesSync: 'timeseries_sync',
-} as const
-
-/**
- * Request body for triggering a metrics recalculation.
- */
-export interface RecalculateMetricsRequestApi {
-    /** What triggered this recalculation (manual is the default for user-initiated runs)
-     *
-     * * `manual` - Manual
-     * * `agent_mcp` - Agent (MCP)
-     * * `cold_run` - Cold Run
-     * * `stale_refresh` - Stale Refresh
-     * * `auto_refresh` - Auto Refresh
-     * * `experiment_config_change` - Experiment Config Change
-     * * `metric_config_change` - Metric Config Change
-     * * `config_change` - Config Change
-     * * `experiment_launch` - Experiment Launch
-     * * `experiment_stop` - Experiment Stop
-     * * `experiment_update` - Experiment Update
-     * * `timeseries_sync` - Timeseries Sync */
-    trigger?: ExperimentMetricsRecalculationTriggerEnumApi
-}
-
-/**
- * * `pending` - Pending
- * * `in_progress` - In Progress
- * * `completed` - Completed
- * * `failed` - Failed
- */
-export type MetricsRecalculationStatusEnumApi =
-    (typeof MetricsRecalculationStatusEnumApi)[keyof typeof MetricsRecalculationStatusEnumApi]
-
-export const MetricsRecalculationStatusEnumApi = {
-    Pending: 'pending',
-    InProgress: 'in_progress',
-    Completed: 'completed',
-    Failed: 'failed',
 } as const
 
 /**
@@ -2284,6 +2302,8 @@ export interface ExperimentMetricsRecalculationApi {
      * * `auto_refresh` - Auto Refresh
      * * `experiment_config_change` - Experiment Config Change
      * * `metric_config_change` - Metric Config Change
+     * * `manual_retry` - Manual Retry
+     * * `heal_latest_run` - Heal Latest Run
      * * `config_change` - Config Change
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
