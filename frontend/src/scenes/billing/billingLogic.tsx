@@ -37,6 +37,7 @@ import type { OrganizationType, PreflightStatus } from '../../types'
 import {
     buildUsageLimitApproachingMessage,
     buildUsageLimitReachedMessage,
+    buildUsageReductionOptions,
     canAccessBilling as canAccessBillingUtil,
     canViewUsageAndSpend as canViewUsageAndSpendUtil,
     getMinimumBillingAccessLevel,
@@ -44,6 +45,7 @@ import {
     isUsageApproachingLimit,
     isUsageAtOrOverLimit,
     isMemberUsageSpendReadAccessEnabled,
+    UsageReductionOption,
 } from './billing-utils'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -71,6 +73,8 @@ export interface BillingAlertConfig {
     dismissKey?: string
     productKey?: ProductKey
     action?: LemonBannerAction
+    /** Ways to use less of the product, shown next to the alert. */
+    reductionOptions?: UsageReductionOption[]
     pathName?: string
     onClose?: () => void
 }
@@ -1521,6 +1525,7 @@ export const billingLogic = kea<billingLogicType>([
                     status: 'error',
                     title,
                     message,
+                    reductionOptions: buildUsageReductionOptions(productsAtOrOverLimit),
                     dismissKey: 'usage-limit-exceeded',
                     productKey:
                         productsAtOrOverLimit.length === 1 ? (productsAtOrOverLimit[0].type as ProductKey) : undefined,
@@ -1568,6 +1573,7 @@ export const billingLogic = kea<billingLogicType>([
                     status: 'info',
                     title,
                     message,
+                    reductionOptions: buildUsageReductionOptions(productsApproachingLimit),
                     dismissKey: 'usage-limit-approaching',
                     productKey:
                         productsApproachingLimit.length === 1
