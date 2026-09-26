@@ -218,8 +218,8 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         if (toolOutput.compareFilter !== undefined) {
             setCompareFilter(toolOutput.compareFilter)
         }
-        if (toolOutput.filterTestAccounts !== undefined && toolOutput.filterTestAccounts !== null) {
-            setShouldFilterTestAccounts(!!toolOutput.filterTestAccounts)
+        if (typeof toolOutput.filterTestAccounts === 'boolean') {
+            setShouldFilterTestAccounts(toolOutput.filterTestAccounts)
         }
     }
 
