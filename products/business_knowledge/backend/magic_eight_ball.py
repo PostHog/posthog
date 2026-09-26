@@ -28,7 +28,7 @@ from . import logic
 
 ANSWER_QUESTION_ID = "answer"
 SEARCH_LIMIT = 8
-# Jev's deployed context is 8,192 tokens and a UTF-8 byte can be one token, so this leaves room for the framing.
+# Leave room in the model context for the question and answer options.
 STATE_MAX_BYTES = 6 * 1024
 
 INSTRUCTIONS = (
