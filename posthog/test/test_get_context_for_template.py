@@ -44,8 +44,8 @@ class TestGetContextForTemplate(APIBaseTest):
             "js_posthog_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
-            "posthog_app_context": '{"persisted_feature_flags": ["the_persisted_flags"], "anonymous": false}',
-            "posthog_bootstrap": "{}",
+            "posthog_app_context": {"persisted_feature_flags": ["the_persisted_flags"], "anonymous": False},
+            "posthog_bootstrap": {},
             "posthog_js_uuid_version": "v7",
             "region": None,
             "self_capture": True,
@@ -77,7 +77,7 @@ class TestGetContextForTemplate(APIBaseTest):
 
         actual = get_context_for_template("layout", request)
 
-        app_context = json.loads(actual["posthog_app_context"])
+        app_context = actual["posthog_app_context"]
         assert app_context["homepage"] == (stored_homepage or None)
 
     def test_bootstraps_project_tags_into_app_context(self):
@@ -91,7 +91,7 @@ class TestGetContextForTemplate(APIBaseTest):
 
         actual = get_context_for_template("layout", request)
 
-        app_context = json.loads(actual["posthog_app_context"])
+        app_context = actual["posthog_app_context"]
         assert sorted(app_context["current_project"]["tags"]) == ["eu-region", "production"]
 
     @parameterized.expand(
@@ -138,7 +138,7 @@ class TestGetContextForTemplate(APIBaseTest):
 
         assert ("js_posthog_identity_claims" in context) is expects_claim
         if expects_claim:
-            claims = json.loads(context["js_posthog_identity_claims"])
+            claims = context["js_posthog_identity_claims"]
             assert claims["email"]["value"] == self.user.email.lower()
             current_time = int(time.time())
             assert current_time < claims["email"]["expires_at"] <= current_time + IDENTITY_CLAIM_MAX_AGE_SECONDS
