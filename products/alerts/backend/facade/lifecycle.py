@@ -217,6 +217,23 @@ def evaluate_alert_check(
     *,
     policy: AlertPolicy,
 ) -> AlertCheckOutcome:
+    """Decide the transition for one scheduled/manual check, and whether a fire is still owed.
+
+    The held fire is resolved here rather than inside `_decide`, so every early return carries it.
+    A check that reaches no verdict leaves the alert firing, and clearing the flag there would
+    lose the announcement the mute was holding.
+    """
+    outcome = _decide(snapshot, check, now, policy=policy)
+    return replace(outcome, firing_unannounced=_still_unannounced(snapshot, outcome))
+
+
+def _decide(
+    snapshot: AlertSnapshot,
+    check: CheckInput,
+    now: datetime,
+    *,
+    policy: AlertPolicy,
+) -> AlertCheckOutcome:
     """Decide the transition for one scheduled/manual check.
 
     N-of-M sliding-window trigger for firing, immediate resolution on the first OK
@@ -336,9 +353,7 @@ def evaluate_alert_check(
         update_last_notified_at=update_last_notified_at,
         error_message=None,
     )
-    if muted:
-        outcome = _muted(outcome)
-    return replace(outcome, firing_unannounced=_still_unannounced(snapshot, outcome))
+    return _muted(outcome) if muted else outcome
 
 
 def _still_unannounced(snapshot: AlertSnapshot, outcome: AlertCheckOutcome) -> bool:

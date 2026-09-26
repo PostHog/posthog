@@ -338,6 +338,18 @@ class TestPolicyDecisionTable:
                 False,
             ),
             (
+                "an_inconclusive_check_keeps_it",
+                snapshot(state=AlertState.FIRING, firing_unannounced=True),
+                INCONCLUSIVE,
+                True,
+            ),
+            (
+                "a_transient_failure_keeps_it",
+                snapshot(state=AlertState.FIRING, firing_unannounced=True),
+                TRANSIENT_ERROR,
+                True,
+            ),
+            (
                 "a_steady_muted_fire_keeps_it",
                 snapshot(state=AlertState.FIRING, firing_unannounced=True, snooze_until=SNOOZING),
                 BREACH,
