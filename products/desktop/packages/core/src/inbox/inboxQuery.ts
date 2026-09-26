@@ -243,11 +243,21 @@ function reportCountDelta(
   reportsById: Map<string, SignalReport>,
   previousReportsById: Map<string, SignalReport>,
   reviewerMembership: Map<string, Set<string>>,
+  cachedReportIds: Set<string>,
 ): number {
   let delta = 0;
   for (const [reportId, updatedReport] of reportsById) {
     const previousReport = previousReportsById.get(reportId);
     if (!previousReport) continue;
+    // Personal rules and role membership are server-owned. Only adjust counts
+    // for reports the server already placed in this filtered cache.
+    const params = queryParams(queryKey);
+    if (
+      params.scope &&
+      params.scope !== "entire_project" &&
+      !cachedReportIds.has(reportId)
+    )
+      continue;
     delta += Number(
       queryAcceptsReport(queryKey, updatedReport, reviewerMembership),
     );
@@ -359,6 +369,7 @@ export function updateInboxReportCaches(
         reportsById,
         previousReportsById,
         reviewerMembership,
+        new Set(cachedReports(data).map((report) => report.id)),
       );
       if (reportsBeforeUpdate.length > 0 || countDelta !== 0) {
         updatedData = updateReportPage(
@@ -396,6 +407,7 @@ export function updateInboxReportCaches(
         reportsById,
         previousReportsById,
         reviewerMembership,
+        new Set(cachedReports(data).map((report) => report.id)),
       );
       if (reportsBeforeUpdate.length > 0 || countDelta !== 0) {
         updatedData = {

@@ -21,6 +21,10 @@ const filterMocks = vi.hoisted(() => ({
   sourceProductFilter: [] as string[],
 }));
 
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
+
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => mockClient,
 }));
