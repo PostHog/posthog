@@ -129,6 +129,26 @@ def _html_to_text(html: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "".join(parser.parts)).strip()
 
 
+# The builder's only other route is the "Configure manually" button, so every failure points there.
+_CONFIGURE_MANUALLY = 'choose "Configure manually"'
+
+
+def _docs_fetch_error_message(exc: requests.RequestException) -> str:
+    """Name the likely cause and a next step the builder actually offers.
+
+    `str(exc)` carries a status line and the URL the caller typed, which can hold a token, so the
+    raw reason is logged rather than returned.
+    """
+    status_code = exc.response.status_code if exc.response is not None else None
+    if status_code in (401, 403):
+        return f"That docs page needs a login. Link a page anyone can open, or {_CONFIGURE_MANUALLY}."
+    if status_code == 404:
+        return f"There is no page at that address. Check the link, or {_CONFIGURE_MANUALLY}."
+    if isinstance(exc, requests.Timeout):
+        return f"That docs page took too long to answer. Try again, or {_CONFIGURE_MANUALLY}."
+    return f"PostHog couldn't reach that docs page. Check the link, or {_CONFIGURE_MANUALLY}."
+
+
 def fetch_docs_text(url: str) -> str:
     """Fetch an API docs page and return its text. HTML is reduced to visible text; other content
     types are returned as-is. Relies on Smokescreen for SSRF protection — do NOT bypass the proxy.
@@ -147,14 +167,17 @@ def fetch_docs_text(url: str) -> str:
                 if len(raw) >= DOCS_FETCH_MAX_BYTES:
                     break
     except requests.RequestException as exc:
-        raise DocsFetchError(f"Could not fetch the docs URL: {exc}") from exc
+        logger.warning("custom_source_docs_fetch_failed", error=str(exc))
+        raise DocsFetchError(_docs_fetch_error_message(exc)) from exc
 
     text = raw.decode(response.encoding or "utf-8", errors="replace")
     if "html" in content_type.lower():
         text = _html_to_text(text)
     text = text.strip()
     if not text:
-        raise DocsFetchError("The docs URL returned no readable text — paste the docs or an OpenAPI spec instead.")
+        raise DocsFetchError(
+            f"That docs page has no readable text. Link the API reference itself, or {_CONFIGURE_MANUALLY}."
+        )
     return text
 
 
