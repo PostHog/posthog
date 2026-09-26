@@ -28,12 +28,20 @@ class CohortBackfillRunStatus(models.TextChoices):
     BLOCKED = "blocked", "Blocked"
     SEEDING = "seeding", "Seeding"
     RECONCILING = "reconciling", "Reconciling"
+    TRAILING = "trailing", "Trailing"
     COMPLETED = "completed", "Completed"
     SUPERSEDED = "superseded", "Superseded"
     CANCELLED = "cancelled", "Cancelled"
     FAILED = "failed", "Failed"
 
 
+# `trailing` is not active. Such a run has already stamped readiness and owes only its trailing days,
+# which the seeder scans after they end. Their tiles merge with `max`, so a newer run for the same
+# cohort cannot conflict with them, and the run holds no uniqueness slot. It also stays out of the
+# active-run age gauge, which would otherwise read every wait until the team's midnight as a stall.
+# It therefore lands in the derived terminal tuple below: `finished_at` is set when readiness stamps
+# and again when the seeder completes the run, so `runs_recent` counts each transition under its
+# own status.
 ACTIVE_COHORT_BACKFILL_RUN_STATUSES = (
     CohortBackfillRunStatus.AWAITING_BOUNDARY,
     CohortBackfillRunStatus.BLOCKED,
@@ -178,6 +186,16 @@ class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
             "by its retry backoff. Null means claimable now; every claim clears it."
         ),
     )
+    claimable_after = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "Set only on a trailing chunk: the run's boundary day, or a later day the live path may "
+            "have missed the start of. The instant that day ends in the run's timezone, plus a grace "
+            "period. The Rust seeder never claims the chunk earlier, and the run's readiness does not "
+            "wait for it. Null means a day before the boundary, claimable now."
+        ),
+    )
     last_error = models.TextField(blank=True, default="")
     tiles_produced = models.BigIntegerField(default=0)
     # db_default, not only default: the Rust seeder raw-INSERTs an explicit column list, so a
@@ -205,3 +223,9 @@ class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["run", "day", "band"], name="cohort_bfc_run_day_band_uq"),
         ]
+
+
+# The chunks a run's readiness waits for. A trailing chunk carries a claim hold, and the seeder scans
+# it after readiness stamps, so every readiness query leaves it out. The seeder names the same rule
+# `readiness_chunk!()` in `store/completion.rs`.
+READINESS_CHUNKS = Q(claimable_after__isnull=True)
