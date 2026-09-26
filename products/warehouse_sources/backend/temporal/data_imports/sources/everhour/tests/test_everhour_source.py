@@ -50,7 +50,7 @@ class TestEverhourSource:
         assert schemas["time_records"].supports_append is True
         assert [f["field"] for f in schemas["time_records"].incremental_fields] == ["date"]
 
-        for name in ("clients", "projects", "users", "tasks"):
+        for name in set(ENDPOINTS) - {"time_records"}:
             assert schemas[name].supports_incremental is False
             assert schemas[name].supports_append is False
             assert schemas[name].incremental_fields == []
