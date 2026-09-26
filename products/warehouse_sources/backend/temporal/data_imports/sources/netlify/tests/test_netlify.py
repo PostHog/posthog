@@ -9,6 +9,7 @@ import requests
 from parameterized import parameterized
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.netlify import netlify as netlify_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.netlify.netlify import (
     NetlifyCappedHeaderLinkPaginator,
     NetlifyHeaderLinkPaginator,
@@ -287,16 +288,24 @@ class TestFailLoud:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR),
+            ("forbidden", 403, False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR),
+            ("rate_limited", 429, False, netlify_module._NETLIFY_UNREACHABLE_ERROR),
+            ("netlify_down", 503, False, netlify_module._NETLIFY_UNREACHABLE_ERROR),
+        ]
+    )
     @mock.patch(NETLIFY_SESSION_PATCH)
-    def test_status_mapping(self, _name: str, status: int, expected: bool, mock_session) -> None:
+    def test_status_mapping(self, _name: str, status: int, expected: bool, message: str | None, mock_session) -> None:
         mock_session.return_value.get.return_value = mock.Mock(status_code=status)
-        assert validate_credentials("tok") is expected
+        assert validate_credentials("tok") == (expected, message)
 
     @mock.patch(NETLIFY_SESSION_PATCH)
-    def test_exception_is_false(self, mock_session) -> None:
+    def test_unreachable_netlify_does_not_blame_the_token(self, mock_session) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError()
-        assert validate_credentials("tok") is False
+        assert validate_credentials("tok") == (False, netlify_module._NETLIFY_UNREACHABLE_ERROR)
 
 
 class TestNetlifySourceResponse:
