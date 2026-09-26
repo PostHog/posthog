@@ -694,6 +694,7 @@ the row lists both.
 | tempo                            | HTTP                        | requests                                                        | ✅                          |
 | temporalio                       | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tenable_vulnerability_management | HTTP (async export flow)    | requests                                                        | ✅                          |
+| tenjin                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | terraform_cloud                  | HTTP                        | requests                                                        | ✅                          |
 | testrail                         | HTTP                        | requests                                                        | ✅                          |
 | thinkific                        | HTTP                        | requests                                                        | ✅                          |
@@ -1424,7 +1425,6 @@ doesn't conflict with concurrent PRs.
 - tebra
 - telli
 - tempo
-- tenjin
 - terabox
 - ternary
 - terra_api
