@@ -423,6 +423,8 @@ const CustomUiAppSchema = z
         app_name: z.string(),
         /** Short description for the MCP resource. Required for custom apps. */
         description: z.string(),
+        /** Additional CSP resource sources required by this app. */
+        resource_domains: z.array(z.string()).optional(),
         /** Reusable view component that lets the render-ui umbrella app mount this custom app. */
         render_ui: z
             .object({
@@ -477,6 +479,7 @@ export interface ResolvedCustomUiApp {
     type: 'custom'
     app_name: string
     description: string
+    resource_domains?: string[]
     render_ui?: {
         component_import: string
         view_component: string
