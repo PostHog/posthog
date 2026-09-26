@@ -772,7 +772,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
             ) {
                 const productKey = values.activeSceneProductKey
-                posthog.capture('$pageview', productKey ? { product_key: productKey } : undefined)
+                // `scene` is the rendered scene, so an access denial that replaces the routed
+                // scene with an error scene is countable.
+                posthog.capture('$pageview', {
+                    ...(productKey ? { product_key: productKey } : {}),
+                    scene: values.activeSceneId,
+                })
             }
 
             const previousScene = selectors.sceneId(previousState)

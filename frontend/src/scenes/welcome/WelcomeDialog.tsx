@@ -29,19 +29,21 @@ const WELCOME_DIALOG_ALLOWED_SCENES = new Set<Scene>([Scene.ProjectHomepage, Sce
  * Lives in GlobalModals so it can render regardless of which scene the user lands on after
  * signup (project home, primary dashboard, etc.). Scene gating ensures the dialog only auto-opens
  * on the home / primary-dashboard scenes, not over deep-linked settings/billing/replay pages.
+ * The gate reads `activeSceneId`, not the routed `sceneId`, because an access denial replaces
+ * the routed scene with an error scene and the dialog must not open over that screen.
  *
  * This must stay the only mount of the dialog. Two mounts give two react-modal instances at the
  * same z-index, and the overlay of the one on top covers the buttons of the one below, so the
  * user clicks a button that receives nothing. */
 export function MaybeWelcomeDialog(): JSX.Element | null {
     const { user, isProvisionedUser } = useValues(userLogic)
-    const { sceneId } = useValues(sceneLogic)
+    const { activeSceneId } = useValues(sceneLogic)
     // Invitees see it as before; partner-provisioned accounts (no inviter) get it too.
     const eligible = !!user && (user.is_organization_first_user === false || isProvisionedUser)
     if (!eligible || !user || wasWelcomeDismissed(user.uuid, user.organization?.id)) {
         return null
     }
-    if (!sceneId || !WELCOME_DIALOG_ALLOWED_SCENES.has(sceneId as Scene)) {
+    if (!activeSceneId || !WELCOME_DIALOG_ALLOWED_SCENES.has(activeSceneId as Scene)) {
         return null
     }
     return <WelcomeDialog />
