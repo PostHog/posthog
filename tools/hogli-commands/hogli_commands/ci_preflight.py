@@ -276,36 +276,28 @@ DIFF_CHECKS: list[DiffCheck] = [
         requires=("stack",),
     ),
     DiffCheck(
-        key="taxonomy",
-        label="taxonomy JSON out of sync with posthog/taxonomy/taxonomy.py",
-        # From build.py so preflight and build:taxonomy-json can't drift on which diffs
-        # need a regen, plus the generator and its output, so an edit to any side of the
-        # relation is caught.
+        key="projections",
+        label="generated projections out of sync with their Python sources",
+        # From build.py so preflight and build:projections can't drift on which diffs
+        # need a regen, plus each generator and its outputs, so an edit to any side of
+        # the relation is caught.
         triggers=[
-            *BUILD_TRIGGERS["build:taxonomy-json"],
+            *BUILD_TRIGGERS["build:projections"],
             "bin/build-taxonomy-json.py",
             "frontend/src/taxonomy/core-filter-definitions-by-group.json",
             "services/mcp/src/lib/trace-property-allowlist.generated.ts",
-        ],
-        verify=["hogli", "build:taxonomy-json", "--check"],
-        fix=["hogli", "build:taxonomy-json"],
-        requires=("python-env",),
-    ),
-    DiffCheck(
-        key="object-tags",
-        label="generated object-tag registries out of sync with posthog/object_tags/kinds.py",
-        # From build.py so preflight and build:object-tags can't drift on which diffs
-        # need a regen, plus the generator and its outputs, so an edit to any side of
-        # the relation is caught.
-        triggers=[
-            *BUILD_TRIGGERS["build:object-tags"],
             "bin/build-object-tags-registry.py",
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
             "products/desktop/packages/shared/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
+            "products/tasks/scripts/build_model_catalog.py",
+            "products/tasks/frontend/modelCatalog.generated.ts",
+            "products/desktop/packages/shared/src/model-catalog.generated.ts",
+            "bin/build-mcp-oauth-scopes.py",
+            "services/mcp/src/lib/oauth-scopes.generated.ts",
         ],
-        verify=["hogli", "build:object-tags", "--check"],
-        fix=["hogli", "build:object-tags"],
+        verify=["hogli", "lint:projections"],
+        fix=["hogli", "build:projections"],
         requires=("python-env",),
     ),
     DiffCheck(

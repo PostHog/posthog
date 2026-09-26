@@ -108,6 +108,25 @@ def my_action(self, request, **kwargs):
 
 This validates inputs AND documents the endpoint for OpenAPI. Use `request.validated_query_data`, not manual `request.query_params` parsing.
 
+### Side generators
+
+A side generator is a script that reads a Python module and writes TypeScript next to the OpenAPI flow, usually as a `*.generated.ts` file outside a `generated/` directory.
+Each one needs its own hogli step, CI path filters, formatter exclusions and drift check.
+New ones tend to copy the nearest existing one, so the count grows.
+
+When the frontend or the MCP server needs the values that an API accepts or returns, use the OpenAPI flow instead:
+
+1. Type the serializer field that carries the values, for example as a `ChoiceField`.
+2. Run `hogli build:openapi`. Orval emits the values as a `*EnumApi` const next to the other generated types.
+3. Read the list at runtime with `Object.values(SomethingEnumApi)` and use `SomethingEnumApi` as the type.
+
+The field must be on an endpoint that is in the schema. A viewset action marked `@extend_schema(exclude=True)` does not reach the generated types.
+
+A projection script is still the right tool for data rows that no endpoint serves, such as the task model catalog.
+The Python projections run as one group: `hogli build:projections` regenerates them, and `hogli lint:projections` fails CI when one is out of date.
+The `prefer-openapi-codegen` semgrep rule fails a PR that adds a new `*.generated.*` file outside a `generated/` directory.
+Its `paths.exclude` list holds the sanctioned projections. Ask #team-devex before you add one.
+
 ### Troubleshooting
 
 **Types not generating?** Ensure your ViewSet is in `products/your_product/backend/` and the `products/your_product/frontend/` directory exists. Auto-tagging happens based on module path.

@@ -26,8 +26,8 @@ Only data is generated. The lookup built on it lives in
 module itself — behavior stays hand-written and tested, while the table that actually
 changes has one home.
 
-Run via hogli: `hogli build:task-model-catalog` (also runs as part of `build:openapi`).
-See `hogli.yaml`.
+Run via hogli: `hogli build:task-model-catalog` (also runs as part of `build:projections`).
+`--check` is what `hogli lint:projections` calls to fail on drift without writing.
 """
 # ruff: noqa: T201
 
@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import sys
 import runpy
+import argparse
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -350,21 +351,39 @@ def check_fits(rendered: str, style: Style, output: Path) -> None:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Project the task run model catalog into TypeScript.")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Exit 1 if a generated file differs from the catalog, without writing anything.",
+    )
+    args = parser.parse_args()
     # runpy.run_path loads the module by filesystem path, bypassing the import machinery and
     # therefore products/__init__.py and the Django settings behind it. Anything
     # model_catalog.py cannot satisfy from the standard library raises here, failing loudly.
     catalog = runpy.run_path(str(CATALOG_PY))
     model_count = len(catalog["MODELS"])
 
+    stale: list[Path] = []
     for output, style in ((WEB_OUTPUT, OXFMT), (DESKTOP_OUTPUT, BIOME)):
         rendered = render(catalog, style)
         check_fits(rendered, style, output)
+        if args.check:
+            if not output.exists() or output.read_text() != rendered:
+                stale.append(output)
+            continue
         output.parent.mkdir(parents=True, exist_ok=True)
         if output.exists() and output.read_text() == rendered:
             print(f"{output.relative_to(REPO_ROOT)} already up to date ({model_count} models)")
             continue
         output.write_text(rendered)
         print(f"wrote {output.relative_to(REPO_ROOT)} ({model_count} models)")
+    if stale:
+        # stdout, because ci:preflight reports `result.stdout or result.stderr`.
+        for output in stale:
+            print(f"{output.relative_to(REPO_ROOT)} is out of date with products/tasks/backend/model_catalog.py.")
+        print("Run `hogli build:projections` and commit the result.")
+        return 1
     return 0
 
 
