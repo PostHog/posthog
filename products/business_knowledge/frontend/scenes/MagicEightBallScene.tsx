@@ -4,10 +4,14 @@ import { useActions, useValues } from 'kea'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { IconBook } from '@posthog/icons'
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link, Spinner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { appLogic } from 'scenes/appLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -67,8 +71,18 @@ function useShake(onShake: () => void, enabled: boolean): void {
 
 export function MagicEightBallScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
+    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
+    const { preflight } = useValues(preflightLogic)
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
+    }
+    if (!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS] && !preflight?.is_debug) {
+        return receivedFeatureFlags || featureFlagsTimedOut ? (
+            <NotFound object="Magic 8 ball" caption="The decision model is not enabled for this project." />
+        ) : (
+            <Spinner className="text-3xl mx-auto my-8" />
+        )
     }
     return <MagicEightBall />
 }
@@ -77,9 +91,11 @@ function MagicEightBall(): JSX.Element {
     const { question, result, askError, resultLoading, askDisabledReason } = useValues(magicEightBallLogic)
     const { setQuestion, ask } = useActions(magicEightBallLogic)
     const [motionAllowed, setMotionAllowed] = useState(() => !motionNeedsPermission())
+    const [answeredQuestion, setAnsweredQuestion] = useState<string | null>(null)
 
     const tryAsk = (): void => {
         if (!askDisabledReason) {
+            setAnsweredQuestion(question.trim())
             ask()
         }
     }
@@ -94,8 +110,9 @@ function MagicEightBall(): JSX.Element {
         }
     }
 
-    const reveal = askError ? null : result?.answer
-    const showResult = !!result && !askError && !resultLoading
+    const matchesQuestion = answeredQuestion === question.trim()
+    const reveal = matchesQuestion && !askError ? result?.answer : null
+    const showResult = matchesQuestion && !!result && !askError && !resultLoading
 
     return (
         <SceneContent>
@@ -109,11 +126,15 @@ function MagicEightBall(): JSX.Element {
                 <div className="w-full max-w-xl">
                     <LemonInput
                         value={question}
-                        onChange={setQuestion}
+                        onChange={(nextQuestion) => {
+                            setQuestion(nextQuestion)
+                            setAnsweredQuestion(null)
+                        }}
                         onPressEnter={tryAsk}
                         placeholder="Do we offer refunds on annual plans?"
                         autoFocus
                         fullWidth
+                        disabled={resultLoading}
                         data-attr="magic-eight-ball-question"
                     />
                 </div>
@@ -146,7 +167,7 @@ function MagicEightBall(): JSX.Element {
                                 <span className="text-sm">
                                     Drawn from{' '}
                                     {result.sources.map((source, index) => (
-                                        <Fragment key={source.source_id}>
+                                        <Fragment key={`${source.source_id}:${index}`}>
                                             {index > 0 && ', '}
                                             <Link to={urls.businessKnowledgeSource(source.source_id)}>
                                                 {source.document_title || source.source_name}
@@ -156,7 +177,7 @@ function MagicEightBall(): JSX.Element {
                                 </span>
                             ) : (
                                 <span className="text-sm">
-                                    Nothing in your business knowledge matched, so the ball is guessing.
+                                    Nothing in your business knowledge matched, so the ball cannot answer.
                                 </span>
                             )}
                         </>

@@ -19,6 +19,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
@@ -629,6 +630,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except (
             DecisionGatewayError,
             DecisionGatewayUnreachableError,
+            GatewayNotConfiguredError,
             magic_eight_ball.InvalidEightBallAnswer,
         ) as error:
             # The gateway error body can echo the state, which holds the team's knowledge, so only the type is logged.

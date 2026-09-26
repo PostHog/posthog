@@ -6,20 +6,28 @@ model (through the ml_inference facade) picks which of the ball's answers that k
 """
 
 import json
+import math
 from dataclasses import dataclass
 from uuid import UUID, uuid4
+
+from django.core.exceptions import PermissionDenied
 
 from posthog.models.team import Team
 
 from products.ml_inference.backend.facade import api as decision_api
-from products.ml_inference.backend.facade.contracts import ChoiceAnswer, DecisionQuestion, DecisionRequest, JsonValue
+from products.ml_inference.backend.facade.contracts import (
+    ChoiceAnswer,
+    DecisionQuestion,
+    DecisionRequest,
+    DecisionsDisabledError,
+    JsonValue,
+)
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
 from . import logic
 
 ANSWER_QUESTION_ID = "answer"
 SEARCH_LIMIT = 8
-MAX_SOURCES = 3
 # Jev's deployed context is 8,192 tokens and a UTF-8 byte can be one token, so this leaves room for the framing.
 STATE_MAX_BYTES = 6 * 1024
 
@@ -95,13 +103,13 @@ def build_state(
 def _sources(chunks: list[logic.KnowledgeSearchResult]) -> list[EightBallSource]:
     sources: dict[UUID, EightBallSource] = {}
     for chunk in chunks:
-        if chunk.source_id not in sources:
-            sources[chunk.source_id] = EightBallSource(
+        if chunk.document_id not in sources:
+            sources[chunk.document_id] = EightBallSource(
                 source_id=chunk.source_id,
                 source_name=chunk.source_name,
                 document_title=chunk.document_title,
             )
-    return list(sources.values())[:MAX_SOURCES]
+    return list(sources.values())
 
 
 def ask(team: Team, question: str) -> EightBallAnswer:
@@ -109,8 +117,16 @@ def ask(team: Team, question: str) -> EightBallAnswer:
     Raises the facade's DecisionsDisabledError when the team is not enrolled in decisions, and its
     gateway errors, or InvalidEightBallAnswer, when the model gives no usable answer.
     """
+    if not team.organization.is_ai_data_processing_approved:
+        raise PermissionDenied("AI data processing is not approved for this organization.")
+
     chunks = logic.search_knowledge_for_team(team, question, limit=SEARCH_LIMIT)
     state, used = build_state(question, chunks)
+    if not used:
+        if not decision_api.decisions_enabled(team.id):
+            raise DecisionsDisabledError(team.id)
+        return EightBallAnswer(answer="Cannot predict now", confidence=0, sources=[])
+
     result = decision_api.decide(
         DecisionRequest(
             team_id=team.id,
@@ -128,6 +144,12 @@ def ask(team: Team, question: str) -> EightBallAnswer:
         )
     )
     answer = result.answers.get(ANSWER_QUESTION_ID)
-    if not isinstance(answer, ChoiceAnswer) or answer.choice not in EIGHT_BALL_ANSWERS:
+    if (
+        not isinstance(answer, ChoiceAnswer)
+        or answer.choice not in EIGHT_BALL_ANSWERS
+        or not isinstance(answer.confidence, (int, float))
+        or not math.isfinite(answer.confidence)
+        or not 0 <= answer.confidence <= 1
+    ):
         raise InvalidEightBallAnswer()
     return EightBallAnswer(answer=answer.choice, confidence=answer.confidence, sources=_sources(used))

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest, BaseTest
@@ -6,6 +7,8 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.llm.gateway_client import GatewayNotConfiguredError
 
 from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.magic_eight_ball import (
@@ -43,10 +46,10 @@ def _chunk(content: str, *, source_name: str = "Docs") -> logic.KnowledgeSearchR
     )
 
 
-def _decision(choice: str) -> DecisionResult:
+def _decision(choice: str, confidence: float = 0.8) -> DecisionResult:
     return DecisionResult(
         model="jevk5-fp8-0.2",
-        answers={ANSWER_QUESTION_ID: ChoiceAnswer(choice=choice, confidence=0.8, probabilities={choice: 0.8})},
+        answers={ANSWER_QUESTION_ID: ChoiceAnswer(choice=choice, confidence=confidence, probabilities={choice: 0.8})},
         input_tokens=120,
     )
 
@@ -77,6 +80,8 @@ class TestBuildState(BaseTest):
 class TestEightBallAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
         self.url = f"/api/projects/{self.team.id}/business_knowledge/documents/eight_ball/"
         self.source = logic.create_text_source(
             team_id=self.team.id,
@@ -101,12 +106,77 @@ class TestEightBallAPI(APIBaseTest):
         assert "usage based" in request.state["business_knowledge"][0]["text"]
 
     def test_answers_with_no_matching_knowledge(self, _embed, _ff) -> None:
-        with patch(DECIDE, return_value=_decision("Cannot predict now")) as decide:
+        with (
+            patch(
+                "products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team", return_value=[]
+            ),
+            patch(
+                "products.business_knowledge.backend.magic_eight_ball.decision_api.decisions_enabled", return_value=True
+            ),
+            patch(DECIDE) as decide,
+        ):
             response = self.client.post(self.url, {"question": "Will the kraken wake?"}, format="json")
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["sources"] == []
-        assert decide.call_args.args[0].state["business_knowledge"] == []
+        assert response.json() == {"answer": "Cannot predict now", "confidence": 0.0, "sources": []}
+        decide.assert_not_called()
+
+    def test_no_fitted_chunks_still_requires_decision_enrollment(self, _embed, _ff) -> None:
+        with (
+            patch(
+                "products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team",
+                return_value=[_chunk("x" * (STATE_MAX_BYTES * 2))],
+            ),
+            patch(
+                "products.business_knowledge.backend.magic_eight_ball.decision_api.decisions_enabled",
+                return_value=False,
+            ),
+            patch(DECIDE) as decide,
+        ):
+            response = self.client.post(self.url, {"question": "Will it ship?"}, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        decide.assert_not_called()
+
+    def test_requires_ai_processing_approval_before_search(self, _embed, _ff) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+
+        with (
+            patch("products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team") as search,
+            patch(DECIDE) as decide,
+        ):
+            response = self.client.post(self.url, {"question": "Is our pricing usage based?"}, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert b"million events" not in response.content
+        search.assert_not_called()
+        decide.assert_not_called()
+        _embed.assert_not_called()
+
+    def test_attributes_each_used_document(self, _embed, _ff) -> None:
+        first = _chunk("usage based")
+        chunks = [first, replace(first, chunk_id=uuid4())]
+        chunks += [replace(first, document_id=uuid4(), document_title=f"Document {index}") for index in range(4)]
+
+        with (
+            patch(
+                "products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team",
+                return_value=chunks,
+            ),
+            patch(DECIDE, return_value=_decision("Yes")),
+        ):
+            response = self.client.post(self.url, {"question": "Is our pricing usage based?"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [source["document_title"] for source in response.json()["sources"]] == [
+            "Docs",
+            "Document 0",
+            "Document 1",
+            "Document 2",
+            "Document 3",
+        ]
+        assert all(source["source_id"] == str(first.source_id) for source in response.json()["sources"])
 
     def test_blank_question_is_rejected(self, _embed, _ff) -> None:
         with patch(DECIDE) as decide:
@@ -125,7 +195,12 @@ class TestEightBallAPI(APIBaseTest):
         [
             ("gateway_error", DecisionGatewayError(500, "free tier covers a million events"), None),
             ("unreachable", DecisionGatewayUnreachableError(), None),
+            ("gateway_not_configured", GatewayNotConfiguredError("free tier covers a million events"), None),
             ("unknown_choice", None, _decision("Maybe")),
+            ("negative_confidence", None, _decision("Yes", -0.1)),
+            ("high_confidence", None, _decision("Yes", 1.1)),
+            ("nan_confidence", None, _decision("Yes", float("nan"))),
+            ("infinite_confidence", None, _decision("Yes", float("inf"))),
             (
                 "wrong_answer_type",
                 None,
