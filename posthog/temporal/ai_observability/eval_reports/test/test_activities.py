@@ -31,6 +31,7 @@ from posthog.temporal.ai_observability.eval_reports.activities import (
     store_report_run_activity,
 )
 from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_CURSOR_SETTLE_LAG,
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR,
@@ -704,12 +705,14 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         # Catches a retry that reads the same range again, as the old column split did.
         until = timezone.now()
         since = until - dt.timedelta(days=8)
-        side_effects = [ClickHouseQueryTimeOut(), Mock(results=[[1, 2]]), Mock(results=[[30, 40]])]
+        side_effects = [ClickHouseQueryTimeOut(), Mock(results=[[1, 1, 2, 2]]), Mock(results=[[30, 30, 40, 40]])]
 
         with patch("posthog.hogql.query.execute_hogql_query", side_effect=side_effects) as execute_hogql_query:
-            counts = _count_eval_results_for_reports_with_split_retry(self.team, self._entries(2, since), until=until)
+            result = _count_eval_results_for_reports_with_split_retry(
+                self.team, self._entries(2, since), until=until, settle_until=until
+            )
 
-        self.assertEqual(counts, {"r0": 31, "r1": 42})
+        self.assertEqual({key: count.total for key, count in result.counts.items()}, {"r0": 31, "r1": 42})
         self.assertEqual(
             [call.kwargs["settings"].max_execution_time for call in execute_hogql_query.call_args_list], [30, 15, 15]
         )
@@ -729,7 +732,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         with patch("posthog.hogql.query.execute_hogql_query", side_effect=ClickHouseQueryTimeOut()):
             with self.assertRaises(ClickHouseQueryTimeOut):
                 _count_eval_results_for_reports_with_split_retry(
-                    self.team, self._entries(1, until - dt.timedelta(seconds=30)), until=until
+                    self.team, self._entries(1, until - dt.timedelta(seconds=30)), until=until, settle_until=until
                 )
 
     def test_stops_splitting_once_shared_budget_is_exhausted(self):
@@ -749,7 +752,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         ):
             with self.assertRaises(ClickHouseQueryTimeOut):
                 _count_eval_results_for_reports_with_split_retry(
-                    self.team, self._entries(4, until - dt.timedelta(days=8)), until=until
+                    self.team, self._entries(4, until - dt.timedelta(days=8)), until=until, settle_until=until
                 )
 
         self.assertEqual(execute_hogql_query.call_count, 1)
@@ -766,7 +769,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         def record_limit_then_time_out_once(*args, **kwargs):
             execution_limits.append(kwargs["settings"].max_execution_time)
             if len(execution_limits) > 1:
-                return Mock(results=[[0]])
+                return Mock(results=[[0, 0]])
             clock[0] = COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS - remaining_after_first_attempt
             raise ClickHouseQueryTimeOut()
 
@@ -775,7 +778,7 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
             patch("posthog.hogql.query.execute_hogql_query", side_effect=record_limit_then_time_out_once),
         ):
             _count_eval_results_for_reports_with_split_retry(
-                self.team, self._entries(1, until - dt.timedelta(days=8)), until=until
+                self.team, self._entries(1, until - dt.timedelta(days=8)), until=until, settle_until=until
             )
 
         self.assertEqual(execution_limits[0], COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS)
@@ -787,9 +790,9 @@ class TestCountEvalResultsForReportsSplitRetry(BaseTest):
         until = timezone.now()
 
         with patch("posthog.hogql.query.execute_hogql_query") as execute_hogql_query:
-            execute_hogql_query.return_value = Mock(results=[[7]])
+            execute_hogql_query.return_value = Mock(results=[[7, 7]])
             _count_eval_results_for_reports_with_split_retry(
-                self.team, self._entries(1, until - dt.timedelta(days=1)), until=until
+                self.team, self._entries(1, until - dt.timedelta(days=1)), until=until, settle_until=until
             )
 
         self.assertEqual(execute_hogql_query.call_args.kwargs["settings"].timeout_overflow_mode, "throw")
@@ -1025,6 +1028,56 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
         self.assertTrue(due_by_id[str(at_threshold.id)])
         self.assertFalse(due_by_id[str(above_threshold.id)])
 
+    def test_running_count_adds_up_across_checks_and_resets_when_the_anchor_moves(self):
+        # Catches a check that rescans the whole window, loses the saved count, or keeps a
+        # count from before the last delivery.
+        report = self._create_report(self.team, threshold=3, since=self.T0, name="running")
+        evaluation_id = str(report.evaluation_id)
+        self._emit_eval_events(self.team, evaluation_id, [self.T0 + dt.timedelta(hours=1)] * 2)
+
+        self.assertFalse(_check_count_triggered_eval_reports_batch([str(report.id)], self.NOW)[0].due)
+        report.refresh_from_db()
+        first_cursor = self.NOW - COUNT_TRIGGER_CURSOR_SETTLE_LAG
+        self.assertEqual((report.count_cursor_at, report.counted_results), (first_cursor, 2))
+
+        later = self.NOW + dt.timedelta(days=2)
+        self._emit_eval_events(self.team, evaluation_id, [later - dt.timedelta(hours=2)])
+        with patch("posthog.hogql.query.execute_hogql_query", side_effect=execute_hogql_query) as spy:
+            self.assertTrue(_check_count_triggered_eval_reports_batch([str(report.id)], later)[0].due)
+        self.assertEqual(_scanned_window(spy.call_args.kwargs["query"])[0], first_cursor)
+
+        EvaluationReport.objects.filter(id=report.id).update(last_delivered_at=later - dt.timedelta(hours=1))
+        self.assertFalse(
+            _check_count_triggered_eval_reports_batch([str(report.id)], later + dt.timedelta(hours=2))[0].due
+        )
+        report.refresh_from_db()
+        self.assertEqual(report.counted_results, 0)
+
+    def test_saves_the_finished_part_of_a_count_that_runs_out_of_budget(self):
+        # Catches a window too large for one check that fails every retry and never fires.
+        midpoint = self.T0 + (self.NOW - self.T0) / 2
+        report = self._create_report(self.team, threshold=3, since=self.T0, name="catch up")
+        self._emit_eval_events(
+            self.team,
+            str(report.evaluation_id),
+            [self.T0 + dt.timedelta(minutes=10), self.T0 + dt.timedelta(minutes=20), self.NOW - dt.timedelta(hours=1)],
+        )
+        attempts = 0
+
+        def finish_only_the_earlier_half(*args, **kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 2:
+                return execute_hogql_query(*args, **kwargs)
+            raise ClickHouseQueryTimeOut()
+
+        with patch("posthog.hogql.query.execute_hogql_query", side_effect=finish_only_the_earlier_half):
+            self.assertFalse(_check_count_triggered_eval_reports_batch([str(report.id)], self.NOW)[0].due)
+        report.refresh_from_db()
+        self.assertEqual((report.count_cursor_at, report.counted_results), (midpoint + dt.timedelta(microseconds=1), 2))
+
+        self.assertTrue(_check_count_triggered_eval_reports_batch([str(report.id)], self.NOW)[0].due)
+
     def test_events_after_check_time_are_excluded(self):
         # An event timestamped after the check's `now` must not count — guards the explicit
         # upper bound that keeps the scan from silently reading past the check time.
@@ -1137,8 +1190,9 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
     def test_trace_target_reports_exclude_generation_events(self):
         # The batched countIf must carry the evaluation's target predicate like the
         # single-report query does: after an evaluation switches to the trace target,
-        # stale generation-target events must not keep counting toward the threshold.
-        switched = self._create_report(self.team, threshold=2, since=self.T0, name="switched", target="trace")
+        # stale generation-target events must not keep counting toward the threshold,
+        # neither through the scan nor through a running count saved before the switch.
+        switched = self._create_report(self.team, threshold=2, since=self.T0, name="switched", target="generation")
         for index, (ts, target_type) in enumerate(
             [
                 # Two generation-shaped events (tagged + untagged legacy) and one trace event:
@@ -1169,7 +1223,12 @@ class TestBatchedCountTriggeredQuery(ClickhouseTestMixin, BaseTest):
             properties={"$ai_evaluation_id": str(trace_only.evaluation_id), "$ai_target_type": "trace_id"},
         )
 
-        results = _check_count_triggered_eval_reports_batch([str(switched.id), str(trace_only.id)], self.NOW)
+        self.assertTrue(_check_count_triggered_eval_reports_batch([str(switched.id)], self.NOW)[0].due)
+        Evaluation.objects.filter(id=switched.evaluation_id).update(target="trace")
+
+        results = _check_count_triggered_eval_reports_batch(
+            [str(switched.id), str(trace_only.id)], self.NOW + dt.timedelta(hours=1)
+        )
 
         by_id = {r.report_id: r for r in results}
         self.assertFalse(by_id[str(switched.id)].due)
