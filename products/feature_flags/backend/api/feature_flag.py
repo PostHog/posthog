@@ -4563,6 +4563,12 @@ class FeatureFlagViewSet(
         rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
         if rejection is not None:
             return rejection
+        # A format change bumps `version`, so the locked precondition refuses one landing after this.
+        if detect_config_format(feature_flag.filters).kind != "v1":
+            raise exceptions.ValidationError(
+                "This flag uses a configuration format that rollout actions cannot modify yet.",
+                code="unsupported_config_version",
+            )
 
         # A flag written before versioning reads as null; the precondition normalises the stored
         # side the same way, so a caller can send back exactly what the read returned.

@@ -52,6 +52,10 @@ def build_scheduled_change_serializer_data(flag: "FeatureFlag", payload: dict[st
     Callers decide what ``None`` means: the gate declines to gate an uninterpretable change; the
     dispatcher raises. Apply-time-only validation (variant rollout sums, payload-key matching)
     stays in the dispatcher.
+
+    Raises ``ConfigFormatError`` when any operation other than ``update_status`` targets a flag
+    whose ``filters`` is not config version 1. ``update_status`` never reads ``filters``, so it
+    never raises.
     """
     operation = payload.get("operation")
     if operation is None or "value" not in payload:

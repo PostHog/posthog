@@ -66,6 +66,14 @@ def require_v1_config(filters: Mapping[str, Any] | None) -> None:
         raise ConfigFormatError(config_format)
 
 
+def is_v1_config(filters: object) -> bool:
+    """Whether a stored ``filters`` value is a config version 1 document (or null).
+
+    Unlike ``detect_config_format``, a non-object value such as a list or string is not v1.
+    """
+    return filters is None or (isinstance(filters, dict) and detect_config_format(filters).kind == "v1")
+
+
 @frozen
 class RuleV2:
     id: str

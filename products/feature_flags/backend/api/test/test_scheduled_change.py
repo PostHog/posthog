@@ -84,9 +84,13 @@ class TestScheduledChange(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        schedule_url = f"/api/projects/{self.team.id}/scheduled_changes/{response.json()['id']}/"
+
+        response = self.client.patch(schedule_url, data={"scheduled_at": "2030-02-01T00:00:00Z"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
         response = self.client.patch(
-            f"/api/projects/{self.team.id}/scheduled_changes/{response.json()['id']}/",
+            schedule_url,
             data={"payload": {"operation": "add_release_condition", "value": {"groups": []}}},
             format="json",
         )

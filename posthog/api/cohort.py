@@ -112,7 +112,7 @@ from products.cohorts.backend.realtime_state import (
     has_realtime_state,
     resolve_realtime_readiness,
 )
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
+from products.feature_flags.backend.facade.config import ConfigFormatError, is_v1_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     PropertyMatchingVersion,
@@ -1650,13 +1650,9 @@ def _v1_flags(flags: Iterable[FeatureFlag]) -> Iterator[FeatureFlag]:
 
     A flag in another config format references cohorts in its own shape; until those reads
     exist it is skipped here rather than read as a flag with no conditions. Lazy, so a caller
-    that short-circuits on the first match reads no further than it did before.
+    that short-circuits stops at the first match.
     """
-    return (
-        flag
-        for flag in flags
-        if flag.filters is None or (isinstance(flag.filters, dict) and detect_config_format(flag.filters).kind == "v1")
-    )
+    return (flag for flag in flags if is_v1_config(flag.filters))
 
 
 def _directly_referenced_cohort_ids(flags: list[FeatureFlag]) -> set[int]:

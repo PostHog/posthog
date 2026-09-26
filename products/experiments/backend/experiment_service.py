@@ -4273,8 +4273,8 @@ class ExperimentService:
                 # The same adoption check create_experiment applies, taken before the variants are
                 # read so a flag this product cannot use surfaces as a validation error here too.
                 assert_flag_available_for(existing_flag, product=FLAG_OWNER_EXPERIMENT)
-            if existing_flag and existing_flag.variants:
-                clone_variants = deepcopy(existing_flag.variants)
+                if existing_flag.variants:
+                    clone_variants = deepcopy(existing_flag.variants)
 
         clone_filters: dict[str, Any] = {}
         if clone_variants:
