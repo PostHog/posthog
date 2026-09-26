@@ -12,6 +12,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 import { openDeleteConversationDialog } from './conversationDialogs'
+import { UNTITLED_CONVERSATION_TITLE } from './max-constants'
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getSlackThreadUrl } from './utils'
 
@@ -130,7 +131,7 @@ function ConversationCard({
             }}
         >
             <div className="flex items-center gap-2 flex-1 min-w-0">
-                <span className="flex-1 line-clamp-1">{conversation.title}</span>
+                <span className="flex-1 line-clamp-1">{conversation.title || UNTITLED_CONVERSATION_TITLE}</span>
                 {conversation.is_internal && <LemonTag type="muted">Impersonated</LemonTag>}
                 {conversation.type === ConversationType.DeepResearch && <LemonTag>Research</LemonTag>}
                 {conversation.slack_thread_key && (
@@ -196,7 +197,9 @@ function CompactConversationCard({
             tooltip={conversation.title || 'view conversation'}
             tooltipPlacement="right"
         >
-            <span className="flex-1 line-clamp-1 text-primary">{conversation.title}</span>
+            <span className="flex-1 line-clamp-1 text-primary">
+                {conversation.title || UNTITLED_CONVERSATION_TITLE}
+            </span>
             {conversation.status === ConversationStatus.InProgress && <Spinner className="h-3 w-3" />}
             <span className="opacity-30 text-xs">{formatConversationDate(conversation.updated_at)}</span>
         </Link>
