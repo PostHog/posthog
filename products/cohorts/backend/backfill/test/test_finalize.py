@@ -208,7 +208,8 @@ class TestBackfillFinalizer(BaseTest):
         run.refresh_from_db()
         cohorts[0].refresh_from_db()
         self.assertEqual(run.status, expected_status)
-        self.assertEqual(result.completed, 1)
+        self.assertEqual(result.completed, int(expected_status == CohortBackfillRunStatus.COMPLETED))
+        self.assertEqual(result.trailing, int(expected_status == CohortBackfillRunStatus.TRAILING))
         self.assertIsNotNone(cohorts[0].last_backfill_events_at)
 
     def test_unobserved_run_is_untouched(self) -> None:

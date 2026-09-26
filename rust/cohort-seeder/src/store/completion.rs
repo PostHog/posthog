@@ -374,9 +374,10 @@ pub async fn read_planning_stamp(
 }
 
 /// CAS a seeding run into `reconciling`. Admits the transition only once planning is proven and every
-/// chunk readiness waits for has confirmed, freezing the chunk ledger (`claim_next`/`heartbeat`/`plan_chunks` all require
-/// `seeding`). `None` means the CAS was lost — another dispatcher won, chunks reappeared, or the run
-/// left `seeding`.
+/// chunk readiness waits for has confirmed, freezing the chunk ledger while the run reconciles:
+/// `plan_chunks` requires `seeding`, and `claim_next`/`heartbeat` require `seeding` or `trailing`,
+/// with a held chunk claimable only under `trailing`. `None` means the CAS was lost — another
+/// dispatcher won, chunks reappeared, or the run left `seeding`.
 pub async fn cas_run_reconciling(
     pool: &PgPool,
     run_id: RunId,

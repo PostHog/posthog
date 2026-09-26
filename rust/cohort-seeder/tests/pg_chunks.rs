@@ -13,11 +13,11 @@ use std::time::Duration;
 use anyhow::{bail, ensure, Context, Result};
 use chrono::{DateTime, Utc};
 use cohort_core::filters::{CohortId, TeamId};
-use cohort_seeder::app::fail_exhausted_runs_of_kind;
 use cohort_seeder::app::reconcile_dispatch::{
     prepare_reconcile_dispatch, CompletionRequirement, PrepareReconcileDispatchError,
     RegisterBackfillConfirmation,
 };
+use cohort_seeder::app::{eligible_run_ids, fail_exhausted_runs_of_kind};
 use cohort_seeder::domain::{
     tile_ranges, AttemptCount, ClaimEpoch, PersonRunValidation, PinnedWarning, ProduceHwms,
     RetryBackoffPolicy, ScanVolume, ScopeKind,
@@ -956,8 +956,9 @@ async fn the_backoff_gate_applies_only_to_the_failed_claim_arm() -> Result<()> {
     .await
 }
 
-/// A trailing day is planned with its hold, claimed only once the hold lapses, and claimed from a
-/// `trailing` run too; the run completes once that day confirms.
+/// A trailing day is planned with its hold and claimed only once the hold lapses and its run is
+/// `trailing`. Discovery admits the trailing run once a hold lapses, prepare keeps it eligible, and
+/// the run completes once that day confirms.
 #[tokio::test]
 async fn a_trailing_day_waits_out_its_hold_and_completes_its_trailing_run() -> Result<()> {
     with_db(|pool| async move {
@@ -968,6 +969,7 @@ async fn a_trailing_day_waits_out_its_hold_and_completes_its_trailing_run() -> R
         let attempts5 = MaxAttempts::new(5)?;
         let claimant = Claimant::new("worker-a")?;
         let run_ids = [run_id];
+        let behavioral = [RunKind::Behavioral];
         let hold = Utc::now() + chrono::Duration::hours(1);
         let [historical_day] = historical([100]);
         ensure!(
@@ -1009,21 +1011,19 @@ async fn a_trailing_day_waits_out_its_hold_and_completes_its_trailing_run() -> R
         test_support::confirm_raw(&store, historical_lease, &ProduceHwms::default()).await?;
         drop(historical_claim);
 
-        // The finalizer's move once it has stamped readiness.
+        // The finalizer's move once it has stamped readiness. Until a hold lapses nothing of the
+        // run can be claimed, so discovery leaves it alone.
         sqlx::query("UPDATE cohort_backfill_runs SET status = 'trailing' WHERE id = $1")
             .bind(run_id)
             .execute(&pool)
             .await?;
-        let discovered = discover_runs(&pool, &TeamAllowlist::All, &[RunKind::Behavioral]).await?;
-        let resumed = discovered
-            .into_iter()
-            .find(|run| run.run_id == run_id)
-            .context("discovery skipped the trailing run")?;
-        match establish_boundary(&pool, resumed).await? {
-            BoundaryOutcome::AlreadyEstablished(run) => ensure!(run.phase == SeedPhase::Trailing),
-            other => bail!("the trailing run resumed as {other:?}"),
-        }
-        ensure!(complete_trailing_runs(&pool, &run_ids).await? == 0);
+        ensure!(
+            discover_runs(&pool, &TeamAllowlist::All, &behavioral)
+                .await?
+                .iter()
+                .all(|run| run.run_id != run_id),
+            "the trailing run was discovered before any of its holds lapsed"
+        );
 
         sqlx::query(
             "UPDATE cohort_backfill_chunks SET claimable_after = now() - interval '1 second'
@@ -1032,6 +1032,23 @@ async fn a_trailing_day_waits_out_its_hold_and_completes_its_trailing_run() -> R
         .bind(run_id)
         .execute(&pool)
         .await?;
+        let resumed = discover_runs(&pool, &TeamAllowlist::All, &behavioral)
+            .await?
+            .into_iter()
+            .find(|run| run.run_id == run_id)
+            .context("discovery skipped the trailing run once its hold lapsed")?;
+        match establish_boundary(&pool, resumed).await? {
+            BoundaryOutcome::AlreadyEstablished(run) => ensure!(run.phase == SeedPhase::Trailing),
+            other => bail!("the trailing run resumed as {other:?}"),
+        }
+        ensure!(
+            eligible_run_ids(&pool, &store, &TeamAllowlist::All, &behavioral)
+                .await
+                .contains(&run_id),
+            "prepare did not keep the trailing run claim-eligible"
+        );
+        ensure!(complete_trailing_runs(&pool, &run_ids).await? == 0);
+
         let trailing_claim = store
             .claim_next(&run_ids, &claimant, lease60, attempts5)
             .await?
@@ -1051,6 +1068,59 @@ async fn a_trailing_day_waits_out_its_hold_and_completes_its_trailing_run() -> R
         .fetch_one(&pool)
         .await?;
         ensure!(status == "completed" && finished);
+        Ok(())
+    })
+    .await
+}
+
+/// While a run still seeds, a held chunk stays unclaimable even after its hold lapses, so the
+/// reconciling CAS cannot cut its lease mid-scan; and once every chunk has confirmed, the trailing
+/// sweep leaves the run in `seeding`, since completing it there would skip `reconciling` and the
+/// readiness stamp.
+#[tokio::test]
+async fn a_seeding_run_neither_hands_out_a_lapsed_held_chunk_nor_completes_as_trailing(
+) -> Result<()> {
+    with_db(|pool| async move {
+        let run_id =
+            insert_run(&pool, 2, "cohort_created", "seeding", true, empty_pinned()).await?;
+        let store = PgChunkStore::new(pool.clone());
+        let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
+        let attempts5 = MaxAttempts::new(5)?;
+        let run_ids = [run_id];
+        let [historical_day] = historical([100]);
+        let lapsed = Utc::now() - chrono::Duration::hours(1);
+        store
+            .plan_chunks(run_id, [historical_day, trailing(101, lapsed)], ONE_BAND)
+            .await?;
+        sqlx::query(
+            "UPDATE cohort_backfill_chunks SET status = 'confirmed'
+             WHERE run_id = $1 AND claimable_after IS NULL",
+        )
+        .bind(run_id)
+        .execute(&pool)
+        .await?;
+        ensure!(
+            store
+                .claim_next(&run_ids, &Claimant::new("worker-a")?, lease60, attempts5)
+                .await?
+                .is_none(),
+            "a held chunk was claimed while its run was still seeding"
+        );
+
+        sqlx::query("UPDATE cohort_backfill_chunks SET status = 'confirmed' WHERE run_id = $1")
+            .bind(run_id)
+            .execute(&pool)
+            .await?;
+        ensure!(complete_trailing_runs(&pool, &run_ids).await? == 0);
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM cohort_backfill_runs WHERE id = $1")
+                .bind(run_id)
+                .fetch_one(&pool)
+                .await?;
+        ensure!(
+            status == "seeding",
+            "the seeding run was completed as if trailing"
+        );
         Ok(())
     })
     .await

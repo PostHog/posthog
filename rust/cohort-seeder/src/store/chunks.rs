@@ -1,8 +1,8 @@
 //! The day-chunk claim/CAS ledger in PostgreSQL: the sole owner of the `cohort_backfill_chunks` SQL.
 //!
-//! Written chunk statuses bind [`ChunkStatus::as_str`] as a parameter; the one multi-status `IN`
-//! predicate is hoisted into [`ACTIVE_STATUSES_SQL`], scanned by a unit test through
-//! [`ChunkStatus::from_str`] so the SQL vocabulary can never drift from the enum.
+//! Written chunk statuses bind [`ChunkStatus::as_str`] as a parameter; the multi-status `IN`
+//! predicates are hoisted into [`ACTIVE_STATUSES_SQL`] and [`SEEDABLE_RUN_STATUSES_SQL`], each
+//! scanned by a unit test through the enum's `from_str` so the SQL vocabulary can never drift.
 //! Every claim charges an attempt (saturating at the cap) and bumps the fencing `claim_epoch`;
 //! expired `produced` leases are reclaimable without an attempt cap (their tiles are already in
 //! Kafka and must reach `confirmed`), while expired `scanning` leases are capped and dead-lettered
@@ -255,8 +255,11 @@ impl PgChunkStore {
                 FROM cohort_backfill_chunks c
                 JOIN cohort_backfill_runs r ON r.id = c.run_id
                 WHERE c.run_id = ANY($1) AND r.status IN {seedable}
-                  -- A trailing day is scanned only once it has ended, on every arm.
-                  AND (c.claimable_after IS NULL OR c.claimable_after <= now())
+                  -- A trailing day is scanned only once it has ended and its run is `trailing`.
+                  -- Claimed while the run still seeds, it would lose its lease when the
+                  -- reconciling CAS fires, because the heartbeat joins the same run statuses.
+                  AND (c.claimable_after IS NULL
+                       OR (c.claimable_after <= now() AND r.status = 'trailing'))
                   AND ((c.status = $7 AND c.attempts < $4)
                        -- Only the failed→claim transition is gated on the backoff stamp. A chunk
                        -- that never ran (`pending`) and an expired lease reclaim both stay
@@ -346,8 +349,9 @@ impl PgChunkStore {
     /// The `attempts >= max_attempts` half is the whole point: a `failed` chunk still under the cap
     /// is reclaimable by [`Self::claim_next`] and will retry, while a capped one never will. Only
     /// the capped ones are terminal, and only they wedge the run — the completion CAS demands every
-    /// chunk `confirmed`, so a run carrying one sits in `seeding` forever and holds its cohort's
-    /// uniqueness slot against every future run.
+    /// readiness chunk `confirmed`, so a run carrying one sits in `seeding` forever and holds its
+    /// cohort's uniqueness slot against every future run, and a `trailing` run carrying one never
+    /// completes.
     pub async fn runs_with_exhausted_chunks(
         &self,
         run_ids: &[RunId],
@@ -859,14 +863,33 @@ fn date_for_day(day: DayIdx) -> Option<NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::runs::RunStatus;
+
+    fn sql_fragment_names(fragment: &str) -> impl Iterator<Item = &str> {
+        fragment
+            .trim_matches(|c| c == '(' || c == ')')
+            .split(',')
+            .map(|token| token.trim().trim_matches('\''))
+    }
+
+    #[test]
+    fn seedable_run_statuses_sql_names_exactly_the_seed_phase_statuses() {
+        let named = sql_fragment_names(SEEDABLE_RUN_STATUSES_SQL)
+            .map(|status| status.parse::<RunStatus>())
+            .collect::<Result<Vec<_>, _>>()
+            .expect("SQL fragment names a non-vocabulary run status");
+        for status in RunStatus::ALL {
+            assert_eq!(
+                named.contains(&status),
+                status.seed_phase().is_some(),
+                "{status:?} disagrees between the SQL fragment and seed_phase()"
+            );
+        }
+    }
 
     #[test]
     fn hoisted_status_fragments_only_name_live_chunk_statuses() {
-        let statuses = ACTIVE_STATUSES_SQL
-            .trim_matches(|c| c == '(' || c == ')')
-            .split(',')
-            .map(|token| token.trim().trim_matches('\''));
-        for status in statuses {
+        for status in sql_fragment_names(ACTIVE_STATUSES_SQL) {
             assert!(
                 status.parse::<ChunkStatus>().is_ok(),
                 "SQL fragment names non-vocabulary status {status:?}"

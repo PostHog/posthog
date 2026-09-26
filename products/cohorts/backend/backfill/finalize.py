@@ -35,6 +35,7 @@ from posthog.tasks.utils import CeleryQueue
 from products.cohorts.backend.backfill.allowlist import parse_run_allowlist
 from products.cohorts.backend.backfill.readiness import stamp_events_readiness, stamp_person_properties_readiness
 from products.cohorts.backend.models.backfill import (
+    READINESS_CHUNKS,
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
     CohortBackfillKind,
@@ -91,6 +92,7 @@ HELD_RUNS_GAUGE = Gauge(
 class FinalizerPass:
     runs_scanned: int = 0
     completed: int = 0
+    trailing: int = 0
     superseded: int = 0
     held: int = 0
     errored: int = 0
@@ -308,7 +310,7 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
             terminal_status = CohortBackfillRunStatus.SUPERSEDED
         elif (
             CohortBackfillChunk.objects.for_team(team_id)
-            .filter(run_id=run.id, claimable_after__isnull=False)
+            .filter(~READINESS_CHUNKS, run_id=run.id)
             .exclude(status=CohortBackfillChunkStatus.CONFIRMED)
             .exists()
         ):
@@ -321,12 +323,13 @@ def _finalize_one_run(run_id: UUID, team_id: int, result: FinalizerPass) -> bool
             .update(status=terminal_status, finished_at=Now())
         )
         if transitioned:
-            if terminal_status != CohortBackfillRunStatus.SUPERSEDED:
+            if terminal_status == CohortBackfillRunStatus.COMPLETED:
                 result.completed += 1
-                RUNS_FINALIZED_COUNTER.labels(status=terminal_status.value, kind=run.backfill_kind).inc()
+            elif terminal_status == CohortBackfillRunStatus.TRAILING:
+                result.trailing += 1
             else:
                 result.superseded += 1
-                RUNS_FINALIZED_COUNTER.labels(status="superseded", kind=run.backfill_kind).inc()
+            RUNS_FINALIZED_COUNTER.labels(status=terminal_status.value, kind=run.backfill_kind).inc()
         else:
             # We hold the run row's FOR UPDATE lock, so a missed CAS can only mean our own
             # readiness stamp superseded a cohort-scoped run inside this transaction —

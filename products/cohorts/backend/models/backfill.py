@@ -39,6 +39,9 @@ class CohortBackfillRunStatus(models.TextChoices):
 # which the seeder scans after they end. Their tiles merge with `max`, so a newer run for the same
 # cohort cannot conflict with them, and the run holds no uniqueness slot. It also stays out of the
 # active-run age gauge, which would otherwise read every wait until the team's midnight as a stall.
+# It therefore lands in the derived terminal tuple below: `finished_at` is set when readiness stamps
+# and again when the seeder completes the run, so `runs_recent` counts each transition under its
+# own status.
 ACTIVE_COHORT_BACKFILL_RUN_STATUSES = (
     CohortBackfillRunStatus.AWAITING_BOUNDARY,
     CohortBackfillRunStatus.BLOCKED,
@@ -220,3 +223,9 @@ class CohortBackfillChunk(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["run", "day", "band"], name="cohort_bfc_run_day_band_uq"),
         ]
+
+
+# The chunks a run's readiness waits for. A trailing chunk carries a claim hold, and the seeder scans
+# it after readiness stamps, so every readiness query leaves it out. The seeder names the same rule
+# `readiness_chunk!()` in `store/completion.rs`.
+READINESS_CHUNKS = Q(claimable_after__isnull=True)

@@ -76,9 +76,9 @@ pub struct ValidatedPinnedRun {
     pub uncovered_cohorts: Vec<CohortId>,
 }
 
-/// A run proven `seeding` with an established boundary, ready for pinned-payload validation. The
-/// `trigger`/`boundary_at_ms` are already typed and present — the store performs the sole
-/// `Option`→value narrowing before building this.
+/// A run proven `seeding` or `trailing` with an established boundary, ready for pinned-payload
+/// validation. The `trigger`/`boundary_at_ms` are already typed and present — the store performs
+/// the sole `Option`→value narrowing before building this.
 #[derive(Debug)]
 pub struct PinnedRunSnapshot {
     pub run_id: RunId,

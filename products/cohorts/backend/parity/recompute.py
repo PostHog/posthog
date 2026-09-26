@@ -350,6 +350,7 @@ class RunContext:
     confirmed_days: frozenset[date]  # days whose seed chunks are all CONFIRMED (fully seeded)
     non_confirmed_chunks: int
     shape_hash_drift: bool  # run's pinned behavioral shape hash != current cohort's
+    trailing_day_planned: bool  # a held chunk covers the boundary day, so its misses fill instead of decaying
 
 
 @dataclass(frozen=True)
@@ -411,7 +412,7 @@ class RecomputeComparison:
     missing_post_boundary: int = 0  # needs post-boundary events the live path owns — gates FAIL
     missing_unsegmented: int = 0  # shape or grace window admits no segmentation — not adjudicated
     missing_unattributed: int = 0  # in the member set but absent from the day read — reads disagree
-    expires_by_day: Mapping[str, int] = field(default_factory=dict)  # boundary-class decay prediction
+    expires_by_day: Mapping[str, int] = field(default_factory=dict)  # boundary-class decay, no trailing chunk
     samples: Mapping[str, tuple[str, ...]] = field(default_factory=dict)  # bounded person ids per class
     run_id: Optional[str] = None
     run_status: Optional[str] = None
@@ -648,7 +649,7 @@ def classify_recompute(
             bucket = _classify_missing_person(matches, window=window, ctx=ctx, min_count=min_count)
             counts[bucket] += 1
             per_class[bucket].append(person)
-            if bucket == "missing_boundary_day":
+            if bucket == "missing_boundary_day" and not ctx.trailing_day_planned:
                 day = _expiry_date(matches, window=window, window_days=leaf.window_days, min_count=min_count)
                 if day is not None:
                     expires_by_day[day.isoformat()] += 1

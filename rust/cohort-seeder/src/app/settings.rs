@@ -531,6 +531,14 @@ mod tests {
         let settings = OrchestratorSettings::try_from(&config).unwrap();
         assert_eq!(settings.retry_backoff.base(), Duration::from_secs(30));
         assert_eq!(settings.retry_backoff.cap(), Duration::from_secs(1800));
+        assert_eq!(
+            settings.plan_caps.live_tracking_lag,
+            Duration::from_secs(420)
+        );
+        assert_eq!(
+            settings.plan_caps.trailing_day_grace,
+            Duration::from_secs(1800)
+        );
 
         let mut zero_base = config.clone();
         zero_base.seeder_retry_backoff_base_secs = 0;

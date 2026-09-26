@@ -29,13 +29,28 @@ macro_rules! run_columns {
     };
 }
 
+// A trailing run is discovered only once one of its holds has lapsed: before that nothing of it
+// can be claimed, and every discovery re-validates its pinned payload. The test is "any hold
+// lapsed", not "an unconfirmed chunk's hold lapsed", so a run whose last chunk confirmed stays
+// visible to `complete_trailing_runs`.
+macro_rules! discoverable_run {
+    () => {
+        "status IN ('awaiting_boundary', 'seeding')
+          OR (status = 'trailing' AND EXISTS (
+              SELECT 1 FROM cohort_backfill_chunks c
+              WHERE c.run_id = cohort_backfill_runs.id AND c.claimable_after <= now()))"
+    };
+}
+
 // The kind predicate binds the caller's allowed-kind set: with the person gate off, discovery
 // binds `['behavioral']`, which keeps the person path inert without a second query text.
 const DISCOVER_ALL: &str = concat!(
     "\n    SELECT ",
     run_columns!(),
     "\n    FROM cohort_backfill_runs",
-    "\n    WHERE status IN ('awaiting_boundary', 'seeding', 'trailing')",
+    "\n    WHERE (",
+    discoverable_run!(),
+    ")",
     "\n      AND backfill_kind = ANY($1)",
     "\n    ORDER BY created_at\n"
 );
@@ -44,7 +59,9 @@ const DISCOVER_ONLY: &str = concat!(
     "\n    SELECT ",
     run_columns!(),
     "\n    FROM cohort_backfill_runs",
-    "\n    WHERE status IN ('awaiting_boundary', 'seeding', 'trailing')",
+    "\n    WHERE (",
+    discoverable_run!(),
+    ")",
     "\n      AND backfill_kind = ANY($2)",
     "\n      AND team_id = ANY($1)",
     "\n    ORDER BY created_at\n"
@@ -104,6 +121,18 @@ pub enum RunStatus {
 }
 
 impl RunStatus {
+    pub const ALL: [Self; 9] = [
+        Self::AwaitingBoundary,
+        Self::Blocked,
+        Self::Seeding,
+        Self::Reconciling,
+        Self::Trailing,
+        Self::Completed,
+        Self::Superseded,
+        Self::Cancelled,
+        Self::Failed,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::AwaitingBoundary => "awaiting_boundary",

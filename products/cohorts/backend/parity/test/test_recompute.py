@@ -307,6 +307,7 @@ def _ctx(**overrides: Any) -> RunContext:
         "confirmed_days": frozenset({date(2026, 7, 17), date(2026, 7, 18)}),
         "non_confirmed_chunks": 0,
         "shape_hash_drift": False,
+        "trailing_day_planned": False,
     }
     defaults.update(overrides)
     return RunContext(**defaults)
@@ -472,7 +473,15 @@ class TestExpiryCurve(SimpleTestCase):
         self.assertEqual(row.missing_boundary_day, 1)
         self.assertEqual(row.expires_by_day, {"2026-07-26": 1})  # 2026-07-18 + 7 + 1
 
-    def test_expiry_counts_group_by_date(self) -> None:
+    @parameterized.expand(
+        [
+            ("decays_with_no_trailing_chunk", False, {"2026-07-28": 2}),  # 2026-07-20 + 7 + 1
+            ("fills_after_midnight_with_a_trailing_chunk", True, {}),
+        ]
+    )
+    def test_expiry_counts_group_by_date(
+        self, _name: str, trailing_day_planned: bool, expected: dict[str, int]
+    ) -> None:
         row = _classify(
             spec=_spec(window_days=7),
             oracle_members={"p1", "p2"},
@@ -480,8 +489,10 @@ class TestExpiryCurve(SimpleTestCase):
                 "p1": [_dm(date(2026, 7, 20), "pre_boundary")],
                 "p2": [_dm(date(2026, 7, 20), "pre_boundary")],
             },
+            ctx=_ctx(trailing_day_planned=trailing_day_planned),
         )
-        self.assertEqual(row.expires_by_day, {"2026-07-28": 2})  # 2026-07-20 + 7 + 1
+        self.assertEqual(row.missing_boundary_day, 2)
+        self.assertEqual(row.expires_by_day, expected)
 
 
 class TestOpWhitelistParity(SimpleTestCase):
