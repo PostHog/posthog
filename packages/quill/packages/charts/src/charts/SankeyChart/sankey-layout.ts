@@ -70,6 +70,13 @@ export interface SankeyLayout<N extends SankeyExtraProperties, L extends SankeyE
     nodeAlign(): (node: SankeyNode<N, L>, n: number) => number
     nodeAlign(nodeAlign: (node: SankeyNode<N, L>, n: number) => number): this
 
+    /** Pins a node to a column regardless of its depth in the graph; return `undefined` to fall
+     *  back to `nodeAlign` for that node. The column count grows to fit the highest pin. The caller
+     *  owns monotonicity: a pin at or before a source feeding it draws that link backwards, with no
+     *  error. */
+    nodeColumn(): ((node: SankeyNode<N, L>) => number | undefined) | null
+    nodeColumn(nodeColumn: ((node: SankeyNode<N, L>) => number | undefined) | null): this
+
     nodeWidth(): number
     nodeWidth(width: number): this
 
@@ -204,6 +211,7 @@ export function sankeyLayout<
 
     let id: (d: SankeyNode<N, L>) => string | number = (d) => d.index
     let align: (node: SankeyNode<N, L>, n: number) => number = sankeyJustify
+    let column: ((node: SankeyNode<N, L>) => number | undefined) | null = null
     let sort: ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | null | undefined
     let nodesFn: (graph: SankeyInputGraph) => SankeyNode<N, L>[] = (graph) => graph.nodes as SankeyNode<N, L>[]
     let linksFn: (graph: SankeyInputGraph) => SankeyLink<N, L>[] = (graph) => graph.links as SankeyLink<N, L>[]
@@ -262,6 +270,18 @@ export function sankeyLayout<
             return self
         }
         return id
+    }
+
+    function nodeColumnAccessor(): ((node: SankeyNode<N, L>) => number | undefined) | null
+    function nodeColumnAccessor(fn: ((node: SankeyNode<N, L>) => number | undefined) | null): SankeyLayout<N, L>
+    function nodeColumnAccessor(
+        fn?: ((node: SankeyNode<N, L>) => number | undefined) | null
+    ): ((node: SankeyNode<N, L>) => number | undefined) | null | SankeyLayout<N, L> {
+        if (fn !== undefined) {
+            column = fn
+            return self
+        }
+        return column
     }
 
     function nodeAlignAccessor(): (node: SankeyNode<N, L>, n: number) => number
@@ -346,6 +366,7 @@ export function sankeyLayout<
         links: linksAccessor,
         nodeId: nodeIdAccessor,
         nodeAlign: nodeAlignAccessor,
+        nodeColumn: nodeColumnAccessor,
         nodeSort: nodeSortAccessor,
         nodeWidth: nodeWidthAccessor,
         nodePadding: nodePaddingAccessor,
@@ -429,11 +450,17 @@ export function sankeyLayout<
     }
 
     function computeNodeLayers({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): SankeyNode<N, L>[][] {
-        const x = max(nodeList, (d) => d.depth)! + 1
+        // A non-finite pin (e.g. NaN from a caller's bad parse) would otherwise flow into `layer`/`x0`
+        // and silently drop the node from the render; treat it as unpinned instead.
+        const pinned = (node: SankeyNode<N, L>): number | undefined => {
+            const value = column?.(node)
+            return value !== undefined && Number.isFinite(value) ? value : undefined
+        }
+        const x = Math.max(max(nodeList, (d) => d.depth)!, max(nodeList, (d) => pinned(d) ?? 0)!) + 1
         const kx = x <= 1 ? 0 : (x1 - x0 - dx) / (x - 1)
         const columns = Array.from({ length: x }, () => [] as SankeyNode<N, L>[])
         for (const node of nodeList) {
-            const i = Math.max(0, Math.min(x - 1, Math.floor(align(node, x))))
+            const i = Math.max(0, Math.min(x - 1, Math.floor(pinned(node) ?? align(node, x))))
             node.layer = i
             node.x0 = x0 + i * kx
             node.x1 = node.x0 + dx
@@ -538,6 +565,11 @@ export function sankeyLayout<
     }
 
     function resolveCollisions(nodeList: SankeyNode<N, L>[], alpha: number): void {
+        // A pinned column can sit between two others with nothing naturally landing in it, leaving
+        // it empty; there's nothing to space out.
+        if (nodeList.length === 0) {
+            return
+        }
         const i = nodeList.length >> 1
         const subject = nodeList[i]
         resolveCollisionsBottomToTop(nodeList, subject.y0 - py, i - 1, alpha)
