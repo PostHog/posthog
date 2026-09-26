@@ -67,10 +67,13 @@ async function withIsolatedProxy(
         handleProxySocket(socket)
     })
     await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
-    const originalNodeEnv = process.env.NODE_ENV
-    process.env.NODE_ENV = 'test'
-    process.env.HTTPS_PROXY = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`
-    process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS = '200'
+    const overrides: Record<string, string> = {
+        NODE_ENV: 'test',
+        HTTPS_PROXY: `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`,
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: '200',
+    }
+    const originalValues = Object.fromEntries(Object.keys(overrides).map((name) => [name, process.env[name]]))
+    Object.assign(process.env, overrides)
     try {
         await jest.isolateModulesAsync(async () => {
             // request.ts reads the proxy URL and the timeouts once, at module load.
@@ -82,9 +85,13 @@ async function withIsolatedProxy(
             }
         })
     } finally {
-        delete process.env.HTTPS_PROXY
-        delete process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS
-        process.env.NODE_ENV = originalNodeEnv
+        for (const [name, value] of Object.entries(originalValues)) {
+            if (value === undefined) {
+                delete process.env[name]
+            } else {
+                process.env[name] = value
+            }
+        }
         proxySockets.forEach((socket) => socket.destroy())
         proxy.close()
     }
