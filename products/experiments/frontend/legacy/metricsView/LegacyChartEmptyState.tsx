@@ -23,9 +23,6 @@ export function LegacyChartEmptyState({
     error,
     metric,
 }: LegacyChartEmptyStateProps): JSX.Element | null {
-    /**
-     * early return if experiment has not started
-     */
     if (!experimentStarted) {
         return (
             <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
@@ -37,16 +34,10 @@ export function LegacyChartEmptyState({
         )
     }
 
-    /**
-     * bail if no error
-     */
     if (!error) {
         return null
     }
 
-    /**
-     * Legacy metrics always use the legacy error checklist
-     */
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div className="flex items-center justify-center w-full" style={{ height: `${height}px` }}>
