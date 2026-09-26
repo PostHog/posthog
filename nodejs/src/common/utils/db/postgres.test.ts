@@ -10,6 +10,7 @@ describe('transient postgres error classification', () => {
         ['server conn crashed?', true],
         ['duplicate key value violates unique constraint', false],
         ['syntax error at or near "SELCT"', false],
+        ['deadlock detected', false], // without the SQLSTATE there is nothing to match on
     ])('isTransientPgError(%s) -> %s', (message, expected) => {
         expect(isTransientPgError(new Error(message))).toBe(expected)
     })
@@ -22,6 +23,14 @@ describe('transient postgres error classification', () => {
         expect(() => handlePostgresError(new Error('pooler is shutting down'), PostgresUse.PERSONS_WRITE)).toThrow(
             expect.objectContaining({ name: 'DependencyUnavailableError', isRetriable: true })
         )
+    })
+
+    it('wraps a deadlock in a retriable DependencyUnavailableError', () => {
+        const deadlock = Object.assign(new Error('deadlock detected'), { code: '40P01' })
+        expect(() => handlePostgresError(deadlock, PostgresUse.COMMON_READ)).toThrow(
+            expect.objectContaining({ name: 'DependencyUnavailableError', isRetriable: true })
+        )
+        expect(isTransientPgError(deadlock)).toBe(true)
     })
 
     it('does nothing for non-transient errors', () => {
