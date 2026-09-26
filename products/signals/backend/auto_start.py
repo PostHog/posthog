@@ -124,6 +124,10 @@ class RequestedImplementation:
 
 
 class RequestedImplementationUnavailable(RuntimeError):
+    """A planned refusal: the request is valid, but the report state does not allow implementation now."""
+
+
+class RequestedImplementationFailed(RuntimeError):
     pass
 
 
@@ -889,10 +893,10 @@ def start_requested_implementation(request: RequestedImplementation) -> str:
             or result.task is None
             or result.task.latest_run_id is None
         ):
-            raise RequestedImplementationUnavailable("The existing implementation task could not start a new run")
+            raise RequestedImplementationFailed("The existing implementation task could not start a new run")
         new_run = tasks_facade.get_task_run(result.task.latest_run_id, request.team_id)
         if new_run is None:
-            raise RequestedImplementationUnavailable("The new implementation run could not be read")
+            raise RequestedImplementationFailed("The new implementation run could not be read")
         record_implementation_task(
             team_id=request.team_id,
             report_id=request.report_id,

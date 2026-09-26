@@ -30,6 +30,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.auto_start import (
     RequestedImplementation,
+    RequestedImplementationUnavailable,
     maybe_autostart_from_report_artefacts,
     start_requested_implementation,
 )
@@ -1043,15 +1044,23 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
     if input.requested_user_id is not None:
         if input.requested_after_run_count is None:
             raise ValueError("A requested implementation needs the report's prior run count")
-        await database_sync_to_async(start_requested_implementation, thread_sensitive=False)(
-            RequestedImplementation(
+        try:
+            await database_sync_to_async(start_requested_implementation, thread_sensitive=False)(
+                RequestedImplementation(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    user_id=input.requested_user_id,
+                    task_id=input.requested_task_id,
+                    after_run_count=input.requested_after_run_count,
+                )
+            )
+        except RequestedImplementationUnavailable as refusal:
+            logger.info(
+                "signals requested implementation skipped",
                 team_id=input.team_id,
                 report_id=input.report_id,
-                user_id=input.requested_user_id,
-                task_id=input.requested_task_id,
-                after_run_count=input.requested_after_run_count,
+                reason=str(refusal),
             )
-        )
     else:
         await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
 
