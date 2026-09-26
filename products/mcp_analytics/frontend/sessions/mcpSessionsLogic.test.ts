@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -25,6 +28,13 @@ const toolCall = (eventId: string): any => ({
     error_message: '',
     duration_ms: null,
 })
+
+const TOOL_FILTER: AnyPropertyFilter = {
+    key: '$mcp_tool_name',
+    value: ['create_insight'],
+    operator: PropertyOperator.Exact,
+    type: PropertyFilterType.Event,
+}
 
 describe('mcpSessionsLogic', () => {
     let logic: ReturnType<typeof mcpSessionsLogic.build>
@@ -61,6 +71,34 @@ describe('mcpSessionsLogic', () => {
         expect(toolCallsMock).toHaveBeenCalledTimes(1)
         expect(logic.values.selectedSessionId).toBe('A')
         expect(logic.values.selectedSessionToolCalls.calls.map((call) => call.event_id)).toEqual(['updated'])
+    })
+
+    it.each([true, false])('deep-links has_errors=%s into the sessions query and clears it', async (hasErrors) => {
+        await expectLogic(logic, () => {
+            router.actions.push(urls.mcpAnalyticsSessions(), { has_errors: String(hasErrors) })
+        }).toDispatchActions(['loadSessionsSuccess'])
+
+        expect(logic.values.filters.hasErrors).toBe(hasErrors)
+        expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: hasErrors }))
+
+        await expectLogic(logic, () => logic.actions.setFilters({ hasErrors: null })).toDispatchActions([
+            'loadSessionsSuccess',
+        ])
+
+        expect(router.values.searchParams).not.toHaveProperty('has_errors')
+        expect(listMock).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ has_errors: undefined }))
+    })
+
+    it.each([
+        ['nothing', () => {}, false],
+        ['search', () => logic.actions.setFilters({ search: 'abc' }), true],
+        ['has errors', () => logic.actions.setFilters({ hasErrors: false }), true],
+        ['date range', () => logic.actions.setDateFilter('-30d', null), true],
+        ['property filter', () => mcpAnalyticsFiltersLogic.actions.setPropertyFilters([TOOL_FILTER]), true],
+        ['test accounts', () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true), true],
+    ])('hasActiveFilters with %s', (_name, apply, expected) => {
+        apply()
+        expect(logic.values.hasActiveFilters).toBe(expected)
     })
 
     it('ignores a failed request for a previously selected session', async () => {
@@ -157,13 +195,6 @@ describe('mcpSessionsLogic', () => {
     })
 
     describe('shared filters', () => {
-        const TOOL_FILTER: AnyPropertyFilter = {
-            key: '$mcp_tool_name',
-            value: ['create_insight'],
-            operator: PropertyOperator.Exact,
-            type: PropertyFilterType.Event,
-        }
-
         it.each([
             [
                 'restored URL filters',
