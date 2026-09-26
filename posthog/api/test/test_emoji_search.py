@@ -23,7 +23,7 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
 )
-from posthog.emoji_search.match import EmojiSuggestion
+from posthog.emoji_search.match import EmojiSearchResult, EmojiSuggestion
 from posthog.llm.system_one import SystemOneNotConfigured
 
 
@@ -79,14 +79,17 @@ class TestEmojiSearch(SimpleTestCase):
         view.team_id = 1
         request = SimpleNamespace(query_params={"query": "jurassic park"})
 
-        with patch("posthog.api.emoji_search.suggest_emojis", return_value=[EmojiSuggestion("🦖", "T-Rex")]) as suggest:
-            response = view.suggest(request)
+        for cacheable, cache_control in ((True, "private, max-age=604800"), (False, "no-store")):
+            with self.subTest(cacheable=cacheable):
+                result = EmojiSearchResult([EmojiSuggestion("🦖", "T-Rex")], cacheable=cacheable)
+                with patch("posthog.api.emoji_search.suggest_emojis", return_value=result) as suggest:
+                    response = view.suggest(request)
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.data == {"suggestions": [{"emoji": "🦖", "label": "T-Rex"}]}
-        assert response["Cache-Control"] == "private, max-age=604800"
-        assert set(response["Vary"].split(", ")) == {"Cookie", "Authorization"}
-        suggest.assert_called_once_with("jurassic park", team_id=1)
+                assert response.status_code == status.HTTP_200_OK
+                assert response.data == {"suggestions": [{"emoji": "🦖", "label": "T-Rex"}]}
+                assert response["Cache-Control"] == cache_control
+                assert set(response["Vary"].split(", ")) == {"Cookie", "Authorization"}
+                suggest.assert_called_once_with("jurassic park", team_id=1)
 
     def test_unavailable(self) -> None:
         view = EmojiSearchViewSet()

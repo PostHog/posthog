@@ -47,9 +47,10 @@ class TestSuggestEmojis(SimpleTestCase):
 
         build_client.return_value.decide.side_effect = decide
         with patch("posthog.emoji_search.match._cache_suggestions") as cache_suggestions:
-            suggestions = suggest_emojis("jurassic park", team_id=1)
+            result = suggest_emojis("jurassic park", team_id=1)
 
-        assert suggestions
+        assert result.suggestions
+        assert not result.cacheable
         cache_suggestions.assert_not_called()
 
     def test_rank_scores_against_each_questions_none_option(self) -> None:
@@ -79,7 +80,9 @@ class TestSuggestEmojis(SimpleTestCase):
         for cache_method in ("get", "set"):
             with self.subTest(cache_method=cache_method):
                 with patch(f"posthog.emoji_search.match.cache.{cache_method}", side_effect=ConnectionError):
-                    assert [suggestion.emoji for suggestion in suggest_emojis("jurassic park", team_id=1)] == ["🦖"]
+                    assert [
+                        suggestion.emoji for suggestion in suggest_emojis("jurassic park", team_id=1).suggestions
+                    ] == ["🦖"]
                 cache.clear()
 
     @patch("posthog.emoji_search.match.build_system_one_client")
@@ -179,13 +182,14 @@ class TestSuggestEmojis(SimpleTestCase):
             return answer_questions(questions, selected)
 
         build_client.return_value.decide.side_effect = decide
-        suggestions = suggest_emojis("jurassic park", team_id=1)
+        result = suggest_emojis("jurassic park", team_id=1)
 
-        assert {suggestion.emoji for suggestion in suggestions} == {"🦖", "🦕", "🎢", "🎡", "🎠"}
+        assert {suggestion.emoji for suggestion in result.suggestions} == {"🦖", "🦕", "🎢", "🎡", "🎠"}
+        assert result.cacheable
         assert build_client.return_value.decide.call_count == 2
         for call in build_client.return_value.decide.call_args_list:
             assert len(call.kwargs["questions"]) <= 32
-        assert suggest_emojis("jurassic park", team_id=1) == suggestions
+        assert suggest_emojis("jurassic park", team_id=1) == result
         assert build_client.return_value.decide.call_count == 2
 
     @patch("posthog.emoji_search.match.build_system_one_client")
@@ -193,5 +197,5 @@ class TestSuggestEmojis(SimpleTestCase):
         cache.clear()
         build_client.return_value.decide.side_effect = lambda *, state, questions: answer_questions(questions, ())
 
-        assert suggest_emojis("made up place", team_id=2) == []
+        assert suggest_emojis("made up place", team_id=2).suggestions == []
         assert build_client.return_value.decide.call_count == 1

@@ -26,6 +26,12 @@ class EmojiSuggestion:
 
 
 @dataclass(frozen=True)
+class EmojiSearchResult:
+    suggestions: list[EmojiSuggestion]
+    cacheable: bool = True
+
+
+@dataclass(frozen=True)
 class CatalogEmoji:
     suggestion: EmojiSuggestion
     subgroup: str
@@ -122,10 +128,10 @@ def _cache_suggestions(cache_key: str, keys: list[str]) -> None:
         logger.warning("emoji_search_cache_write_failed", exc_info=True)
 
 
-def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
+def suggest_emojis(query: str, *, team_id: int) -> EmojiSearchResult:
     query = " ".join(query.split())
     if not 3 <= len(query) <= 64:
-        return []
+        return EmojiSearchResult([])
 
     catalog = load_catalog()
     cache_key = f"emoji_search:v4:{catalog.fingerprint}:{team_id}:{hashlib.sha256(query.encode()).hexdigest()}"
@@ -138,7 +144,7 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
         try:
             keys = json.loads(cached)
             if isinstance(keys, list) and all(isinstance(key, str) and key in catalog.emojis for key in keys):
-                return [catalog.emojis[key].suggestion for key in keys]
+                return EmojiSearchResult([catalog.emojis[key].suggestion for key in keys])
         except (TypeError, ValueError):
             pass
 
@@ -153,7 +159,7 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
     subgroup_ids = [key[1:] for key in sorted(subgroup_scores, key=lambda key: -subgroup_scores[key])[:5]]
     if not subgroup_ids:
         _cache_suggestions(cache_key, [])
-        return []
+        return EmojiSearchResult([])
 
     emoji_questions = list(build_emoji_questions(catalog, subgroup_ids).items())
     batches = [
@@ -183,4 +189,4 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
     )[:5]
     if not failures:
         _cache_suggestions(cache_key, keys)
-    return [catalog.emojis[key].suggestion for key in keys]
+    return EmojiSearchResult([catalog.emojis[key].suggestion for key in keys], cacheable=not failures)

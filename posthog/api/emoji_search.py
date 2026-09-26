@@ -79,13 +79,13 @@ class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["GET"])
     def suggest(self, request: Request, **kwargs: Any) -> Response:
         try:
-            suggestions = suggest_emojis(request.validated_query_data["query"], team_id=self.team_id)
+            result = suggest_emojis(request.validated_query_data["query"], team_id=self.team_id)
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("emoji_search_unavailable", team_id=self.team_id, reason=type(error).__name__)
             raise EmojiSearchUnavailable() from error
         response = Response(
-            EmojiSearchResponseSerializer({"suggestions": suggestions}).data,
-            headers={"Cache-Control": "private, max-age=604800"},
+            EmojiSearchResponseSerializer({"suggestions": result.suggestions}).data,
+            headers={"Cache-Control": "private, max-age=604800" if result.cacheable else "no-store"},
         )
         patch_vary_headers(response, ["Cookie", "Authorization"])
         return response
