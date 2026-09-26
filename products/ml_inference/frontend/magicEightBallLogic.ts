@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -45,6 +45,16 @@ export function buildEightBallRequest(question: string): DecideRequestApi {
     }
 }
 
+/** iOS Safari only fires devicemotion after this is granted from a tap. */
+type MotionPermissionRequest = { requestPermission?: () => Promise<'granted' | 'denied'> }
+
+function motionNeedsPermission(): boolean {
+    return (
+        typeof DeviceMotionEvent !== 'undefined' &&
+        typeof (DeviceMotionEvent as unknown as MotionPermissionRequest).requestPermission === 'function'
+    )
+}
+
 function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -63,6 +73,7 @@ export interface magicEightBallLogicValues {
     confidence: number | null
     decision: DecideResponseApi | null
     decisionLoading: boolean
+    motionAllowed: boolean
     question: string
 }
 
@@ -82,6 +93,12 @@ export interface magicEightBallLogicActions {
     ) => {
         decision: DecideResponseApi
         payload?: any
+    }
+    requestMotionPermission: () => {
+        value: true
+    }
+    setMotionAllowed: (motionAllowed: boolean) => {
+        motionAllowed: boolean
     }
     setQuestion: (question: string) => {
         question: string
@@ -109,6 +126,8 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
     connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
     actions({
         setQuestion: (question: string) => ({ question }),
+        setMotionAllowed: (motionAllowed: boolean) => ({ motionAllowed }),
+        requestMotionPermission: true,
     }),
     loaders(({ values }) => ({
         decision: [
@@ -134,7 +153,7 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
         question: ['', { setQuestion: (_, { question }) => question }],
         askError: [
             null as string | null,
@@ -143,7 +162,8 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
                 askFailure: (_, { error }) => error,
             },
         ],
-    }),
+        motionAllowed: [!motionNeedsPermission(), { setMotionAllowed: (_, { motionAllowed }) => motionAllowed }],
+    })),
     selectors({
         answer: [
             (s) => [s.decision],
@@ -166,4 +186,14 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
             },
         ],
     }),
+    listeners(({ actions }) => ({
+        requestMotionPermission: async () => {
+            try {
+                const result = await (DeviceMotionEvent as unknown as MotionPermissionRequest).requestPermission?.()
+                actions.setMotionAllowed(result === 'granted')
+            } catch {
+                actions.setMotionAllowed(false)
+            }
+        },
+    })),
 ])

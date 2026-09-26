@@ -2,7 +2,7 @@ import './MagicEightBall.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
@@ -28,16 +28,6 @@ const SHAKE_THRESHOLD = 25
 // One shake is a burst of force peaks. The detector rearms only after the force stays below the threshold this long.
 const SHAKE_QUIET_MS = 1000
 const HAZY_ANSWER = 'Reply hazy, try again'
-
-/** iOS Safari only fires devicemotion after this is granted from a tap. */
-type MotionPermissionRequest = { requestPermission?: () => Promise<'granted' | 'denied'> }
-
-function motionNeedsPermission(): boolean {
-    return (
-        typeof DeviceMotionEvent !== 'undefined' &&
-        typeof (DeviceMotionEvent as unknown as MotionPermissionRequest).requestPermission === 'function'
-    )
-}
 
 function useShake(onShake: () => void, enabled: boolean): void {
     const onShakeRef = useRef(onShake)
@@ -90,10 +80,9 @@ export function MagicEightBallScene(): JSX.Element {
 }
 
 function MagicEightBall(): JSX.Element {
-    const { question, answer, confidence, askError, decisionLoading, askDisabledReason } =
+    const { question, answer, confidence, askError, decisionLoading, askDisabledReason, motionAllowed } =
         useValues(magicEightBallLogic)
-    const { setQuestion, ask } = useActions(magicEightBallLogic)
-    const [motionAllowed, setMotionAllowed] = useState(() => !motionNeedsPermission())
+    const { setQuestion, ask, requestMotionPermission } = useActions(magicEightBallLogic)
 
     const tryAsk = (): void => {
         if (!askDisabledReason) {
@@ -101,15 +90,6 @@ function MagicEightBall(): JSX.Element {
         }
     }
     useShake(tryAsk, motionAllowed)
-
-    const requestMotion = async (): Promise<void> => {
-        try {
-            const result = await (DeviceMotionEvent as unknown as MotionPermissionRequest).requestPermission?.()
-            setMotionAllowed(result === 'granted')
-        } catch {
-            setMotionAllowed(false)
-        }
-    }
 
     const reveal = askError ? HAZY_ANSWER : answer
 
@@ -161,7 +141,7 @@ function MagicEightBall(): JSX.Element {
                     <LemonButton
                         type="secondary"
                         size="small"
-                        onClick={() => void requestMotion()}
+                        onClick={() => requestMotionPermission()}
                         data-attr="magic-eight-ball-motion"
                     >
                         Enable shake to ask
