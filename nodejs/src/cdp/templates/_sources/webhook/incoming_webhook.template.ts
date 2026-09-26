@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { WITHOUT_CREDENTIALS_HOG } from '../without-credentials'
+
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'alpha',
@@ -10,9 +12,10 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/webhook.svg',
     category: ['Custom'],
     code_language: 'hog',
-    code: `
+    code: `${WITHOUT_CREDENTIALS_HOG}
 if(inputs.debug) {
-  print('Incoming request:', request.body)
+  // Header values are left out because nothing lists which headers carry a credential.
+  print('Incoming request:', request.method, 'query:', withoutCredentials(request.query), 'header names:', keys(request.headers), 'body:', withoutCredentials(request.body))
 }
 
 if(request.method != inputs.method) {
@@ -56,10 +59,15 @@ if(empty(inputs.distinct_id)) {
   }
 }
 
+let properties := {}
+for (let propertyKey, propertyValue in (inputs.properties ?? {})) {
+  properties[propertyKey] := withoutCredentials(propertyValue)
+}
+
 postHogCapture({
   'event': inputs.event,
   'distinct_id': inputs.distinct_id,
-  'properties': inputs.properties
+  'properties': properties
 })
 `,
     inputs_schema: [
@@ -67,6 +75,8 @@ postHogCapture({
             key: 'event',
             type: 'string',
             label: 'Event name',
+            description:
+                'The name of the event to capture. For a GET request such as a tracking pixel, read it from a query parameter with {request.query.event}.',
             default: '{request.body.event}',
             secret: false,
             required: true,
@@ -75,7 +85,8 @@ postHogCapture({
             key: 'distinct_id',
             type: 'string',
             label: 'Distinct ID',
-            description: 'The distinct ID this event should be associated with',
+            description:
+                'The distinct ID this event should be associated with. For a GET request, read it from a query parameter with {request.query.distinct_id}.',
             default: '{request.body.distinct_id}',
             secret: false,
             required: true,
@@ -84,11 +95,13 @@ postHogCapture({
             key: 'properties',
             type: 'json',
             label: 'Event properties',
-            description: 'A mapping of the incoming webhook body to the PostHog event properties',
+            description:
+                'A mapping of the incoming request to the PostHog event properties. Use {request.body.x} for body values and {request.query.x} for query parameters.',
             default: {
                 $ip: '{request.ip}',
                 $lib: 'posthog-webhook',
                 $source_url: '{source.url}',
+                query_params: '{request.query}',
             },
             secret: false,
             required: false,
@@ -131,7 +144,8 @@ postHogCapture({
             ],
             default: 'POST',
             required: false,
-            description: 'HTTP method to allow for the request.',
+            description:
+                'HTTP method to allow for the request. Requests with any other method are refused with a 405. For a GET request such as a tracking pixel, choose GET and read values from query parameters with {request.query.x} in the fields above.',
         },
         {
             key: 'debug',
