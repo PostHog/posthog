@@ -77,12 +77,8 @@ jobs:
                         - 'package.json'
                         - 'pnpm-lock.yaml'
                         - 'pnpm-workspace.yaml'
-                      # The AI research session replay lanes (ml-mirror, image-fetch, image-scrub and
-                      # parquet-sink) deploy the same image under their own deploy target, so a node
-                      # deploy for unrelated code does not restart them: a restart rebalances their
-                      # partitions, empties their key and dedup caches, and reloads the scrub sidecar
-                      # models. Their servers import the session replay pipelines, the ingestion
-                      # framework and the common consumer code, so those trees are listed whole.
+                      # The AI research session replay lanes run this image from a separate deploy target, so that a deploy of unrelated node code does not restart them and empty their caches.
+                      # The servers of these lanes import across these trees, so the list holds whole trees and not single files.
                       ai_research_replay_files:
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/**'
                         - 'nodejs/src/ingestion/framework/**'
@@ -91,6 +87,7 @@ jobs:
                         - 'nodejs/src/common/**'
                         - 'nodejs/src/servers/**'
                         - 'nodejs/src/index.ts'
+                        - 'nodejs/src/lifecycle.ts'
                         - 'nodejs/src/capabilities.ts'
                         - 'nodejs/src/types.ts'
                         - 'nodejs/package.json'
@@ -98,6 +95,7 @@ jobs:
                         - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
+                        - 'turbo.json'
                         - 'package.json'
                         - 'pnpm-lock.yaml'
                         - 'pnpm-workspace.yaml'
@@ -248,8 +246,7 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            # Same image, second deploy target: charts keeps state/node-ai-research-session-replay-data.yaml
-            # for the AI research replay lanes, and their ApplicationSets read it instead of state/node.yaml.
+            # The ApplicationSets of the AI research replay lanes in PostHog/charts read state/node-ai-research-session-replay-data.yaml instead of state/node.yaml.
             - name: Trigger node-ai-research-session-replay-data deployment
               if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true' && needs.changes.outputs.ai_research_replay_files == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
