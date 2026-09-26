@@ -220,6 +220,113 @@ class TestFanOut:
 
         assert [r["id"] for r in rows] == ["e1", "e2"]
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_questions_carry_their_event_id(self, MockSession: mock.MagicMock) -> None:
+        # Question ids repeat across events, so the row is only addressable with the event id the
+        # fan-out injects — without it the composite primary key collapses and merges multi-match.
+        session = MockSession.return_value
+
+        def router(url: str) -> Response:
+            if url.endswith("/users/me/organizations/"):
+                return _response("organizations", [{"id": "org1"}])
+            if url.endswith("/organizations/org1/events/"):
+                return _response("events", [{"id": "e1"}, {"id": "e2"}])
+            if url.endswith("/events/e1/questions/"):
+                return _response("questions", [{"id": "q1"}])
+            if url.endswith("/events/e2/questions/"):
+                return _response("questions", [{"id": "q1"}])
+            raise AssertionError(f"unexpected url {url}")
+
+        _wire(session, router)
+
+        response = _run("questions", _make_manager())
+        rows = _rows(response)
+
+        assert rows == [{"id": "q1", "_events_id": "e1"}, {"id": "q1", "_events_id": "e2"}]
+        assert set(response.primary_keys or []) <= rows[0].keys()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_canned_questions_request_the_full_list(self, MockSession: mock.MagicMock) -> None:
+        # Eventbrite documents `include_all` as required; without it the endpoint returns only the
+        # questions already enabled on the event.
+        session = MockSession.return_value
+
+        def router(url: str) -> Response:
+            if url.endswith("/users/me/organizations/"):
+                return _response("organizations", [{"id": "org1"}])
+            if url.endswith("/organizations/org1/events/"):
+                return _response("events", [{"id": "e1"}])
+            if url.endswith("/events/e1/canned_questions/"):
+                return _response("questions", [{"id": "job_title"}])
+            raise AssertionError(f"unexpected url {url}")
+
+        snaps = _wire(session, router)
+
+        rows = _rows(_run("canned_questions", _make_manager()))
+
+        assert rows == [{"id": "job_title", "_events_id": "e1"}]
+        canned_params = next(p for u, p in snaps if u.endswith("/events/e1/canned_questions/"))
+        assert canned_params["include_all"] == "true"
+
+
+class TestReports:
+    @pytest.mark.parametrize(
+        "endpoint, report_path",
+        [("sales_report", "/reports/sales/"), ("attendee_report", "/reports/attendees/")],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_binds_event_into_the_query_string(
+        self, MockSession: mock.MagicMock, endpoint: str, report_path: str
+    ) -> None:
+        # The report endpoints take their event as a query param, so the fan-out binds it through the
+        # path template rather than a path segment — a row is only attributable to an event because
+        # of that binding plus the injected parent id.
+        session = MockSession.return_value
+
+        def router(url: str) -> Response:
+            if url.endswith("/users/me/organizations/"):
+                return _response("organizations", [{"id": "org1"}])
+            if url.endswith("/organizations/org1/events/"):
+                return _response("events", [{"id": "e1"}, {"id": "e2"}])
+            if url.endswith(f"{report_path}?event_ids=e1"):
+                return _response("data", [{"date": "2026-03-04T00:00:00Z", "totals": {"quantity": 1}}])
+            if url.endswith(f"{report_path}?event_ids=e2"):
+                return _response("data", [{"date": "2026-03-04T00:00:00Z", "totals": {"quantity": 2}}])
+            raise AssertionError(f"unexpected url {url}")
+
+        _wire(session, router)
+
+        response = _run(endpoint, _make_manager())
+        rows = _rows(response)
+
+        assert [(r["_events_id"], r["totals"]["quantity"]) for r in rows] == [("e1", 1), ("e2", 2)]
+        assert set(response.primary_keys or []) <= rows[0].keys()
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_report_without_pagination_envelope_stops_after_one_page(self, MockSession: mock.MagicMock) -> None:
+        # Reports answer with no `pagination` object at all; the shared continuation paginator must
+        # read that as a terminal page instead of looping.
+        session = MockSession.return_value
+
+        def router(url: str) -> Response:
+            if url.endswith("/users/me/organizations/"):
+                return _response("organizations", [{"id": "org1"}])
+            if url.endswith("/organizations/org1/events/"):
+                return _response("events", [{"id": "e1"}])
+            if "/reports/sales/" in url:
+                resp = Response()
+                resp.status_code = 200
+                resp._content = json.dumps({"timezone": "UTC", "event_ids": ["e1"], "data": [{"date": "d"}]}).encode()
+                return resp
+            raise AssertionError(f"unexpected url {url}")
+
+        _wire(session, router)
+
+        rows = _rows(_run("sales_report", _make_manager()))
+
+        assert rows == [{"date": "d", "_events_id": "e1"}]
+        assert session.send.call_count == 3
+
 
 class TestIncrementalFilter:
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -328,19 +435,31 @@ class TestValidateCredentials:
 
 
 class TestEventbriteSourceResponse:
-    @pytest.mark.parametrize("endpoint", ["organizations", "events", "orders", "attendees"])
+    @pytest.mark.parametrize(
+        "endpoint, partition_key",
+        [
+            ("organizations", "created"),
+            ("events", "created"),
+            ("orders", "created"),
+            ("attendees", "created"),
+            ("sales_report", "date"),
+            ("attendee_report", "date"),
+        ],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_partitioned_endpoints(self, MockSession: mock.MagicMock, endpoint: str) -> None:
+    def test_partitioned_endpoints(self, MockSession: mock.MagicMock, endpoint: str, partition_key: str) -> None:
         MockSession.return_value.headers = {}
         response = _run(endpoint, _make_manager())
 
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
         assert response.partition_mode == "datetime"
         assert response.partition_format == "week"
-        assert response.partition_keys == ["created"]
+        assert response.partition_keys == [partition_key]
 
-    @pytest.mark.parametrize("endpoint", ["categories", "formats", "venues", "ticket_classes"])
+    @pytest.mark.parametrize(
+        "endpoint",
+        ["categories", "subcategories", "formats", "venues", "ticket_classes", "questions", "canned_questions"],
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_non_partitioned_endpoints(self, MockSession: mock.MagicMock, endpoint: str) -> None:
         MockSession.return_value.headers = {}
