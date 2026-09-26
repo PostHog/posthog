@@ -121,9 +121,17 @@ class TestEightBallAPI(APIBaseTest):
         assert request.state["question"] == "Is our pricing usage based?"
         assert "usage based" in request.state["business_knowledge"][0]["text"]
 
+    @parameterized.expand([("flag_off", False), ("flag_check_raises", Exception("flag service unavailable"))])
     @override_settings(DEBUG=False)
-    def test_rollout_flag_off_does_not_search(self, _embed, feature_enabled) -> None:
-        feature_enabled.side_effect = lambda flag, *_args, **_kwargs: flag != MAGIC_EIGHT_BALL_FEATURE_FLAG
+    def test_rollout_flag_off_does_not_search(self, _embed, feature_enabled, _name, eight_ball_flag) -> None:
+        def evaluate(flag: str, *_args: object, **_kwargs: object) -> bool:
+            if flag != MAGIC_EIGHT_BALL_FEATURE_FLAG:
+                return True
+            if isinstance(eight_ball_flag, Exception):
+                raise eight_ball_flag
+            return eight_ball_flag
+
+        feature_enabled.side_effect = evaluate
         with (
             patch("products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team") as search,
             patch(DECIDE) as decide,

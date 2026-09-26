@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from django.conf import settings
 from django.core.exceptions import PermissionDenied
 
+import structlog
 import posthoganalytics
 
 from posthog.dataclasses import frozen
@@ -28,6 +29,8 @@ from products.ml_inference.backend.facade.contracts import (
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
 
 from . import logic
+
+logger = structlog.get_logger(__name__)
 
 ANSWER_QUESTION_ID = "answer"
 MAGIC_EIGHT_BALL_FEATURE_FLAG = "business-knowledge-magic-eight-ball"
@@ -154,7 +157,7 @@ def ask(team: Team, question: str) -> EightBallAnswer:
                 send_feature_flag_events=False,
             )
         except Exception:
-            # Flag evaluation failed (e.g., transient PostHog API outage); fail closed.
+            logger.exception("business_knowledge.eight_ball.flag_check_failed", team_id=team.id)
             flag_enabled = False
         if not flag_enabled:
             raise EightBallDisabledError()
