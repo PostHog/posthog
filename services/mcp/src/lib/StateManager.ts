@@ -66,7 +66,12 @@ export class StateManager {
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
 
         if (!introspectionResult.success) {
-            throw new Error(ErrorCode.INVALID_API_KEY)
+            // Introspection answers 401 only when it rejects the credential. Every other
+            // failure means the check did not happen, so it must not read as a rejection.
+            if (introspectionResult.error.message.includes(ErrorCode.INVALID_API_KEY)) {
+                throw new Error(ErrorCode.INVALID_API_KEY)
+            }
+            throw new Error(ErrorCode.CREDENTIAL_CHECK_UNAVAILABLE)
         }
 
         if (!introspectionResult.data.active) {
