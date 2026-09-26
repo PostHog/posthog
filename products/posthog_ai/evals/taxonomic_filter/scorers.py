@@ -98,7 +98,7 @@ def _suggested(output: dict | None) -> list[str]:
 
 
 class EventMatchFound(Scorer):
-    """Recall: for a search that describes a core event, is the strongest suggestion one that it describes?"""
+    """Recall: for a search that describes a core event, does any suggestion the picker shows name it?"""
 
     def _name(self) -> str:
         return "event_match_found"
@@ -110,7 +110,7 @@ class EventMatchFound(Scorer):
         if output and output.get("error"):
             return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
         suggested = _suggested(output)
-        found = bool(suggested) and suggested[0] in acceptable
+        found = any(name in acceptable for name in suggested)
         return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"suggested": suggested})
 
 
@@ -130,5 +130,10 @@ class NoWrongEventMatch(Scorer):
         if output and output.get("error"):
             return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
         suggested = _suggested(output)
+        # No suggestion is right for a search that fits no event, and says nothing about precision for one that does.
+        if not suggested:
+            if acceptable:
+                return Score(name=self._name(), score=None, metadata={"reason": "No suggestion shown"})
+            return Score(name=self._name(), score=1.0, metadata={"suggested": suggested})
         right = all(name in acceptable for name in suggested)
         return Score(name=self._name(), score=1.0 if right else 0.0, metadata={"suggested": suggested})

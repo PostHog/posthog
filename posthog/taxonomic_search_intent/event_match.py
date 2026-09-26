@@ -7,6 +7,7 @@ decision model, with the event's label and description as the meaning to judge.
 """
 
 import hashlib
+import contextvars
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 
@@ -126,7 +127,12 @@ def _probabilities(team_id: int, query: str) -> _ModelAnswers:
     )
     state = event_match_state(query)
     with ThreadPoolExecutor(max_workers=len(chunks), thread_name_prefix="event-match") as executor:
-        results = list(executor.map(lambda chunk: _ask_chunk(client, state, chunk, team_id), chunks))
+        # A fresh copy of the request context per chunk keeps its log and error-tracking tags on the failure reports.
+        futures = [
+            executor.submit(contextvars.copy_context().run, _ask_chunk, client, state, chunk, team_id)
+            for chunk in chunks
+        ]
+        results = [future.result() for future in futures]
     if all(result is None for result in results):
         raise SystemOneRequestFailed("Every event match request failed")
     probabilities: dict[str, float] = {}
