@@ -115,6 +115,13 @@ class DeletionTarget:
     # accepts_property_rewrite=True implies this must stay True too, since the rewrite assumes the
     # column holds real data; __post_init__ below enforces that pairing.
     stores_person_properties: bool = True
+    # Whether the person-overrides squash rewrites person_id here. A merge moves a distinct_id to
+    # another person, and a later deletion names only the survivor, so a table the squash skips
+    # keeps its rows on the absorbed person and no sweep ever matches them (#93035).
+    # Opt-in rather than assumed, because the rewrite is an ALTER UPDATE and ClickHouse refuses one
+    # on a sort key column. Leaving it False is a decision that a merge may strand rows here until
+    # the TTL passes; test_deletion_coverage.py makes you record that decision.
+    accepts_person_id_rewrite: bool = False
     # Read uuids from this table when queueing a deferred deletion. False where the rows duplicate
     # another target's uuids, which would queue each one twice.
     queue_uuid_candidates: bool = True
@@ -171,6 +178,7 @@ EVENTS = DeletionTarget(
     read_table="events",
     hogql_schema=HogQLSchema.LEGACY,
     accepts_property_rewrite=True,
+    accepts_person_id_rewrite=True,
 )
 
 EVENTS_JSON = DeletionTarget(
@@ -180,6 +188,7 @@ EVENTS_JSON = DeletionTarget(
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
     node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
+    # Left out of the squash on purpose; PERSON_ID_REWRITE_EXEMPT carries the reason and the cost.
     # Dual-written from the same events, so its uuids are the legacy table's.
     queue_uuid_candidates=False,
 )
@@ -195,11 +204,28 @@ FLAG_EVALUATIONS = DeletionTarget(
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
     stores_person_properties=False,
+    accepts_person_id_rewrite=True,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
 )
 
 EVENTS_TARGETS: tuple[DeletionTarget, ...] = (EVENTS, EVENTS_JSON)
 PERSONAL_DATA_TARGETS: tuple[DeletionTarget, ...] = (*EVENTS_TARGETS, FLAG_EVALUATIONS)
+
+# Every table squash_person_overrides rewrites person_id on. Derived from the capability rather than
+# listed by hand, so registering a target and forgetting the squash is not expressible.
+SQUASH_TARGETS: tuple[DeletionTarget, ...] = tuple(
+    target for target in PERSONAL_DATA_TARGETS if target.accepts_person_id_rewrite
+)
+
+# Targets that carry person_id and are deliberately left out of the squash. An entry is not free:
+# it accepts that a merge strands rows on the absorbed person until the TTL drops them, because the
+# squash deletes the overrides that recorded the mapping right after applying them.
+#
+# sharded_events_json is exempt while the squash is not ready to dispatch to the events cluster. A
+# run that resolves the table inconsistently is worse than one that never tries: it stages the
+# snapshot dictionary onto a cluster it may not mutate, and the overrides are dropped either way.
+# Setting accepts_person_id_rewrite on the target is what restores it; see COVERAGE_DOC.
+PERSON_ID_REWRITE_EXEMPT: frozenset[str] = frozenset({EVENTS_JSON_DATA_TABLE})
 
 # Storage tables that carry person properties and are reclaimed by their TTL alone. Each entry is a
 # decision that erasure may lag by the retention window, not an oversight.

@@ -109,17 +109,38 @@ describe('planStableChunks', () => {
     })
 
     // The copied source map is shifted down exactly one line, so the prelude must be a line of its own.
-    it('puts a prelude on its own first line and names the chunk by it', () => {
+    it('puts a prelude on its own first line, keyed by the chunk specifier, and names the chunk by it', () => {
         const sources = entry('export const a=1')
         const withPrelude = planStableChunks(
             OUTPUTS,
             (outputPath: string) => sources[outputPath],
             'dist/',
-            new Map([['dist/Scene-AAAA1111.js', 'await window.ESBUILD_LOAD_CSS([]);']])
+            new Map([['dist/Scene-AAAA1111.js', (specifier: string) => `register(${JSON.stringify(specifier)});`]])
         ).plan.get('dist/Scene-AAAA1111.js')!
 
-        expect(withPrelude.source.split('\n')[0]).toBe('await window.ESBUILD_LOAD_CSS([]);')
+        expect(withPrelude.source.split('\n')[0]).toMatch(/^register\("@c\/e[0-9A-F]{10}"\);$/)
         expect(withPrelude.stableFile).not.toBe(plan(sources).get('dist/Scene-AAAA1111.js')!.stableFile)
+    })
+
+    it('imports a chunk with a prelude dynamically through the stylesheet-aware loader, and statically as is', () => {
+        const outputs = {
+            ...OUTPUTS,
+            'dist/Lazy-DDDD4444.js': { entryPoint: 'src/scenes/Lazy.tsx', inputs: { 'src/scenes/Lazy.tsx': {} } },
+        }
+        const importer =
+            'import("/static/Lazy-DDDD4444.js");import("/static/chunk-BBBB2222.js");import"/static/Lazy-DDDD4444.js"'
+        const { plan: lazyPlan } = planStableChunks(
+            outputs,
+            (outputPath: string) => (outputPath === 'dist/Scene-AAAA1111.js' ? importer : ''),
+            'dist/',
+            new Map([['dist/Lazy-DDDD4444.js', () => 'register();']])
+        )
+        const { source, mapValid } = lazyPlan.get('dist/Scene-AAAA1111.js')!
+
+        expect(source).toMatch(
+            /^ESBUILD_IMPORT\("@c\/e[0-9A-F]{10}" *\);import\("@c\/c[0-9A-F]{10}" *\);import"@c\/e[0-9A-F]{10}" *$/
+        )
+        expect(mapValid).toBe(true)
     })
 
     describe('writeStableChunks', () => {
@@ -144,7 +165,7 @@ describe('planStableChunks', () => {
                     chunks: {},
                     entrypoints: [],
                     preloadManifest: undefined,
-                    preludes: prelude ? new Map([['dist/entry-AAAA1111.js', prelude]]) : new Map(),
+                    preludes: prelude ? new Map([['dist/entry-AAAA1111.js', () => prelude]]) : new Map(),
                 })
 
                 const stableMapFile = readdirSync(distDir).find(
@@ -158,7 +179,7 @@ describe('planStableChunks', () => {
 
         // Pins the map shift so a regression here doesn't only show up as misattributed stack traces.
         it.each([
-            ['a prelude chunk', 'await window.ESBUILD_LOAD_CSS([]);', ';AAAA'],
+            ['a prelude chunk', 'register();', ';AAAA'],
             ['a chunk with no prelude', null, 'AAAA'],
         ])('shifts the written source map by one line for %s', (_name, prelude, expectedMappings) => {
             expect(writeAndReadMap(prelude)).toBe(expectedMappings)
