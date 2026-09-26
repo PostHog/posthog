@@ -25,6 +25,7 @@ const MAX_QUERY_LENGTH = 64
 const EVENT_MATCH_DEBOUNCE_MS = 350
 
 export interface EventMatches {
+    projectId: number
     query: string
     matches: EventMatchApi[]
 }
@@ -50,9 +51,9 @@ export interface taxonomicEventMatchLogicValues {
 export interface taxonomicEventMatchLogicActions {
     selectItem: (
         group: TaxonomicFilterGroup,
-        value: TaxonomicFilterValue | null,
+        value: TaxonomicFilterValue,
         item: any,
-        meta?: SelectItemMeta
+        meta?: SelectItemMeta | undefined
     ) => {
         group: TaxonomicFilterGroup
         item: any
@@ -80,7 +81,8 @@ export interface taxonomicEventMatchLogicMeta {
         suggestedEvents: (
             eventMatches: EventMatches | null,
             searchQuery: string,
-            taxonomicGroups: TaxonomicFilterGroup[]
+            taxonomicGroups: TaxonomicFilterGroup[],
+            currentProjectId: number | null
         ) => EventMatchApi[]
     }
 }
@@ -126,14 +128,15 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
     }),
     selectors({
         suggestedEvents: [
-            (s) => [s.eventMatches, s.searchQuery, s.taxonomicGroups],
+            (s) => [s.eventMatches, s.searchQuery, s.taxonomicGroups, s.currentProjectId],
             (
                 eventMatches: EventMatches | null,
                 searchQuery: string,
-                taxonomicGroups: TaxonomicFilterGroup[]
+                taxonomicGroups: TaxonomicFilterGroup[],
+                currentProjectId: number | null
             ): EventMatchApi[] => {
-                // An answer for an older search stays hidden, so a suggestion never names the wrong search.
-                if (eventMatches?.query !== searchQuery.trim()) {
+                // An answer for an older search or another project stays hidden, so a suggestion never names the wrong one.
+                if (eventMatches?.query !== searchQuery.trim() || eventMatches.projectId !== currentProjectId) {
                     return []
                 }
                 // A picker that excludes an event from its list must not offer it as a suggestion either.
@@ -174,7 +177,7 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
                 return
             }
             breakpoint()
-            actions.setEventMatches({ query, matches })
+            actions.setEventMatches({ projectId, query, matches })
             if (matches.length > 0) {
                 // pinned: analytics event name and properties, the flag's success metric reads them
                 posthog.capture('taxonomic filter event match suggested', {
