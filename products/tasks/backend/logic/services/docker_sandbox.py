@@ -90,6 +90,7 @@ AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev s
 # host-published port maps to it so connect_info can reach the app across processes.
 
 STREAMLIT_AUTH_PROXY_PORT = 8080
+DOCKER_PREVIEW_PORTS = (3000, 4173, 5000, 5173, 8000, 8888)
 
 # Env vars holding a PostHog URL the sandbox must reach from inside the container.
 # localhost would resolve to the container itself, so they're rewritten to
@@ -542,6 +543,9 @@ class DockerSandbox(AgentServerLaunchMixin):
                 STREAMLIT_AUTH_PROXY_PORT if config.template == SandboxTemplate.STREAMLIT_BASE else AGENT_SERVER_PORT
             )
             port_args = ["-p", f"{host_port}:{container_port}"]
+            for preview_port in DOCKER_PREVIEW_PORTS:
+                if preview_port != container_port:
+                    port_args.extend(["-p", f"127.0.0.1::{preview_port}"])
 
             mount_map = parse_sandbox_repo_mount_map()
             volume_args: list[str] = []
@@ -688,8 +692,22 @@ class DockerSandbox(AgentServerLaunchMixin):
         except subprocess.CalledProcessError:
             return None
         for line in result.stdout.splitlines():
-            _, _, mapping = line.partition("->")
+            published, _, mapping = line.partition("->")
+            container_port = published.strip().split("/", 1)[0]
+            if container_port.isdigit() and int(container_port) in DOCKER_PREVIEW_PORTS:
+                continue
             host_port = mapping.strip().rsplit(":", 1)[-1]
+            if host_port.isdigit():
+                return int(host_port)
+        return None
+
+    def _published_preview_host_port(self, port: int) -> int | None:
+        try:
+            result = DockerSandbox._run(["docker", "port", self.id, f"{port}/tcp"])
+        except subprocess.CalledProcessError:
+            return None
+        for line in result.stdout.splitlines():
+            host_port = line.strip().rsplit(":", 1)[-1]
             if host_port.isdigit():
                 return int(host_port)
         return None
@@ -947,7 +965,12 @@ class DockerSandbox(AgentServerLaunchMixin):
         return AgentServerResult(url=url, token=None)
 
     def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
-        raise NotImplementedError("Docker sandboxes do not support preview connect tokens")
+        if port not in DOCKER_PREVIEW_PORTS:
+            raise NotImplementedError(f"Docker sandboxes publish previews only on ports {DOCKER_PREVIEW_PORTS}")
+        host_port = self._published_preview_host_port(port)
+        if host_port is None:
+            raise NotImplementedError(f"Docker sandbox {self.id} does not publish port {port}")
+        return AgentServerResult(url=f"http://localhost:{host_port}", token=None)
 
     def _build_agent_server_command(
         self,

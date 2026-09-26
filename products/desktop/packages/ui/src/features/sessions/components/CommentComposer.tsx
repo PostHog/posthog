@@ -1,8 +1,14 @@
 import { PaperPlaneRightIcon, XIcon } from "@phosphor-icons/react";
-import { InputGroupAddon, InputGroupButton } from "@posthog/quill";
+import {
+  Checkbox,
+  InputGroupAddon,
+  InputGroupButton,
+  Label,
+} from "@posthog/quill";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { MentionComposer } from "@posthog/ui/features/canvas/components/MentionComposer";
 import { useMentionsDisabledReason } from "@posthog/ui/features/sessions/mentionAvailability";
+import { useId, useState } from "react";
 import { mentionIdsFromContent } from "./commentMentions";
 
 export function CommentComposer({
@@ -16,6 +22,7 @@ export function CommentComposer({
   disabled = false,
   submitLabel = "Comment",
   autoFocus = false,
+  onSendToAgent,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -28,7 +35,10 @@ export function CommentComposer({
   submitLabel?: string;
   /** For a composer the user just opened, so they can type straight away. */
   autoFocus?: boolean;
+  onSendToAgent?: (content: string) => void;
 }) {
+  const sendToAgentId = useId();
+  const [sendToAgent, setSendToAgent] = useState(false);
   const mentionsDisabledReason = useMentionsDisabledReason();
   const mentionMembers = mentionsDisabledReason ? [] : members;
   const showMentionsDisabled = !!mentionsDisabledReason && value.includes("@");
@@ -37,7 +47,11 @@ export function CommentComposer({
     if (!content || disabled) return;
     void Promise.resolve(
       onSubmit(content, mentionIdsFromContent(content, mentionMembers)),
-    ).catch(() => undefined);
+    )
+      .then(() => {
+        if (sendToAgent) onSendToAgent?.(content);
+      })
+      .catch(() => undefined);
   };
 
   return (
@@ -56,6 +70,20 @@ export function CommentComposer({
           <output className="px-1 text-muted-foreground text-xs">
             {mentionsDisabledReason}
           </output>
+        )}
+        {onSendToAgent && (
+          <Label
+            htmlFor={sendToAgentId}
+            className="flex cursor-pointer items-center gap-1.5 px-1 text-muted-foreground text-xs"
+          >
+            <Checkbox
+              id={sendToAgentId}
+              checked={sendToAgent}
+              data-attr="comment-send-to-agent"
+              onCheckedChange={(value) => setSendToAgent(value === true)}
+            />
+            Send to agent
+          </Label>
         )}
         {onCancel && (
           <InputGroupButton

@@ -578,6 +578,12 @@ class SlackThreadContextResult:
 
 
 @dataclass(frozen=True)
+class TaskRunExposedPortDTO:
+    port: int
+    name: str | None = None
+
+
+@dataclass(frozen=True)
 class TaskRunDetailDTO:
     """The HTTP detail representation of a task run.
 
@@ -610,6 +616,7 @@ class TaskRunDetailDTO:
     updated_at: datetime | None = None
     completed_at: datetime | None = None
     preview_available: bool = False
+    exposed_ports: list[TaskRunExposedPortDTO] = Field(default_factory=list)
     scheduled_at: datetime | None = None
 
 

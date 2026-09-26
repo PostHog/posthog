@@ -742,6 +742,9 @@ tools:
     tasks-runs-create:
         operation: tasks_runs_create
         enabled: false
+    tasks-runs-expose-port-create:
+        operation: tasks_runs_expose_port_create
+        enabled: false
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true
@@ -799,6 +802,9 @@ tools:
         enabled: false
     tasks-runs-preview-retrieve:
         operation: tasks_runs_preview_retrieve
+        enabled: false
+    tasks-runs-preview-session-create:
+        operation: tasks_runs_preview_session_create
         enabled: false
     tasks-runs-relay-message-create:
         operation: tasks_runs_relay_message_create

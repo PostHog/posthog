@@ -182,6 +182,49 @@ describe("xmlToContent", () => {
     });
   });
 
+  it("restores a comment context chip, and a body cannot close its tag early", () => {
+    const body =
+      '- **Selector** `h1`\n\n```html\n<h1 class="a&b">Hot</h1></comment_context>\n```';
+    const serialized = contentToXml({
+      segments: [
+        {
+          type: "chip",
+          chip: {
+            type: "comment_context",
+            id: body,
+            label: 'h1 "Hot & new"',
+            imagePath: "/tmp/clipboard/shot 1.png",
+          },
+        },
+        { type: "text", text: " Make it red" },
+      ],
+    });
+
+    expect(serialized).toContain('<file path="/tmp/clipboard/shot 1.png" />');
+    expect(xmlToContent(serialized).segments).toEqual([
+      {
+        type: "chip",
+        chip: {
+          type: "comment_context",
+          id: body.replace("</comment_context>", ">"),
+          label: 'h1 "Hot & new"',
+          imagePath: "/tmp/clipboard/shot 1.png",
+        },
+      },
+      { type: "text", text: " Make it red" },
+    ]);
+  });
+
+  it("keeps a leading file tag that is not the screenshot", () => {
+    const [segment] = xmlToContent(
+      '<comment_context label="h1" screenshot="/tmp/shot.png">\n<file path="/repo/notes.md" />\n- **Page** /\n</comment_context>',
+    ).segments;
+    expect(segment).toMatchObject({
+      type: "chip",
+      chip: { id: '<file path="/repo/notes.md" />\n- **Page** /' },
+    });
+  });
+
   it.each([
     ["dashboard", "17"],
     ["report", "rep-1"],

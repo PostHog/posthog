@@ -112,6 +112,19 @@ export class TaskToolsApiClient {
     );
   }
 
+  async exposeTaskRunPort(
+    taskId: string,
+    runId: string,
+    payload: { port: number; name?: string },
+    signal?: AbortSignal,
+  ): Promise<TaskRun> {
+    const teamId = this.http.getTeamId();
+    return this.http.request<TaskRun>(
+      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/expose_port/`,
+      { method: "POST", body: JSON.stringify(payload), signal },
+    );
+  }
+
   async reportAnalysisActivity(
     taskId: string,
     runId: string,

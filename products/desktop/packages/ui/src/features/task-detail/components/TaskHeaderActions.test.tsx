@@ -32,6 +32,9 @@ vi.mock("@posthog/ui/features/code-review/hooks/useDiffStatsToggle", () => ({
     toggle: vi.fn(),
   }),
 }));
+vi.mock("@posthog/ui/features/task-preview/TaskPreviewButton", () => ({
+  TaskPreviewButton: () => null,
+}));
 vi.mock("@posthog/ui/features/autoresearch/AutoresearchHeaderButton", () => ({
   AutoresearchHeaderButton: () => null,
 }));

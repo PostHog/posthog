@@ -72,8 +72,15 @@ from products.tasks.backend.constants import (
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
     CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG as CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
+    DEV_STACK_PREVIEW_NAME,
     DEV_STACK_PREVIEW_PORT,
     DEV_STACK_PREVIEW_STATE_KEY,
+    EXPOSED_PORT_MAX,
+    EXPOSED_PORT_MIN,
+    EXPOSED_PORT_NAME_MAX_CHARS as EXPOSED_PORT_NAME_MAX_CHARS,
+    EXPOSED_PORT_RESERVED,
+    EXPOSED_PORTS_MAX_PER_RUN as EXPOSED_PORTS_MAX_PER_RUN,
+    EXPOSED_PORTS_STATE_KEY,
     GITHUB_PR_URL_PREFIX as GITHUB_PR_URL_PREFIX,  # re-exported for signals billing
     MAX_CUSTOM_IMAGES_PER_TEAM,
     MAX_CUSTOM_IMAGES_PER_USER,
@@ -610,6 +617,7 @@ def _task_run_detail_to_dto(
         updated_at=run.updated_at,
         completed_at=run.completed_at,
         preview_available=task_run_preview_ready(run.state),
+        exposed_ports=task_run_exposed_ports(run.state),
         scheduled_at=run.scheduled_at,
     )
 
@@ -5238,8 +5246,123 @@ def task_run_preview_ready(state: dict | None) -> bool:
     return bool(sandbox_id) and preview.get("sandbox_id") == sandbox_id
 
 
+def is_exposable_port(port: int) -> bool:
+    return EXPOSED_PORT_MIN <= port <= EXPOSED_PORT_MAX and port not in EXPOSED_PORT_RESERVED
+
+
+def _registered_exposed_ports(state: dict | None) -> list[dict[str, Any]]:
+    run_state = state or {}
+    sandbox_id = run_state.get("sandbox_id")
+    entries = run_state.get(EXPOSED_PORTS_STATE_KEY)
+    if not sandbox_id or not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict)
+        and entry.get("sandbox_id") == sandbox_id
+        and isinstance(entry.get("port"), int)
+        and not isinstance(entry.get("port"), bool)
+    ]
+
+
+def task_run_exposed_ports(state: dict | None) -> list[contracts.TaskRunExposedPortDTO]:
+    ports: list[contracts.TaskRunExposedPortDTO] = []
+    if task_run_preview_ready(state):
+        ports.append(contracts.TaskRunExposedPortDTO(port=DEV_STACK_PREVIEW_PORT, name=DEV_STACK_PREVIEW_NAME))
+    seen = {entry.port for entry in ports}
+    for entry in _registered_exposed_ports(state):
+        port = entry["port"]
+        if port in seen:
+            continue
+        seen.add(port)
+        name = entry.get("name")
+        ports.append(contracts.TaskRunExposedPortDTO(port=port, name=name if isinstance(name, str) else None))
+    return ports
+
+
+TaskRunExposePortOutcome = Literal["exposed", "no_sandbox", "limit_reached"]
+
+
+@frozen
+class TaskRunExposePortResult:
+    outcome: TaskRunExposePortOutcome
+    run: contracts.TaskRunDetailDTO | None = None
+
+
+def expose_task_run_port(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    port: int,
+    name: str | None,
+    include_agent_state: bool = False,
+    user_id: int | None = None,
+) -> TaskRunExposePortResult | None:
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+
+    outcome: TaskRunExposePortOutcome = "exposed"
+
+    def _register(state: dict[str, Any]) -> None:
+        nonlocal outcome
+        sandbox_id = state.get("sandbox_id")
+        if not sandbox_id:
+            outcome = "no_sandbox"
+            return
+        entries = [entry for entry in _registered_exposed_ports(state) if entry["port"] != port]
+        if len(entries) >= EXPOSED_PORTS_MAX_PER_RUN:
+            outcome = "limit_reached"
+            return
+        entries.append(
+            {
+                "port": port,
+                "name": name,
+                "sandbox_id": sandbox_id,
+                "exposed_at": django_timezone.now().isoformat(),
+            }
+        )
+        state[EXPOSED_PORTS_STATE_KEY] = entries
+
+    TaskRun.mutate_state_atomic(run.id, _register)
+    if outcome != "exposed":
+        return TaskRunExposePortResult(outcome=outcome)
+
+    run.refresh_from_db()
+    run.publish_stream_state_event()
+    return TaskRunExposePortResult(
+        outcome=outcome,
+        run=_task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id),
+    )
+
+
+def _exposed_port_probe(port: int) -> str:
+    return (
+        f"code=$(curl -s -o /dev/null -w '%{{http_code}}' --max-time 5 http://127.0.0.1:{port}/) "
+        '&& [ "$code" -gt 0 ] && [ "$code" -lt 500 ]'
+    )
+
+
+def _preview_target(state: dict, port: int | None) -> tuple[int, str] | None:
+    ready = task_run_preview_ready(state)
+    if port is None:
+        return (DEV_STACK_PREVIEW_PORT, _PREVIEW_HEALTH_PROBE) if ready else None
+    if port == DEV_STACK_PREVIEW_PORT and ready:
+        return DEV_STACK_PREVIEW_PORT, _PREVIEW_HEALTH_PROBE
+    if not any(entry["port"] == port for entry in _registered_exposed_ports(state)):
+        return None
+    return port, _exposed_port_probe(port)
+
+
+def _preview_redirect_url(url: str, token: str | None) -> str:
+    base = f"{url.rstrip('/')}/"
+    return f"{base}?_modal_connect_token={token}" if token else base
+
+
 def resolve_task_run_preview_redirect(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, user_id: int, port: int | None = None
 ) -> TaskRunPreviewRedirect | None:
     from products.tasks.backend.exceptions import (
         SandboxNotFoundError,  # noqa: PLC0415 — keep temporalio off the api import path
@@ -5253,8 +5376,10 @@ def resolve_task_run_preview_redirect(
         return None
 
     state = run.state if isinstance(run.state, dict) else {}
-    if not task_run_preview_ready(state):
+    target = _preview_target(state, port)
+    if target is None:
         return _PREVIEW_NOT_READY
+    target_port, health_probe = target
     sandbox_id = state["sandbox_id"]
 
     try:
@@ -5270,7 +5395,7 @@ def resolve_task_run_preview_redirect(
         return _PREVIEW_ENDED
 
     try:
-        probe = sandbox.execute(_PREVIEW_HEALTH_PROBE, timeout_seconds=_PREVIEW_HEALTH_PROBE_TIMEOUT_SECONDS)
+        probe = sandbox.execute(health_probe, timeout_seconds=_PREVIEW_HEALTH_PROBE_TIMEOUT_SECONDS)
     except SandboxNotFoundError:
         return _PREVIEW_ENDED
     except Exception:
@@ -5281,19 +5406,21 @@ def resolve_task_run_preview_redirect(
 
     try:
         credentials = sandbox.create_preview_connect_credentials(
-            port=DEV_STACK_PREVIEW_PORT, user_metadata={"user_id": user_id, "team_id": team_id}
+            port=target_port, user_metadata={"user_id": user_id, "team_id": team_id}
         )
     except SandboxNotFoundError:
         return _PREVIEW_ENDED
+    except NotImplementedError:
+        return _PREVIEW_UNAVAILABLE
     except Exception:
         logger.exception("task_run_preview_token_mint_failed", extra={"run_id": str(run.id)})
         return _PREVIEW_UNAVAILABLE
 
-    if not credentials.token:
+    if not credentials.url or (target_port == DEV_STACK_PREVIEW_PORT and not credentials.token):
         return _PREVIEW_UNAVAILABLE
     return TaskRunPreviewRedirect(
         outcome="ready",
-        redirect_url=f"{credentials.url.rstrip('/')}/?_modal_connect_token={credentials.token}",
+        redirect_url=_preview_redirect_url(credentials.url, credentials.token),
     )
 
 

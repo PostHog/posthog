@@ -466,6 +466,26 @@ export function isContentlessTask(task: {
   return !task.title?.trim() && !task.description?.trim();
 }
 
+export interface TaskRunExposedPort {
+  port: number;
+  name: string | null;
+}
+
+export const taskRunPreviewSessionOutcomeSchema = z.enum([
+  "ready",
+  "not_ready",
+  "ended",
+  "unavailable",
+]);
+export type TaskRunPreviewSessionOutcome = z.infer<
+  typeof taskRunPreviewSessionOutcomeSchema
+>;
+
+export interface TaskRunPreviewSession {
+  outcome: TaskRunPreviewSessionOutcome;
+  url: string | null;
+}
+
 export interface TaskRun {
   id: string;
   task: string; // Task ID
@@ -482,6 +502,7 @@ export interface TaskRun {
   output: Record<string, unknown> | null; // Structured output (PR URL, commit SHA, etc.)
   state: TaskRunState;
   artifacts?: TaskRunArtifact[];
+  exposed_ports?: TaskRunExposedPort[];
   created_at: string;
   updated_at: string;
   completed_at: string | null;

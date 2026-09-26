@@ -51,6 +51,11 @@ export type TabData =
       objectId: string;
     }
   | {
+      type: "preview";
+      runId: string;
+      port: number;
+    }
+  | {
       type: "other";
     };
 

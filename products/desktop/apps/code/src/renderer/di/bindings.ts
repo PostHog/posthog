@@ -174,6 +174,10 @@ import {
   NOTIFICATIONS_SERVICE,
 } from "@posthog/platform/notifications";
 import type {
+  IScreenCapture,
+  SCREEN_CAPTURE_SERVICE,
+} from "@posthog/platform/screen-capture";
+import type {
   ISettingsBackupFiles,
   SETTINGS_BACKUP_FILES,
 } from "@posthog/platform/settings-backup-files";
@@ -262,6 +266,10 @@ import {
   SPEECH_KEY_STORE,
 } from "@posthog/ui/features/settings/speechKeyStore";
 import {
+  TASK_PREVIEW_FRAME_COMPONENT,
+  type TaskPreviewFrameComponent,
+} from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
+import {
   SHELL_CLIENT,
   type ShellClient,
 } from "@posthog/ui/features/terminal/shellClient";
@@ -310,6 +318,7 @@ export interface RendererBindings {
   [TRPC_CLIENT]: TRPCClient<TrpcRouter>;
   [HOST_TRPC_CLIENT]: HostTrpcClient;
   [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
+  [SCREEN_CAPTURE_SERVICE]: IScreenCapture;
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
@@ -321,6 +330,7 @@ export interface RendererBindings {
   [DIFF_WORKER_FACTORY]: DiffWorkerFactory;
   [REVIEW_HOST]: ReviewHost;
   [ARTIFACT_HTML_FRAME_COMPONENT]: ArtifactHtmlFrameComponent;
+  [TASK_PREVIEW_FRAME_COMPONENT]: TaskPreviewFrameComponent;
   [MCP_TOOL_BLOCK_COMPONENT]: McpToolBlockComponent;
   [MCP_APP_HOST_COMPONENT]: McpAppHostComponent;
   [MCP_SANDBOX_PROXY_URL]: McpSandboxProxyUrlProvider;

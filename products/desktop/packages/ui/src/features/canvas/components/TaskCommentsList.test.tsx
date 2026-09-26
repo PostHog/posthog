@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   prConversation: [] as unknown[],
   prReviewThreads: [] as unknown[],
   openArtifactTab: vi.fn(),
+  openPreviewTab: vi.fn(),
   openPrInReview: vi.fn(),
   openExternalUrl: vi.fn(),
   requestScrollToFile: vi.fn(),
@@ -26,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   prReviewUrls: [] as string[],
   prTitleUrls: [] as string[],
   prQueriesLoading: false,
+  previewPorts: null as unknown,
 }));
 
 function openThread(body: string): void {
@@ -45,7 +47,16 @@ vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
   useOrgMembers: () => ({ members: [] }),
 }));
 vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
-  usePanelLayoutStore: () => mocks.openArtifactTab,
+  usePanelLayoutStore: (
+    selector: (state: {
+      openArtifactTab: typeof mocks.openArtifactTab;
+      openPreviewTab: typeof mocks.openPreviewTab;
+    }) => unknown,
+  ) =>
+    selector({
+      openArtifactTab: mocks.openArtifactTab,
+      openPreviewTab: mocks.openPreviewTab,
+    }),
   useActiveArtifactId: () => mocks.activeArtifactId,
 }));
 vi.mock("@posthog/ui/features/pr-review/usePrCommentsForUrls", () => ({
@@ -71,6 +82,9 @@ vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
     mocks.prTitleUrls = urls;
     return {};
   },
+}));
+vi.mock("@posthog/ui/features/task-preview/useTaskPreviewPorts", () => ({
+  useTaskPreviewPorts: () => mocks.previewPorts,
 }));
 vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => mocks.openExternalUrl(url),
@@ -234,6 +248,7 @@ describe("TaskCommentsList", () => {
     mocks.prConversation = [];
     mocks.prReviewThreads = [];
     mocks.openArtifactTab.mockReset();
+    mocks.openPreviewTab.mockReset();
     mocks.openPrInReview.mockReset();
     mocks.openExternalUrl.mockReset();
     mocks.requestScrollToFile.mockReset();
@@ -249,6 +264,7 @@ describe("TaskCommentsList", () => {
     mocks.prReviewUrls = [];
     mocks.prTitleUrls = [];
     mocks.prQueriesLoading = false;
+    mocks.previewPorts = null;
     useCommentNavigationStore.setState({
       focusByTask: {},
       resolutionsByTarget: {},
@@ -430,6 +446,47 @@ describe("TaskCommentsList", () => {
       openCommentsTab: true,
       intent: "navigate",
     });
+  });
+
+  it("lists a live preview's element comments and opens the preview on them", () => {
+    mocks.previewPorts = {
+      runId: "run-live",
+      ports: [{ port: 5173, name: "Web app" }],
+    };
+    mocks.comments = [
+      comment({
+        id: "preview-comment",
+        content: "Make the heading red",
+        scope: "task_preview",
+        item_id: "task-1:5173",
+        item_context: {
+          anchor: {
+            kind: "element",
+            path: "/",
+            selector: "h1",
+            tag: "h1",
+            text: "Hot stuff",
+            html: "<h1>Hot stuff</h1>",
+            attributes: {},
+          },
+          taskId: "task-1",
+        },
+      }),
+    ];
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
+
+    expect(screen.getByText("Web app")).toBeTruthy();
+    openThread("Make the heading red");
+
+    expect(mocks.openArtifactTab).not.toHaveBeenCalled();
+    expect(mocks.openPreviewTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-live",
+      port: 5173,
+      label: "Web app",
+    });
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"]?.target,
+    ).toEqual({ scope: "task_preview", itemId: "task-1:5173" });
   });
 
   it("opens an artifact when activity requests its comment thread", () => {

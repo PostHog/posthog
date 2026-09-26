@@ -224,3 +224,39 @@ def test_write_file_creates_the_temp_file_before_moving_it(_name: str, payload: 
     assert any("EOF_SANDBOX_WRITE" in command for command in commands), "temp file was never written"
     assert commands[-1].startswith("umask 077 && rm -f /tmp/creds.env.tmp-* && ")
     assert " && mv /tmp/creds.env.tmp-" in commands[-1]
+
+
+@pytest.mark.parametrize(
+    ("docker_port_output", "expected"),
+    [
+        ("3000/tcp -> 127.0.0.1:50001\n47821/tcp -> 0.0.0.0:50002\n", 50002),
+        ("47821/tcp -> 0.0.0.0:50002\n5173/tcp -> 127.0.0.1:50003\n", 50002),
+        ("5173/tcp -> 127.0.0.1:50003\n", None),
+    ],
+)
+def test_recovered_host_port_ignores_published_preview_ports(docker_port_output: str, expected: int | None) -> None:
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=docker_port_output, stderr="")
+    with patch.object(DockerSandbox, "_run", return_value=completed):
+        assert DockerSandbox._recover_published_host_port("c" * 64) == expected
+
+
+@pytest.mark.parametrize(
+    ("port", "docker_port_output", "expected_url"),
+    [
+        (5173, "127.0.0.1:50003\n", "http://localhost:50003"),
+        (5173, "", None),
+        (9999, "127.0.0.1:50004\n", None),
+    ],
+)
+def test_preview_credentials_point_at_the_published_host_port(
+    sandbox: DockerSandbox, port: int, docker_port_output: str, expected_url: str | None
+) -> None:
+    completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=docker_port_output, stderr="")
+    with patch.object(DockerSandbox, "_run", return_value=completed):
+        if expected_url is None:
+            with pytest.raises(NotImplementedError):
+                sandbox.create_preview_connect_credentials(port=port, user_metadata={})
+        else:
+            credentials = sandbox.create_preview_connect_credentials(port=port, user_metadata={})
+            assert credentials.url == expected_url
+            assert credentials.token is None

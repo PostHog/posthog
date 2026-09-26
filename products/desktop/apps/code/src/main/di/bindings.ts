@@ -135,6 +135,7 @@ import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor"
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import type { NOTIFIER_SERVICE } from "@posthog/platform/notifier";
 import type { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
+import type { SCREEN_CAPTURE_SERVICE } from "@posthog/platform/screen-capture";
 import type { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
 import type {
   ISettingsBackupFiles,
@@ -253,6 +254,7 @@ import type { ElectronMainWindow } from "../platform-adapters/electron-main-wind
 import type { MissionControlService } from "../platform-adapters/electron-mission-control";
 import type { ElectronNotifier } from "../platform-adapters/electron-notifier";
 import type { ElectronPowerManager } from "../platform-adapters/electron-power-manager";
+import type { ElectronScreenCapture } from "../platform-adapters/electron-screen-capture";
 import type { ElectronSecureStorage } from "../platform-adapters/electron-secure-storage";
 import type { ElectronStoragePaths } from "../platform-adapters/electron-storage-paths";
 import type { ElectronUpdater } from "../platform-adapters/electron-updater";
@@ -340,6 +342,7 @@ export interface MainBindings {
   [CRYPTO_SERVICE]: ElectronCrypto;
   [ANALYTICS_SERVICE]: IAnalytics;
   [FEEDBACK_CONTEXT_SERVICE]: ElectronFeedbackContext;
+  [SCREEN_CAPTURE_SERVICE]: ElectronScreenCapture;
   [FILE_ICON_SERVICE]: ElectronFileIcon;
   [SECURE_STORAGE_SERVICE]: ElectronSecureStorage;
   [MAIN_WINDOW_SERVICE]: ElectronMainWindow;

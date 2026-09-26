@@ -55,6 +55,7 @@ interface DraftActions {
   /** Insert content at the cursor (append), unlike setPendingContent which replaces. */
   insertPendingContent: (sessionId: SessionId, content: EditorContent) => void;
   clearPendingInsert: (sessionId: SessionId) => void;
+  takePendingInsert: (sessionId: SessionId) => EditorContent | null;
   /**
    * Snapshot composer content before a queued-message edit overwrites it (see
    * {@link DraftState.preEditDraft}). Passing null clears any existing snapshot.
@@ -164,13 +165,32 @@ export const useDraftStore = create<DraftStore>()(
 
         insertPendingContent: (sessionId, content) =>
           set((state) => {
-            state.pendingInsert[sessionId] = content;
+            const pending = state.pendingInsert[sessionId];
+            state.pendingInsert[sessionId] = pending
+              ? {
+                  segments: [...pending.segments, ...content.segments],
+                  attachments: [
+                    ...(pending.attachments ?? []),
+                    ...(content.attachments ?? []),
+                  ],
+                }
+              : content;
           }),
 
         clearPendingInsert: (sessionId) =>
           set((state) => {
             delete state.pendingInsert[sessionId];
           }),
+
+        takePendingInsert: (sessionId) => {
+          const content = get().pendingInsert[sessionId] ?? null;
+          if (content) {
+            set((state) => {
+              delete state.pendingInsert[sessionId];
+            });
+          }
+          return content;
+        },
 
         setPreEditDraft: (sessionId, content) =>
           set((state) => {

@@ -3,6 +3,7 @@ import {
   ChatCircleIcon,
   FunnelSimpleIcon,
   GitPullRequestIcon,
+  GlobeIcon,
 } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
@@ -53,6 +54,10 @@ import {
 } from "@posthog/ui/features/panels/panelLayoutStore";
 import { usePrCommentsForUrls } from "@posthog/ui/features/pr-review/usePrCommentsForUrls";
 import { usePrReviewThreadsForUrls } from "@posthog/ui/features/pr-review/usePrReviewThreadsForUrls";
+import {
+  type CommentResource,
+  commentAgentContext,
+} from "@posthog/ui/features/sessions/commentAgentContext";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
 import { CommentThreadCard } from "@posthog/ui/features/sessions/components/CommentThreadCard";
@@ -65,6 +70,8 @@ import {
   useCreateComment,
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
+import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
+import { useTaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -111,6 +118,8 @@ function sourceIcon(kind: SourceKind, label: string, size = 12) {
       return iconForTemplate("", { size, className: "text-violet-9" });
     case "task":
       return <ChatCircleIcon size={size} className="shrink-0 text-gray-11" />;
+    case "preview":
+      return <GlobeIcon size={size} className="shrink-0 text-gray-11" />;
     default:
       return <FileIcon filename={label} size={size} />;
   }
@@ -150,7 +159,12 @@ function CommentReference({
     ? versionLabel?.(context.canvasVersionId)
     : null;
   const anchor = context?.anchor;
-  const quote = anchor?.kind === "text" ? anchor.quote : null;
+  const quote =
+    anchor?.kind === "text"
+      ? anchor.quote
+      : anchor?.kind === "element"
+        ? anchor.text || anchor.selector
+        : null;
   if (!version && !quote) return null;
   return (
     <span className="mb-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
@@ -168,6 +182,33 @@ function CommentReference({
  * A PostHog comment thread. Its own component so it can hold the mutations for
  * its thread's resource — the list spans several, each with its own target.
  */
+function commentResource(source: CommentSource): CommentResource {
+  if (source.kind === "canvas") return { kind: "canvas", name: source.name };
+  if (source.kind === "task") return { kind: "task", name: source.name };
+  if (source.kind === "preview") {
+    return { kind: "preview", name: source.name, port: source.port };
+  }
+  return { kind: "artifact", name: source.name };
+}
+
+function sendSourceCommentToAgent(
+  taskId: string,
+  source: CommentSource,
+  root: ResourceComment | null,
+  content: string,
+): void {
+  const resource = commentResource(source);
+  sendCommentToAgent({
+    taskId,
+    comment: content,
+    context: commentAgentContext(
+      root ? (readCommentContext(root)?.anchor ?? null) : { kind: "document" },
+      resource,
+    ),
+    surface: resource.kind,
+  });
+}
+
 function ResourceThreadRow({
   thread,
   source,
@@ -225,6 +266,9 @@ function ResourceThreadRow({
         });
       }}
       onResolve={(resolved) => setResolved.mutate({ root, resolved })}
+      onSendReplyToAgent={(content) =>
+        sendSourceCommentToAgent(taskId, source, root, content)
+      }
     />
   );
 }
@@ -318,6 +362,8 @@ export function TaskCommentsList({
   const { runs } = useTaskRuns(onlySource ? undefined : taskId);
   const { members } = useOrgMembers();
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
+  const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
+  const previews = useTaskPreviewPorts(task);
   const activeArtifactId = useActiveArtifactId(taskId);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
@@ -343,8 +389,8 @@ export function TaskCommentsList({
   }, [taskId]);
 
   const rows = useMemo(
-    () => (task ? buildRows(task, timeline ?? [], runs) : []),
-    [task, timeline, runs],
+    () => (task ? buildRows(task, timeline ?? [], runs, { previews }) : []),
+    [task, timeline, runs, previews],
   );
   const sources = useMemo(
     () => (onlySource ? [onlySource] : commentSources(taskId, rows)),
@@ -538,6 +584,17 @@ export function TaskCommentsList({
         canvasArtifactOpenHandler(source.url)?.();
         return;
       }
+      if (source.kind === "preview") {
+        openPreviewTab(taskId, {
+          runId: source.runId,
+          port: source.port,
+          label: source.name,
+        });
+        if (requestThreadFocus) {
+          requestCommentFocus(taskId, source.target, root.id);
+        }
+        return;
+      }
       // A thread on the task itself has nowhere else to open because it lives here.
       if (source.kind === "task" || !source.runId) return;
       openArtifactTab(taskId, {
@@ -549,7 +606,13 @@ export function TaskCommentsList({
         requestCommentFocus(taskId, source.target, root.id);
       }
     },
-    [onCanvasCommentOpen, openArtifactTab, requestCommentFocus, taskId],
+    [
+      onCanvasCommentOpen,
+      openArtifactTab,
+      openPreviewTab,
+      requestCommentFocus,
+      taskId,
+    ],
   );
 
   // A thread picked on the artifact itself has to surface here, even when a
@@ -765,6 +828,18 @@ export function TaskCommentsList({
           placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}
           rows={2}
           disabled={createComment.isPending}
+          onSendToAgent={(content) =>
+            sendSourceCommentToAgent(
+              taskId,
+              onlySource ?? {
+                kind: "task",
+                target: composerTarget,
+                name: "This task",
+              },
+              null,
+              content,
+            )
+          }
         />
       </footer>
     </div>

@@ -26,7 +26,7 @@ function urlHost(url: string): string {
 // scheme, so it must never receive a scheme outside the http/https/mailto
 // allowlist: renderer content (including sandboxed MCP apps) can reach these
 // handlers via window.open/navigation with e.g. smb:, file:, or ms-msdt: URLs.
-function openExternalIfSafe(url: string): void {
+export function openExternalIfSafe(url: string): void {
   if (!isSafeExternalUrl(url)) {
     log.warn("Blocked externally-opened URL with disallowed scheme", {
       scheme: urlScheme(url),

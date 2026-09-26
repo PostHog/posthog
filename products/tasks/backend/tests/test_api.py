@@ -16994,27 +16994,141 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
         sandbox_class.get_by_id.return_value = sandbox
         return patch(self.SANDBOX_CLASS_TARGET, return_value=sandbox_class)
 
-    def test_preview_redirects_with_a_freshly_minted_token(self):
-        task = self.create_task()
-        run = self._create_run(task, self._ready_state())
+    def _exposed_state(self, port: int = 3000, sandbox_id: str = "sandbox-1") -> dict:
+        return {
+            "sandbox_id": "sandbox-1",
+            "exposed_ports": [
+                {"port": port, "name": "Web app", "sandbox_id": sandbox_id, "exposed_at": "2026-01-01T00:00:00+00:00"}
+            ],
+        }
+
+    def _running_sandbox(self, token: str | None = "connect-token-xyz") -> MagicMock:
         sandbox = MagicMock()
         sandbox.is_running.return_value = True
         sandbox.execute.return_value = MagicMock(exit_code=0)
         sandbox.create_preview_connect_credentials.return_value = MagicMock(
-            url="https://preview-abc.modal.host", token="connect-token-xyz"
+            url="https://preview-abc.modal.host", token=token
         )
+        return sandbox
+
+    def test_preview_redirects_to_the_dev_stack_with_a_freshly_minted_token(self):
+        task = self.create_task()
+        run = self._create_run(task, self._ready_state())
+        sandbox = self._running_sandbox()
 
         with self._patch_sandbox_class(sandbox):
             response = self.client.get(self._preview_url(task, run))
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        self.assertIn("/_health", sandbox.execute.call_args.args[0])
-        self.assertIn("/@vite/client", sandbox.execute.call_args.args[0])
+        for fragment in ["/_health", "/@vite/client"]:
+            self.assertIn(fragment, sandbox.execute.call_args.args[0])
         self.assertEqual(response["Location"], "https://preview-abc.modal.host/?_modal_connect_token=connect-token-xyz")
         self.assertEqual(response.content, b"")
         sandbox.create_preview_connect_credentials.assert_called_once_with(
             port=DEV_STACK_PREVIEW_PORT, user_metadata={"user_id": self.user.id, "team_id": self.team.id}
         )
+
+    @parameterized.expand(
+        [
+            ("never_exposed", {"sandbox_id": "sandbox-1"}, "session", 3000),
+            ("exposed_on_an_earlier_sandbox", {"sandbox_id": "sandbox-1", "exposed_ports": []}, "session", 3000),
+            ("another_port_exposed", {"sandbox_id": "sandbox-1", "exposed_ports": []}, "session", 5173),
+            ("exposed_port_through_the_browser_redirect", {}, "redirect", 3000),
+        ]
+    )
+    def test_preview_of_a_port_the_sandbox_did_not_expose_never_reaches_the_sandbox(self, name, state, via, port):
+        task = self.create_task()
+        if name == "exposed_on_an_earlier_sandbox":
+            state = self._exposed_state(sandbox_id="sandbox-0")
+        elif name in ("another_port_exposed", "exposed_port_through_the_browser_redirect"):
+            state = self._exposed_state(port=3000)
+        run = self._create_run(task, state)
+
+        with patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class:
+            if via == "redirect":
+                response = self.client.get(f"{self._preview_url(task, run)}?port={port}")
+            else:
+                response = self.client.post(
+                    f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/preview_session/",
+                    {"port": port},
+                    format="json",
+                )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if via == "redirect":
+            self.assertIn("ready yet", response.content.decode())
+        else:
+            self.assertEqual(response.json(), {"outcome": "not_ready", "url": None})
+        mock_get_sandbox_class.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("ready", True, "ready", "http://localhost:50003/"),
+            ("not_exposed", False, "not_ready", None),
+        ]
+    )
+    def test_preview_session_returns_the_url_only_when_ready(self, _name, exposed, expected_outcome, expected_url):
+        task = self.create_task()
+        run = self._create_run(task, self._exposed_state() if exposed else {"sandbox_id": "sandbox-1"})
+        sandbox = self._running_sandbox(token=None)
+        sandbox.create_preview_connect_credentials.return_value = MagicMock(url="http://localhost:50003", token=None)
+
+        with self._patch_sandbox_class(sandbox):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/preview_session/", {"port": 3000}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"outcome": expected_outcome, "url": expected_url})
+        self.assertEqual(response["Cache-Control"], "no-store")
+
+    def test_expose_port_lists_each_port_once_after_the_dev_stack(self):
+        task = self.create_task()
+        run = self._create_run(task, self._ready_state())
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/expose_port/"
+
+        self.client.post(url, {"port": 3000, "name": "Old name"}, format="json")
+        self.client.post(url, {"port": 5173}, format="json")
+        response = self.client.post(url, {"port": 3000, "name": "Web app"}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["exposed_ports"],
+            [
+                {"port": DEV_STACK_PREVIEW_PORT, "name": "PostHog dev stack"},
+                {"port": 5173, "name": None},
+                {"port": 3000, "name": "Web app"},
+            ],
+        )
+        run.refresh_from_db()
+        self.assertNotIn(
+            "exposed_ports", self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/").json()["state"]
+        )
+
+    @parameterized.expand(
+        [
+            ("agent_server_port", {"sandbox_id": "sandbox-1"}, 8080),
+            ("privileged_port", {"sandbox_id": "sandbox-1"}, 80),
+            ("no_sandbox", {}, 3000),
+            ("limit_reached", None, 3000),
+        ]
+    )
+    def test_expose_port_is_rejected(self, _name, state, port):
+        task = self.create_task()
+        if state is None:
+            state = {
+                "sandbox_id": "sandbox-1",
+                "exposed_ports": [{"port": 4000 + index, "sandbox_id": "sandbox-1"} for index in range(10)],
+            }
+        run = self._create_run(task, state)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/expose_port/", {"port": port}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        run.refresh_from_db()
+        self.assertEqual(run.state.get("exposed_ports"), state.get("exposed_ports"))
 
     def test_preview_without_a_recorded_preview_never_reaches_the_sandbox(self):
         task = self.create_task()

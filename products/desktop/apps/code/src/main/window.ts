@@ -15,7 +15,7 @@ import { container } from "./di/container";
 import { MISSION_CONTROL_SERVICE } from "./di/tokens";
 import { setupExternalLinkHandlers } from "./external-links";
 import { buildApplicationMenu } from "./menu";
-import { setupArtifactPreviewWebviews } from "./platform-adapters/electron-artifact-preview";
+import { setupGuestWebviews } from "./platform-adapters/electron-guest-webviews";
 import type { ElectronMainWindow } from "./platform-adapters/electron-main-window";
 import type { MissionControlService } from "./platform-adapters/electron-mission-control";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
@@ -366,7 +366,7 @@ export function createWindow(): void {
     : pathToFileURL(rendererFilePath);
 
   setupExternalLinkHandlers(mainWindow, appHome);
-  setupArtifactPreviewWebviews(mainWindow);
+  setupGuestWebviews(mainWindow);
   setupEditableContextMenu(mainWindow);
   setupCrashLogging(mainWindow);
   buildApplicationMenu();

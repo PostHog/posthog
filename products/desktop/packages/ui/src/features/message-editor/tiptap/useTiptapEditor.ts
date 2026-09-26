@@ -903,6 +903,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
         skillPath: chip.skillPath,
         skillSource: chip.skillSource,
         skillName: chip.skillName,
+        imagePath: chip.imagePath,
       });
       draft.saveDraft(editor, attachments);
     },

@@ -1,28 +1,11 @@
+import { boundedString, finiteRect, isRecord } from "./bridge-guards";
+
 const ARTIFACT_BRIDGE_MARKER = "__POSTHOG_ARTIFACT_COMMENT_BRIDGE__";
 const MAX_ITEMS = 500;
 const MAX_ID_LENGTH = 128;
 const MAX_CHANNEL_LENGTH = 256;
 const MAX_QUOTE_LENGTH = 10_000;
 const CONTEXT_LENGTH = 32;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function boundedString(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.length <= maxLength;
-}
-
-function finiteRect(value: unknown): Record<string, number> | null {
-  if (!isRecord(value)) return null;
-  const rect: Record<string, number> = {};
-  for (const key of ["top", "left", "right", "bottom", "width", "height"]) {
-    const field = value[key];
-    if (typeof field !== "number" || !Number.isFinite(field)) return null;
-    rect[key] = field;
-  }
-  return rect;
-}
 
 export function sanitizeArtifactBridgeMessage(
   value: unknown,

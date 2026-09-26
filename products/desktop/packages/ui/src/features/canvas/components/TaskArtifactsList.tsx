@@ -3,8 +3,10 @@ import {
   CaretDownIcon,
   ChatCircleIcon,
   DownloadSimpleIcon,
+  GlobeIcon,
   PackageIcon,
   SlackLogoIcon,
+  SquareSplitHorizontalIcon,
 } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import {
@@ -30,6 +32,7 @@ import {
   TooltipTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task, TaskThreadMessage } from "@posthog/shared/domain-types";
 import { useMeQuery } from "@posthog/ui/features/auth/useMeQuery";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
@@ -51,11 +54,14 @@ import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/compo
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
+import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
+import { useTaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import {
   ArtifactCard,
   stopCardOpen,
 } from "@posthog/ui/primitives/ArtifactCard";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
+import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { formatFileSize } from "@posthog/ui/utils/formatFileSize";
 import {
@@ -162,6 +168,65 @@ function CanvasRow({
       meta={meta}
       onOpen={open}
       actions={<CommentCountBadge count={commentCount} />}
+    />
+  );
+}
+
+function PreviewRow({
+  taskId,
+  runId,
+  port,
+  name,
+  portCount,
+  commentCount,
+}: {
+  taskId: string;
+  runId: string;
+  port: number;
+  name: string | null;
+  portCount: number;
+  commentCount: number;
+}) {
+  const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
+  const label = previewLabel({ port, name });
+  const open = (placement: "main" | "split") => {
+    track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED, {
+      port_count: portCount,
+      source: "artifacts",
+      placement,
+    });
+    openPreviewTab(taskId, { runId, port, label }, placement);
+  };
+  return (
+    <ArtifactCard
+      icon={<GlobeIcon size={16} className="text-muted-foreground" />}
+      title={label}
+      meta={`Preview · port ${port}`}
+      onOpen={() => open("main")}
+      actions={
+        <>
+          <CommentCountBadge count={commentCount} />
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="default"
+                  size="icon-sm"
+                  aria-label={`Open ${label} side by side`}
+                  data-attr="task-preview-open-side-by-side"
+                  onClick={(event) => {
+                    stopCardOpen(event);
+                    open("split");
+                  }}
+                />
+              }
+            >
+              <SquareSplitHorizontalIcon size={14} />
+            </TooltipTrigger>
+            <TooltipContent>Open side by side</TooltipContent>
+          </Tooltip>
+        </>
+      }
     />
   );
 }
@@ -416,10 +481,12 @@ export function TaskArtifactsList({
   );
   const { runs } = useTaskRuns(task.id, completedUploads + referenceRefreshKey);
   const { data: currentUser } = useMeQuery();
+  const previews = useTaskPreviewPorts(task);
   const rows = useMemo(
-    () => buildRows(task, timeline, runs),
-    [task, timeline, runs],
+    () => buildRows(task, timeline, runs, { previews }),
+    [task, timeline, runs, previews],
   );
+  const portCount = previews?.ports.length ?? 0;
   // One query for every row's badge, so N resources cost one request rather
   // than one per row. The threads themselves live in the Comments tab.
   const targets = useMemo(() => commentTargets(rows), [rows]);
@@ -446,8 +513,8 @@ export function TaskArtifactsList({
           </EmptyMedia>
           <EmptyTitle>No artifacts yet</EmptyTitle>
           <EmptyDescription>
-            Pull requests, canvases, and files produced while working on this
-            task show up here.
+            Pull requests, canvases, files, and previews produced while working
+            on this task show up here.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -457,7 +524,17 @@ export function TaskArtifactsList({
   return (
     <div className="flex flex-col gap-1.5 p-2">
       {rows.map((row) =>
-        row.kind === "pr" ? (
+        row.kind === "preview" ? (
+          <PreviewRow
+            key={row.key}
+            taskId={task.id}
+            runId={row.runId}
+            port={row.port}
+            name={row.name}
+            portCount={portCount}
+            commentCount={openCountByItem.get(`${row.taskId}:${row.port}`) ?? 0}
+          />
+        ) : row.kind === "pr" ? (
           <PrRow
             key={row.key}
             url={row.url}

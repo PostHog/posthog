@@ -7,6 +7,7 @@ export const EXPERIMENT_SUGGESTIONS_FLAG =
   featureFlagKeys.EXPERIMENT_SUGGESTIONS_FLAG;
 /** Autoresearch (metric-optimization loop). Staff-gated while it bakes. */
 export const AUTORESEARCH_FLAG = featureFlagKeys.AUTORESEARCH_FLAG;
+export const TASK_PORT_PREVIEW_FLAG = featureFlagKeys.TASK_PORT_PREVIEW_FLAG;
 export const DISCOVERY_RUN_FLAG = featureFlagKeys.DISCOVERY_RUN_FLAG;
 export const ONBOARDING_TEST_TOOLS_FLAG =
   featureFlagKeys.ONBOARDING_TEST_TOOLS_FLAG;

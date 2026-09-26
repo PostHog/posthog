@@ -9,13 +9,17 @@ from django.db.models import Q
 import structlog
 
 from posthog.models import Comment
+from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES
 
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskCommentActivity, TaskRun
 from products.tasks.backend.visibility import task_visibility_q
 
 logger = structlog.get_logger(__name__)
 
-COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+
+def is_task_preview_item(task_id: UUID, item_id: str) -> bool:
+    prefix, _, port = item_id.rpartition(":")
+    return prefix == str(task_id) and port.isascii() and port.isdigit() and 0 < int(port) <= 65535
 
 
 def _visible_tasks(team_id: int, user_id: int | None):
@@ -31,10 +35,12 @@ def target_is_accessible(
         return False
 
     task = _visible_tasks(team_id, user_id).filter(id=parsed_task_id).first()
-    if task is None or not item_id or scope not in COMMENT_ACTIVITY_SCOPES:
+    if task is None or not item_id or scope not in DESKTOP_COMMENT_SCOPES:
         return False
     if scope == "task":
         return str(task.id) == str(item_id)
+    if scope == "task_preview":
+        return is_task_preview_item(task.id, item_id)
     if scope != "task_artifact":
         return False
 
@@ -63,7 +69,7 @@ def notifications_allowed(*, team_id: int, task_id: str | UUID) -> bool:
 
 
 def comment_task_id(comment: Comment) -> UUID | None:
-    if comment.scope not in COMMENT_ACTIVITY_SCOPES:
+    if comment.scope not in DESKTOP_COMMENT_SCOPES:
         return None
     raw_task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
     if not isinstance(raw_task_id, str):

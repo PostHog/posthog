@@ -324,6 +324,7 @@ export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
 export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult } from "./saga";
+export * from "./screenshot-area";
 export {
   type AcpMessage,
   IDLE_RESUME_STOP_REASON,

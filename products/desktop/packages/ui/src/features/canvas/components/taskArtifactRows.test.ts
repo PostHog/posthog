@@ -82,4 +82,33 @@ describe("buildRows", () => {
       },
     });
   });
+
+  it.each([
+    {
+      name: "the task's preview ports",
+      previews: {
+        runId: "run-2",
+        ports: [
+          { port: 5173, name: "Web app" },
+          { port: 3000, name: null },
+        ],
+      },
+      expected: [5173, 3000],
+    },
+    { name: "no preview ports", previews: null, expected: [] },
+  ])("lists $name as commentable preview rows", ({ previews, expected }) => {
+    const task = { id: "task-1" } as Task;
+
+    const rows = buildRows(task, [], [], { previews });
+
+    expect(
+      rows.flatMap((row) => (row.kind === "preview" ? [row.port] : [])),
+    ).toEqual(expected);
+    expect(commentTargets(rows)).toEqual(
+      expected.map((port) => ({
+        scope: "task_preview",
+        itemId: `task-1:${port}`,
+      })),
+    );
+  });
 });

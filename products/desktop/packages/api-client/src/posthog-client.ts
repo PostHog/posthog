@@ -74,10 +74,12 @@ import type {
   TaskRun,
   TaskRunArtefact,
   TaskRunArtifact,
+  TaskRunPreviewSession,
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
+import { taskRunPreviewSessionOutcomeSchema } from "@posthog/shared/domain-types";
 import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
 import {
   spaceSetupInputSchema,
@@ -415,7 +417,11 @@ export interface TaskSessionStorageAccess {
  * free-form column on the backend `Comment` model, so adding a resource is a
  * new member here plus a caller — no migration and no endpoint.
  */
-export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+export type CommentScope =
+  | "task_artifact"
+  | "task_preview"
+  | "desktop_canvas"
+  | "task";
 
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
@@ -4737,6 +4743,39 @@ export class PostHogAPIClient {
 
     const data = (await response.json()) as Schemas.TaskRunDetailDTO;
     return normalizeTaskRunResponse(data, { teamId, taskId });
+  }
+
+  async createTaskRunPreviewSession(
+    taskId: string,
+    runId: string,
+    port: number,
+  ): Promise<TaskRunPreviewSession> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/preview_session/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify({ port }) },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to start task preview session: ${response.statusText}`,
+      );
+    }
+
+    const data = (await response.json()) as {
+      outcome?: unknown;
+      url?: unknown;
+    };
+    const parsed = taskRunPreviewSessionOutcomeSchema.safeParse(data.outcome);
+    const outcome = parsed.success ? parsed.data : undefined;
+    return {
+      outcome: outcome ?? "unavailable",
+      url:
+        outcome === "ready" && typeof data.url === "string" ? data.url : null,
+    };
   }
 
   async createTaskRun(

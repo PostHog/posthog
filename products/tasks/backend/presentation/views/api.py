@@ -177,6 +177,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunErrorResponseSerializer,
+    TaskRunExposePortRequestSerializer,
     TaskRunLivingArtifactChartRequestSerializer,
     TaskRunLivingArtifactChartResponseSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
@@ -189,6 +190,8 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunPeersResponseSerializer,
     TaskRunPostHogReferencesRequestSerializer,
     TaskRunPostHogReferencesResponseSerializer,
+    TaskRunPreviewSessionRequestSerializer,
+    TaskRunPreviewSessionResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
     TaskRunResponseSerializer,
@@ -2724,20 +2727,18 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             403: OpenApiResponse(description="Refused during read-only impersonation"),
             404: OpenApiResponse(description="Task run not found"),
         },
-        summary="Open the dev stack preview for a task run",
+        summary="Open a preview for a task run",
         description=(
             "Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox "
-            "access token is minted on every request and carried only in the redirect target, so it "
-            "is never persisted or returned in a response body. When the run has no preview, or its "
-            "sandbox has stopped, this renders a short HTML page instead."
+            "access token is minted on every request and carried only in the redirect target, so it is "
+            "never persisted. Ports that the agent exposes open only in PostHog Desktop, through "
+            "`preview_session`. When the run has no dev stack preview, or its sandbox has stopped, this "
+            "renders a short HTML page instead."
         ),
     )
     @action(detail=True, methods=["get"], url_path="preview", required_scopes=["task:write"])
     def preview(self, request, pk=None, **kwargs):
-        if is_read_only_impersonation(request):
-            raise PermissionDenied(
-                "This action is not allowed during read-only user impersonation.", code="impersonation_read_only"
-            )
+        self._refuse_read_only_impersonation(request)
         task_id = self._ensure_task_accessible()
         redirect = tasks_facade.resolve_task_run_preview_redirect(
             pk, task_id, self.team_id, user_id=cast(User, request.user).id
@@ -2749,6 +2750,95 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             response["Cache-Control"] = "no-store"
             return response
         return self._preview_unavailable_page(redirect.outcome, task_id)
+
+    @validated_request(
+        request_serializer=TaskRunPreviewSessionRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunPreviewSessionResponseSerializer,
+                description="The preview state, and a short-lived URL when the preview is ready",
+            ),
+            403: OpenApiResponse(description="Refused during read-only impersonation"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Start a preview session for a task run",
+        description=(
+            "Returns a short-lived URL for an HTTP app running inside this run's sandbox, for clients "
+            "that show the app in their own view and cannot follow the `preview/` redirect with their "
+            "credentials. A fresh sandbox access token is minted on every request and is never persisted."
+        ),
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="preview_session", required_scopes=["task:write"])
+    def preview_session(self, request, pk=None, **kwargs):
+        self._refuse_read_only_impersonation(request)
+        task_id = self._ensure_task_accessible()
+        redirect = tasks_facade.resolve_task_run_preview_redirect(
+            pk,
+            task_id,
+            self.team_id,
+            user_id=cast(User, request.user).id,
+            port=request.validated_data.get("port"),
+        )
+        if redirect is None:
+            raise NotFound()
+        url = redirect.redirect_url if redirect.outcome == "ready" else None
+        response = Response(TaskRunPreviewSessionResponseSerializer({"outcome": redirect.outcome, "url": url}).data)
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @validated_request(
+        request_serializer=TaskRunExposePortRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with the updated exposed ports"),
+            400: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The port is reserved, the run has no sandbox, or the run exposes the maximum ports",
+            ),
+            404: OpenApiResponse(description="Run not found"),
+        },
+        summary="Expose a sandbox port for a task run",
+        description=(
+            "Register a port where an HTTP app listens inside this run's sandbox, so clients can show it "
+            "as a preview. Exposing a port again replaces its name. The list belongs to the current "
+            "sandbox and resets when the run moves to a new sandbox."
+        ),
+        strict_request_validation=True,
+    )
+    @action(detail=True, methods=["post"], url_path="expose_port", required_scopes=["task:write"])
+    def expose_port(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        name = request.validated_data.get("name") or None
+        result = tasks_facade.expose_task_run_port(
+            pk,
+            task_id,
+            self.team_id,
+            port=request.validated_data["port"],
+            name=name,
+            include_agent_state=self._is_sandbox_agent_request(task_id),
+            user_id=self._user_id(),
+        )
+        if result is None:
+            raise NotFound()
+        if result.outcome == "no_sandbox":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "This run has no sandbox to expose a port from."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if result.outcome == "limit_reached" or result.run is None:
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": f"A run can expose at most {tasks_facade.EXPOSED_PORTS_MAX_PER_RUN} ports."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return Response(TaskRunDetailSerializer(result.run).data)
+
+    def _refuse_read_only_impersonation(self, request) -> None:
+        if is_read_only_impersonation(request):
+            raise PermissionDenied(
+                "This action is not allowed during read-only user impersonation.", code="impersonation_read_only"
+            )
 
     def _peer_messaging_gate(self, task_id: str) -> Response | None:
         """Server-side authorization for the peers endpoints. Tool gating in the

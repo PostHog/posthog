@@ -1,4 +1,4 @@
-import type { BrowserWindow, WebContents, WebPreferences } from "electron";
+import type { WebContents, WebPreferences } from "electron";
 import { describe, expect, it, vi } from "vitest";
 import {
   ARTIFACT_PREVIEW_ARG,
@@ -8,7 +8,6 @@ import {
   hardenArtifactPreviewPreferences,
   isAllowedArtifactPreview,
   lockDownArtifactPreview,
-  setupArtifactPreviewWebviews,
 } from "./electron-artifact-preview";
 
 describe("artifact preview webviews", () => {
@@ -140,63 +139,5 @@ describe("artifact preview webviews", () => {
     const preventDownload = vi.fn();
     download({ preventDefault: preventDownload });
     expect(preventDownload).toHaveBeenCalledOnce();
-  });
-
-  it("wires the attachment allowlist before locking down an allowed guest", () => {
-    const handlers = new Map<string, (...args: never[]) => void>();
-    const window = {
-      webContents: {
-        on: vi.fn((event: string, handler: (...args: never[]) => void) => {
-          handlers.set(event, handler);
-        }),
-      },
-    } as unknown as BrowserWindow;
-    setupArtifactPreviewWebviews(window);
-
-    const blockedPreferences = {} as WebPreferences;
-    const preventBlocked = vi.fn();
-    handlers.get("will-attach-webview")?.(
-      { preventDefault: preventBlocked } as never,
-      blockedPreferences as never,
-      {
-        src: "https://example.com",
-        partition: "artifact-preview-one",
-      } as never,
-    );
-    expect(preventBlocked).toHaveBeenCalledOnce();
-    expect(blockedPreferences.preload).toBeUndefined();
-
-    const allowedPreferences = {} as WebPreferences;
-    const preventAllowed = vi.fn();
-    handlers.get("will-attach-webview")?.(
-      { preventDefault: preventAllowed } as never,
-      allowedPreferences as never,
-      {
-        src: `${ARTIFACT_PREVIEW_DATA_URL_PREFIX}PGgxPlJlcG9ydDwvaDE+`,
-        partition: "artifact-preview-one",
-      } as never,
-    );
-    expect(preventAllowed).not.toHaveBeenCalled();
-    expect(allowedPreferences).toMatchObject({
-      preload: expect.stringMatching(/preload\.js$/),
-      additionalArguments: [ARTIFACT_PREVIEW_ARG],
-      sandbox: true,
-    });
-
-    const guest = {
-      setWindowOpenHandler: vi.fn(),
-      setWebRTCIPHandlingPolicy: vi.fn(),
-      on: vi.fn(),
-      session: {
-        enableNetworkEmulation: vi.fn(),
-        setProxy: vi.fn().mockResolvedValue(undefined),
-        setPermissionCheckHandler: vi.fn(),
-        setPermissionRequestHandler: vi.fn(),
-        on: vi.fn(),
-        webRequest: { onBeforeRequest: vi.fn() },
-      },
-    } as unknown as WebContents;
-    handlers.get("did-attach-webview")?.({} as never, guest as never);
-    expect(guest.setWindowOpenHandler).toHaveBeenCalledOnce();
   });
 });

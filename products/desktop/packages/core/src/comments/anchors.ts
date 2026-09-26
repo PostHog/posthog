@@ -54,14 +54,44 @@ const documentCommentAnchorSchema = z.object({
   kind: z.literal("document"),
 });
 
+export const ELEMENT_ANCHOR_LIMITS = {
+  path: 2_000,
+  selector: 1_000,
+  tag: 64,
+  text: 500,
+  html: 2_000,
+  attributes: 12,
+  attributeValue: 200,
+} as const;
+
+export const elementCommentAnchorSchema = z.object({
+  kind: z.literal("element"),
+  path: z.string().max(ELEMENT_ANCHOR_LIMITS.path),
+  selector: z.string().min(1).max(ELEMENT_ANCHOR_LIMITS.selector),
+  tag: z.string().max(ELEMENT_ANCHOR_LIMITS.tag),
+  text: z.string().max(ELEMENT_ANCHOR_LIMITS.text),
+  html: z.string().max(ELEMENT_ANCHOR_LIMITS.html),
+  attributes: z
+    .record(
+      z.string().max(ELEMENT_ANCHOR_LIMITS.attributeValue),
+      z.string().max(ELEMENT_ANCHOR_LIMITS.attributeValue),
+    )
+    .refine(
+      (attributes) =>
+        Object.keys(attributes).length <= ELEMENT_ANCHOR_LIMITS.attributes,
+    ),
+});
+
 export const commentAnchorSchema = z.discriminatedUnion("kind", [
   textCommentAnchorSchema,
   regionCommentAnchorSchema,
   documentCommentAnchorSchema,
+  elementCommentAnchorSchema,
 ]);
 
 export type TextCommentAnchor = z.infer<typeof textCommentAnchorSchema>;
 export type RegionCommentAnchor = z.infer<typeof regionCommentAnchorSchema>;
+export type ElementCommentAnchor = z.infer<typeof elementCommentAnchorSchema>;
 export type CommentAnchor = z.infer<typeof commentAnchorSchema>;
 
 export const commentContextSchema = z.object({

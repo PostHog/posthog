@@ -1,5 +1,6 @@
 import type { LocalTool, LocalToolCtx, LocalToolGateMeta } from "./registry";
 import { cloneRepoTool } from "./tools/clone-repo";
+import { exposePortTool } from "./tools/expose-port";
 import { finishTool } from "./tools/finish";
 import { ghStackTool } from "./tools/gh-stack";
 import { listAgentsTool } from "./tools/list-agents";
@@ -33,6 +34,7 @@ export const LOCAL_TOOLS: LocalTool[] = [
   speakTool,
   showActionsTool,
   uploadArtifactTool,
+  exposePortTool,
   reportActivityTool,
   taskSummaryUpdateTool,
   finishTool,

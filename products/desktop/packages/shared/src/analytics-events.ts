@@ -1,7 +1,7 @@
 // Analytics event types and properties
 
 import type { Adapter, ModelAccess } from "./adapter";
-import type { EffortLevel } from "./domain-types";
+import type { EffortLevel, TaskRunPreviewSessionOutcome } from "./domain-types";
 import type { SourceProduct } from "./inbox-types";
 
 export interface PromptHistoryOpenedProperties {
@@ -303,6 +303,22 @@ export type SidebarNavItem =
 
 /** Which sidebar shell the click came from, so the two can be compared. */
 export type SidebarLayout = "code" | "channels";
+
+export interface TaskPreviewOpenedProperties {
+  port_count?: number;
+  source: "header" | "artifacts" | "preview_tab";
+  placement: "main" | "split";
+}
+
+export interface TaskPreviewSessionStartedProperties {
+  outcome: TaskRunPreviewSessionOutcome;
+}
+
+export interface CommentSentToAgentProperties {
+  surface: "preview" | "artifact" | "canvas" | "task";
+  with_context: boolean;
+  with_screenshot: boolean;
+}
 
 export interface SidebarNavItemClickedProperties {
   item: SidebarNavItem;
@@ -1683,6 +1699,10 @@ export const ANALYTICS_EVENTS = {
   BRAINROT_ACTIVATED: "Brainrot activated",
   BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
+  TASK_PREVIEW_OPENED: "Task preview opened",
+  TASK_PREVIEW_SESSION_STARTED: "Task preview session started",
+  TASK_PREVIEW_OPENED_IN_BROWSER: "Task preview opened in browser",
+  COMMENT_SENT_TO_AGENT: "Comment sent to agent",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   TASK_LIST_GROUPING_CHANGED: "Task list grouping changed",
   TASK_LIST_APPEARANCE_CHANGED: "Task list appearance changed",
@@ -1906,6 +1926,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.BRAINROT_ACTIVATED]: BrainrotActivatedProperties;
   [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
+  [ANALYTICS_EVENTS.TASK_PREVIEW_OPENED]: TaskPreviewOpenedProperties;
+  [ANALYTICS_EVENTS.TASK_PREVIEW_SESSION_STARTED]: TaskPreviewSessionStartedProperties;
+  [ANALYTICS_EVENTS.TASK_PREVIEW_OPENED_IN_BROWSER]: never;
+  [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_GROUPING_CHANGED]: TaskListGroupingChangedProperties;
   [ANALYTICS_EVENTS.TASK_LIST_APPEARANCE_CHANGED]: TaskListAppearanceChangedProperties;

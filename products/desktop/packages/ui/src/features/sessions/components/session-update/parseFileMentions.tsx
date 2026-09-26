@@ -15,9 +15,11 @@ import {
   baseComponents,
   defaultRemarkPlugins,
 } from "../../../editor/components/MarkdownRenderer";
+import { CommentContextPreview } from "../../../message-editor/components/CommentContextPreview";
+import { CommentContextThumbnail } from "../../../message-editor/components/CommentContextThumbnail";
 
 const MENTION_TAG_REGEX =
-  /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>/g;
+  /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>|<comment_context\s+label="([^"]*)"(?:\s+screenshot="([^"]*)")?>([\s\S]*?)<\/comment_context>/g;
 
 const inlineComponents: Components = {
   ...baseComponents,
@@ -57,7 +59,7 @@ export function MentionChip({
   icon: ReactNode;
   label: string;
   onClick?: () => void;
-  tooltip?: string;
+  tooltip?: ReactNode;
 }) {
   const style = { margin: "0 2px" };
 
@@ -95,7 +97,11 @@ export function MentionChip({
   return (
     <Tooltip>
       <TooltipTrigger render={chip} />
-      <TooltipContent className="max-w-64">{tooltip}</TooltipContent>
+      <TooltipContent
+        className={typeof tooltip === "string" ? "max-w-64" : "max-w-none"}
+      >
+        {tooltip}
+      </TooltipContent>
     </Tooltip>
   );
 }
@@ -166,6 +172,26 @@ function parseMentionTags(content: string): ReactNode[] {
           key={`error-ctx-${matchIndex}`}
           icon={<Warning size={12} />}
           label={unescapeXmlAttr(match[6])}
+        />,
+      );
+    } else if (match[8] !== undefined) {
+      const label = unescapeXmlAttr(match[8]) || "Comment";
+      const imagePath = match[9] ? unescapeXmlAttr(match[9]) : undefined;
+      if (parts.length > 0) {
+        parts.push(<br key={`comment-break-${matchIndex}`} />);
+      }
+      parts.push(
+        <MentionChip
+          key={`comment-ctx-${matchIndex}`}
+          icon={<CommentContextThumbnail imagePath={imagePath} />}
+          label={label}
+          tooltip={
+            <CommentContextPreview
+              label={label}
+              body={match[10].trim()}
+              imagePath={imagePath}
+            />
+          }
         />,
       );
     } else if (match[7]) {

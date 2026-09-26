@@ -18,6 +18,9 @@ import type {
   TaskRun,
   TaskThreadMessage,
 } from "@posthog/shared/domain-types";
+import { previewCommentTarget } from "@posthog/ui/features/task-preview/previewCommentTarget";
+import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
+import type { TaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
 
 export type RunFile = RunArtifact & { runId: string };
@@ -51,7 +54,15 @@ export type ArtifactRow =
       metadata: PostHogObjectArtifactMetadata;
       uploadedAt: string | undefined;
     }
-  | { kind: "slack"; key: string; url: string };
+  | { kind: "slack"; key: string; url: string }
+  | {
+      kind: "preview";
+      key: string;
+      taskId: string;
+      runId: string;
+      port: number;
+      name: string | null;
+    };
 
 /**
  * Somewhere a task's comment threads live. Artifacts and canvases come from the
@@ -67,7 +78,14 @@ export type CommentSource =
       runId: string;
     }
   | { kind: "canvas"; target: CommentTarget; name: string; url: string | null }
-  | { kind: "task"; target: CommentTarget; name: string };
+  | { kind: "task"; target: CommentTarget; name: string }
+  | {
+      kind: "preview";
+      target: CommentTarget;
+      name: string;
+      runId: string;
+      port: number;
+    };
 
 export function taskCommentTarget(taskId: string): CommentTarget {
   return { scope: "task", itemId: taskId };
@@ -96,6 +114,14 @@ export function commentSources(
       });
     } else if (row.kind === "canvas") {
       sources.push({ kind: "canvas", target, name: row.name, url: row.url });
+    } else if (row.kind === "preview") {
+      sources.push({
+        kind: "preview",
+        target,
+        name: previewLabel({ port: row.port, name: row.name }),
+        runId: row.runId,
+        port: row.port,
+      });
     }
   }
   return sources;
@@ -138,6 +164,9 @@ function targetForRow(row: ArtifactRow): CommentTarget | null {
   }
   if (row.kind === "canvas" && row.dashboardId) {
     return { scope: "desktop_canvas", itemId: row.dashboardId };
+  }
+  if (row.kind === "preview") {
+    return previewCommentTarget(row.taskId, row.port);
   }
   return null;
 }
@@ -183,12 +212,26 @@ function readRunPostHogReferences(run: TaskRun): Array<{
   });
 }
 
+function previewRows(task: Task, previews: TaskPreviewPorts): ArtifactRow[] {
+  return previews.ports.map((exposed) => ({
+    kind: "preview",
+    key: `preview:${previews.runId}:${exposed.port}`,
+    taskId: task.id,
+    runId: previews.runId,
+    port: exposed.port,
+    name: exposed.name,
+  }));
+}
+
 export function buildRows(
   task: Task,
   timeline: ThreadTimelineRow<TaskThreadMessage>[],
   runs: TaskRun[],
+  options: { previews?: TaskPreviewPorts | null } = {},
 ): ArtifactRow[] {
-  const rows: ArtifactRow[] = [];
+  const rows: ArtifactRow[] = options.previews
+    ? previewRows(task, options.previews)
+    : [];
   const seenPrUrls = new Set<string>();
 
   const addPr = (url: string, key: string, ts: number) => {

@@ -50,7 +50,7 @@ export type TaskCommentThread = {
   /** Groups threads for the source filter. */
   sourceKey: string;
   sourceLabel: string;
-  sourceKind: "file" | "canvas" | "task" | "posthog_object" | "pr";
+  sourceKind: "file" | "canvas" | "task" | "posthog_object" | "pr" | "preview";
   entries: CommentEntry[];
   resolved: boolean;
   /** When the thread was opened, for ordering the list. Ordering on the newest
@@ -67,7 +67,7 @@ function resourceAuthorName(comment: ResourceComment): string {
   );
 }
 
-function resourceEntry(comment: ResourceComment): CommentEntry {
+export function resourceEntry(comment: ResourceComment): CommentEntry {
   return {
     id: comment.id,
     authorName: resourceAuthorName(comment),

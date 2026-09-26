@@ -31,6 +31,9 @@ vi.mock("@posthog/di/react", () => ({
   }),
 }));
 
+vi.mock("@posthog/ui/features/task-preview/useTaskPreviewPorts", () => ({
+  useTaskPreviewPorts: () => null,
+}));
 vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => mocks.openExternalUrl(url),
 }));

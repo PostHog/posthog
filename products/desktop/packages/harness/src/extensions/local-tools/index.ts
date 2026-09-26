@@ -43,6 +43,7 @@ export {
   TaskToolsApiClient,
   TaskToolsApiError,
 } from "./task-tools-client";
+export { EXPOSE_PORT_TOOL_NAME } from "./tools/expose-port";
 export { FINISH_TOOL_NAME } from "./tools/finish";
 export { GH_STACK_QUALIFIED_TOOL_NAME } from "./tools/gh-stack";
 export { SHOW_ACTIONS_TOOL_NAME } from "./tools/show-actions";

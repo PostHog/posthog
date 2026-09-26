@@ -1769,6 +1769,16 @@ export interface TaskRunArtifactResponseApi {
     url?: string
 }
 
+export interface TaskRunExposedPortDTOApi {
+    /** Port inside the run's sandbox that serves an HTTP app. */
+    port: number
+    /**
+     * Short name for the app on this port, set by the agent.
+     * @nullable
+     */
+    name?: string | null
+}
+
 /**
  * @nullable
  */
@@ -1849,6 +1859,8 @@ export interface TaskRunDetailDTOApi {
     scheduled_at?: string | null
     /** True when this run's sandbox serves a dev stack preview, so clients can offer the preview link. Open it through the run's `preview/` endpoint, which mints a fresh access token on every request. */
     preview_available?: boolean
+    /** HTTP apps that this run's sandbox serves, one entry per port. Open one through the run's `preview/` or `preview_session/` endpoint with its port. */
+    exposed_ports?: TaskRunExposedPortDTOApi[]
 }
 
 export interface SlackThreadReferenceDTOApi {
@@ -4236,6 +4248,21 @@ export interface ConnectionTokenResponseApi {
     token: string
 }
 
+export interface TaskRunExposePortRequestApi {
+    /**
+     * Port inside the sandbox where an HTTP app listens on all interfaces.
+     * @minimum 1024
+     * @maximum 65535
+     */
+    port: number
+    /**
+     * Short name for the app, shown to the user beside the port.
+     * @maxLength 60
+     * @nullable
+     */
+    name?: string | null
+}
+
 /**
  * One peer agent run visible to the requesting run (agent peer messaging).
  */
@@ -4325,6 +4352,46 @@ export interface TaskRunPeerMessageResponseApi {
      * @nullable
      */
     message_id?: string | null
+}
+
+export interface TaskRunPreviewSessionRequestApi {
+    /**
+     * Exposed port to open. Omit to open the dev stack preview.
+     * @minimum 1
+     * @maximum 65535
+     */
+    port?: number
+}
+
+/**
+ * * `ready` - Ready
+ * * `not_ready` - Not ready
+ * * `ended` - Ended
+ * * `unavailable` - Unavailable
+ */
+export type TaskRunPreviewSessionOutcomeEnumApi =
+    (typeof TaskRunPreviewSessionOutcomeEnumApi)[keyof typeof TaskRunPreviewSessionOutcomeEnumApi]
+
+export const TaskRunPreviewSessionOutcomeEnumApi = {
+    Ready: 'ready',
+    NotReady: 'not_ready',
+    Ended: 'ended',
+    Unavailable: 'unavailable',
+} as const
+
+export interface TaskRunPreviewSessionResponseApi {
+    /** `ready` when `url` opens the app. `not_ready` when the port is not exposed yet, `ended` when the sandbox has stopped, and `unavailable` when the app does not answer.
+     *
+     * * `ready` - Ready
+     * * `not_ready` - Not ready
+     * * `ended` - Ended
+     * * `unavailable` - Unavailable */
+    outcome: TaskRunPreviewSessionOutcomeEnumApi
+    /**
+     * Short-lived URL that opens the app, with its access token. Null unless `outcome` is `ready`. Do not store or share it.
+     * @nullable
+     */
+    url: string | null
 }
 
 export interface TaskRunRelayMessageRequestApi {
