@@ -143,15 +143,21 @@ def ask(team: Team, question: str) -> EightBallAnswer:
     if not team.organization.is_ai_data_processing_approved:
         raise PermissionDenied("AI data processing is not approved for this organization.")
 
-    if not settings.DEBUG and not posthoganalytics.feature_enabled(
-        MAGIC_EIGHT_BALL_FEATURE_FLAG,
-        str(team.uuid),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    ):
-        raise EightBallDisabledError()
+    if not settings.DEBUG:
+        try:
+            flag_enabled = posthoganalytics.feature_enabled(
+                MAGIC_EIGHT_BALL_FEATURE_FLAG,
+                str(team.uuid),
+                groups={"organization": str(team.organization_id)},
+                group_properties={"organization": {"id": str(team.organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            # Flag evaluation failed (e.g., transient PostHog API outage); fail closed.
+            flag_enabled = False
+        if not flag_enabled:
+            raise EightBallDisabledError()
 
     if not decision_api.decisions_enabled(team.id):
         raise DecisionsDisabledError(team.id)
