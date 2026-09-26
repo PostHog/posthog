@@ -1,5 +1,7 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { WITHOUT_CREDENTIALS_HOG } from '../without-credentials'
+
 export const template: HogFunctionTemplate = {
     free: false,
     status: 'alpha',
@@ -11,17 +13,23 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/webhook.svg',
     category: ['Email', 'Tracking'],
     code_language: 'hog',
-    code: `
+    code: `${WITHOUT_CREDENTIALS_HOG}
 if(inputs.debug) {
-  print('Incoming request:', request.query)
+  print('Incoming request:', withoutCredentials(request.query))
 }
 
 if(not empty(inputs.distinct_id) and not empty(inputs.event)) {
+  let properties := {}
+  for (let propertyKey, propertyValue in (inputs.properties ?? {})) {
+    properties[propertyKey] := withoutCredentials(propertyValue)
+  }
   postHogCapture({
     'event': inputs.event,
     'distinct_id': inputs.distinct_id,
-    'properties': inputs.properties
+    'properties': properties
   })
+} else {
+  print('No event captured because the event name or the distinct ID is empty. By default they come from the ph_event and ph_distinct_id query parameters.')
 }
 
 return {
