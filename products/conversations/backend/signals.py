@@ -605,11 +605,7 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
 def sync_signing_secret_on_rotation(sender, team, **kwargs):
     """Mirror the rotated legacy token into the conversations signing secret.
 
-    Never breaks rotation: while both stores exist, widget identity verification
-    falls back to the legacy token, so a failed sync degrades to current behavior.
+    Runs inside the rotation's transaction (Team.rotate_secret_token_and_save), so a
+    failure here rolls the whole rotation back: the two stores can never diverge.
     """
-    try:
-        SigningSecret.objects.for_team(team.id).update_or_create(team=team, defaults={"secret": team.secret_api_token})
-    except Exception as e:
-        logger.exception("conversations_signing_secret_sync_failed", team_id=team.id)
-        capture_exception(e)
+    SigningSecret.objects.for_team(team.id).update_or_create(team=team, defaults={"secret": team.secret_api_token})
