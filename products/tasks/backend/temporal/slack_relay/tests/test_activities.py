@@ -718,6 +718,45 @@ class TestSplitTextForSlack(TestCase):
             assert chunk.count("```") == 2
             assert len(chunk) <= self._LIMIT
 
+    def test_long_fence_label_does_not_explode_into_one_chunk_per_character(self):
+        body = "\n".join(f"line {i:04d}" for i in range(800))
+        text = f"```{'x' * self._LIMIT}\n{body}\n```"
+
+        chunks = _split_markdown_for_slack(text, self._LIMIT)
+
+        assert len(chunks) <= 20
+        for chunk in chunks:
+            assert len(chunk) <= self._LIMIT
+
+    def test_split_stops_at_the_chunk_ceiling(self):
+        line = "x" * self._LIMIT
+        text = "\n\n".join([line] * 50)
+
+        chunks = _split_markdown_for_slack(text, self._LIMIT)
+
+        assert len(chunks) == 20
+        assert chunks[-1].startswith("_The rest of this reply")
+        for chunk in chunks:
+            assert len(chunk) <= self._LIMIT
+
+    def test_an_answer_that_fills_the_ceiling_exactly_keeps_every_chunk(self):
+        line = "x" * self._LIMIT
+        text = "\n\n".join([line] * 20)
+
+        chunks = _split_markdown_for_slack(text, self._LIMIT)
+
+        assert chunks == [line] * 20
+
+    def test_truncation_notice_fits_a_limit_shorter_than_itself(self):
+        limit = 32
+        text = "\n\n".join(["y" * limit] * 50)
+
+        chunks = _split_markdown_for_slack(text, limit)
+
+        assert len(chunks) == 20
+        for chunk in chunks:
+            assert len(chunk) <= limit
+
     def test_mixed_text_and_code_block_preserves_block(self):
         prefix = "intro paragraph\n\n"
         suffix = "\n\ntrailing paragraph"
