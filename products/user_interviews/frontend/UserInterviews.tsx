@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconSearch, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
@@ -84,6 +86,7 @@ function SearchResults({
 }
 
 export function UserInterviews(): JSX.Element {
+    const isEnabled = useFeatureFlag('USER_INTERVIEWS')
     const { topics, topicsLoading, searchQuery, searchResults, searchResultsLoading } = useValues(userInterviewsLogic)
     const { isMaxAvailable } = useValues(maxGlobalLogic)
     const { setSearchQuery } = useActions(userInterviewsLogic)
@@ -94,10 +97,15 @@ export function UserInterviews(): JSX.Element {
         context: {},
         initialMaxPrompt: NEW_TOPIC_PROMPT,
         suggestions: NEW_TOPIC_SUGGESTIONS,
-        // `openMax` is null only when the tool is inactive, so the button's disabledReason
-        // needs this to fire on an instance without PostHog AI.
-        active: isMaxAvailable,
+        // The hook runs before the flag gate below, so without `isEnabled` a flag-off visit still
+        // hands Max the topic-creation tool. `openMax` is null only when the tool is inactive, so
+        // the button's disabledReason needs `isMaxAvailable` to fire on an instance without PostHog AI.
+        active: isEnabled && isMaxAvailable,
     })
+
+    if (!isEnabled) {
+        return <NotFound object="User research" caption="This feature is not enabled for your project." />
+    }
 
     return (
         <SceneContent>
