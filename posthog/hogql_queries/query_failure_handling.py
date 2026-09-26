@@ -1,4 +1,3 @@
-from datetime import UTC, datetime
 from typing import Optional, TypeIs
 
 from clickhouse_driver.errors import ServerException
@@ -46,12 +45,21 @@ SHAREABLE_FAILURE_CATEGORIES = frozenset({QueryErrorCategory.USER_ERROR, QueryEr
 def captured_elsewhere(error: BaseException) -> bool:
     """Whether error tracking already holds this failure or has nothing to learn from it: a breaker
     replay, a follower's rebuild of its leader's failure, or a follower whose leader left it nothing
-    to serve, which the leader's own capture and the flight metrics account for."""
-    return bool(
-        isinstance(error, QueryRanConcurrently)
-        or getattr(error, "served_from_query_failure_cache", False)
-        or getattr(error, "served_from_query_single_flight", False)
-    )
+    to serve, which the leader's own capture and the flight metrics account for.
+
+    The cause chain is walked because ``raise Other(...) from failure`` restates one condition in
+    another class rather than adding a second one, and the marker stays on the cause. A Temporal
+    activity wrapping the failure in ApplicationError to set the retry policy does exactly that."""
+    cause: Optional[BaseException] = error
+    while cause is not None:
+        if (
+            isinstance(cause, QueryRanConcurrently)
+            or getattr(cause, "served_from_query_failure_cache", False)
+            or getattr(cause, "served_from_query_single_flight", False)
+        ):
+            return True
+        cause = cause.__cause__
+    return False
 
 
 def shareable_failure(error: Exception) -> Optional[SharedFailure]:
@@ -151,12 +159,10 @@ def budget_for_limit_context(limit_context: Optional[LimitContext]) -> Budget:
     return BUDGET_EXTENDED
 
 
-def _approximate_wait(open_until: datetime) -> str:
-    minutes = max(1, round((open_until - datetime.now(UTC)).total_seconds() / 60))
-    if minutes < 60:
-        return f"{minutes} minute{'s' if minutes != 1 else ''}"
-    hours = max(1, round(minutes / 60))
-    return f"{hours} hour{'s' if hours != 1 else ''}"
+# The breaker context that follows the original message. It carries no failure count and no wait
+# estimate: a replay that escapes to error tracking is grouped by its message, and those two values
+# move on every replay, so one long-running condition would split into a new issue group each time.
+BREAKER_REPLAY_SUFFIX = "This query failed in a way that will repeat, so it was not run again. Try it again later."
 
 
 def build_failure_exception(record: QueryFailureRecord, *, with_scan: bool = False) -> APIException:
@@ -164,16 +170,7 @@ def build_failure_exception(record: QueryFailureRecord, *, with_scan: bool = Fal
     frontend error handling stay identical to a fresh failure. The original message leads and
     the breaker context follows it. ``with_scan`` puts the first failure's query scan pointer on
     the copy, for a reader allowed to see it."""
-    sentences = [record.detail]
-    if record.consecutive_failures == 1:
-        sentences.append("This query failed in a way that will repeat, so it was not run again.")
-    else:
-        sentences.append(
-            f"This query failed the same way {record.consecutive_failures} times in a row, so it was not run again."
-        )
-    if record.open_until is not None:
-        sentences.append(f"It can run again in about {_approximate_wait(record.open_until)}.")
-    error = FAILURE_KIND_EXCEPTIONS[record.kind](detail=" ".join(sentences))
+    error = FAILURE_KIND_EXCEPTIONS[record.kind](detail=f"{record.detail} {BREAKER_REPLAY_SUFFIX}")
     error.served_from_query_failure_cache = True  # type: ignore[attr-defined]
     if with_scan and record.query_scan is not None:
         error.cache_key = record.cache_key  # type: ignore[attr-defined]

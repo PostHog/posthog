@@ -30,8 +30,10 @@ from posthog.exceptions import (
     DatabaseSchemaUnavailable,
 )
 from posthog.hogql_queries.query_failure_handling import (
+    BREAKER_REPLAY_SUFFIX,
     budget_for_limit_context,
     build_failure_exception,
+    captured_elsewhere,
     classify_failure,
     rebuild_shared_failure,
     shareable_failure,
@@ -53,6 +55,34 @@ def _record(kind, consecutive_failures, detail, open_until=None):
         open_until=open_until,
         budget=BUDGET_INTERACTIVE,
     )
+
+
+def _breaker_replay() -> Exception:
+    return build_failure_exception(_record("timeout", 3, "Query has hit the max execution time"))
+
+
+def _restated_from(error: Exception) -> Exception:
+    """``raise Other(...) from error``, the way a Temporal activity restates a failure in another
+    class to set its retry policy."""
+    try:
+        raise error
+    except Exception as cause:
+        try:
+            raise RuntimeError("restated") from cause
+        except RuntimeError as restated:
+            return restated
+
+
+def _raised_while_handling(error: Exception) -> Exception:
+    """A second, genuine failure that happens while the first one is handled. Python chains it on
+    __context__ and leaves __cause__ empty, because nobody said the two are one condition."""
+    try:
+        raise error
+    except Exception:
+        try:
+            raise RuntimeError("a new defect")
+        except RuntimeError as new_error:
+            return new_error
 
 
 def _clickhouse_error(message: str, code: int) -> Exception:
@@ -193,10 +223,7 @@ class TestQueryFailureHandling(SimpleTestCase):
             assert isinstance(error, ClickHouseQueryTimeOut)
             assert error.status_code == 504
             assert getattr(error, "served_from_query_failure_cache", False)
-            detail = str(error.detail)
-            assert detail.startswith(original_detail)
-            assert "This query failed the same way 3 times in a row" in detail
-            assert detail.endswith("It can run again in about 2 minutes.")
+            assert str(error.detail) == f"{original_detail} {BREAKER_REPLAY_SUFFIX}"
 
     def test_build_failure_exception_matches_fresh_too_many_bytes_shape(self):
         record = _record("too_many_bytes", 1, "Limit for bytes to read exceeded: 1.10 TB, maximum: 1.00 TB")
@@ -207,15 +234,28 @@ class TestQueryFailureHandling(SimpleTestCase):
         assert error.get_codes() == ["too_many_bytes"]
         assert "was not run again" in str(error.detail)
 
-    def test_build_failure_exception_first_failure_wording(self):
-        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
-            original_detail = str(ClickHouseQueryMemoryLimitExceeded().detail)
-            record = _record("memory_limit", 1, original_detail, open_until=datetime.now(UTC) + timedelta(minutes=2))
+    def test_build_failure_exception_message_does_not_move_between_replays(self):
+        """The replay message is what error tracking groups on, so neither the failure count nor
+        the remaining wait may reach it: one open breaker must stay one issue group."""
+        original_detail = str(ClickHouseQueryMemoryLimitExceeded().detail)
+        first = _record("memory_limit", 1, original_detail, open_until=datetime.now(UTC) + timedelta(minutes=2))
+        later = _record("memory_limit", 7, original_detail, open_until=datetime.now(UTC) + timedelta(hours=4))
 
-            error = build_failure_exception(record)
-            assert isinstance(error, ClickHouseQueryMemoryLimitExceeded)
-            assert error.status_code == 513
-            detail = str(error.detail)
-            assert detail.startswith(original_detail)
-            assert "This query failed in a way that will repeat" in detail
-            assert detail.endswith("It can run again in about 2 minutes.")
+        first_error = build_failure_exception(first)
+        assert isinstance(first_error, ClickHouseQueryMemoryLimitExceeded)
+        assert first_error.status_code == 513
+        assert str(first_error.detail) == str(build_failure_exception(later).detail)
+
+    @parameterized.expand(
+        [
+            ("breaker_replay", _breaker_replay, True),
+            ("breaker_replay_restated_in_another_class", lambda: _restated_from(_breaker_replay()), True),
+            ("defect_raised_while_handling_a_replay", lambda: _raised_while_handling(_breaker_replay()), False),
+            ("unrelated_failure", lambda: RuntimeError("kaboom"), False),
+        ]
+    )
+    def test_captured_elsewhere_follows_an_explicit_restate_only(self, _name, make_error, expected):
+        """A caller that restates the replay in its own class, such as a Temporal activity wrapping
+        it to set the retry policy, leaves the marker on the cause. A genuine defect that merely
+        happened while a replay was handled is still a defect, so only __cause__ is followed."""
+        assert captured_elsewhere(make_error()) is expected
