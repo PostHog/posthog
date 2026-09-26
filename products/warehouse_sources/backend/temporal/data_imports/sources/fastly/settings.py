@@ -7,7 +7,21 @@ from typing import Literal
 # - "version_list":     fan out over every service, list that service's versions.
 # - "version_resource": fan out over every service, fetch a resource scoped to the service's
 #                       currently-active version (domains, backends, ACLs, dictionaries).
-FastlyEndpointKind = Literal["object", "service_list", "version_list", "version_resource"]
+# - "version_resource_child": as above, then fan out again over each returned resource to list its
+#                       versionless members (ACL entries, dictionary items).
+# - "billing_list":     GET a /billing/v3 collection; rows sit under `data` and the next page is an
+#                       opaque cursor rather than a Link header.
+# - "billing_usage_metrics": as "billing_list", but each page groups per-service rows under a usage
+#                       type, so the transport flattens them.
+FastlyEndpointKind = Literal[
+    "object",
+    "service_list",
+    "version_list",
+    "version_resource",
+    "version_resource_child",
+    "billing_list",
+    "billing_usage_metrics",
+]
 
 
 @dataclass
@@ -22,6 +36,10 @@ class FastlyEndpointConfig:
     # Unique across the whole table. Fan-out children aggregate rows from every parent, so the
     # key includes the parent (service) identifier unless the resource id is globally unique.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    # "version_resource_child" only: the version-scoped endpoint listing the parents of `path`, and
+    # the column on a child row that holds its parent's id.
+    parent_path: str | None = None
+    parent_key: str | None = None
 
 
 # Version-scoped resource paths carry `{service_id}` and `{version}` placeholders that the
@@ -77,6 +95,41 @@ FASTLY_ENDPOINTS: dict[str, FastlyEndpointConfig] = {
         # Dictionary ids are globally unique; the service id is kept in the key defensively.
         primary_keys=["service_id", "id"],
         description="Edge dictionaries on each service's active version.",
+    ),
+    "acl_entries": FastlyEndpointConfig(
+        name="acl_entries",
+        path="/service/{service_id}/acl/{parent_id}/entries",
+        kind="version_resource_child",
+        parent_path="/service/{service_id}/version/{version}/acl",
+        parent_key="acl_id",
+        primary_keys=["service_id", "acl_id", "id"],
+        description="The IP addresses and subnet ranges held in each service's ACLs.",
+    ),
+    "dictionary_items": FastlyEndpointConfig(
+        name="dictionary_items",
+        path="/service/{service_id}/dictionary/{parent_id}/items",
+        kind="version_resource_child",
+        parent_path="/service/{service_id}/version/{version}/dictionary",
+        parent_key="dictionary_id",
+        # A dictionary item has no id of its own; its key is unique within its dictionary.
+        primary_keys=["service_id", "dictionary_id", "item_key"],
+        description="The key/value rows held in each service's edge dictionaries.",
+    ),
+    "invoices": FastlyEndpointConfig(
+        name="invoices",
+        path="/billing/v3/invoices",
+        kind="billing_list",
+        partition_key="billing_start_date",
+        primary_keys=["invoice_id"],
+        description="Posted invoices for the account, with the line items billed on each.",
+    ),
+    "billing_usage_metrics": FastlyEndpointConfig(
+        name="billing_usage_metrics",
+        path="/billing/v3/service-usage-metrics",
+        kind="billing_usage_metrics",
+        partition_key="start_time",
+        primary_keys=["customer_id", "start_time", "usage_type", "service_id"],
+        description="Usage per product and service over the most recent billing months.",
     ),
 }
 
