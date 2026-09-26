@@ -76,6 +76,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
             mcpVendorClient: 'ClaudeCode',
         },
         allTools: [],
+        projectCreationBlock: undefined,
         scopeGatedTools: [],
         flagGatedTools: [],
         gatewayToolsEnabled: false,

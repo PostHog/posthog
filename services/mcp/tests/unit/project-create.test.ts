@@ -16,11 +16,12 @@ function createMockContext(request: ReturnType<typeof vi.fn>): Context {
     } as unknown as Context
 }
 
-function createScopedContext(scopes: string[]): Context {
+function createScopedContext(scopes: string[], projectCreationBlock?: string): Context {
     return {
         stateManager: {
             getApiKey: async () => ({ scopes }),
             getAiConsentGiven: async () => true,
+            getProjectCreationBlock: async () => projectCreationBlock,
         },
     } as unknown as Context
 }
@@ -74,5 +75,16 @@ describe('project-create', () => {
         const tools = await getToolsFromContext(createScopedContext([scope]))
 
         expect(tools.map((tool) => tool.name).includes('project-create')).toBe(offered)
+    })
+
+    it('warns the agent in the tool description when the session cannot create a project', async () => {
+        const blocked = await getToolsFromContext(createScopedContext(['project:write'], 'Plan limit reached.'))
+        const allowed = await getToolsFromContext(createScopedContext(['project:write']))
+
+        const blockedTool = blocked.find((tool) => tool.name === 'project-create')
+        const allowedTool = allowed.find((tool) => tool.name === 'project-create')
+
+        expect(blockedTool?.description).toContain('Plan limit reached.')
+        expect(allowedTool?.description).not.toContain('Plan limit reached.')
     })
 })
