@@ -64,6 +64,7 @@ def _make_event_row(distinct_id: str, event: str, lib: str, team_id: int) -> dic
     }
 
 
+@pytest.mark.usefixtures("clickhouse_database")
 class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, SimpleTestCase):
     @classmethod
     def setUpClass(cls) -> None:

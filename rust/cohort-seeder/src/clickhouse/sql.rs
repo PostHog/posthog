@@ -215,7 +215,7 @@ mod tests {
     use chrono_tz::UTC;
 
     use super::*;
-    use crate::domain::{Boundary, SChunkMs, SeedDomain, UtcMillis};
+    use crate::domain::{SChunkMs, SeedDomain};
 
     /// The rendered scan for a spec, wide.
     fn full_sql(spec: &ScanSpec) -> String {
@@ -247,13 +247,7 @@ mod tests {
     }
 
     fn domain() -> SeedDomain {
-        SeedDomain::new(
-            1,
-            Boundary::new(UtcMillis::new(2 * 86_400_000), UTC),
-            UTC,
-            SChunkMs(200_000_000),
-        )
-        .unwrap()
+        SeedDomain::new(1, UTC, SChunkMs(200_000_000)).unwrap()
     }
 
     fn spec(event_names: Vec<String>, band: BandSpec) -> ScanSpec {

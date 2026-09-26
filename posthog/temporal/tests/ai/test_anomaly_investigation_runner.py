@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage
 from parameterized import parameterized
@@ -307,7 +307,10 @@ class _ScriptedRunnable:
         self._responses = list(responses)
 
     async def ainvoke(self, messages, config=None):
-        return self._responses.pop(0)
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 def _budget_burning_turn() -> AIMessage:
@@ -333,6 +336,148 @@ _VALID_REPORT_ARGS = {
     "hypotheses": [{"title": "Runaway tenant", "rationale": "Loops on the cap check.", "evidence": []}],
     "recommendations": ["Check the tenant."],
 }
+
+
+@pytest.mark.parametrize(
+    "report_args,following_turns,expected_verdict,expected_tool_calls,tool_error",
+    [
+        pytest.param(_UNRECOVERABLE_REPORT_ARGS, [], "true_positive", 1, False, id="salvage_previous_report"),
+        pytest.param({"verdict": "maybe", "summary": "x"}, [], "inconclusive", 1, False, id="fallback_without_salvage"),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}])],
+            "inconclusive",
+            2,
+            False,
+            id="do_not_salvage_report_before_new_evidence",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [
+                AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}]),
+                _report_turn(_UNRECOVERABLE_REPORT_ARGS),
+            ],
+            "true_positive",
+            2,
+            False,
+            id="salvage_report_after_new_evidence",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": FINAL_REPORT_TOOL_NAME, "args": _UNRECOVERABLE_REPORT_ARGS, "id": "report-2"},
+                        {"name": "fetch_metric_series", "args": {}, "id": "call-2"},
+                    ],
+                )
+            ],
+            "inconclusive",
+            2,
+            False,
+            id="do_not_salvage_report_before_tool_in_same_turn",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "fetch_metric_series", "args": {}, "id": "call-2"},
+                        {"name": FINAL_REPORT_TOOL_NAME, "args": _UNRECOVERABLE_REPORT_ARGS, "id": "report-2"},
+                    ],
+                )
+            ],
+            "inconclusive",
+            2,
+            False,
+            id="do_not_salvage_report_after_tool_in_same_turn",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            True,
+            id="salvage_report_after_failed_tool",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            "Error: no insight bound to this investigation.",
+            id="salvage_report_after_tool_error_result",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "fetch_metric_series", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            "Error fetching series: query failed",
+            id="salvage_report_after_series_error_result",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "simulate_detector", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            "Error running simulation: query failed",
+            id="salvage_report_after_simulation_error_result",
+        ),
+        pytest.param(
+            _UNRECOVERABLE_REPORT_ARGS,
+            [AIMessage(content="", tool_calls=[{"name": "missing_tool", "args": {}, "id": "call-2"}])],
+            "true_positive",
+            2,
+            False,
+            id="salvage_report_after_unknown_tool",
+        ),
+    ],
+)
+async def test_loop_failure_keeps_best_report_and_tool_count(
+    report_args: dict,
+    following_turns: list[AIMessage],
+    expected_verdict: str,
+    expected_tool_calls: int,
+    tool_error: bool | str,
+) -> None:
+    llm = MagicMock()
+    llm.bind_tools.side_effect = lambda tools: _ScriptedRunnable(
+        [
+            AIMessage(content="", tool_calls=[{"name": "noop_tool", "args": {}, "id": "call-1"}]),
+            _report_turn(report_args),
+            *following_turns,
+            RuntimeError("LLM unavailable"),
+        ]
+    )
+
+    with (
+        patch("ee.hogai.llm.MaxChatAnthropic", return_value=llm),
+        patch("posthog.temporal.ai.anomaly_investigation.runner.posthoganalytics") as mock_module,
+        patch(
+            "posthog.temporal.ai.anomaly_investigation.runner.InvestigationToolkit.fetch_metric_series",
+            new_callable=AsyncMock,
+            return_value=tool_error if isinstance(tool_error, str) else "New metric evidence",
+            side_effect=RuntimeError("tool failed") if tool_error is True else None,
+        ),
+        patch(
+            "posthog.temporal.ai.anomaly_investigation.runner.InvestigationToolkit.simulate_detector",
+            new_callable=AsyncMock,
+            return_value=tool_error if isinstance(tool_error, str) else "New metric evidence",
+        ),
+    ):
+        mock_module.default_client = None
+        result = await run_investigation(
+            team=MagicMock(id=1),
+            user=MagicMock(id=2),
+            anomaly_context="anomaly context",
+        )
+
+    assert result.report.verdict == expected_verdict
+    assert result.tool_calls_used == expected_tool_calls
+    assert result.report.tool_calls_used == expected_tool_calls
 
 
 @pytest.mark.parametrize(

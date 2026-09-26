@@ -92,6 +92,7 @@ def _clickhouse_test_database(django_db_setup):
 
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+@pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
     def _context(self, use_new_events_schema: bool | None = None) -> HogQLContext:
         team = Team(id=1, project_id=1)
