@@ -129,14 +129,24 @@ export function WorkflowMetricsSummary({
                     // A prevented bounce is skipped before the provider sees it, so it is not part of
                     // `sent` and its rate reads against everything the step attempted to send.
                     const attempted = row.sent + row.bouncePrevented
+                    const classifiedBounces = row.bouncedHard + row.bouncedSoft + row.bouncedUnknown
+                    const bounceIssues = [
+                        { label: 'hard bounced', value: row.bouncedHard },
+                        { label: 'soft bounced', value: row.bouncedSoft },
+                        { label: 'bounced, type unknown', value: row.bouncedUnknown },
+                        // The rollup and its per-type rows are written together, so this is normally
+                        // zero. Showing any remainder keeps the tags adding up to the rollup.
+                        { label: 'bounced', value: Math.max(0, row.bounced - classifiedBounces) },
+                    ]
                     const issues = [
-                        {
-                            label: 'bounced',
-                            value: row.bounced,
+                        // Every bounce tag filters to the same bounce logs: the invocation log
+                        // search is per event type, not per bounce type.
+                        ...bounceIssues.map((bounce) => ({
+                            ...bounce,
                             total: row.sent,
                             type: 'danger' as const,
                             metric: 'email_bounced' as EmailMetric,
-                        },
+                        })),
                         {
                             label: 'marked as spam',
                             value: row.markedAsSpam,

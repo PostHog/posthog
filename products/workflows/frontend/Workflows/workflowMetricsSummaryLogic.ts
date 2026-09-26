@@ -120,6 +120,15 @@ export type EmailMetric =
     | 'email_suspended'
     | 'email_paused'
 
+// The bounce rollup's per-type rows. They are fetched and shown as a breakdown of Bounced rather
+// than as metrics of their own, so they stay out of `EmailMetric`, whose keys are enumerated to
+// render one tile and one series each.
+export type EmailMetricName =
+    | EmailMetric
+    | 'email_bounced_hard'
+    | 'email_bounced_transient'
+    | 'email_bounced_undetermined'
+
 export type PushMetric = 'push_sent' | 'push_skipped' | 'push_failed' | 'push_opened'
 
 export type PushMetricRow = {
@@ -139,6 +148,11 @@ export type EmailMetricRow = {
     opened: number
     linkClicked: number
     bounced: number
+    // The rollup above split by whether the address will ever accept mail again. Hard bounces are
+    // suppressed and cost sender reputation; soft ones are temporary. They sum to `bounced`.
+    bouncedHard: number
+    bouncedSoft: number
+    bouncedUnknown: number
     bouncePrevented: number
     // Spam complaints. Stored under the email_blocked metric name for continuity with
     // historical data (see the SES webhook handler's Complaint mapping).
@@ -400,13 +414,16 @@ const SUMMARY_METRIC_KEYS = (Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSu
     (key) => key !== 'in_progress'
 )
 
-const EMAIL_METRICS: EmailMetric[] = [
+const EMAIL_METRICS: EmailMetricName[] = [
     'email_sent',
     'email_delivered',
     'email_opened',
     'email_failed',
     'email_link_clicked',
     'email_bounced',
+    'email_bounced_hard',
+    'email_bounced_transient',
+    'email_bounced_undetermined',
     'email_bounce_prevented',
     'email_blocked',
     'email_untracked',
@@ -497,7 +514,7 @@ export interface workflowMetricsSummaryLogicValues {
     emailLinkTotalsByActionId: Record<string, EmailLinkRow[]>
     emailLinkTotalsByActionIdLoading: boolean
     emailMetricsRows: EmailMetricRow[]
-    emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
+    emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
     emailTotalsByActionIdLoading: boolean
     hasConversionGoal: boolean
     inProgressTotal: number
@@ -627,10 +644,10 @@ export interface workflowMetricsSummaryLogicActions {
         errorObject?: any
     }
     loadEmailTotalsSuccess: (
-        emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>,
+        emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>,
         payload?: any
     ) => {
-        emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
+        emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
         payload?: any
     }
     loadInProgressTotal: (_: any) => any
@@ -852,7 +869,7 @@ export interface workflowMetricsSummaryLogicMeta {
                 type: 'function_email'
                 updated_at?: number | undefined
             } & Record<string, unknown>)[],
-            emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
+            emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
         ) => EmailMetricRow[]
         pushMetricsRows: (
             pushActions: ({
@@ -954,7 +971,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
     })),
     loaders(({ values }) => ({
         emailTotalsByActionId: [
-            {} as Record<string, Partial<Record<EmailMetric, number>>>,
+            {} as Record<string, Partial<Record<EmailMetricName, number>>>,
             {
                 loadEmailTotals: async (_, breakpoint) => {
                     await breakpoint(10)
@@ -1315,7 +1332,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                     type: 'function_email'
                     updated_at?: number | undefined
                 } & Record<string, unknown>)[],
-                emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
+                emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
             ): EmailMetricRow[] => buildEmailMetricRows(emailActions, emailTotalsByActionId),
         ],
 
@@ -1468,7 +1485,7 @@ export function channelSentLabel({ hasEmail, hasPush }: { hasEmail: boolean; has
 
 export function buildEmailMetricRows(
     emailActions: { id: string; name: string }[],
-    emailTotalsByActionId: Record<string, Partial<Record<EmailMetric, number>>>
+    emailTotalsByActionId: Record<string, Partial<Record<EmailMetricName, number>>>
 ): EmailMetricRow[] {
     return emailActions.map((action) => {
         const totals = emailTotalsByActionId[action.id] || {}
@@ -1486,6 +1503,9 @@ export function buildEmailMetricRows(
             opened: totals.email_opened ?? 0,
             linkClicked: totals.email_link_clicked ?? 0,
             bounced,
+            bouncedHard: totals.email_bounced_hard ?? 0,
+            bouncedSoft: totals.email_bounced_transient ?? 0,
+            bouncedUnknown: totals.email_bounced_undetermined ?? 0,
             bouncePrevented: totals.email_bounce_prevented ?? 0,
             markedAsSpam,
             untracked,
@@ -1513,8 +1533,8 @@ export function buildPushMetricRows(
 
 function mapEmailMetricsToActions(
     totalsResponse: AppMetricsTotalsResponse
-): Record<string, Partial<Record<EmailMetric, number>>> {
-    const result: Record<string, Partial<Record<EmailMetric, number>>> = {}
+): Record<string, Partial<Record<EmailMetricName, number>>> {
+    const result: Record<string, Partial<Record<EmailMetricName, number>>> = {}
 
     Object.values(totalsResponse).forEach(({ total, breakdowns }) => {
         const [instanceId, metricName] = breakdowns
@@ -1529,8 +1549,8 @@ function mapEmailMetricsToActions(
     return result
 }
 
-function isEmailMetric(metricName: string): metricName is EmailMetric {
-    return EMAIL_METRICS.includes(metricName as EmailMetric)
+function isEmailMetric(metricName: string): metricName is EmailMetricName {
+    return EMAIL_METRICS.includes(metricName as EmailMetricName)
 }
 
 function mapPushMetricsToActions(
