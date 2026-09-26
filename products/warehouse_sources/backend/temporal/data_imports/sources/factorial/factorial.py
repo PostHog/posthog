@@ -108,7 +108,7 @@ def get_resource(endpoint: str) -> EndpointResource:
             # Every list endpoint wraps its records under a top-level `data` key.
             "data_selector": "data",
             "path": config.path,
-            "params": {},
+            "params": dict(config.params),
         },
         "table_format": "delta",
     }
