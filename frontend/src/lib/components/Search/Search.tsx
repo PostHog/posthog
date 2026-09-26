@@ -16,9 +16,10 @@ import {
 } from 'react'
 
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -992,20 +993,11 @@ function SearchResults({
                                                                                 </span>
                                                                             )}
                                                                             {item.tags?.map((tag) => (
-                                                                                <LemonTag
+                                                                                <ProductTag
                                                                                     key={tag}
-                                                                                    type={
-                                                                                        tag === 'alpha'
-                                                                                            ? 'completion'
-                                                                                            : tag === 'beta'
-                                                                                              ? 'warning'
-                                                                                              : 'success'
-                                                                                    }
-                                                                                    size="small"
+                                                                                    tag={tag}
                                                                                     className="shrink-0"
-                                                                                >
-                                                                                    {tag.toUpperCase()}
-                                                                                </LemonTag>
+                                                                                />
                                                                             ))}
                                                                             {item.lastViewedAt && (
                                                                                 <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">
