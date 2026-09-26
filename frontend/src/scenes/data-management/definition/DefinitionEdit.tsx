@@ -6,7 +6,6 @@ import { IconImage } from '@posthog/icons'
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -14,7 +13,6 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -340,7 +338,7 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                 )}
 
                 {isProperty && editDefinition.id !== 'new' && currentTeamId && (
-                    <FlaggedFeature flag={FEATURE_FLAGS.PROPERTY_ACCESS_CONTROL}>
+                    <>
                         <SceneDivider />
                         <SceneSection
                             title="Access control"
@@ -356,7 +354,7 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                                 />
                             </PayGateMini>
                         </SceneSection>
-                    </FlaggedFeature>
+                    </>
                 )}
             </SceneContent>
         </Form>
