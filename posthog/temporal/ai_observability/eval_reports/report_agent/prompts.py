@@ -179,9 +179,14 @@ def build_eval_report_system_prompt(
             "- **`get_top_outcome_reasons(outcome, limit)`**: grouped reasoning strings for one outcome. "
             f"If omitted, outcome defaults to `{analysis_outcome}`.\n"
         )
-        result_overview_detail = "Includes truncated reasoning."
+        result_overview_detail = "Includes truncated reasoning when the judge provides it."
         sample_ordering_signature = ""
-        sample_ordering_instruction = 'Rows include full reasoning. Use the default `order_by="recent"`.'
+        sample_ordering_instruction = (
+            'Rows include full reasoning when available. Use the default `order_by="recent"`. '
+            "Some judges return no written reasoning. For those results, inspect the original "
+            "generation, trace, or session with the detail tools and ground your analysis in that source. "
+            "Do not invent a judge explanation or treat absent reasoning as an evaluation failure."
+        )
         analysis_sample_arguments = f'outcome="{analysis_outcome}"'
         outcome_analysis_step = (
             f"Inspect grouped reasons and sample relevant outcomes, using `{analysis_outcome}` and `{primary_outcome}` "

@@ -45,6 +45,45 @@ describe('modelPickerLogic', () => {
     })
 
     describe('loadByokModels', () => {
+        it.each(['example-judge-v1', 'custom-model'])(
+            'offers System One model %s only to evaluation model pickers',
+            async (model) => {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                            results: [
+                                { id: 'key-system-one', provider: 'system_one', name: 'System One', state: 'ok' },
+                            ],
+                        },
+                        '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+                        '/api/llm_proxy/models/': ({ request }) =>
+                            new URL(request.url).searchParams.get('provider_key_id')
+                                ? [
+                                      200,
+                                      [
+                                          {
+                                              id: model,
+                                              name: model,
+                                              provider: 'System One',
+                                              is_recommended: true,
+                                          },
+                                      ],
+                                  ]
+                                : [200, []],
+                    },
+                })
+                logic = modelPickerLogic()
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.evaluationProviderModelGroups[0].models[0].id).toBe(model)
+                expect(logic.values.providerModelGroups).toEqual([])
+                expect(logic.values.generativeByokModels).toEqual([])
+                expect(logic.values.hasByokKeys).toBe(false)
+                expect(logic.values.evaluationModelNotice).toBeNull()
+            }
+        )
+
         it('should load and attach providerKeyId to models from valid keys', async () => {
             useMocks({
                 get: {

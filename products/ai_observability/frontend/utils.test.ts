@@ -75,6 +75,15 @@ function makeEvaluationRunRow({
 }
 
 describe('mapEvaluationRunRow', () => {
+    it.each([0, 0.49, 1])('preserves a System One probability of %s without inventing reasoning', (probability) => {
+        const row = makeEvaluationRunRow()
+        row[7] = ''
+        row[18] = probability
+        const run = mapEvaluationRunRow(row)
+        expect(run.probability).toBe(probability)
+        expect(run.reasoning).toBe('')
+    })
+
     it.each([0, 0.5, -2, '0', '0.5', '-2'])('keeps numeric score %p and its original bounds', (score) => {
         const row = makeEvaluationRunRow({ result: null, resultType: 'numeric' })
         row[15] = score

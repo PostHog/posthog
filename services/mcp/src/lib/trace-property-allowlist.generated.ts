@@ -39,6 +39,7 @@ export const AI_TAXONOMY_EVENT_PROPERTIES = [
     '$ai_evaluation_numeric_result',
     '$ai_evaluation_numeric_result_max',
     '$ai_evaluation_numeric_result_min',
+    '$ai_evaluation_probability',
     '$ai_evaluation_provider',
     '$ai_evaluation_reasoning',
     '$ai_evaluation_result',

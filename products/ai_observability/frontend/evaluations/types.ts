@@ -142,6 +142,7 @@ export interface EvaluationRun {
     // evaluation disallows N/A, so it has to be read alongside this rather than on its own.
     skipped?: boolean
     reasoning: string
+    probability?: number | null
     status: 'completed' | 'failed' | 'running'
 }
 

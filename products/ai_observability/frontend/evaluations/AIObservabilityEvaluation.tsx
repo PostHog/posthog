@@ -134,7 +134,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
         return <NotFound object="evaluation" />
     }
     const openInPlaygroundUrl =
-        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && evaluation.id
+        evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
+        evaluation.id &&
+        evaluation.model_configuration?.provider !== 'system_one'
             ? combineUrl(urls.aiObservabilityPlayground(), { source_evaluation_id: evaluation.id }).url
             : null
 
@@ -919,17 +921,20 @@ export function AIObservabilityEvaluation(): JSX.Element {
 }
 
 function EvaluationModelPicker(): JSX.Element {
-    const { hasByokKeys, byokModels, providerModelGroups, byokModelsLoading, providerKeysLoading } =
+    const { byokModels, evaluationProviderModelGroups, byokModelsLoading, providerKeysLoading } =
         useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired } = useValues(llmEvaluationLogic)
+    const { selectedModel, selectedPickerProviderKeyId, modelSelectionRequired, evaluation } =
+        useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
     // Evals always run on the team's own provider key, so only BYOK models are offered.
     const selectedModelName = byokModels.find((m) => m.id === selectedModel)?.name
-    const groups = providerModelGroups
+    const groups = evaluationProviderModelGroups.filter(
+        (group) => evaluation?.output_type === 'boolean' || group.provider !== 'system_one'
+    )
     const loading = byokModelsLoading || providerKeysLoading
 
-    const footerLink = getModelPickerFooterLink(hasByokKeys)
+    const footerLink = getModelPickerFooterLink(groups.some((group) => !group.disabledReason))
 
     return (
         <div className="bg-bg-light border rounded p-6">
@@ -951,7 +956,13 @@ function EvaluationModelPicker(): JSX.Element {
                             selectedModelName={selectedModelName}
                             data-attr="evaluation-model-selector"
                         />
-                        <ByokModelPickerNotice />
+                        <ByokModelPickerNotice forEvaluation />
+                        {evaluation?.model_configuration?.provider === 'system_one' && (
+                            <p className="text-sm text-muted mt-2">
+                                This judge returns a probability without written reasoning. A probability of 50% or
+                                higher produces a true result.
+                            </p>
+                        )}
                         {modelSelectionRequired && !selectedModel && (
                             <p className="text-sm text-danger mt-1">Select a judge model.</p>
                         )}

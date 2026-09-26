@@ -7,8 +7,9 @@ import { modelPickerLogic } from './modelPickerLogic'
 import { providerLabel } from './settings/providerKeyStateUtils'
 
 /** Explains an empty or short model picker on the surfaces that only run on the team's own provider keys. */
-export function ByokModelPickerNotice(): JSX.Element | null {
-    const { byokModelNotice } = useValues(modelPickerLogic)
+export function ByokModelPickerNotice({ forEvaluation = false }: { forEvaluation?: boolean }): JSX.Element | null {
+    const { byokModelNotice: generativeModelNotice, evaluationModelNotice } = useValues(modelPickerLogic)
+    const byokModelNotice = forEvaluation ? evaluationModelNotice : generativeModelNotice
     const { loadByokModels } = useActions(modelPickerLogic)
 
     switch (byokModelNotice?.kind) {

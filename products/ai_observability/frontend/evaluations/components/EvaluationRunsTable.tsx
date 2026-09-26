@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 
+import { EvaluationExplanation } from '../../components/EvaluationExplanation'
 import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
 import { evaluationIsDetector } from '../constants'
@@ -118,15 +119,9 @@ export function EvaluationRunsTable(): JSX.Element {
             sorter: (a, b) => compareEvaluationResults(b, a, { trueIsFailure }),
         },
         {
-            title: 'Reasoning',
+            title: 'Details',
             key: 'reasoning',
-            render: (_, run) => (
-                <Tooltip title={run.reasoning}>
-                    <div className="max-w-md cursor-default">
-                        <div className="text-sm text-default line-clamp-2">{run.reasoning}</div>
-                    </div>
-                </Tooltip>
-            ),
+            render: (_, run) => <EvaluationExplanation reasoning={run.reasoning} probability={run.probability} />,
         },
         {
             title: 'Status',

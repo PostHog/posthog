@@ -58,7 +58,7 @@ export function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.El
                 {dayjs(latestRun.timestamp).fromNow()}
                 {runCount > 1 && <> &middot; {pluralize(runCount, 'run', 'runs', true)} total</>}
             </div>
-            {latestRun.reasoning && <div className="text-sm">{latestRun.reasoning}</div>}
+            <div className="text-sm">{latestRun.reasoning || 'No reasoning provided'}</div>
         </div>
     )
 }

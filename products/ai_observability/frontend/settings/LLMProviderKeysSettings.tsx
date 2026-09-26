@@ -15,15 +15,18 @@ import {
 } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { LLMProviderIcon, LLM_PROVIDER_SELECT_OPTIONS } from '../LLMProviderIcon'
 import {
     AlternativeKey,
     CreateLLMProviderKeyPayload,
     DEFAULT_AZURE_API_VERSION,
+    DEFAULT_SYSTEM_ONE_BASE_URL,
+    DEFAULT_SYSTEM_ONE_MODEL,
     DependentConfigsResponse,
     KeyValidationResult,
     LLMProvider,
@@ -32,8 +35,10 @@ import {
     LLM_PROVIDER_LABELS,
     UpdateLLMProviderKeyPayload,
     llmProviderKeysLogic,
+    normalizeSystemOneBaseUrlForComparison,
     sortProviderKeys,
 } from './llmProviderKeysLogic'
+import { SystemOneConnectionFields } from './SystemOneConnectionFields'
 
 function StateTag({ state, errorMessage }: { state: LLMProviderKeyState; errorMessage: string | null }): JSX.Element {
     const tagProps: { type: 'success' | 'danger' | 'warning' | 'default'; children: string } = {
@@ -102,6 +107,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'Enter your MiniMax API key'
         case 'zeabur':
             return 'sk-...'
+        case 'system_one':
+            return "Enter your endpoint's bearer token"
     }
 }
 
@@ -132,7 +139,11 @@ function KeyValidationStatus({
     const bullets = (
         <ul className="text-xs text-muted mt-1 list-disc pl-4 space-y-0.5">
             <li>Your key will be encrypted and stored securely</li>
-            <li>You pay {LLM_PROVIDER_LABELS[provider]} directly for model usage</li>
+            <li>
+                {provider === 'system_one'
+                    ? 'Model usage is billed by your endpoint provider'
+                    : `You pay ${LLM_PROVIDER_LABELS[provider]} directly for model usage`}
+            </li>
             <li>Each evaluation counts as an AI observability event</li>
         </ul>
     )
@@ -156,6 +167,8 @@ function KeyValidationStatus({
 }
 
 function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
     const { newKeyModalOpen, providerKeysLoading, preValidationResult, preValidationResultLoading, evaluationConfig } =
         useValues(llmProviderKeysLogic)
     const { setNewKeyModalOpen, createProviderKey, preValidateKey, clearPreValidation } =
@@ -170,7 +183,11 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
 
     const isAzure = provider === 'azure_openai'
     const keyValidated = preValidationResult?.state === 'ok'
-    const isValid = name.length > 0 && apiKey.length > 0 && (!isAzure || azureEndpoint.length > 0)
+    const isSystemOne = provider === 'system_one'
+    const isValid =
+        name.length > 0 &&
+        (isSystemOne ? systemOneBaseUrl.length > 0 && systemOneModel.length > 0 : apiKey.length > 0) &&
+        (!isAzure || azureEndpoint.length > 0)
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
     const azureErrorField = isAzure && validationFailed ? azureErrorFieldFromResult(preValidationResult) : null
 
@@ -195,7 +212,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                     provider,
                     name,
                     api_key: apiKey,
-                    set_as_active: !evaluationConfig?.active_provider_key,
+                    set_as_active: provider !== 'system_one' && !evaluationConfig?.active_provider_key,
                 }
                 if (isAzure) {
                     payload.azure_endpoint = azureEndpoint
@@ -224,6 +241,18 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     }
 
     const handleSubmit = (): void => {
+        if (isSystemOne) {
+            createProviderKey({
+                payload: {
+                    provider,
+                    name,
+                    api_key: apiKey,
+                    base_url: systemOneBaseUrl,
+                    system_one_model: systemOneModel,
+                },
+            })
+            return
+        }
         if (keyValidated) {
             const payload: CreateLLMProviderKeyPayload = {
                 provider,
@@ -247,6 +276,9 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
     }
 
     const handleApiKeyBlur = (): void => {
+        if (isSystemOne) {
+            return
+        }
         if (apiKey.length > 0 && !preValidationResult) {
             preValidateKey({
                 apiKey,
@@ -285,7 +317,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                     <LemonButton
                         type="primary"
                         onClick={handleSubmit}
-                        loading={providerKeysLoading}
+                        loading={providerKeysLoading || preValidationResultLoading}
                         disabled={!isValid}
                         disabledReason={restrictionReason}
                     >
@@ -300,7 +332,11 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                     <LemonSelect
                         value={provider}
                         onChange={handleProviderChange}
-                        options={LLM_PROVIDER_SELECT_OPTIONS}
+                        options={LLM_PROVIDER_SELECT_OPTIONS.filter(
+                            ({ value }) =>
+                                value !== 'system_one' ||
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] === true
+                        )}
                         className="mt-1"
                         fullWidth
                     />
@@ -342,6 +378,7 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         </div>
                     </>
                 )}
+                {isSystemOne && <SystemOneConnectionFields />}
                 <div>
                     <label className="text-sm font-medium">Name</label>
                     <LemonInput
@@ -372,6 +409,12 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         provider={provider}
                         suppressError={azureErrorField === 'endpoint'}
                     />
+                    {isSystemOne && (
+                        <p className="text-xs text-muted">
+                            Sent as a bearer token. Leave empty only if your custom endpoint does not require
+                            authentication.
+                        </p>
+                    )}
                 </div>
             </div>
         </LemonModal>
@@ -386,8 +429,13 @@ function EditKeyModal({
     restrictionReason: string | null
 }): JSX.Element {
     const { providerKeysLoading, preValidationResult, preValidationResultLoading } = useValues(llmProviderKeysLogic)
+    const { systemOneBaseUrl, systemOneModel } = useValues(llmProviderKeysLogic)
     const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation } = useActions(llmProviderKeysLogic)
     const isAzureEdit = keyToEdit.provider === 'azure_openai'
+    const isSystemOne = keyToEdit.provider === 'system_one'
+    const endpointChanged =
+        normalizeSystemOneBaseUrlForComparison(systemOneBaseUrl) !==
+        normalizeSystemOneBaseUrlForComparison(keyToEdit.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL)
 
     const [name, setName] = useState(keyToEdit.name)
     const [apiKey, setApiKey] = useState('')
@@ -407,6 +455,15 @@ function EditKeyModal({
         if (apiKey.length > 0) {
             payload.api_key = apiKey
         }
+        if (isSystemOne) {
+            if (endpointChanged) {
+                payload.base_url = systemOneBaseUrl
+                payload.api_key = apiKey
+            }
+            if (systemOneModel !== (keyToEdit.system_one_model_display ?? DEFAULT_SYSTEM_ONE_MODEL)) {
+                payload.system_one_model = systemOneModel
+            }
+        }
         if (isAzureEdit) {
             if (azureEndpoint !== (keyToEdit.azure_endpoint_display ?? '')) {
                 payload.azure_endpoint = azureEndpoint
@@ -419,6 +476,9 @@ function EditKeyModal({
     }
 
     const handleApiKeyBlur = (): void => {
+        if (isSystemOne) {
+            return
+        }
         if (apiKey.length > 0) {
             preValidateKey({
                 apiKey,
@@ -435,8 +495,9 @@ function EditKeyModal({
         }
     }
 
-    const keyValidated = apiKey.length === 0 || preValidationResult?.state === 'ok'
-    const isValid = name.length > 0 && keyValidated
+    const keyValidated = isSystemOne || apiKey.length === 0 || preValidationResult?.state === 'ok'
+    const isValid =
+        name.length > 0 && keyValidated && (!isSystemOne || (systemOneBaseUrl.length > 0 && systemOneModel.length > 0))
     const validationFailed = !!preValidationResult && preValidationResult.state !== 'ok'
     const azureErrorField = isAzureEdit && validationFailed ? azureErrorFieldFromResult(preValidationResult) : null
 
@@ -500,6 +561,7 @@ function EditKeyModal({
                         </div>
                     </>
                 )}
+                {isSystemOne && <SystemOneConnectionFields />}
                 <div>
                     <label className="text-sm font-medium">Name</label>
                     <LemonInput value={name} onChange={setName} className="mt-1" fullWidth />
@@ -510,7 +572,11 @@ function EditKeyModal({
                         value={apiKey}
                         onChange={handleApiKeyChange}
                         onBlur={handleApiKeyBlur}
-                        placeholder={`Leave empty to keep current (${keyToEdit.api_key_masked})`}
+                        placeholder={
+                            isSystemOne && endpointChanged
+                                ? "Enter the new endpoint's bearer token"
+                                : `Leave empty to keep current (${keyToEdit.api_key_masked})`
+                        }
                         type="password"
                         autoComplete="off"
                         className="mt-1"
@@ -525,7 +591,11 @@ function EditKeyModal({
                             suppressError={azureErrorField === 'endpoint'}
                         />
                     ) : (
-                        <p className="text-xs text-muted mt-1">Leave empty to keep the current key</p>
+                        <p className="text-xs text-muted mt-1">
+                            {isSystemOne && endpointChanged
+                                ? 'The saved key will not be sent to the new endpoint. Enter its bearer token, or leave empty for no authentication.'
+                                : 'Leave empty to keep the current key'}
+                        </p>
                     )}
                 </div>
             </div>

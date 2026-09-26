@@ -22,11 +22,16 @@ class LLMProvider(models.TextChoices):
     TOGETHER_AI = "together_ai", "Together AI"
     MINIMAX = "minimax", "MiniMax"
     ZEABUR = "zeabur", "Zeabur AI Hub"
+    SYSTEM_ONE = "system_one", "System One"
 
 
 def llm_provider_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(LLMProvider.choices)
+
+
+def llm_completion_provider_choices() -> list[tuple[str, str | Promise]]:
+    return [(provider, label) for provider, label in LLMProvider.choices if provider != LLMProvider.SYSTEM_ONE]
 
 
 class LLMProviderKey(UUIDTModel):
@@ -62,6 +67,10 @@ class LLMProviderKey(UUIDTModel):
         extra config (e.g. Azure's ``azure_endpoint`` and ``api_version``). Most
         providers return an empty dict.
         """
+        if self.provider == LLMProvider.SYSTEM_ONE:
+            return {
+                field: self.encrypted_config[field] for field in ("base_url", "model") if field in self.encrypted_config
+            }
         if self.provider == LLMProvider.AZURE_OPENAI:
             return {
                 "azure_endpoint": self.encrypted_config.get("azure_endpoint", ""),

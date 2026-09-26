@@ -108,6 +108,30 @@ class TestNumericEvaluationSerializer(SimpleTestCase):
 
 
 class TestModelConfigurationSerializer(SimpleTestCase):
+    def test_numeric_evaluation_rejects_system_one_connection(self) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Score quality"},
+            output_type="numeric",
+            output_config={},
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True)
+        with self.assertRaisesMessage(ValidationError, "Select a model that supports this evaluation output type"):
+            serializer.validate({"model_configuration": {"provider": "system_one", "model": "custom-model"}})
+
+    @parameterized.expand(
+        [
+            ("missing_key", "example-judge-v1", None, False),
+            ("custom_model", "other-model", str(uuid4()), True),
+            ("configured", "example-judge-v1", str(uuid4()), True),
+        ]
+    )
+    def test_system_one_requires_explicit_key(self, _name: str, model: str, key_id: str | None, valid: bool) -> None:
+        serializer = ModelConfigurationSerializer(
+            data={"provider": "system_one", "model": model, "provider_key_id": key_id}
+        )
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+
     @parameterized.expand(
         [
             ("missing_provider", {"model": "gpt-5-mini"}, "provider"),
@@ -276,16 +300,18 @@ class TestEvaluationConfigsApi(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.id}/evaluations/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_can_create_evaluation_config(self):
+    @parameterized.expand([("openai", "gpt-5-mini"), ("system_one", "example-judge-v1")])
+    def test_can_create_evaluation_config(self, provider: str, model: str) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team,
-            provider="openai",
+            provider=provider,
             name="Active Key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
         )
-        EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
+        if provider == "openai":
+            EvaluationConfig.objects.create(team=self.team, active_provider_key=key)
         response = self.client.post(
             f"/api/environments/{self.team.id}/evaluations/",
             {
@@ -293,7 +319,9 @@ class TestEvaluationConfigsApi(APIBaseTest):
                 "description": "Test Description",
                 "enabled": True,
                 "evaluation_type": "llm_judge",
-                "model_configuration": _DEFAULT_MODEL_CONFIGURATION,
+                "model_configuration": {"provider": provider, "model": model, "provider_key_id": str(key.id)}
+                if provider == "system_one"
+                else _DEFAULT_MODEL_CONFIGURATION,
                 "evaluation_config": {"prompt": "Test prompt"},
                 "output_type": "boolean",
                 "output_config": {},

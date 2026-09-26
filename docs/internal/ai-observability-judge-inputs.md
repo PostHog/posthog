@@ -39,6 +39,58 @@ They sample the combined input, tool definitions, and output only when that text
 
 Implementation: [trace judge](../../posthog/temporal/ai_observability/run_trace_evaluation.py), [session judge](../../posthog/temporal/ai_observability/run_session_evaluation.py), and [generation judge](../../posthog/temporal/ai_observability/evaluation_llm_judge.py).
 
+## System One judges
+
+System One-compatible models are available under the existing LLM judge option.
+The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
+Deploy the ingestion and evaluation worker changes before enabling the flag.
+Projects configure a System One-compatible deployment and its authentication.
+Evaluation connections never fall back to an instance credential or gateway configuration.
+PostHog's regional AI gateway endpoints additionally require an organization in `POSTHOG_INTERNAL_ORG_IDS`; customer projects cannot use those endpoints.
+Connection validation and every evaluation check these gates; an absent flag or failed flag lookup blocks the call.
+Turning the flag off stops subsequent runs, including queued work, without disabling the saved evaluation.
+Keep the experimental flag limited to staff projects during rollout.
+Add a connection under **System One** in provider key settings.
+Enter the public HTTPS base URL and model ID of a compatible service; neither has a default.
+TypeSafe's hosted endpoint is not supported by this integration.
+The client appends `/systemone` to the base URL and sends the API key as a bearer token.
+An empty key selects no authentication.
+Changing the endpoint requires entering its credential again, or explicitly choosing no authentication, so an existing key is not forwarded to a new host.
+Private network destinations and redirects are blocked by the shared DNS-pinned HTTP transport.
+Saving a connection validates it with a short synthetic input and a Noul question, without sending evaluation data, using a 10-second request timeout.
+Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
+Provider keys keep the provider they were created with; switching providers requires a new key.
+The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
+The integration reuses the System One types and parser in `posthog/llm/system_one.py` and the explicit-connection client in `posthog/llm/system_one_client.py`.
+Requests use the rate limiter and telemetry in `posthog/egress/typesafe`.
+The selected connection supplies its own endpoint and credential; it never falls back to instance gateway settings.
+Numeric and categorical support is separate from this integration.
+Numeric evaluations retain their existing arbitrary ranges and completion-based judges.
+API compatibility does not guarantee equivalent judgments or calibration across models.
+Compare results on representative inputs when changing models.
+
+For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
+A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
+The raw probability is stored in `$ai_evaluation_probability` when the criteria apply, with available token usage and the configured model ID.
+Missing or invalid token counts remain unknown and do not discard a valid answer.
+Ingestion estimates cost from the configured model and token usage when the model appears in the existing pricing catalog.
+Models without a catalog match retain their usage with cost left unknown.
+A custom deployment reporting a recognized model name can inherit that model's catalog estimate; this does not measure its hosting cost.
+
+Evaluations that allow N/A send a separate Noul question about whether the criteria apply, using the 0.5 threshold.
+Uncertainty alone does not produce N/A.
+System One answers contain no written reasoning, so reports inspect the original source when explaining outcomes.
+
+Each endpoint and credential pair has a separate, hashed rate-limit scope shared across workers.
+Evaluations use the batch lane; connection validation uses the normal lane.
+Local budget exhaustion, rate limits, and overload responses are retried through Temporal, honoring `Retry-After` up to one minute.
+If retries fail, the run fails and the evaluation stays enabled.
+Blocked endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
+Requests rejected because of an individual input skip that run without changing the shared connection.
+Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
+Inputs rejected for exceeding the model's context window are skipped.
+See TypeSafe's [API reference](https://docs.typesafe.ai/api) for the System One protocol.
+
 ## Model output limits
 
 When the judge reply reaches the model's output limit, the evaluation skips that item with `output_limit_exceeded`.
