@@ -498,6 +498,7 @@ export interface sourceWizardLogicValues {
     suggestedTablesMap: Record<string, string | null>
     syncMethodModalOpen: boolean
     tablesAllToggledOn: boolean | 'indeterminate'
+    webhookAutoCreationBlockedReason: string | null
     webhookCreating: boolean
     webhookFieldInputs: Record<string, any>
     webhookFieldInputsAllErrors: Record<string, any>
@@ -726,6 +727,9 @@ export interface sourceWizardLogicActions {
     }
     setStep: (step: number) => {
         step: number
+    }
+    setWebhookAutoCreationBlockedReason: (reason: string | null) => {
+        reason: string | null
     }
     setWebhookFieldInputsManualErrors: (errors: Record<string, any>) => {
         errors: Record<string, any>
@@ -1072,6 +1076,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         saveFormStateBeforeRedirect: true,
         createWebhook: true,
+        setWebhookAutoCreationBlockedReason: (reason: string | null) => ({ reason }),
         setWebhookResult: (result: WebhookCreateResult | null) => ({
             result,
         }),
@@ -1364,6 +1369,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 createWebhook: () => true,
                 setWebhookResult: () => false,
+            },
+        ],
+        webhookAutoCreationBlockedReason: [
+            null as string | null,
+            {
+                setWebhookAutoCreationBlockedReason: (_, { reason }) => reason,
+                onClear: () => null,
             },
         ],
     }),
@@ -2239,6 +2251,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         props.onComplete()
                     }
                 } else if (values.hasWebhookSchemas) {
+                    // Load the blocked reason before the webhook step renders, so a connection that
+                    // can never create the webhook opens on the manual steps instead of a doomed button.
+                    try {
+                        const webhookInfo = await api.externalDataSources.getWebhookInfo(id)
+                        actions.setWebhookAutoCreationBlockedReason(webhookInfo.auto_creation_blocked_reason ?? null)
+                    } catch (e: any) {
+                        posthog.captureException(e)
+                    }
                     // Go to webhook setup step (4)
                     actions.onNext()
                 } else {
