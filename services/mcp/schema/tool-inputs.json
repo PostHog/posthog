@@ -934,6 +934,14 @@
             },
             "required": ["operations"]
         },
+        "PersonSplitDistinctIdsSchema": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+                "type": "string"
+            },
+            "description": "Distinct IDs to move off this person onto new single-ID persons. The person keeps every other distinct ID and all of its properties. Name only the IDs you want moved: the person must keep at least one distinct ID, so the API rejects a list naming every ID it holds."
+        },
         "ProjectGetAllSchema": {
             "type": "object",
             "properties": {}

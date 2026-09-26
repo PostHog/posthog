@@ -1386,6 +1386,22 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert original is not None
         self.assertCountEqual(original.distinct_ids, ["a", "b"])
 
+    def test_split_people_partial_rejects_moving_every_distinct_id(self) -> None:
+        two_ids = _create_person(team=self.team, distinct_ids=["a", "b"], properties={}, immediate=True)
+        one_id = _create_person(team=self.team, distinct_ids=["solo"], properties={}, immediate=True)
+
+        for person, to_split in [(two_ids, ["a", "b"]), (one_id, ["solo"])]:
+            with self.subTest(distinct_ids_to_split=to_split):
+                response = self.client.post(
+                    "/api/person/{}/split/".format(person.pk),
+                    {"distinct_ids_to_split": to_split},
+                )
+                self.assertEqual(response.status_code, 400, response.content)
+
+                original = get_person_by_id(self.team.id, person.pk)
+                assert original is not None
+                self.assertCountEqual(original.distinct_ids, to_split)
+
     def test_split_people_partial_rejects_combined_with_main_distinct_id(self) -> None:
         person1 = _create_person(
             team=self.team,
