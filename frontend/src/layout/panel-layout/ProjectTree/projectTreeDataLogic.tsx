@@ -16,7 +16,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { getCurrentTeamIdOrNone, getCurrentUserIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -69,6 +69,11 @@ const DELETE_ALERT_LIMIT = 0
  * Success/Failure reducers).
  */
 const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
+// kea-localstorage keys only by logic path, and starred items belong to one user in one project.
+const SHORTCUTS_PERSIST_OPTIONS = {
+    persist: true,
+    prefix: `${getCurrentTeamIdOrNone() ?? 'unknown'}__${getCurrentUserIdOrNone() ?? 'unknown'}__`,
+}
 /**
  * Upper bound on a single move request. A batch reports only once every one of its moves has settled, so
  * without this one stalled request would withhold the toast and the Undo from every item that already
@@ -1260,8 +1265,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
             },
         ],
+        // Persisted so the sidebar renders starred items on load instead of popping them in after the fetch.
+        // Another tab can leave the copy stale, and the fetch on mount replaces it.
         shortcutData: [
             [] as FileSystemEntry[],
+            SHORTCUTS_PERSIST_OPTIONS,
             {
                 deleteTypeAndRef: (state, { type, ref }) => state.filter((s) => s.type !== type || s.ref !== ref),
                 addLoadedResults: (state, { results }) => {
@@ -1282,6 +1290,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         ],
         shortcutDataHasLoaded: [
             false,
+            SHORTCUTS_PERSIST_OPTIONS,
             {
                 loadShortcutsSuccess: () => true,
                 loadShortcutsFailure: () => true,
