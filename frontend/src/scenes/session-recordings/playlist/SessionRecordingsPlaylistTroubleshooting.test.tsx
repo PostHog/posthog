@@ -1,9 +1,14 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
+
 import { useMocks } from '~/mocks/jest'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -16,6 +21,13 @@ import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPla
 
 describe('SessionRecordingsPlaylistTroubleshooting', () => {
     let logic: ReturnType<typeof sessionRecordingsPlaylistLogic.build>
+    let olderRecordingStartTime: string | null = null
+    const olderRecording = (): Record<string, any> => ({
+        id: 'older-recording',
+        start_time: olderRecordingStartTime,
+        viewed: false,
+        viewers: [],
+    })
 
     const logicProps: SessionRecordingPlaylistLogicProps = {
         logicKey: 'troubleshooting-test',
@@ -25,7 +37,17 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/session_recordings': { results: [], has_next: false },
+                // Empty in the default 3-day range, so only a wider probe finds anything.
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    const dateFrom = new URL(request.url).searchParams.get('date_from')
+                    return [
+                        200,
+                        {
+                            results: dateFrom === '-3d' || !olderRecordingStartTime ? [] : [olderRecording()],
+                            has_next: false,
+                        },
+                    ]
+                },
                 '/api/environments/:team_id/session_recordings/properties': { results: [] },
             },
         })
@@ -39,6 +61,7 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         cleanup()
         playerSettingsLogic.actions.setHideViewedRecordings(false)
         playerSettingsLogic.unmount()
+        olderRecordingStartTime = null
         logic.unmount()
         localStorage.clear()
     })
@@ -107,5 +130,31 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         expect(screen.getByTestId('replay-empty-state-troubleshooting-show-hidden-recordings')).toHaveTextContent(
             /^Show hidden recordings$/
         )
+    })
+
+    it('says the project is waiting for its first recording, without the capture guesses', () => {
+        const setupLogic = productSetupStatusLogic({ productKey: ProductKey.SESSION_REPLAY })
+        setupLogic.mount()
+        setupLogic.actions.applyDetectedStatus('waiting-for-data', teamLogic.values.currentTeamId)
+
+        renderTroubleshooting()
+
+        expect(screen.getByText('Waiting for the first recording')).toBeInTheDocument()
+        expect(screen.queryByText('Recordings might be outside the retention period')).not.toBeInTheDocument()
+        expect(screen.queryByText('Search over the last 30 days')).not.toBeInTheDocument()
+    })
+
+    it('names older recordings when the default range is empty, and widens the range to include them', async () => {
+        olderRecordingStartTime = dayjs().subtract(5, 'day').toISOString()
+        logic.actions.loadSessionRecordings()
+
+        await waitFor(() => expect(logic.values.olderRecordingsProbe).not.toBeNull())
+        renderTroubleshooting()
+
+        expect(screen.getByText('No recordings in the last 3 days')).toBeInTheDocument()
+        expect(screen.getByText('The newest recording started 5 days ago.')).toBeInTheDocument()
+
+        fireEvent.click(screen.getByText('Show older recordings'))
+        await waitFor(() => expect(logic.values.filters.date_from).toBe('-30d'))
     })
 })
