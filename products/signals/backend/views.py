@@ -58,6 +58,7 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, normalize_search_term
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
@@ -153,6 +154,7 @@ from products.signals.backend.report_merge import (
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_search import report_search_predicate, report_search_terms
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
@@ -205,6 +207,7 @@ from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Wo
 from products.signals.backend.temporal.reingestion import SignalReportReingestionWorkflow
 from products.signals.backend.temporal.signal_queries import (
     fetch_live_report_ids_for_source_ids,
+    fetch_report_ids_by_search_term,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     fetch_report_ids_for_source_products,
@@ -1296,10 +1299,38 @@ class SignalReportViewSet(
         raise serializers.ValidationError({"count_only": f"Invalid value: {raw!r}. Allowed: true, false."})
 
     def _apply_signal_report_search_filter(self, queryset):
-        search = self.request.query_params.get("search")
+        """Free-text search over what a report says and what it was built from.
+
+        Deduplication depends on this: a caller looking for the report it is about to file again
+        searches for the entity, not for the title someone else wrote. So the search covers the
+        report's own prose, its work-log notes, and its evidence in ClickHouse, and matches the
+        terms independently. See `report_search`.
+        """
+        search = normalize_search_term(self.request.query_params.get("search") or "")
         if not search:
             return queryset
-        return queryset.filter(Q(title__icontains=search) | Q(summary__icontains=search))
+        if len(search) > MAX_SEARCH_LENGTH:
+            raise serializers.ValidationError(
+                {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+            )
+        terms = report_search_terms(search)
+        if not terms:
+            # Nothing but punctuation. Match the caller's string whole rather than every report, and
+            # skip the evidence leg, whose ClickHouse pattern would read the punctuation as wildcards.
+            return queryset.filter(report_search_predicate([search], {}))
+        return queryset.filter(report_search_predicate(terms, self._evidence_report_ids_by_term(terms)))
+
+    def _evidence_report_ids_by_term(self, terms: list[str]) -> dict[str, set[str]]:
+        """Reports whose ClickHouse evidence holds each term, or none when the lookup is unavailable.
+
+        A ClickHouse fault degrades the search to the report's own content instead of failing the
+        list, because a search box that answers nothing is worse than one that answers less.
+        """
+        try:
+            return fetch_report_ids_by_search_term(self.team, terms)
+        except Exception:
+            logger.exception("signals.reports.list.search_evidence_failed", team_id=self.team.pk)
+            return {}
 
     def _apply_signal_report_source_product_filter(self, queryset):
         source_product_filter = self.request.query_params.get("source_product")
@@ -1975,7 +2006,14 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Case-insensitive substring match against report title and summary.",
+                description=(
+                    "Case-insensitive free-text search across a report's title, summary, work-log notes, "
+                    "and the evidence it was built from (observation prose and source ids). Punctuation and "
+                    "underscores split the query into terms, so `$web_vitals` also finds a report titled "
+                    '"Web Vitals". Each term must match the report, but they can match different parts of '
+                    "it, so terms of your own wording find a report worded differently. At most 200 "
+                    "characters, of which the first 8 terms are used; a longer query is rejected with a 400."
+                ),
             ),
             OpenApiParameter(
                 name="channel_id",

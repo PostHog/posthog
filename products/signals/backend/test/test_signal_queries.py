@@ -26,6 +26,7 @@ from products.signals.backend.signal_metadata import (
     fetch_source_references_for_report,
 )
 from products.signals.backend.temporal.signal_queries import (
+    fetch_report_ids_by_search_term,
     fetch_report_ids_for_scout_names,
     fetch_report_ids_for_scout_prefix,
     fetch_signals_for_report_sync,
@@ -377,6 +378,74 @@ class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):
         )
 
         assert fetch_report_ids_for_scout_names(self.team, ["signals-scout-apm"]) == set()
+
+
+class TestFetchReportIdsForSearchTerms(_SignalEmbeddingsTestBase):
+    def test_terms_may_sit_in_different_signals_of_one_report(self) -> None:
+        # A report promotes only after several signals merge into it, so the word a caller
+        # remembers and the identifier it pairs with routinely land in two of them. Testing the
+        # terms per signal loses exactly the deduplication match this filter exists to make.
+        self._emit_version(
+            document_id="sig1",
+            report_id="rSplit",
+            source_product="errors",
+            inserted_at=self.base,
+            content="Registration drops sharply",
+        )
+        self._emit_version(
+            document_id="order1234",
+            report_id="rSplit",
+            source_product="errors",
+            inserted_at=self.base,
+            content="Only affects the Toronto region",
+        )
+        self._emit_version(
+            document_id="sig2",
+            report_id="rOther",
+            source_product="errors",
+            inserted_at=self.base,
+            content="Registration drops sharply",
+        )
+
+        assert fetch_report_ids_by_search_term(self.team, ["toronto", "registration"]) == {
+            "toronto": {"rSplit"},
+            "registration": {"rSplit", "rOther"},
+        }
+        # A term may land on either leg of the same report: prose in one signal, the emitter's own
+        # record id in another.
+        assert fetch_report_ids_by_search_term(self.team, ["registration", "order1234"]) == {
+            "registration": {"rSplit", "rOther"},
+            "order1234": {"rSplit"},
+        }
+        # A term no signal holds reports an empty set rather than dropping out of the map. The
+        # caller ANDs the terms, so a silently absent term would widen the search instead of
+        # narrowing it.
+        assert fetch_report_ids_by_search_term(self.team, ["toronto", "checkout"]) == {
+            "toronto": {"rSplit"},
+            "checkout": set(),
+        }
+
+    def test_only_the_latest_wording_of_a_signal_decides_the_match(self) -> None:
+        # The dedup is bounded to documents that ever held a term, so a stale version is what
+        # brings a document into the scan. Deciding the match on it would surface a report whose
+        # current evidence no longer says the thing the caller searched for.
+        self._emit_version(
+            document_id="reworded",
+            report_id="rReworded",
+            source_product="errors",
+            inserted_at=self.base,
+            content="Checkout errors in Toronto",
+        )
+        self._emit_version(
+            document_id="reworded",
+            report_id="rReworded",
+            source_product="errors",
+            inserted_at=self.base + timedelta(hours=1),
+            content="Checkout errors in Montreal",
+        )
+
+        assert fetch_report_ids_by_search_term(self.team, ["montreal"]) == {"montreal": {"rReworded"}}
+        assert fetch_report_ids_by_search_term(self.team, ["toronto"]) == {"toronto": set()}
 
 
 class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):

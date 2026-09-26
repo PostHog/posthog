@@ -87,7 +87,12 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .describe(
             'Scout skill_name prefix (e.g. signals-scout-customer-analytics). Reports are kept if at least one of their contributing signals was authored by a scout whose skill_name starts with this prefix — new scouts in the family match without callers listing every name. Combines with the other filters as an AND.'
         ),
-    search: zod.string().optional().describe('Case-insensitive substring match against report title and summary.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            'Case-insensitive free-text search across a report\'s title, summary, work-log notes, and the evidence it was built from (observation prose and source ids). Punctuation and underscores split the query into terms, so `$web_vitals` also finds a report titled \"Web Vitals\". Each term must match the report, but they can match different parts of it, so terms of your own wording find a report worded differently. At most 200 characters, of which the first 8 terms are used; a longer query is rejected with a 400.'
+        ),
     sort: zod
         .string()
         .optional()

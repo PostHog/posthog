@@ -11,6 +11,7 @@ import temporalio
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_documents, emit_embedding_request
@@ -788,6 +789,115 @@ def fetch_report_ids_for_scout_prefix(team: Team, scout_prefix: str) -> set[str]
     )
 
     return {row[0] for row in (result.results or []) if row[0]}
+
+
+# ---------------------------------------------------------------------------
+# fetch_report_ids_by_search_term — synchronous, for the viewset list filter
+# ---------------------------------------------------------------------------
+
+# The caller treats this leg as best-effort and degrades to the report's own content when it fails,
+# so it must not hold a web worker for the 60-second HogQL default: the inbox runs one of these per
+# section per typed search. `throw` spends the cap on that documented degrade path rather than on a
+# silently partial report-id set.
+_SEARCH_EVIDENCE_MAX_EXECUTION_TIME_SECONDS = 10
+
+
+def fetch_report_ids_by_search_term(team: Team, terms: list[str]) -> dict[str, set[str]]:
+    """Map each term to the report IDs whose evidence holds it.
+
+    A report's evidence lives in ClickHouse, not Postgres: each signal carries the observation
+    prose as `content` and the emitter's own record id as `metadata.source_id`. Deduplication
+    against the inbox fails without this, because a caller searches for the entity it is looking
+    at: an event name, an endpoint, a ticket id. That identifier often appears only in the
+    evidence, never in the title or the summary a later pass rewrote.
+
+    One set per term, not one set for the whole conjunction, because the caller pairs each term's
+    evidence with the same term's match against the report's own prose. A caller who remembers one
+    word of the title and one identifier that reached no further than the evidence satisfies
+    neither store on its own.
+
+    A term may match the description or the source id of any of the report's signals, so a caller
+    that names two aspects of one finding still matches. Matching is case-insensitive substring,
+    and the terms carry no LIKE wildcards because `report_search_terms` drops everything that is
+    not a letter or a digit.
+
+    Reports holding the most terms are kept first, so the cap falls on the reports least likely to
+    survive the caller's remaining terms, and every report the narrower all-terms query returned
+    is still returned. The cap can still cut a report that holds one term here and the rest only
+    in its own prose, which needs more than `_REPORT_ID_FILTER_CAP` reports to match one term.
+    Lifting the cap trades that for an unbounded id list into Postgres. Same dedup and cap
+    semantics as `fetch_report_ids_for_scout_names` otherwise.
+    """
+    if not terms:
+        return {}
+
+    term_matches = [
+        f"(description ILIKE {{term_{index}}} OR source_id ILIKE {{term_{index}}})" for index in range(len(terms))
+    ]
+    # Each row here is one signal, so the term test belongs after the grouping: a report promotes
+    # only once several signals merge into it, and the word a caller remembers routinely sits in a
+    # different signal from the identifier it pairs with. The WHERE only drops signals no term
+    # touches, which leaves every countIf unchanged.
+    any_term = " OR ".join(term_matches)
+    matched_flags = ",\n            ".join(
+        f"countIf({match}) > 0 AS matched_{index}" for index, match in enumerate(term_matches)
+    )
+    # A report matching every term is the one the caller is most likely looking for, so it outranks
+    # a partial match. That keeps the cap from dropping a report the narrower all-terms query would
+    # have returned. `report_id` breaks the remaining ties, because the list request and the count
+    # request run this separately and a nondeterministic cut would disagree between them.
+    matched_count = " + ".join(f"matched_{index}" for index in range(len(terms)))
+    # Bound the dedup to the documents that ever held one of the terms. The inbox runs this per
+    # typed search across every section, and the unbounded form holds argMax state for the team's
+    # whole signal history. The outer test still reads the deduped row, so a signal reworded away
+    # from a term is picked up by this scan and dropped there.
+    candidate_terms = " OR ".join(
+        f"(content ILIKE {{term_{index}}} OR JSONExtractString(metadata, 'source_id') ILIKE {{term_{index}}})"
+        for index in range(len(terms))
+    )
+    ch_query = f"""
+        SELECT
+            report_id,
+            {matched_flags}
+        FROM (
+            SELECT
+                JSONExtractString(metadata, 'report_id') as report_id,
+                JSONExtractBool(metadata, 'deleted') as is_deleted,
+                JSONExtractString(metadata, 'source_id') as source_id,
+                content as description,
+                timestamp
+            FROM ({_deduped_signals_subquery(candidate_document_filter=f"({candidate_terms})")})
+        )
+        WHERE NOT is_deleted
+          AND report_id != ''
+          AND ({any_term})
+        GROUP BY report_id
+        ORDER BY {matched_count} DESC, max(timestamp) DESC, report_id
+        LIMIT {_REPORT_ID_FILTER_CAP}
+    """
+
+    placeholders: dict[str, ast.Expr] = {"model_name": ast.Constant(value=EMBEDDING_MODEL.value)}
+    for index, term in enumerate(terms):
+        placeholders[f"term_{index}"] = ast.Constant(value=f"%{term}%")
+
+    tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
+    result = execute_hogql_query(
+        query_type="SignalsFilterBySearchTerms",
+        query=ch_query,
+        team=team,
+        placeholders=placeholders,
+        settings=HogQLGlobalSettings(
+            max_execution_time=_SEARCH_EVIDENCE_MAX_EXECUTION_TIME_SECONDS, timeout_overflow_mode="throw"
+        ),
+    )
+
+    matched_rows = [row for row in (result.results or []) if row[0]]
+    ids_by_term: dict[str, set[str]] = {term: set() for term in terms}
+    for row in matched_rows:
+        for index, term in enumerate(terms):
+            if row[1 + index]:
+                ids_by_term[term].add(row[0])
+    return ids_by_term
 
 
 # ---------------------------------------------------------------------------
