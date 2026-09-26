@@ -30,7 +30,7 @@ import {
   ThumbsDown,
 } from "phosphor-react-native";
 import { useFeatureFlag, usePostHog } from "posthog-react-native";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -65,6 +65,7 @@ import {
   useInboxReportArtefacts,
   useInboxReportSignals,
 } from "@/features/inbox/hooks/useInboxReports";
+import { reportAutoCloseTransition } from "@/features/inbox/reportAutoClose";
 import { isReportAwaitingInput } from "@/features/inbox/reportVerdictAction";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
@@ -205,6 +206,22 @@ export default function ReportDetailScreen() {
     },
     [tracker],
   );
+
+  const activeReportIdRef = useRef<string | null>(null);
+  const closeScreen = useCallback(() => {
+    activeReportIdRef.current = null;
+    if (router.canGoBack()) router.back();
+  }, [router]);
+
+  useEffect(() => {
+    if (!report) return;
+    const { nextActiveReportId, closed } = reportAutoCloseTransition(
+      activeReportIdRef.current,
+      report,
+    );
+    activeReportIdRef.current = nextActiveReportId;
+    if (closed) closeScreen();
+  }, [report, closeScreen]);
 
   const fireReviewerAction = useCallback(
     (action_type: InboxReportActionType, extra?: ReviewerActionExtra) => {
@@ -367,15 +384,15 @@ export default function ReportDetailScreen() {
               }),
         });
       }
-      if (router.canGoBack()) router.back();
+      closeScreen();
     },
-    [router, report, tracker],
+    [closeScreen, report, tracker],
   );
 
   const handleRefunded = useCallback(() => {
     setRefundOpen(false);
-    if (router.canGoBack()) router.back();
-  }, [router]);
+    closeScreen();
+  }, [closeScreen]);
 
   const handleDiscussSubmit = useCallback(
     ({ prompt, question }: { prompt: string; question: string }) => {
