@@ -213,6 +213,7 @@ class TestTransformations:
                 "groups": [],
                 "payloads": {"control": "gAAAAABkp8G8_example_ciphertext", "test": "gAAAAABkp8G8_another"},
             },
+            is_remote_configuration=True,
             has_encrypted_payloads=True,
         )
 

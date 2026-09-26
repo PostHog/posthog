@@ -129,6 +129,7 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
             team=self.team_1,
             created_by=self.user,
             key="encrypted-key",
+            is_remote_configuration=True,
             has_encrypted_payloads=True,
             filters={"groups": [], "payloads": {"true": "ciphertext-blob"}},
         )
@@ -251,6 +252,7 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
             team=self.team_1,
             created_by=self.user,
             key="secret-config",
+            is_remote_configuration=True,
             has_encrypted_payloads=True,
             filters={"groups": [], "payloads": {"true": "ciphertext-blob"}},
         )
