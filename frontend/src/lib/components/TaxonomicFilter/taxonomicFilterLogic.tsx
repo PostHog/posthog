@@ -2683,7 +2683,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 props.onEnter(values.searchQuery)
                 return
             }
-            actions.setSearchQuery('')
+            if (!props.keepSearchOnSelect) {
+                actions.setSearchQuery('')
+            }
         },
 
         moveUp: async (_, breakpoint) => {

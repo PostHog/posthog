@@ -508,7 +508,9 @@ export const InfiniteListRow = ({
 
     const isHighlighted = rowIndex === highlightedIndex && isActiveTab
 
-    const isActive = itemValue ? !!selectedProperties[listGroupType]?.includes(itemValue) : false
+    // Same cross-group reasoning as `isSelected` above: on the aggregated Suggested filters tab a row
+    // belongs to the group it was promoted from, so read the host's selection under that group.
+    const isActive = itemValue ? !!selectedProperties[itemGroup?.type ?? listGroupType]?.includes(itemValue) : false
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
