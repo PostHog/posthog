@@ -11,7 +11,7 @@ from rest_framework import status
 
 from posthog.models.utils import uuid7
 
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.facade.models import HogFunction
 from products.error_tracking.backend.logic.recommendations.alerts import AlertsRecommendation
 from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.logic.recommendations.rate_limits import RateLimitsRecommendation

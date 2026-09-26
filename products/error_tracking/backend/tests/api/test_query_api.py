@@ -18,8 +18,8 @@ from posthog.models import PropertyDefinition
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.access_control.backend.facade.api import upsert_property_access_control
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.error_tracking.backend.facade.query_utils import (
     build_issue_event_where,
     build_issue_filters,
@@ -593,11 +593,14 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             name="$referrer",
             type=PropertyDefinition.Type.EVENT,
         )
-        PropertyAccessControl.objects.create(
-            team=self.team,
-            property_definition=property_definition,
-            access_level=PropertyAccessLevel.NONE.value,
-            organization_member=self.organization_membership,
+        upsert_property_access_control(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            input=UpsertPropertyAccessControlInput(
+                property_definition_id=str(property_definition.id),
+                access_level=PropertyAccessLevel.NONE,
+                organization_member_id=self.organization_membership.id,
+            ),
         )
         self.create_issue()
 
