@@ -146,6 +146,9 @@ describe('DataTable utils', () => {
                 source: { kind: NodeKind.EventsQuery, select: ['*', 'event'] },
             })
         ).toEqual(['*', 'event'])
+
+        // no source
+        expect(getColumnsForQuery({ kind: NodeKind.DataTableNode } as DataTableNode)).toEqual([])
     })
 
     describe('ColumnConfigurator setColumns should not leak stale columns', () => {

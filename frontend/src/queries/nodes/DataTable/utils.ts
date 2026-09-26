@@ -52,7 +52,11 @@ export function defaultDataTableColumns(
                 : []
 }
 
-export function getDataNodeDefaultColumns(source: DataNode): HogQLExpression[] {
+export function getDataNodeDefaultColumns(source: DataNode | undefined): HogQLExpression[] {
+    // A query pasted into the URL hash can reach here without a source
+    if (!source) {
+        return []
+    }
     if (
         getQueryFeatures(source).has(QueryFeature.selectAndOrderByColumns) &&
         Array.isArray((source as EventsQuery).select) &&

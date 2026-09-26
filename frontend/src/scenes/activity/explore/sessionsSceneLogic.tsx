@@ -15,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, Node } from '~/queries/schema/schema-general'
+import { isDataTableNodeWithSource } from '~/queries/utils'
 import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { TeamPublicType, TeamType } from '../../../types'
@@ -131,17 +132,20 @@ export const sessionsSceneLogic = kea<sessionsSceneLogicType>([
             // Handle missing query param - restore from the persisted query, else fall back to default
             if (!queryParam) {
                 const persisted = values.savedQueryFor(undefined, 'sessions')
-                const target = persisted ?? values.defaultQuery
+                const target = isDataTableNodeWithSource(persisted) ? persisted : values.defaultQuery
                 if (!objectsEqual(values.query, target)) {
                     actions.setQuery(target)
                 }
                 return
             }
 
-            // Handle invalid query param type
-            if (typeof queryParam !== 'object') {
+            // Handle a query the table cannot render
+            if (!isDataTableNodeWithSource(queryParam)) {
                 lemonToast.error('Invalid query in URL')
                 console.error({ queryParam })
+                if (!objectsEqual(values.query, values.defaultQuery)) {
+                    actions.setQuery(values.defaultQuery)
+                }
                 return
             }
 

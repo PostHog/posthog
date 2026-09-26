@@ -153,6 +153,14 @@ export function isDataTableNode(node?: Record<string, any> | null): node is Data
     return node?.kind === NodeKind.DataTableNode
 }
 
+/**
+ * A DataTableNode reached through a URL hash or a stored query can arrive without the source the table needs.
+ * The source is checked for its discriminator rather than an allowlist of kinds, which would duplicate the schema union.
+ */
+export function isDataTableNodeWithSource(node?: Record<string, any> | null): node is DataTableNode {
+    return isDataTableNode(node) && typeof node.source?.kind === 'string'
+}
+
 /** Previously SQL queries by default were `DataTableNode`s. However now new SQL queries are `DataVisualizationNode`s */
 export function isDataTableNodeWithHogQLQuery(node?: Record<string, any> | null): node is DataTableNode & {
     source: HogQLQuery
