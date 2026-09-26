@@ -33,7 +33,7 @@ import type { ToolRegistration } from './max-constants'
 import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic, type PhaiViewMode } from './maxGlobalLogic'
-import { MaxUIContext } from './maxTypes'
+import { AskMaxOptions, MaxUIContext } from './maxTypes'
 import type { TopicSuggestion } from './suggestionTopics'
 import { nextTypingDelayMs } from './utils/typing'
 
@@ -249,9 +249,11 @@ export interface maxLogicActions {
     askMax: (
         prompt: string | null,
         addToThread?: boolean,
-        uiContext?: Partial<MaxUIContext>
+        uiContext?: Partial<MaxUIContext>,
+        options?: AskMaxOptions
     ) => {
         addToThread: boolean
+        options: AskMaxOptions
         prompt: string | null
         uiContext: Partial<MaxUIContext> | undefined
     }
@@ -420,10 +422,16 @@ export const maxLogic = kea<maxLogicType>([
         runSuggestion: (suggestion: TopicSuggestion) => ({ suggestion }),
         cancelSuggestionTyping: true,
         setTypingSuggestion: (content: string | null) => ({ content }),
-        askMax: (prompt: string | null, addToThread: boolean = true, uiContext?: Partial<MaxUIContext>) => ({
+        askMax: (
+            prompt: string | null,
+            addToThread: boolean = true,
+            uiContext?: Partial<MaxUIContext>,
+            options: AskMaxOptions = {}
+        ) => ({
             prompt,
             addToThread,
             uiContext,
+            options,
         }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         openConversation: (conversationId: string) => ({ conversationId }),

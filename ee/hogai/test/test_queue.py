@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from django.core.cache import caches
 
-from ee.hogai.queue import ConversationQueueStore, QueueFullError, build_queue_message
+from ee.hogai.queue import ConversationQueueStore, QueueFullError, QueueNotDrainableError, build_queue_message
 
 
 class TestConversationQueueStore(BaseTest):
@@ -10,6 +10,7 @@ class TestConversationQueueStore(BaseTest):
         super().setUp()
         self.store = ConversationQueueStore("conversation-test", max_messages=2)
         caches["default"].delete(self.store._cache_key())
+        caches["default"].delete(self.store._drain_closed_key())
 
     def test_list_returns_empty_when_no_queue(self):
         self.assertEqual(self.store.list(), [])
@@ -93,3 +94,27 @@ class TestConversationQueueStore(BaseTest):
         queue = self.store.requeue_front(third)
 
         self.assertEqual(queue, [third, first])
+
+    async def test_pop_next_or_close_closes_the_drain_when_empty(self):
+        self.assertIsNone(await self.store.pop_next_or_close_async())
+
+        with self.assertRaises(QueueNotDrainableError):
+            self.store.enqueue(build_queue_message(content="after the run ended"))
+
+    async def test_pop_next_or_close_keeps_the_drain_open_while_messages_remain(self):
+        first = build_queue_message(content="first")
+        second = build_queue_message(content="second")
+        self.store.enqueue(first)
+        self.store.enqueue(second)
+
+        self.assertEqual(await self.store.pop_next_or_close_async(), first)
+
+        self.store.enqueue(build_queue_message(content="third"))
+        self.assertEqual(len(self.store.list()), 2)
+
+    async def test_a_new_run_reopens_the_drain(self):
+        await self.store.clear_and_close_async()
+        await self.store.open_drain_async()
+
+        message = build_queue_message(content="hello")
+        self.assertEqual(self.store.enqueue(message), [message])

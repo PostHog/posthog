@@ -348,7 +348,7 @@ class AgentExecutor:
 
             # Clear the cache queue so no new queued workflows are spawned
             queue_store = ConversationQueueStore(str(self._conversation.id))
-            await queue_store.clear_async()
+            await queue_store.clear_and_close_async()
 
             await self._redis_stream.delete_stream()
         finally:

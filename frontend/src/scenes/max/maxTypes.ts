@@ -72,6 +72,11 @@ export interface MaxNotebookContext {
     insertion_placeholder_marker?: string
 }
 
+export interface AskMaxOptions {
+    /** Send the message as a new turn even mid-generation, instead of queueing it. */
+    skipQueue?: boolean
+}
+
 // The main shape for the UI context sent to the backend
 export interface MaxUIContext {
     dashboards?: MaxDashboardContext[]

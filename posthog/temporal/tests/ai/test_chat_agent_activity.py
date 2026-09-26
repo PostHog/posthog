@@ -248,8 +248,9 @@ class TestProcessChatAgentActivity:
     @pytest.mark.asyncio
     async def test_starts_queued_workflow(self, conversation_inputs, mock_redis_stream, mock_assistant):
         queue_store = Mock()
-        queue_store.pop_next_async = AsyncMock(return_value={"id": "queue-1", "content": "Next up"})
-        queue_store.clear_async = AsyncMock()
+        queue_store.pop_next_or_close_async = AsyncMock(return_value={"id": "queue-1", "content": "Next up"})
+        queue_store.clear_and_close_async = AsyncMock()
+        queue_store.open_drain_async = AsyncMock()
         queue_store.requeue_front_async = AsyncMock()
 
         mock_client = AsyncMock()
@@ -266,14 +267,16 @@ class TestProcessChatAgentActivity:
         mock_client.start_workflow.assert_called_once()
         assert not mock_redis_stream.mark_complete.called
         queue_store.requeue_front_async.assert_not_called()
+        queue_store.open_drain_async.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_requeues_and_raises_on_workflow_start_failure(
         self, conversation_inputs, mock_redis_stream, mock_assistant
     ):
         queue_store = Mock()
-        queue_store.pop_next_async = AsyncMock(return_value={"id": "queue-1", "content": "Next up"})
-        queue_store.clear_async = AsyncMock()
+        queue_store.pop_next_or_close_async = AsyncMock(return_value={"id": "queue-1", "content": "Next up"})
+        queue_store.clear_and_close_async = AsyncMock()
+        queue_store.open_drain_async = AsyncMock()
         queue_store.requeue_front_async = AsyncMock()
 
         mock_client = AsyncMock()
@@ -296,13 +299,14 @@ class TestProcessChatAgentActivity:
         self, conversation_inputs, mock_redis_stream, mock_assistant
     ):
         queue_store = Mock()
-        queue_store.pop_next_async = AsyncMock(
+        queue_store.pop_next_or_close_async = AsyncMock(
             side_effect=[
                 {"id": "queue-1", "content": ""},
                 None,
             ]
         )
-        queue_store.clear_async = AsyncMock()
+        queue_store.clear_and_close_async = AsyncMock()
+        queue_store.open_drain_async = AsyncMock()
         queue_store.requeue_front_async = AsyncMock()
 
         mock_client = AsyncMock()
