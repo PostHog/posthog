@@ -1,6 +1,7 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import Integration
@@ -210,3 +211,34 @@ class TestOrganizationIntegrationViewSet(APIBaseTest):
         response = self.client.patch(url, data)
 
         self.assertIn(response.status_code, (status.HTTP_403_FORBIDDEN, status.HTTP_405_METHOD_NOT_ALLOWED))
+
+    @parameterized.expand(
+        [
+            ("write_scope", ["organization_integration:write"], status.HTTP_200_OK),
+            ("read_scope_only", ["organization_integration:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_environment_mapping_with_personal_api_key(self, _name, scopes, expected_status):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.integration_vercel.config = {"type": "connectable"}
+        self.integration_vercel.save()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/integrations/{self.integration_vercel.id}/environment-mapping/",
+            {"production": self.team.pk},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.integration_vercel.refresh_from_db()
+        mapping = self.integration_vercel.config.get("environment_mapping")
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual(
+                mapping, {"production": self.team.pk, "preview": self.team.pk, "development": self.team.pk}
+            )
+        else:
+            self.assertIsNone(mapping)
