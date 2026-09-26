@@ -1,6 +1,9 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { UserProductListItem } from '~/queries/schema/schema-general'
@@ -26,10 +29,19 @@ function toolRow(container: HTMLElement, slug: string): HTMLElement {
 }
 
 describe('FlatNavProducts', () => {
+    let bulkUpdateBodies: unknown[]
+
     beforeEach(() => {
+        bulkUpdateBodies = []
         useMocks({
             get: {
                 '/api/projects/:team_id/conversations/tickets/unread_count': () => [200, { count: 3 }],
+            },
+            patch: {
+                '/api/projects/:team_id/user_product_list/bulk_update/': async ({ request }) => {
+                    bulkUpdateBodies.push(await request.json())
+                    return [200, { results: [] }]
+                },
             },
         })
         // customProductsLogic seeds the picked tools from the page context rather than fetching them
@@ -76,5 +88,38 @@ describe('FlatNavProducts', () => {
             const menuButton = row.parentElement?.querySelector('[data-attr^="flat-nav-tool-menu-"]')
             expect(menuButton?.getAttribute('data-attr') ?? null).toBe(menuAttr)
         })
+    })
+
+    it.each<[string, string | null]>([
+        [urls.workflows(), 'workflows'],
+        [urls.featureFlag(1), null],
+        [urls.settings(), null],
+    ])('on %s puts the pin button on this row: %s', async (url, pinnedSlug) => {
+        router.actions.push(url)
+        const { container } = render(<FlatNavProducts />)
+
+        await waitFor(() => toolRow(container, 'feature-flags'))
+        const pinnedRows = Array.from(container.querySelectorAll('[data-attr="flat-nav-tool-pin"]')).map((pinButton) =>
+            pinButton.previousElementSibling?.getAttribute('data-attr')
+        )
+        expect(pinnedRows).toEqual(pinnedSlug ? [`flat-nav-tool-${pinnedSlug}`] : [])
+    })
+
+    it('pins the tool of the current page and keeps its row', async () => {
+        router.actions.push(urls.workflows())
+        const { container } = render(<FlatNavProducts />)
+
+        const pinButton = await waitFor(() => {
+            const button = container.querySelector<HTMLElement>('[data-attr="flat-nav-tool-pin"]')
+            expect(button).not.toBeNull()
+            return button as HTMLElement
+        })
+        fireEvent.click(pinButton)
+
+        await waitFor(() => {
+            expect(bulkUpdateBodies).toEqual([{ items: [{ product_path: 'Workflows', enabled: true }] }])
+        })
+        expect(container.querySelector('[data-attr="flat-nav-tool-pin"]')).toBeNull()
+        expect(toolRow(container, 'workflows')).toBeTruthy()
     })
 })

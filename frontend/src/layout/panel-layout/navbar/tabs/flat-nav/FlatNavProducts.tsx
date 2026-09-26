@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Fragment } from 'react'
 
-import { IconChevronDown, IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconPin, IconPlusSmall } from '@posthog/icons'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -11,9 +11,11 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { getCustomIcon } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
+import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { ProductIconWrapper, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { NavLink } from '../../NavLink'
+import { NavLinkSideActionButton } from '../../NavLinkSideActionButton'
 import { flatNavLogic } from './flatNavLogic'
 import { FlatNavSection } from './FlatNavSection'
 import { FlatNavDashboardsMenuItems } from './menus/FlatNavDashboardsMenuItems'
@@ -55,6 +57,7 @@ function slugify(path: string): string {
 export function FlatNavProducts(): JSX.Element {
     const { productGroups, customProductsLoading } = useValues(flatNavLogic)
     const { reportNavItemClicked } = useActions(eventUsageLogic)
+    const { setToolEnabled } = useActions(customProductsLogic)
 
     return (
         <FlatNavSection
@@ -114,7 +117,18 @@ export function FlatNavProducts(): JSX.Element {
                                         tag={item.tag}
                                         data-attr={`flat-nav-tool-${slugify(item.path)}`}
                                         onClick={() => reportNavItemClicked(item.path, 'tools')}
-                                        sideAction={PRODUCT_MENUS[item.path]}
+                                        sideAction={
+                                            item.pinned ? (
+                                                PRODUCT_MENUS[item.path]
+                                            ) : (
+                                                <NavLinkSideActionButton
+                                                    icon={<IconPin />}
+                                                    tooltip="Pin to sidebar"
+                                                    data-attr="flat-nav-tool-pin"
+                                                    onClick={() => setToolEnabled(item.path, true)}
+                                                />
+                                            )
+                                        }
                                     />
                                 )
                             })}
