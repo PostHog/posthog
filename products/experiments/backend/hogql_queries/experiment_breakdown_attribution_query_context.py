@@ -10,8 +10,7 @@ Unlike ``BreakdownInjector`` (which attributes the breakdown from the exposure
 event), this attributes the breakdown off the *metric* event, aligning
 experiment funnel breakdowns with how insights funnels behave.
 
-Scope: funnel metrics only, for now. The context and the builder replace the
-old injector once every metric type migrates to metric-event breakdowns.
+Scope: funnel metrics only. The other metric types use ``BreakdownInjector``.
 """
 
 from posthog.schema import (

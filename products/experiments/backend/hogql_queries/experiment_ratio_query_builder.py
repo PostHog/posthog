@@ -15,23 +15,15 @@ class RatioQueryBuilder:
     """
     Builds ratio-metric queries, including the winsorized variant.
 
-    Ratio construction reuses the shared exposure and metric-value helpers
-    already extracted from the experiment query builder. To keep the move
-    behavior-preserving, this class holds a reference to the owning
-    ``ExperimentQueryBuilder`` and reaches through it for shared state (the
-    metric, entity key, breakdown injector) and those cross-cluster helpers.
+    The class holds a reference to the owning ``ExperimentQueryBuilder`` and
+    reads shared state (metric, entity key, breakdown injector) and the shared
+    exposure and metric-value helpers through it.
     """
 
     def __init__(self, builder: "ExperimentQueryBuilder"):
         self._b = builder
 
     def build_ratio_query(self) -> ast.SelectQuery:
-        """
-        Builds query for ratio metrics.
-
-        Dispatches to the winsorized variant when outlier handling is configured for
-        either the numerator or the denominator.
-        """
         assert isinstance(self._b.metric, ExperimentRatioMetric)
 
         if self.ratio_needs_winsorization():
@@ -61,7 +53,6 @@ class RatioQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_ratio_breakdown_columns(query)
 
@@ -91,8 +82,8 @@ class RatioQueryBuilder:
 
         When a bound is not configured the threshold falls back to min()/max() so the
         least(greatest(...)) clamp becomes a no-op for that side. This lets the numerator
-        and denominator be capped independently — a binomial denominator simply leaves its
-        outlier handling unset and is never clamped.
+        and denominator be capped independently. A binomial denominator leaves its outlier
+        handling unset, so it is never clamped.
 
         value_field is an internal column name (numerator_value / denominator_value), never
         user input, so interpolating it into the expression string is safe.
@@ -127,8 +118,6 @@ class RatioQueryBuilder:
 
     def build_ratio_query_with_winsorization(self) -> ast.SelectQuery:
         """
-        Builds query for ratio metrics with winsorization (outlier handling).
-
         The numerator and denominator are capped independently, each as if it were its own
         mean metric: percentile thresholds are computed separately for each component (pooled
         across all variations) and the per-entity numerator and denominator values are clamped
@@ -197,7 +186,6 @@ class RatioQueryBuilder:
 
         assert isinstance(query, ast.SelectQuery)
 
-        # Inject breakdown columns into the query AST
         if self._b.breakdown_injector:
             self._b.breakdown_injector.inject_ratio_breakdown_columns(query, winsorized=True)
 
@@ -207,42 +195,38 @@ class RatioQueryBuilder:
         """
         Builds the shared CTE chain and placeholders for ratio metric queries.
 
-        Optimized structure using pre-aggregation to reduce join operations:
+        Structure:
         - exposures: all exposures with variant assignment (with exposure_identifier for data warehouse)
         - numerator_events / denominator_events: events for each component with value
         - numerator_agg / denominator_agg: per-entity aggregates joined to exposures
         - entity_metrics: single row per entity carrying numerator_value and denominator_value
 
-        This approach reduces memory pressure by joining exposures to events only once
-        per component instead of fanning out the raw event rows.
+        Each component collapses to one row per entity before entity_metrics joins
+        the two. A direct join of the raw numerator and denominator events would fan
+        out to (numerator rows × denominator rows) per entity and use much more memory.
         """
         assert isinstance(self._b.metric, ExperimentRatioMetric)
 
-        # Use MetricSourceInfo abstraction for both numerator and denominator
         num_source_info = MetricSourceInfo.from_source(self._b.metric.numerator, entity_key=self._b.entity_key)
         denom_source_info = MetricSourceInfo.from_source(self._b.metric.denominator, entity_key=self._b.entity_key)
 
-        # Extract field names for numerator
         num_table = num_source_info.table_name
         num_entity_field = num_source_info.entity_key
         num_timestamp_field = num_source_info.timestamp_field
 
-        # Extract field names for denominator
         denom_table = denom_source_info.table_name
         denom_entity_field = denom_source_info.entity_key
         denom_timestamp_field = denom_source_info.timestamp_field
 
-        # Build exposure query with conditional exposure_identifier(s)
         exposure_query = self._b._get_exposure_query()
         if num_source_info.kind == "datawarehouse" or denom_source_info.kind == "datawarehouse":
-            # Add exposure_identifier fields for data warehouse joins
-            # Support different join keys for numerator and denominator
+            # argMin takes each join key from the first exposure, so each entity_id gets one
+            # identifier per component. Do not add the join keys to GROUP BY: a user with
+            # exposures that carry different join key values would then fan out into several rows.
             if num_source_info.kind == "datawarehouse":
                 num_source = cast(ExperimentDataWarehouseNode, self._b.metric.numerator)
                 num_join_key_parts = cast(list[str | int], num_source.events_join_key.split("."))
 
-                # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-                # This prevents fan-out when a user has multiple exposures with different join key values
                 exposure_query.select.append(
                     ast.Alias(
                         alias="exposure_identifier_num",
@@ -252,14 +236,11 @@ class RatioQueryBuilder:
                         ),
                     )
                 )
-                # Do NOT add to GROUP BY - that would cause fan-out when join key varies across exposures
 
             if denom_source_info.kind == "datawarehouse":
                 denom_source = cast(ExperimentDataWarehouseNode, self._b.metric.denominator)
                 denom_join_key_parts = cast(list[str | int], denom_source.events_join_key.split("."))
 
-                # Use argMin to pick one exposure_identifier per entity_id (from first exposure)
-                # This prevents fan-out when a user has multiple exposures with different join key values
                 exposure_query.select.append(
                     ast.Alias(
                         alias="exposure_identifier_denom",
@@ -269,9 +250,7 @@ class RatioQueryBuilder:
                         ),
                     )
                 )
-                # Do NOT add to GROUP BY - that would cause fan-out when join key varies across exposures
 
-        # Build join conditions for pre-aggregation CTEs based on DW scenario
         if num_source_info.kind == "datawarehouse":
             num_preagg_join = "toString(exposures.exposure_identifier_num) = toString(numerator_events.entity_id)"
         else:
@@ -282,9 +261,6 @@ class RatioQueryBuilder:
         else:
             denom_preagg_join = "exposures.entity_id = denominator_events.entity_id"
 
-        # Pre-aggregation approach: aggregate events per entity_id FIRST, then join
-        # This dramatically reduces memory usage by avoiding large intermediate result sets
-        # Memory impact: 471M rows → ~2M rows in joins
         common_ctes = f"""
             exposures AS (
                 {{exposure_select_query}}

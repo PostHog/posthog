@@ -10,7 +10,7 @@ class ExperimentMetricType(Enum):
 class PrecomputeSkipReason(StrEnum):
     """Why a metric read never attempted precompute. Tagged on the query as
     `experiment_precompute_skip_reason` and counted per reason by the
-    `precompute_overview` staff endpoint, which iterates this enum — a reason
+    `precompute_overview` staff endpoint, which iterates this enum. A reason
     missing here is invisible in the staff tooling."""
 
     OVERRIDE_DIRECT = "override_direct"
