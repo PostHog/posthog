@@ -44,13 +44,13 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
-    ProviderMismatchError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
 )
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
+    SystemOneEndpointBlockedError,
     SystemOneRateLimitError,
     SystemOneRequestRejectedError,
     system_one_evaluations_enabled,
@@ -453,10 +453,20 @@ def call_llm_judge(
 
     if provider == "system_one":
         if output_type != "boolean":
-            raise ApplicationError("This System One evaluation output type is not supported.", non_retryable=True)
+            return build_skipped_evaluation_result(
+                output_type=output_type,
+                allows_na=allows_na,
+                reasoning="System One currently supports boolean evaluations only.",
+                skip_reason="unsupported_output_type",
+            )
         base_url = provider_key.encrypted_config.get("base_url", "") if provider_key else ""
         if not system_one_evaluations_enabled(team_id, base_url=base_url):
-            raise ApplicationError("System One evaluations are not available for this project.", non_retryable=True)
+            return build_skipped_evaluation_result(
+                output_type=output_type,
+                allows_na=allows_na,
+                reasoning="System One evaluations are not available for this project.",
+                skip_reason="system_one_unavailable",
+            )
 
     type_config = get_output_type_config(allows_na, output_type=output_type, output_config=output_config)
     response_format = type_config.response_format
@@ -473,8 +483,6 @@ def call_llm_judge(
     system_one_result = None
     try:
         if provider == "system_one":
-            if provider_key is not None and provider_key.provider != provider:
-                raise ProviderMismatchError(provider_key.provider, provider)
             prompt = evaluation["evaluation_config"]["prompt"]
             questions: dict[str, Question] = {"verdict": NoulQuestion(instructions=prompt)}
             if allows_na:
@@ -495,10 +503,12 @@ def call_llm_judge(
             applicable = True
             if allows_na:
                 applicability_answer = system_one_result.answers["applicable"]
-                assert isinstance(applicability_answer, NoulAnswer)
+                if not isinstance(applicability_answer, NoulAnswer):
+                    raise StructuredOutputParseError("The endpoint returned an invalid applicability answer.")
                 applicable = applicability_answer.probability >= 0.5
             verdict_answer = system_one_result.answers["verdict"]
-            assert isinstance(verdict_answer, NoulAnswer)
+            if not isinstance(verdict_answer, NoulAnswer):
+                raise StructuredOutputParseError("The endpoint returned an invalid verdict answer.")
             probability = verdict_answer.probability
             parsed = (
                 BooleanWithNAEvalResult(
@@ -508,7 +518,6 @@ def call_llm_judge(
                 if allows_na
                 else BooleanEvalResult(reasoning="", verdict=probability >= 0.5)
             )
-            model = system_one_result.model
             response = CompletionResponse(
                 content="",
                 model=model,
@@ -529,7 +538,7 @@ def call_llm_judge(
                     response_format=response_format,
                 )
             )
-    except SystemOneRequestRejectedError as e:
+    except SystemOneEndpointBlockedError as e:
         increment_user_errors("request_rejected", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("request_rejected", is_byok=is_byok),
@@ -538,6 +547,14 @@ def call_llm_judge(
             output_type=output_type,
             key_id=key_id,
             is_byok=is_byok,
+        )
+    except SystemOneRequestRejectedError as e:
+        increment_user_errors("request_rejected", provider=provider)
+        return build_skipped_evaluation_result(
+            output_type=output_type,
+            allows_na=allows_na,
+            reasoning=str(e),
+            skip_reason="request_rejected",
         )
     except SystemOneRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
@@ -771,7 +788,7 @@ def call_llm_judge(
     else:
         raise ValueError(f"Unexpected result type: {type(parsed_result)}")
 
-    if probability is not None:
+    if probability is not None and result_dict["verdict"] is not None:
         result_dict["probability"] = probability
     if system_one_result is not None:
         result_dict["input_tokens"] = system_one_result.input_tokens

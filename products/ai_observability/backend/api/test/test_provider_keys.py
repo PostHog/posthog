@@ -90,6 +90,19 @@ class TestProviderKeySerializer(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("base_url", serializer.errors)
 
+    def test_non_system_one_model_error_uses_model_field(self) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={
+                "provider": "openai",
+                "name": "Example key",
+                "api_key": "sk-example",
+                "system_one_model": "custom-model",
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("system_one_model", serializer.errors)
+        self.assertNotIn("base_url", serializer.errors)
+
     @parameterized.expand([("https://other.example.com/v1", False), ("https://decisions.example.com/v1", True)])
     def test_endpoint_change_requires_explicit_credentials(self, base_url: str, valid: bool) -> None:
         key = LLMProviderKey(

@@ -1730,7 +1730,7 @@ export interface LLMProviderKeyApi {
     readonly error_message: string | null
     api_key?: string
     readonly api_key_masked: string
-    /** System One API base URL, including /v1. */
+    /** System One API base URL, ending before /systemone. */
     base_url?: string
     /**
      * Model ID served by the System One endpoint.
@@ -2332,7 +2332,7 @@ export interface PatchedLLMProviderKeyApi {
     readonly error_message?: string | null
     api_key?: string
     readonly api_key_masked?: string
-    /** System One API base URL, including /v1. */
+    /** System One API base URL, ending before /systemone. */
     base_url?: string
     /**
      * Model ID served by the System One endpoint.

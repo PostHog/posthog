@@ -57,7 +57,7 @@ The client appends `/systemone` to the base URL and sends the API key as a beare
 An empty key selects no authentication.
 Changing the endpoint requires entering its credential again, or explicitly choosing no authentication, so an existing key is not forwarded to a new host.
 Private network destinations and redirects are blocked by the shared DNS-pinned HTTP transport.
-Saving a connection validates it with a short synthetic input and a Noul question, without sending evaluation data.
+Saving a connection validates it with a short synthetic input and a Noul question, without sending evaluation data, using a 10-second request timeout.
 Select the connection and configured model on each evaluation; these connections cannot become the shared active provider key used by other AI features.
 Provider keys keep the provider they were created with; switching providers requires a new key.
 The evaluation integration uses Noul for boolean outputs, with the same formatted text for generation, trace, and session targets.
@@ -71,9 +71,9 @@ Compare results on representative inputs when changing models.
 
 For boolean evaluations, the prompt becomes a [Noul question](https://docs.typesafe.ai/primitives/noul).
 A probability of at least 0.5 produces `true`; the evaluation's existing pass/fail polarity still applies.
-The raw probability is stored in `$ai_evaluation_probability`, with available token usage and the resolved model version.
+The raw probability is stored in `$ai_evaluation_probability` when the criteria apply, with available token usage and the configured model ID.
 Missing or invalid token counts remain unknown and do not discard a valid answer.
-Ingestion estimates cost from the reported model and token usage when the model appears in the existing pricing catalog.
+Ingestion estimates cost from the configured model and token usage when the model appears in the existing pricing catalog.
 Models without a catalog match retain their usage with cost left unknown.
 A custom deployment reporting a recognized model name can inherit that model's catalog estimate; this does not measure its hosting cost.
 
@@ -83,9 +83,10 @@ System One answers contain no written reasoning, so reports inspect the original
 
 Each endpoint and credential pair has a separate, hashed rate-limit scope shared across workers.
 Evaluations use the batch lane; connection validation uses the normal lane.
-Local budget exhaustion, rate limits, and overload responses are retried through Temporal, honoring `Retry-After` up to five minutes.
+Local budget exhaustion, rate limits, and overload responses are retried through Temporal, honoring `Retry-After` up to one minute.
 If retries fail, the run fails and the evaluation stays enabled.
-Blocked endpoints and rejected requests disable the evaluation and mark the connection for revalidation, without recording model usage.
+Blocked endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
+Requests rejected because of an individual input skip that run without changing the shared connection.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
 See TypeSafe's [API reference](https://docs.typesafe.ai/api) for the System One protocol.

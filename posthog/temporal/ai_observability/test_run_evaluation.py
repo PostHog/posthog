@@ -135,7 +135,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     resolved = MagicMock(provider="system_one", model=model, provider_key=key, is_byok=True)
     response = MagicMock(status_code=200)
     response.json.return_value = {
-        "model": "example-judge-v1",
+        "model": "endpoint-controlled-model",
         "answers": {
             "verdict": {"type": "noul", "noul": probability},
             "applicable": {"type": "noul", "noul": applicability},
@@ -169,15 +169,16 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
     assert request.call_args.kwargs["json"]["model"] == model
     assert result["verdict"] is verdict
     assert result["reasoning"] == ""
-    assert result["probability"] == probability
+    assert result.get("probability") == (probability if verdict is not None else None)
+    assert result["model"] == model
     assert result["total_tokens"] == sum(usage.values())
     if allows_na:
         assert result["applicable"] is (applicability >= 0.5)
     properties = build_evaluation_event_properties(evaluation, result, datetime(2026, 1, 1, tzinfo=UTC))
     assert properties["$ai_input_tokens"] == usage.get("input_tokens")
     assert properties["$ai_output_tokens"] == usage.get("output_tokens")
-    assert properties["$ai_evaluation_probability"] == probability
-    assert properties["$ai_model"] == "example-judge-v1"
+    assert properties.get("$ai_evaluation_probability") == (probability if verdict is not None else None)
+    assert properties["$ai_model"] == model
     assert properties["$ai_evaluation_key_type"] == "byok"
 
 
@@ -190,16 +191,15 @@ def test_system_one_numeric_mapping_is_not_enabled() -> None:
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
         patch("requests.Session.request") as request,
-        pytest.raises(ApplicationError) as error,
     ):
         spec.return_value.resolve.return_value = MagicMock(provider="system_one")
-        call_llm_judge(
+        result = call_llm_judge(
             evaluation={"team_id": 1, "output_type": "numeric"},
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
         )
-    assert error.value.non_retryable
+    assert result["skipped"] is True
     request.assert_not_called()
 
 
@@ -214,7 +214,6 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
         patch("products.ai_observability.backend.llm.system_one.Team.objects.only") as teams,
         patch("products.ai_observability.backend.llm.system_one.get_feature_flag_or_none", return_value=flag),
         patch("requests.Session.request") as request,
-        pytest.raises(ApplicationError) as error,
     ):
         teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = MagicMock(
@@ -225,18 +224,18 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
             ),
             is_byok=True,
         )
-        call_llm_judge(
+        result = call_llm_judge(
             evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is this a greeting?"}},
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
         )
-    assert error.value.non_retryable
+    assert result["skipped"] is True
     request.assert_not_called()
 
 
 @pytest.mark.parametrize("status", [301, 400, 422])
-def test_system_one_rejected_requests_disable_without_model_cost_attribution(status: int) -> None:
+def test_system_one_rejections_preserve_shared_key_for_input_errors(status: int) -> None:
     key = MagicMock(
         provider="system_one",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
@@ -262,10 +261,14 @@ def test_system_one_rejected_requests_disable_without_model_cost_attribution(sta
             user_prompt="Hello!",
             allows_na=False,
         )
-    assert result["terminal_user_error"] is True
     assert result["skip_reason"] == "request_rejected"
-    assert result["provider_key_state"] == "error"
-    assert result["status_reason"] == "provider_key_invalid"
+    if status == 301:
+        assert result["terminal_user_error"] is True
+        assert result["provider_key_state"] == "error"
+    else:
+        assert result["skipped"] is True
+        assert "terminal_user_error" not in result
+        assert "provider_key_state" not in result
     assert "model" not in result
     assert "provider" not in result
 

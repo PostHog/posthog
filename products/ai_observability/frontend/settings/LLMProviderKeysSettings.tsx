@@ -35,6 +35,7 @@ import {
     LLM_PROVIDER_LABELS,
     UpdateLLMProviderKeyPayload,
     llmProviderKeysLogic,
+    normalizeSystemOneBaseUrlForComparison,
     sortProviderKeys,
 } from './llmProviderKeysLogic'
 import { SystemOneConnectionFields } from './SystemOneConnectionFields'
@@ -107,7 +108,7 @@ function getKeyPlaceholder(provider: LLMProvider): string {
         case 'zeabur':
             return 'sk-...'
         case 'system_one':
-            return 'Enter your endpoint’s bearer token'
+            return "Enter your endpoint's bearer token"
     }
 }
 
@@ -432,7 +433,9 @@ function EditKeyModal({
     const { setEditingKey, updateProviderKey, preValidateKey, clearPreValidation } = useActions(llmProviderKeysLogic)
     const isAzureEdit = keyToEdit.provider === 'azure_openai'
     const isSystemOne = keyToEdit.provider === 'system_one'
-    const endpointChanged = systemOneBaseUrl !== (keyToEdit.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL)
+    const endpointChanged =
+        normalizeSystemOneBaseUrlForComparison(systemOneBaseUrl) !==
+        normalizeSystemOneBaseUrlForComparison(keyToEdit.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL)
 
     const [name, setName] = useState(keyToEdit.name)
     const [apiKey, setApiKey] = useState('')
@@ -571,7 +574,7 @@ function EditKeyModal({
                         onBlur={handleApiKeyBlur}
                         placeholder={
                             isSystemOne && endpointChanged
-                                ? 'Enter the new endpoint’s bearer token'
+                                ? "Enter the new endpoint's bearer token"
                                 : `Leave empty to keep current (${keyToEdit.api_key_masked})`
                         }
                         type="password"

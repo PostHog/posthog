@@ -97,7 +97,7 @@ def _validation_error_field(provider: str, error_message: str | None) -> str:
 class LLMProviderKeySerializer(serializers.ModelSerializer):
     api_key = serializers.CharField(write_only=True, required=False, allow_blank=True)
     base_url = serializers.URLField(
-        write_only=True, required=False, help_text="System One API base URL, including /v1."
+        write_only=True, required=False, help_text="System One API base URL, ending before /systemone."
     )
     system_one_model = serializers.CharField(
         write_only=True,
@@ -197,9 +197,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({field: "This field is required for System One connections."})
         if provider != LLMProvider.SYSTEM_ONE:
             if "base_url" in data or "system_one_model" in data:
-                raise serializers.ValidationError(
-                    {"base_url": "These settings are only available for System One connections."}
-                )
+                field = "system_one_model" if "system_one_model" in data else "base_url"
+                raise serializers.ValidationError({field: "This setting is only available for System One connections."})
             if data.get("api_key") == "":
                 raise serializers.ValidationError({"api_key": "An API key is required."})
         elif self.instance is not None and "base_url" in data:

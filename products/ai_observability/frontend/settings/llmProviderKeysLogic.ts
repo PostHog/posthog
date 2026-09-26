@@ -37,11 +37,23 @@ export function isLLMProvider(value: string): value is LLMProvider {
 /** Normalize a raw provider string to an LLMProvider, or null if unrecognized. */
 export function toLLMProvider(raw: string): LLMProvider | null {
     const normalized = raw.toLowerCase()
+    if (normalized === 'system one') {
+        return 'system_one'
+    }
     if (isLLMProvider(normalized)) {
         return normalized
     }
     console.error(`[AI observability] Unknown LLM provider: "${raw}"`)
     return null
+}
+
+export function normalizeSystemOneBaseUrlForComparison(input: string): string {
+    try {
+        const url = new URL(input.trim())
+        return `${url.origin}${url.pathname.replace(/\/+$/, '')}${url.search}${url.hash}`
+    } catch {
+        return input.trim().replace(/\/+$/, '')
+    }
 }
 
 const PROVIDER_ORDER = Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]

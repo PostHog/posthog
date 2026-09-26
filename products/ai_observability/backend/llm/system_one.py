@@ -60,9 +60,13 @@ class SystemOneRequestRejectedError(LLMError):
     pass
 
 
+class SystemOneEndpointBlockedError(SystemOneRequestRejectedError):
+    pass
+
+
 class SystemOneRateLimitError(RateLimitError):
     def __init__(self, retry_after: str | None) -> None:
-        super().__init__("The System One endpoint is busy. Try again later.")
+        super().__init__("The System One endpoint is temporarily unavailable. Try again later.")
         self.retry_after: float | None = None
         if retry_after:
             try:
@@ -73,7 +77,7 @@ class SystemOneRateLimitError(RateLimitError):
                 except (ValueError, TypeError, OverflowError):
                     return
             if math.isfinite(delay):
-                self.retry_after = max(1, min(delay, 300))
+                self.retry_after = max(1, min(delay, 60))
 
 
 class SystemOneClient:
@@ -107,8 +111,12 @@ class SystemOneClient:
         questions: Mapping[str, Question],
         base_url: str,
         priority: Priority = Priority.BATCH,
+        timeout: float = 60,
     ) -> SystemOneResult:
-        base_url = SystemOneClient.normalize_base_url(base_url)
+        try:
+            base_url = SystemOneClient.normalize_base_url(base_url)
+        except ValueError as error:
+            raise SystemOneEndpointBlockedError(str(error)) from error
         try:
             return TypeSafeSystemOneClient(
                 api_key=api_key,
@@ -116,12 +124,12 @@ class SystemOneClient:
                 model=model,
                 source="llma_evaluations",
                 priority=priority,
-                timeout=60,
+                timeout=timeout,
             ).decide(state=state, questions=questions)
         except TypeSafeEgressBudgetExhausted as error:
             raise SystemOneRateLimitError(None) from error
         except SSRFBlockedError as error:
-            raise SystemOneRequestRejectedError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
+            raise SystemOneEndpointBlockedError("This endpoint is not allowed. Use a public HTTPS endpoint.") from error
         except requests.RequestException as error:
             raise ProviderConnectionError("Could not reach the System One endpoint. Try again.") from error
         except TypeSafeRequestFailed as error:
@@ -137,13 +145,17 @@ class SystemOneClient:
                 raise ModelPermissionError(model) from error
             if status == 404:
                 raise ModelNotFoundError(model) from error
-            if status in (429, 503, 529):
+            if status in (408, 429, 503, 529):
                 raise SystemOneRateLimitError(
                     response.headers.get("Retry-After") if response is not None else None
                 ) from error
             if status >= 500:
                 raise ProviderConnectionError(
                     "The System One endpoint is temporarily unavailable. Try again."
+                ) from error
+            if 300 <= status < 400:
+                raise SystemOneEndpointBlockedError(
+                    "The endpoint redirected the request. Use its final HTTPS URL."
                 ) from error
             if status == 413 or (
                 status == 422 and response is not None and is_context_window_error_message(response.text)
@@ -164,6 +176,7 @@ class SystemOneClient:
                 model=model,
                 state="Hello!",
                 priority=Priority.NORMAL,
+                timeout=10,
                 questions={"verdict": NoulQuestion(instructions="Does the text contain a greeting?")},
             )
         except (AuthenticationError, ModelPermissionError) as error:

@@ -1650,7 +1650,7 @@ export const LlmAnalyticsProviderKeysCreateBody = /* @__PURE__ */ zod.object({
         ),
     name: zod.string().max(llmAnalyticsProviderKeysCreateBodyNameMax),
     api_key: zod.string().optional(),
-    base_url: zod.url().optional().describe('System One API base URL, including \/v1.'),
+    base_url: zod.url().optional().describe('System One API base URL, ending before \/systemone.'),
     system_one_model: zod
         .string()
         .max(llmAnalyticsProviderKeysCreateBodySystemOneModelMax)
@@ -1692,7 +1692,7 @@ export const LlmAnalyticsProviderKeysUpdateBody = /* @__PURE__ */ zod.object({
         ),
     name: zod.string().max(llmAnalyticsProviderKeysUpdateBodyNameMax),
     api_key: zod.string().optional(),
-    base_url: zod.url().optional().describe('System One API base URL, including \/v1.'),
+    base_url: zod.url().optional().describe('System One API base URL, ending before \/systemone.'),
     system_one_model: zod
         .string()
         .max(llmAnalyticsProviderKeysUpdateBodySystemOneModelMax)
@@ -1735,7 +1735,7 @@ export const LlmAnalyticsProviderKeysPartialUpdateBody = /* @__PURE__ */ zod.obj
         ),
     name: zod.string().max(llmAnalyticsProviderKeysPartialUpdateBodyNameMax).optional(),
     api_key: zod.string().optional(),
-    base_url: zod.url().optional().describe('System One API base URL, including \/v1.'),
+    base_url: zod.url().optional().describe('System One API base URL, ending before \/systemone.'),
     system_one_model: zod
         .string()
         .max(llmAnalyticsProviderKeysPartialUpdateBodySystemOneModelMax)
@@ -1777,7 +1777,7 @@ export const LlmAnalyticsProviderKeysValidateCreateBody = /* @__PURE__ */ zod.ob
         ),
     name: zod.string().max(llmAnalyticsProviderKeysValidateCreateBodyNameMax),
     api_key: zod.string().optional(),
-    base_url: zod.url().optional().describe('System One API base URL, including \/v1.'),
+    base_url: zod.url().optional().describe('System One API base URL, ending before \/systemone.'),
     system_one_model: zod
         .string()
         .max(llmAnalyticsProviderKeysValidateCreateBodySystemOneModelMax)

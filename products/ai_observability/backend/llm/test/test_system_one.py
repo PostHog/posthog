@@ -20,6 +20,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.llm.system_one import (
     SystemOneClient,
+    SystemOneEndpointBlockedError,
     SystemOneRateLimitError,
     SystemOneRequestRejectedError,
     system_one_evaluations_enabled,
@@ -81,6 +82,7 @@ def test_system_one_key_validation(status: int, expected_state: str) -> None:
     assert (message is None) == (expected_state == "ok")
     assert request.call_args.args == ("POST", "https://decisions.example.com/v1/systemone")
     assert request.call_args.kwargs["headers"]["Authorization"] == "Bearer example-token"
+    assert request.call_args.kwargs["timeout"] == 10
 
 
 @pytest.mark.parametrize("probability", [-0.1, 1.1, float("nan"), float("inf"), "0.8", True, None])
@@ -104,7 +106,7 @@ def test_system_one_rejects_invalid_probabilities(probability: object) -> None:
         )
 
 
-@pytest.mark.parametrize("status", [429, 503, 529])
+@pytest.mark.parametrize("status", [408, 429, 503, 529])
 def test_system_one_rate_limits_are_retryable(status: int) -> None:
     response = Mock(status_code=status, headers={"Retry-After": "15"})
     with (
@@ -158,7 +160,7 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
 def test_official_endpoint_is_blocked(base_url: str) -> None:
     with (
         patch("requests.Session.request") as request,
-        pytest.raises(ValueError, match="hosted endpoint is not available"),
+        pytest.raises(SystemOneEndpointBlockedError, match="hosted endpoint is not available"),
     ):
         SystemOneClient.evaluate(
             api_key="example-token",
