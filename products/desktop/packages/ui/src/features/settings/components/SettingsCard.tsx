@@ -78,10 +78,22 @@ export function SettingsCardRow({
     <div
       className={cn(
         "flex min-h-11 gap-2 px-3.5 py-2",
-        stacked ? "flex-col" : "flex-row items-center justify-between gap-6",
+        stacked
+          ? "flex-col"
+          : "flex-row flex-wrap items-center justify-between gap-x-6 gap-y-2",
       )}
     >
-      <div className="flex min-w-0 flex-col gap-0.5 py-0.5">
+      {/* The label keeps a width floor because the control beside it never
+          shrinks: without one, a wide control takes the whole row and squeezes
+          the label to a single character per line. The floor doubles as the
+          flex basis, so a long description does not push the control off the
+          line; a control too wide to sit beside the label wraps below it. */}
+      <div
+        className={cn(
+          "flex flex-col gap-0.5 py-0.5",
+          stacked ? "min-w-0" : "min-w-48 grow basis-48",
+        )}
+      >
         <span className="font-medium text-[13px] text-foreground leading-snug">
           {label}
         </span>
@@ -95,7 +107,7 @@ export function SettingsCardRow({
         <div
           className={cn(
             "min-w-0",
-            !stacked && "flex shrink-0 items-center justify-end",
+            !stacked && "ml-auto flex shrink-0 items-center justify-end",
           )}
         >
           {children}
