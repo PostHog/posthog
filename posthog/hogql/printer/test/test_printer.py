@@ -5314,24 +5314,35 @@ class TestPrinter(BaseTest):
             ),
         )
 
-    def test_cte_materialization_hint_not_materialized_not_supported(self):
-        with self.assertRaises(ImpossibleASTError) as ctx:
-            self._select(
-                """
-                WITH some_cte AS NOT MATERIALIZED (SELECT event FROM events)
-                SELECT event FROM some_cte
-                """,
-            )
+    @parameterized.expand(
+        [
+            (
+                "plain",
+                "WITH some_cte AS NOT MATERIALIZED (SELECT event FROM events) SELECT event FROM some_cte",
+            ),
+            (
+                # The CTE body prints before the recursive gate, so this shape must still name a
+                # reason rather than fall through to an internal error.
+                "recursive",
+                "WITH RECURSIVE some_cte AS NOT MATERIALIZED (SELECT 1 AS n UNION ALL "
+                "SELECT n + 1 FROM some_cte WHERE n < 5) SELECT n FROM some_cte",
+            ),
+        ]
+    )
+    def test_cte_materialization_hint_not_materialized_not_supported(self, _name: str, query: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._select(query)
         self.assertIn("NOT MATERIALIZED", str(ctx.exception))
 
     def test_cte_column_name_list_not_supported(self):
-        with self.assertRaises(NotImplementedError):
+        with self.assertRaises(QueryError) as ctx:
             self._select(
                 "WITH stats(a, b) AS (SELECT event, timestamp FROM events) SELECT a, b FROM stats",
             )
+        self.assertIn("not supported", str(ctx.exception))
 
     def test_cte_using_key_not_supported(self):
-        with self.assertRaises(ImpossibleASTError) as ctx:
+        with self.assertRaises(QueryError) as ctx:
             self._select(
                 "WITH x USING KEY (a) AS (SELECT 1 AS a, 2 AS b) SELECT * FROM x",
             )
@@ -6789,7 +6800,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             not_in_matches, _ = run("NOT IN")
             assert not_in_matches == all_ids - {"mixed_case", "lower_case"}
 
-    def test_recursive_cte_raises(self):
+    def test_recursive_cte_raises_exposed_error(self):
         query = """
         WITH RECURSIVE cte AS (
             SELECT 1 AS n
@@ -6798,8 +6809,12 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         )
         SELECT * FROM cte;
         """
-        with self.assertRaises(ImpossibleASTError):
+        # An exposed error is what turns this into a 400 with an explanation instead of a generic 500.
+        with self.assertRaises(ExposedHogQLError) as context:
             execute_hogql_query(team=self.team, query=query)
+        # Names clickhouse, not hogql: the HogQL round-trip prints the recursive CTE back, so the
+        # message comes from the dialect that actually refuses it.
+        assert "WITH RECURSIVE is not supported in the 'clickhouse' dialect" in str(context.exception)
 
     def test_jsonextractstring_rewrite_emits_mat_column(self) -> None:
         with materialized("events", "test_prop", is_nullable=False) as mat_col:
