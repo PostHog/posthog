@@ -36,7 +36,7 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_source_workflow,
     unpause_cdc_extraction_schedule,
 )
-from products.revenue_analytics.backend.facade.api import ensure_person_join
+from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_customer_revenue_view_joins
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import (
     AnySource,
@@ -83,6 +83,7 @@ __all__ = [
     "is_cdc_extraction_schedule_paused",
     "logger",
     "purge_buffer_prefix",
+    "remove_customer_revenue_view_joins",
     "sync_cdc_extraction_schedule",
     "sync_discover_schemas_schedule",
     "trigger_external_data_source_workflow",
