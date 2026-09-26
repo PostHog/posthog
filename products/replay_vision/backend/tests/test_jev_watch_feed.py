@@ -20,6 +20,7 @@ from products.ml_inference.backend.facade.contracts import (
 from products.replay_vision.backend.jev_watch_feed import (
     WINDOW_CHUNK_SIZE,
     judge_scanner_window,
+    load_judged_ids,
     load_watch_ranks,
     rank_watch_feed_by_jev,
     store_watch_ranks,
@@ -162,12 +163,23 @@ class TestJudgeScannerWindow(SimpleTestCase):
         assert judgment.probabilities == {}
 
 
-def _feed_row(observation_id: str, minutes_ago: int, *, viewed: bool = False) -> dict[str, Any]:
-    return {
+def _feed_row(
+    observation_id: str,
+    minutes_ago: int,
+    *,
+    viewed: bool = False,
+    scanner: str = "scanner-a",
+    notability: str | None = None,
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
         "id": observation_id,
+        "scanner_id": scanner,
         "created_at": datetime(2026, 9, 25, 12, 0, tzinfo=UTC) - timedelta(minutes=minutes_ago),
         "feed_viewed": viewed,
     }
+    if notability is not None:
+        row["scanner_result"] = {"model_output": {"notability_reason": notability}}
+    return row
 
 
 class TestRankWatchFeedByJev(SimpleTestCase):
@@ -180,7 +192,7 @@ class TestRankWatchFeedByJev(SimpleTestCase):
                 _feed_row("old-unjudged", 50),
                 _feed_row("judged-low", 40),
                 _feed_row("high", 30),
-                _feed_row("higher", 20),
+                _feed_row("higher", 20, notability="The user paid twice for one order."),
                 _feed_row("new-unjudged", 10),
             ],
             {"judged-low": 0.2, "high": 0.7, "higher": 0.9},
@@ -192,9 +204,37 @@ class TestRankWatchFeedByJev(SimpleTestCase):
             "judged-low",
             "old-unjudged",
         ]
-        assert ranked[0].reason == {"kind": "jev_watchable", "jev_probability": 0.9}
+        # The scan's own sentence rides along so the card can explain the pick; a row without one
+        # carries only the kind and probability.
+        assert ranked[0].reason == {
+            "kind": "jev_watchable",
+            "jev_probability": 0.9,
+            "notability_reason": "The user paid twice for one order.",
+        }
+        assert ranked[1].reason == {"kind": "jev_watchable", "jev_probability": 0.7}
         assert ranked[2].reason == {"kind": "unviewed_recent"}
         assert ranked[3].reason == {"kind": "unviewed_recent"}
+
+    def test_one_scanner_cannot_flood_the_top_of_the_evidence_tier(self) -> None:
+        # One incident's near-identical sessions must leave room for other scanners' findings, and
+        # the overflow trails the tier instead of dropping out of it.
+        rows = [_feed_row(f"flood-{index}", 10 + index, scanner="flooding") for index in range(6)]
+        rows += [_feed_row("other-0", 30, scanner="quiet"), _feed_row("other-1", 31, scanner="quiet")]
+        probabilities = {f"flood-{index}": 0.96 - index / 100 for index in range(6)} | {
+            "other-0": 0.7,
+            "other-1": 0.69,
+        }
+        ranked = rank_watch_feed_by_jev(rows, probabilities)
+        assert [entry.observation_id for entry in ranked] == [
+            "flood-0",
+            "flood-1",
+            "flood-2",
+            "other-0",
+            "other-1",
+            "flood-3",
+            "flood-4",
+            "flood-5",
+        ]
 
     def test_a_viewed_row_is_docked_inside_the_watchable_tier_only(self) -> None:
         ranked = rank_watch_feed_by_jev(
@@ -225,10 +265,14 @@ class TestWatchRankCache(SimpleTestCase):
     def test_stored_ranks_round_trip_and_malformed_values_are_dropped_or_clamped(self) -> None:
         team_id = 990_001
         scanner_id, other_scanner_id, missing_scanner_id = uuid4(), uuid4(), uuid4()
-        store_watch_ranks(team_id, scanner_id, {"obs-a": 0.9, "obs-b": 7.0}, "jevk5-fp8-0.2")
-        store_watch_ranks(team_id, other_scanner_id, {"obs-c": 0.4}, "jevk5-fp8-0.2")
+        store_watch_ranks(team_id, scanner_id, {"obs-a", "obs-b", "obs-low"}, {"obs-a": 0.9, "obs-b": 7.0}, "jevk5")
+        store_watch_ranks(team_id, other_scanner_id, {"obs-c"}, {"obs-c": 0.4}, "jevk5")
         loaded = load_watch_ranks(team_id, [scanner_id, other_scanner_id, missing_scanner_id])
         assert loaded == {"obs-a": 0.9, "obs-b": 1.0, "obs-c": 0.4}
+        # The feed's per-request keys carry only the watchable map; the judged set remembers every
+        # row the sweep has bought, including the sub-threshold ones the feed never needs.
+        assert load_judged_ids(team_id, scanner_id) == {"obs-a", "obs-b", "obs-low"}
+        assert load_judged_ids(team_id, missing_scanner_id) == set()
         # Another team's cache never leaks in.
         assert load_watch_ranks(team_id + 1, [scanner_id]) == {}
 

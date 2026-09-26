@@ -21,6 +21,7 @@ of it.
 
 import json
 import math
+from collections.abc import Collection
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any, Literal
@@ -69,6 +70,12 @@ JEV_SEEN_PENALTY = 0.3
 # row cannot outrank a fresh observation the sweep has not seen yet. Tier membership uses the raw
 # probability; the seen penalty only orders rows inside the evidence tier.
 JEV_WATCHABLE_MIN = 0.5
+# One incident can put many near-identical watchable sessions on one scanner, and a pure probability
+# sort would fill the top of the feed with them. Hold each scanner to this share of the evidence
+# tier as it is placed (same intent as WATCH_FEED_MAX_SIGNAL_SHARE in the weighted ranker), with a
+# floor so a short feed is not over-constrained; the overflow trails the tier instead of leaving it.
+JEV_MAX_SCANNER_SHARE = 0.4
+_SCANNER_SPREAD_FLOOR = 3
 # Observations per Jev request: the request carries the chunk as shared state and one question per
 # observation, so the facade's per-request question cap is the most context one judgment can get. A
 # judgment is therefore relative to its chunk, not to the whole window at once.
@@ -145,9 +152,9 @@ class WindowJudgment:
     """Jev's judgment of one batch of observations: a probability per observation id (as a string)."""
 
     probabilities: dict[str, float]
-    # Rows with no prose to judge. The sweep caches these as 0.0, so they settle into the filler
-    # tier once instead of being refetched every sweep; a failed chunk's rows are absent from both
-    # fields and retry next sweep.
+    # Rows with no prose to judge. The sweep records these as judged, so they settle into the
+    # filler tier once instead of being refetched every sweep; a failed chunk's rows are absent
+    # from both fields and retry next sweep.
     skipped_no_prose: tuple[str, ...]
     model: str | None
     chunks: int
@@ -295,38 +302,66 @@ def judge_scanner_window(
     )
 
 
-def _watch_rank_key(team_id: int, scanner_id: UUID | str) -> str:
-    return f"{_WATCH_RANK_REDIS_PREFIX}{team_id}:{scanner_id}"
+# The watchable map (probability >= JEV_WATCHABLE_MIN, all the feed reads) lives apart from the
+# judged-id set (everything the sweep has bought, read only by the sweep's skip logic): the feed
+# loads every readable scanner's key on each request, so its keys must stay small however large a
+# scanner's judged window grows.
+def _watchable_key(team_id: int, scanner_id: UUID | str) -> str:
+    return f"{_WATCH_RANK_REDIS_PREFIX}watchable:{team_id}:{scanner_id}"
+
+
+def _judged_key(team_id: int, scanner_id: UUID | str) -> str:
+    return f"{_WATCH_RANK_REDIS_PREFIX}judged:{team_id}:{scanner_id}"
 
 
 def refresh_watch_ranks_ttl(team_id: int, scanner_id: UUID) -> None:
-    get_client(settings.REPLAY_VISION_REDIS_URL).expire(_watch_rank_key(team_id, scanner_id), WATCH_RANK_TTL)
+    client = get_client(settings.REPLAY_VISION_REDIS_URL)
+    client.expire(_watchable_key(team_id, scanner_id), WATCH_RANK_TTL)
+    client.expire(_judged_key(team_id, scanner_id), WATCH_RANK_TTL)
 
 
-def store_watch_ranks(team_id: int, scanner_id: UUID, probabilities: dict[str, float], model: str | None) -> None:
-    get_client(settings.REPLAY_VISION_REDIS_URL).setex(
-        _watch_rank_key(team_id, scanner_id),
+def store_watch_ranks(
+    team_id: int, scanner_id: UUID, judged_ids: Collection[str], watchable: dict[str, float], model: str | None
+) -> None:
+    client = get_client(settings.REPLAY_VISION_REDIS_URL)
+    client.setex(_judged_key(team_id, scanner_id), WATCH_RANK_TTL, json.dumps({"ids": sorted(judged_ids)}))
+    client.setex(
+        _watchable_key(team_id, scanner_id),
         WATCH_RANK_TTL,
         json.dumps(
             {
                 "model": model,
                 "judged_at": datetime.now(UTC).isoformat(),
-                "probabilities": probabilities,
+                "probabilities": watchable,
             }
         ),
     )
 
 
+def load_judged_ids(team_id: int, scanner_id: UUID) -> set[str]:
+    """Every observation id the sweep has judged for this scanner. Fail-soft: a lost or malformed
+    entry reads as nothing judged, so the sweep re-buys those judgments instead of failing."""
+    try:
+        value = get_client(settings.REPLAY_VISION_REDIS_URL).get(_judged_key(team_id, scanner_id))
+        if not value:
+            return set()
+        stored = json.loads(value).get("ids")
+        return {str(judged_id) for judged_id in stored} if isinstance(stored, list) else set()
+    except Exception:
+        logger.exception("Jev watch rank judged-set read failed", team_id=team_id)
+        return set()
+
+
 def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
-    """The cached probabilities for these scanners, keyed by observation id. Any malformed or
-    missing cache entry contributes nothing, so a cold cache degrades the Jev feed to the recency
+    """The cached watchable probabilities for these scanners, keyed by observation id. Any malformed
+    or missing cache entry contributes nothing, so a cold cache degrades the Jev feed to the recency
     filler tier rather than failing the request."""
     if not scanner_ids:
         return {}
     probabilities: dict[str, float] = {}
     try:
         values = get_client(settings.REPLAY_VISION_REDIS_URL).mget(
-            [_watch_rank_key(team_id, scanner_id) for scanner_id in scanner_ids]
+            [_watchable_key(team_id, scanner_id) for scanner_id in scanner_ids]
         )
         for value in values:
             if not value:
@@ -344,9 +379,37 @@ def load_watch_ranks(team_id: int, scanner_ids: list[UUID]) -> dict[str, float]:
     return probabilities
 
 
+def _scan_notability_reason(row: dict[str, Any]) -> str | None:
+    result = row.get("scanner_result")
+    output = result.get("model_output") if isinstance(result, dict) else None
+    reason = output.get("notability_reason") if isinstance(output, dict) else None
+    return reason if isinstance(reason, str) and reason.strip() else None
+
+
+def _spread_scanners(ordered: list[tuple[Any, WatchFeedEntry]]) -> list[WatchFeedEntry]:
+    """Hold each scanner to JEV_MAX_SCANNER_SHARE of the evidence tier as it is placed.
+
+    Checked per place rather than over the whole list because the view slices the head: a feed of 5
+    obeys the same share as a feed of 50. Overflow trails the tier in probability order — reordering
+    for breadth is the job here, shortening the feed is not.
+    """
+    placed: list[WatchFeedEntry] = []
+    deferred: list[WatchFeedEntry] = []
+    counts: dict[Any, int] = {}
+    for scanner_id, entry in ordered:
+        allowed = max(_SCANNER_SPREAD_FLOOR, math.ceil(JEV_MAX_SCANNER_SHARE * (len(placed) + 1)))
+        if counts.get(scanner_id, 0) >= allowed:
+            deferred.append(entry)
+        else:
+            counts[scanner_id] = counts.get(scanner_id, 0) + 1
+            placed.append(entry)
+    return placed + deferred
+
+
 def rank_watch_feed_by_jev(rows: list[dict[str, Any]], probabilities: dict[str, float]) -> list[WatchFeedEntry]:
-    """Rank candidate rows (`id`, `created_at`, `feed_viewed`) on Jev's cached watchability alone:
-    highest probability first, viewed rows docked, newest as the tiebreak.
+    """Rank candidate rows (`id`, `scanner_id`, `created_at`, `scanner_result`, `feed_viewed`) on
+    Jev's cached watchability alone: highest probability first, one scanner held to a share of the
+    tier, viewed rows docked, newest as the tiebreak.
 
     Independent of `rank_watch_feed_candidates` on purpose: the flag picks a whole ranker, so this
     arm measures Jev's judgment without any component of the weighted score mixed in. Rows without
@@ -354,19 +417,26 @@ def rank_watch_feed_by_jev(rows: list[dict[str, Any]], probabilities: dict[str, 
     ranker uses: rows the model rated below `JEV_WATCHABLE_MIN`, rows without a cached probability
     (not yet swept, or the cache went cold), and rows outside the sweep's window.
     """
-    watchable: list[tuple[float, Any, WatchFeedEntry]] = []
+    watchable: list[tuple[float, Any, Any, WatchFeedEntry]] = []
     filler: list[tuple[bool, Any, WatchFeedEntry]] = []
     for row in rows:
         probability = probabilities.get(str(row["id"]))
         viewed = bool(row.get("feed_viewed"))
         if probability is not None and probability >= JEV_WATCHABLE_MIN:
-            entry = WatchFeedEntry(
-                observation_id=row["id"], reason={"kind": "jev_watchable", "jev_probability": probability}
+            reason: dict[str, Any] = {"kind": "jev_watchable", "jev_probability": probability}
+            # The scan's own sentence, so the card says why the session is worth watching instead
+            # of only that the model said so; the frontend prefers it over kind-derived copy.
+            if notability_reason := _scan_notability_reason(row):
+                reason["notability_reason"] = notability_reason
+            entry = WatchFeedEntry(observation_id=row["id"], reason=reason)
+            watchable.append(
+                (probability - (JEV_SEEN_PENALTY if viewed else 0.0), row["created_at"], row.get("scanner_id"), entry)
             )
-            watchable.append((probability - (JEV_SEEN_PENALTY if viewed else 0.0), row["created_at"], entry))
         else:
             entry = WatchFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
             filler.append((not viewed, row["created_at"], entry))
     watchable.sort(key=lambda item: (item[0], item[1]), reverse=True)
     filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return [entry for *_, entry in watchable] + [entry for *_, entry in filler]
+    return _spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in watchable]) + [
+        entry for *_, entry in filler
+    ]
