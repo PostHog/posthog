@@ -112,6 +112,20 @@ class WhereClauseExtractor(CloningVisitor):
         if isinstance(where, ast.Constant):
             return None
 
+        # A node type with no override clones through with the tombstone nested inside it, so the top
+        # node alone does not prove the expression is clean. Every conjunct of the outermost AND is
+        # implied by the outer where clause, so dropping the ones that carry a tombstone only over-fetches
+        # and an independent bound such as a timestamp comparison survives. A tombstone in any other
+        # position carries no such guarantee, so fail safe there and pre-filter nothing.
+        if isinstance(where, ast.And):
+            liftable = [expr for expr in where.exprs if not has_tombstone(expr, self.tombstone_string)]
+            if not liftable:
+                return None
+            where = liftable[0] if len(liftable) == 1 else ast.And(exprs=liftable)
+
+        if has_tombstone(where, self.tombstone_string):
+            return None
+
         return clone_expr(where, clear_types=True, clear_locations=True)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
@@ -774,8 +788,9 @@ def build_session_property_pre_aggregation_predicate(
     7+).
 
     Returns None when ``WhereClauseExtractor`` produces no liftable session predicate (no session
-    filter, or only filters guarded by NOT/OR with non-session terms — see the visitor's tombstone
-    handling). The predicate-references-outer-fields check is a defensive belt; in practice
+    filter, filters guarded by NOT/OR with non-session terms, or any other shape whose tombstone
+    survives extraction — see the visitor's tombstone handling). The predicate-references-outer-fields
+    check is a defensive belt; in practice
     ``requested_fields`` already contains every session alias the outer query references, so
     extraction guarantees a non-empty intersection.
     """
