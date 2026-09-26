@@ -508,8 +508,7 @@ class TestBatchImportS3AuthValidation(SimpleTestCase):
             ),
         ]
     )
-    @patch.object(BatchImportS3SourceCreateSerializer, "_is_iam_role_enabled", return_value=True)
-    def test_auth_combination_validation(self, _name, auth_fields, should_be_valid, _mock_flag):
+    def test_auth_combination_validation(self, _name, auth_fields, should_be_valid):
         data = {
             "source_type": "s3",
             "content_type": "captured",
@@ -532,21 +531,7 @@ class TestBatchImportS3AuthValidation(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("role_arn", serializer.errors)
 
-    @patch.object(BatchImportS3SourceCreateSerializer, "_is_iam_role_enabled", return_value=False)
-    def test_role_arn_rejected_when_flag_off(self, _mock_flag):
-        data = {
-            "source_type": "s3",
-            "content_type": "captured",
-            "s3_bucket": "test-bucket",
-            "s3_region": "us-east-1",
-            "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
-        }
-        serializer = BatchImportS3SourceCreateSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("IAM role authentication is not available", str(serializer.errors))
-
-    @patch.object(BatchImportS3SourceCreateSerializer, "_is_iam_role_enabled", return_value=True)
-    def test_role_arn_rejected_when_import_role_unconfigured(self, _mock_flag):
+    def test_role_arn_rejected_when_import_role_unconfigured(self):
         data = {
             "source_type": "s3",
             "content_type": "captured",
@@ -1152,8 +1137,7 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertEqual(response.json()["detail"], UNREACHABLE_HOST_MESSAGE)
 
     @override_settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport")
-    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
-    def test_s3_import_with_iam_role_creates_config_without_secrets(self, _mock_flag):
+    def test_s3_import_with_iam_role_creates_config_without_secrets(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/managed_migrations",
             {
@@ -1174,24 +1158,7 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertNotIn("access_key_id_key", source)
         self.assertIsNone(batch_import.secrets)
 
-    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=False)
-    def test_s3_import_with_role_rejected_when_flag_off(self, _mock_flag):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/managed_migrations",
-            {
-                "source_type": "s3",
-                "content_type": "captured",
-                "s3_bucket": "test-bucket",
-                "s3_region": "us-east-1",
-                "role_arn": "arn:aws:iam::123456789012:role/PostHogImport",
-            },
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("not available", str(response.json()))
-
-    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
-    def test_aws_iam_setup_returns_policy_material(self, _mock_flag):
+    def test_aws_iam_setup_returns_policy_material(self):
         with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport"):
             response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
 
@@ -1203,17 +1170,8 @@ class TestBatchImportAPI(APIBaseTest):
         self.assertIn("sts:AssumeRole", data["trust_policy"])
         self.assertIn("s3:GetObject", data["permission_policy_template"])
 
-    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=True)
-    def test_aws_iam_setup_unavailable_without_role_arn_setting(self, _mock_flag):
+    def test_aws_iam_setup_unavailable_without_role_arn_setting(self):
         with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN=""):
-            response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
-
-        self.assertEqual(response.status_code, 200)
-        self.assertFalse(response.json()["available"])
-
-    @patch("products.managed_migrations.backend.api.batch_imports.posthoganalytics.feature_enabled", return_value=False)
-    def test_aws_iam_setup_unavailable_when_flag_off(self, _mock_flag):
-        with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN="arn:aws:iam::999999999999:role/PostHogBatchImport"):
             response = self.client.get(f"/api/projects/{self.team.id}/managed_migrations/aws_iam_setup")
 
         self.assertEqual(response.status_code, 200)
