@@ -122,9 +122,8 @@ class ProjectionRunner:
             if self._read(path) == contents.encode():
                 continue
             target.parent.mkdir(parents=True, exist_ok=True)
-            # Nothing reformats these bytes. A renderer emits the shape its workspace
-            # formatter keeps, or the output sits in that formatter's ignore list, so the
-            # drift check cannot flap.
+            # Nothing reformats these bytes: oxfmt and Biome skip *.generated.ts, and any
+            # other output sits in the formatter's ignore list, so the drift check cannot flap.
             target.write_bytes(contents.encode())
             written.append(path)
         return written

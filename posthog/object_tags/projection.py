@@ -92,9 +92,8 @@ def render_prompt_kinds_ts() -> str:
 
 
 def render() -> dict[str, str]:
-    # Nothing reformats these outputs before they reach the files. The other halves of
-    # that guarantee are the ignorePatterns entry in .oxfmtrc.json (frontend copy) and
-    # the generated-files override in products/desktop/biome.jsonc (desktop copies).
+    # Nothing reformats these outputs: .oxfmtrc.json and products/desktop/biome.jsonc
+    # both skip *.generated.ts.
     registry = render_registry_ts()
     return {
         "products/desktop/packages/core/src/inbox/objectKinds.generated.ts": registry,

@@ -128,6 +128,8 @@ Data rows that no endpoint serves, such as the task model catalog, go through th
 2. Add an entry to `PROJECTIONS` in `tools/hogli-commands/hogli_commands/projections.py` with the renderer, its inputs and its outputs.
 3. Run `hogli build:projections` and commit the outputs. CI runs `hogli build:projections --check` and fails when one is out of date.
 
+Name a TypeScript output `*.generated.ts`. oxfmt and Biome skip those files, so a renderer returns any valid TypeScript and does not have to match a formatter's output.
+
 The `test_generated_files_are_registered.py` repo invariant fails a PR that adds a `*.generated.*` file, or a new `generated/` directory, that no registered projection and no known pipeline produces.
 Ask #team-devex before you add a projection.
 

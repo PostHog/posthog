@@ -34,52 +34,19 @@ export const VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI = 'ui://posthog/visual-review-
 export const WORKFLOW_RESOURCE_URI = 'ui://posthog/workflow.html'
 export const WORKFLOW_LIST_RESOURCE_URI = 'ui://posthog/workflow-list.html'
 
-export type UiAppKey =
-    | 'action'
-    | 'action-list'
-    | 'cohort'
-    | 'cohort-list'
-    | 'debug'
-    | 'email-template'
-    | 'error-details'
-    | 'error-issue'
-    | 'error-issue-list'
-    | 'experiment'
-    | 'experiment-list'
-    | 'experiment-results'
-    | 'feature-flag'
-    | 'feature-flag-list'
-    | 'feature-flag-testing'
-    | 'inline-scan'
-    | 'insight-actors'
-    | 'invite-email-preview'
-    | 'llm-costs'
-    | 'loops-review'
-    | 'query-results'
-    | 'render-ui'
-    | 'session-recording'
-    | 'survey'
-    | 'survey-global-stats'
-    | 'survey-list'
-    | 'survey-stats'
-    | 'trace-span'
-    | 'trace-span-list'
-    | 'vision-observation-list'
-    | 'visual-review-snapshots'
-    | 'workflow'
-    | 'workflow-list'
+export type UiAppKey = 'action' | 'action-list' | 'cohort' | 'cohort-list' | 'debug' | 'email-template' | 'error-details' | 'error-issue' | 'error-issue-list' | 'experiment' | 'experiment-list' | 'experiment-results' | 'feature-flag' | 'feature-flag-list' | 'feature-flag-testing' | 'inline-scan' | 'insight-actors' | 'invite-email-preview' | 'llm-costs' | 'loops-review' | 'query-results' | 'render-ui' | 'session-recording' | 'survey' | 'survey-global-stats' | 'survey-list' | 'survey-stats' | 'trace-span' | 'trace-span-list' | 'vision-observation-list' | 'visual-review-snapshots' | 'workflow' | 'workflow-list'
 
 export const URI_MAP: Record<UiAppKey, string> = {
-    action: ACTION_RESOURCE_URI,
+    'action': ACTION_RESOURCE_URI,
     'action-list': ACTION_LIST_RESOURCE_URI,
-    cohort: COHORT_RESOURCE_URI,
+    'cohort': COHORT_RESOURCE_URI,
     'cohort-list': COHORT_LIST_RESOURCE_URI,
-    debug: DEBUG_RESOURCE_URI,
+    'debug': DEBUG_RESOURCE_URI,
     'email-template': EMAIL_TEMPLATE_RESOURCE_URI,
     'error-details': ERROR_DETAILS_RESOURCE_URI,
     'error-issue': ERROR_ISSUE_RESOURCE_URI,
     'error-issue-list': ERROR_ISSUE_LIST_RESOURCE_URI,
-    experiment: EXPERIMENT_RESOURCE_URI,
+    'experiment': EXPERIMENT_RESOURCE_URI,
     'experiment-list': EXPERIMENT_LIST_RESOURCE_URI,
     'experiment-results': EXPERIMENT_RESULTS_RESOURCE_URI,
     'feature-flag': FEATURE_FLAG_RESOURCE_URI,
@@ -93,7 +60,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'query-results': QUERY_RESULTS_RESOURCE_URI,
     'render-ui': RENDER_UI_RESOURCE_URI,
     'session-recording': SESSION_RECORDING_RESOURCE_URI,
-    survey: SURVEY_RESOURCE_URI,
+    'survey': SURVEY_RESOURCE_URI,
     'survey-global-stats': SURVEY_GLOBAL_STATS_RESOURCE_URI,
     'survey-list': SURVEY_LIST_RESOURCE_URI,
     'survey-stats': SURVEY_STATS_RESOURCE_URI,
@@ -101,7 +68,7 @@ export const URI_MAP: Record<UiAppKey, string> = {
     'trace-span-list': TRACE_SPAN_LIST_RESOURCE_URI,
     'vision-observation-list': VISION_OBSERVATION_LIST_RESOURCE_URI,
     'visual-review-snapshots': VISUAL_REVIEW_SNAPSHOTS_RESOURCE_URI,
-    workflow: WORKFLOW_RESOURCE_URI,
+    'workflow': WORKFLOW_RESOURCE_URI,
     'workflow-list': WORKFLOW_LIST_RESOURCE_URI,
 }
 
