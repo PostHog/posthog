@@ -158,10 +158,14 @@ else
     # Django's SECRET_KEY (the compose file falls back to POSTHOG_SECRET when unset, for
     # installs whose .env predates this variable).
     BROWSERLESS_SECRET=$(openssl rand -hex 32)
+    # RS256 signing key for the OAuth/OIDC provider (toolbar authentication, API-scoped tokens).
+    # Stored on one line with literal "\n" separators, which settings turn back into newlines.
+    OIDC_RSA_PRIVATE_KEY=$(openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 2>/dev/null | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')
     cat > .env <<EOF
 POSTHOG_SECRET=$POSTHOG_SECRET
 ENCRYPTION_SALT_KEYS=$ENCRYPTION_SALT_KEYS
 BROWSERLESS_SECRET=$BROWSERLESS_SECRET
+OIDC_RSA_PRIVATE_KEY="$OIDC_RSA_PRIVATE_KEY"
 DOMAIN=$DOMAIN
 TLS_BLOCK=$TLS_BLOCK
 REGISTRY_URL=$REGISTRY_URL
