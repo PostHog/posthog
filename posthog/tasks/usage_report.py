@@ -1738,6 +1738,8 @@ def get_teams_with_ai_event_count_in_period(
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
+# ai_product values whose runs emit their own $ai_trace, the only products a free-tools verdict exempts.
+AI_BILLING_TRACED_PRODUCTS = ("posthog_ai",)
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
 # Region-to-team mapping for where AI events are stored
 CLOUD_REGION_TO_TEAM_ID = {
@@ -1799,14 +1801,14 @@ def _get_teams_with_ai_credits_for_products(
     `ai_product` event property — only generations tagged with an `ai_products` value are billed.
 
     A billable $ai_generation (with positive cost) is billed when its trace is billable OR it has no
-    trace. Products that emit a paired $ai_trace (e.g. posthog_ai) are billed only on a billable trace;
+    trace. Products in AI_BILLING_TRACED_PRODUCTS (e.g. posthog_ai) are billed only on a billable trace;
     a trace is billable only if it contains tool calls including at least one non-excluded tool. Free
     (non-billable) traces:
         - Traces that only contain 'summarize_sessions' tool calls
         - Traces that only contain 'search' tool calls with kind='docs'
 
-    Products that emit no $ai_trace (e.g. signals, slack_app) have no matching trace, so they are
-    billed via the empty-trace fallback.
+    Every other product (e.g. slack_app) bills on its generation alone, even when an $ai_trace shares
+    its trace id.
 
     We are also performing additional filtering to maintain current trace tool calls and not all messages
     in the ongoing conversation thread (otherwise we might end up billing for traces we would not want to)
@@ -1890,7 +1892,7 @@ def _get_teams_with_ai_credits_for_products(
                 WITH %(excluded_tools)s AS excluded_tools
                 SELECT
                     trace_id,
-                    multiIf(
+                    max(multiIf(
                         length(tool_calls) > 0
                         AND arrayAll(
                             i ->
@@ -1907,7 +1909,7 @@ def _get_teams_with_ai_credits_for_products(
                         ),
                         0,  -- all tool calls are excluded → NOT billable
                         1   -- everything else → billable
-                    ) AS is_billable
+                    )) AS is_billable
                 FROM (
                     SELECT
                         {trace_analysis_id_expr} AS trace_id,
@@ -1935,16 +1937,20 @@ def _get_teams_with_ai_credits_for_products(
                         AND timestamp < %(end)s
                         AND event = '$ai_trace'
                 )
+                -- one row per trace id so the join cannot fan out, and a billable row outranks a free one
+                GROUP BY trace_id
             ),
             costs AS (
                 SELECT
                     customer_team_id,
                     trace_id,
+                    ai_product,
                     cost_usd
                 FROM (
                     SELECT
                         toInt64OrZero({customer_team_id_expr}) AS customer_team_id,
                         {trace_id_expr} AS trace_id,
+                        {ai_product_expr} AS ai_product,
                         toDecimal32OrNull(
                             {total_cost_expr},
                             5
@@ -1983,6 +1989,7 @@ def _get_teams_with_ai_credits_for_products(
                 -- on $ai_billable alone, already enforced in the costs CTE). Use empty(), not
                 -- IS NULL: join_use_nulls=0 yields '' — not NULL — for an unmatched trace_id.
                 t.is_billable = 1 OR empty(t.trace_id)
+                OR c.ai_product NOT IN %(traced_ai_products)s
             GROUP BY
                 c.customer_team_id
             HAVING
@@ -1996,6 +2003,7 @@ def _get_teams_with_ai_credits_for_products(
                 "end": end,
                 "markup_multiplier": 1 + markup_percent,
                 "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
+                "traced_ai_products": AI_BILLING_TRACED_PRODUCTS,
                 "ai_products": tuple(ai_products),
                 "unbilled_task_origins": UNBILLED_TASK_ORIGIN_PRODUCTS,
                 **region_filter_params,
