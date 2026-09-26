@@ -58,14 +58,11 @@ afterAll(async () => {
 })
 
 async function withIsolatedProxy(
-    handleProxySocket: (socket: net.Socket) => void,
+    proxy: net.Server,
     run: (fresh: typeof import('./request')) => Promise<void>
 ): Promise<void> {
     const proxySockets = new Set<net.Socket>()
-    const proxy = net.createServer((socket) => {
-        proxySockets.add(socket)
-        handleProxySocket(socket)
-    })
+    proxy.on('connection', (socket: net.Socket) => proxySockets.add(socket))
     await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
     const overrides: Record<string, string> = {
         NODE_ENV: 'test',
@@ -97,11 +94,12 @@ async function withIsolatedProxy(
     }
 }
 
-function tunnelToTarget(socket: net.Socket): void {
-    socket.once('data', (connectRequest) => {
-        const [host, port] = connectRequest.toString().split(' ')[1].split(':')
-        const upstream = net.connect(Number(port), host, () => {
+function createTunnelingProxy(): http.Server {
+    return http.createServer().on('connect', (request: http.IncomingMessage, socket: net.Socket, head: Buffer) => {
+        const target = new URL(`http://${request.url}`)
+        const upstream = net.connect(Number(target.port), target.hostname, () => {
             socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+            upstream.write(head)
             upstream.pipe(socket)
             socket.pipe(upstream)
         })
@@ -216,7 +214,7 @@ describe('fetch', () => {
             'fails a request through %s at the connect timeout when the proxy never answers the CONNECT',
             async (_dispatcher, allowH2) => {
                 await withIsolatedProxy(
-                    (socket) => socket.on('data', () => undefined),
+                    net.createServer((socket) => socket.on('data', () => undefined)),
                     async (fresh) => {
                         let guard: NodeJS.Timeout | undefined
                         const outcome = await Promise.race([
@@ -254,7 +252,7 @@ describe('fetch', () => {
                 await new Promise<void>((resolve) => slowOrigin.listen(0, '127.0.0.1', resolve))
                 const originPort = (slowOrigin.address() as AddressInfo).port
                 try {
-                    await withIsolatedProxy(tunnelToTarget, async (fresh) => {
+                    await withIsolatedProxy(createTunnelingProxy(), async (fresh) => {
                         const response = await fresh.fetchStreamed(`http://127.0.0.1:${originPort}/a.png`, {
                             timeoutMs: 5000,
                             allowH2,
