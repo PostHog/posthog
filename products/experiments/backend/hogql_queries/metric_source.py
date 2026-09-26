@@ -1,10 +1,3 @@
-"""
-Metric source abstraction for experiment queries.
-
-This module provides a unified interface for handling different metric source types
-(EventsNode, ActionsNode, ExperimentDataWarehouseNode) in experiment queries.
-"""
-
 from dataclasses import dataclass
 from typing import Union
 
@@ -19,19 +12,9 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 @dataclass
 class MetricSourceInfo:
     """
-    Encapsulates metadata about a metric source for query building.
-
-    This abstraction allows experiment queries to handle heterogeneous sources
-    (events, actions, datawarehouse) uniformly, particularly important for
-    funnel queries that may combine multiple source types.
-
-    Attributes:
-        kind: Source type - "events", "actions", or "datawarehouse"
-        table_name: Physical table name ("events" or DW table name)
-        entity_key: AST expression for extracting entity_id
-        timestamp_field: Field name containing timestamp
-        has_uuid: Whether source has UUID field (events/actions do, DW doesn't)
-        has_session_id: Whether source has session_id field (events/actions do, DW doesn't)
+    Normalized metadata for an events, actions, or data warehouse metric source,
+    so query builders can handle all three the same way. Funnel queries need this
+    most, because one funnel can mix source types.
     """
 
     kind: str
@@ -48,33 +31,11 @@ class MetricSourceInfo:
         entity_key: str | None = None,
     ) -> "MetricSourceInfo":
         """
-        Factory method to create MetricSourceInfo from any source type.
-
-        This provides a uniform interface for working with different source types,
-        abstracting away the differences in their structure.
-
-        Args:
-            source: The metric source (EventsNode, ActionsNode, or ExperimentDataWarehouseNode)
-            entity_key: Entity key from experiment context (e.g., "person_id" or "$group_0").
-                       Required for events/actions sources to support group aggregation.
-                       Ignored for datawarehouse sources (uses data_warehouse_join_key instead).
-
-        Returns:
-            MetricSourceInfo with appropriate metadata for the source type
-
-        Raises:
-            ValueError: If entity_key is not provided for events/actions sources
-
-        Example:
-            >>> source = EventsNode(event="purchase")
-            >>> info = MetricSourceInfo.from_source(source, entity_key="person_id")
-            >>> info.kind
-            'events'
-            >>> info.has_uuid
-            True
+        entity_key is the experiment entity key, for example "person_id" or "$group_0".
+        Events and actions sources require it and raise ValueError without it. Data
+        warehouse sources ignore it and use their data_warehouse_join_key.
         """
         if isinstance(source, ExperimentDataWarehouseNode):
-            # Datawarehouse sources always use their own join key, ignore entity_key parameter
             # `data_warehouse_join_key` is the user-supplied HogQL parsed below.
             tag_contains_user_hogql()
             return cls(
@@ -86,7 +47,6 @@ class MetricSourceInfo:
                 has_session_id=False,
             )
         elif isinstance(source, ActionsNode):
-            # Events/actions sources require entity_key for group aggregation support
             if entity_key is None:
                 raise ValueError("entity_key is required for ActionsNode sources to support group aggregation")
             return cls(
@@ -98,7 +58,6 @@ class MetricSourceInfo:
                 has_session_id=True,
             )
         else:  # EventsNode
-            # Events/actions sources require entity_key for group aggregation support
             if entity_key is None:
                 raise ValueError("entity_key is required for EventsNode sources to support group aggregation")
             return cls(
@@ -112,27 +71,14 @@ class MetricSourceInfo:
 
     def build_select_fields(self) -> list[ast.Alias]:
         """
-        Build normalized SELECT fields for UNION compatibility.
-
-        All sources must return the same columns for UNION ALL:
-        - entity_id (String type for all sources)
-        - variant (empty string '' for DW sources)
+        All sources in a UNION ALL must return the same columns:
+        - entity_id (String for all sources)
+        - variant (always empty, because the variant comes from the exposure join)
         - timestamp
-        - uuid (placeholder UUID for DW sources)
-        - session_id (empty string '' for DW sources)
-
-        Returns:
-            List of aliased column expressions compatible across all source types
-
-        Example:
-            >>> info = MetricSourceInfo.from_source(EventsNode(event="purchase"), entity_key="person_id")
-            >>> fields = info.build_select_fields()
-            >>> [f.alias for f in fields]
-            ['entity_id', 'variant', 'timestamp', 'uuid', 'session_id']
+        - uuid (zero UUID for DW sources)
+        - session_id (empty string for DW sources)
         """
-        # All sources need these base fields
         fields = [
-            # entity_id: String type for consistency
             ast.Alias(
                 alias="entity_id",
                 expr=ast.Call(
@@ -140,15 +86,12 @@ class MetricSourceInfo:
                     args=[self.entity_key],
                 ),
             ),
-            # variant: empty for DW (variant comes from exposure join)
             ast.Alias(
                 alias="variant",
                 expr=ast.Constant(value=""),
             ),
-            # timestamp
-            # For DW sources, use unqualified field name to avoid issues with dotted table names
-            # (e.g., "schema.table" would become "schema.table.timestamp" if qualified).
-            # For events table, qualification is safe and conventional.
+            # For DW sources, use the unqualified field name, because a dotted table name
+            # such as "schema.table" would become "schema.table.timestamp" if qualified.
             ast.Alias(
                 alias="timestamp",
                 expr=ast.Field(
@@ -159,12 +102,10 @@ class MetricSourceInfo:
             ),
         ]
 
-        # uuid: placeholder for DW sources (no UUID field)
         uuid_expr: ast.Expr
         if self.has_uuid:
             uuid_expr = ast.Field(chain=["uuid"])
         else:
-            # Placeholder UUID for DW: 00000000-0000-0000-0000-000000000000
             uuid_expr = ast.Call(
                 name="toUUID",
                 args=[ast.Constant(value="00000000-0000-0000-0000-000000000000")],
@@ -172,12 +113,10 @@ class MetricSourceInfo:
 
         fields.append(ast.Alias(alias="uuid", expr=uuid_expr))
 
-        # session_id: placeholder for DW sources (no session_id field)
         session_id_expr: ast.Expr
         if self.has_session_id:
             session_id_expr = ast.Field(chain=["properties", "$session_id"])
         else:
-            # Empty string for DW sources
             session_id_expr = ast.Constant(value="")
 
         fields.append(ast.Alias(alias="session_id", expr=session_id_expr))
