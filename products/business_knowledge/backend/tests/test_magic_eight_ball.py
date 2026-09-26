@@ -2,8 +2,10 @@ import json
 from dataclasses import replace
 from uuid import uuid4
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -54,7 +56,7 @@ def _decision(choice: str, confidence: float = 0.8) -> DecisionResult:
     )
 
 
-class TestBuildState(BaseTest):
+class TestBuildState(SimpleTestCase):
     def test_answers_fit_the_decision_model_option_limit(self) -> None:
         assert len(EIGHT_BALL_ANSWERS) <= MAX_OPTIONS_PER_QUESTION
 
