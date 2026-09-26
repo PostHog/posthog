@@ -74,6 +74,29 @@ A 2D density grid: `xLabels` by `yLabels` (row 0 at the bottom), `cells[row][col
 Log ramp by default; `colorScale: 'linear'` to opt out.
 A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex, yIndex, value }`, and `onBrush` reports row and column index ranges.
 
+## SankeyChart
+
+Flow between stages: `nodes: { id, label?, color?, meta? }[]` and `links: { source, target, value, color?, meta? }[]`, where `source` and `target` are node ids.
+There is no `series` or `labels`.
+
+- The graph must be acyclic and every link must name existing nodes; the layout throws otherwise, and the chart's error boundary reports it through `onError`.
+  A node that recurs at several stages (the same tool called twice) needs one id per stage, so prefix ids with the stage.
+- Nodes that share a `label` share a palette color, so a repeated tool keeps one hue across columns.
+  A link without `color` takes its source node's color.
+  `var(--…)` colors resolve inside the chart.
+- `nodeAlign` decides where a flow that ends early sits: `justify` (default) moves terminal nodes to the last column; `left` keeps each node at its own depth, which reads right when columns are stages.
+  `preserveNodeOrder` keeps input order within a column instead of untangling ribbons.
+- `columnLabels` renders headers above each column and reserves room for them.
+  Node labels are DOM overlays beside each node, truncated to the free space before the next column; the last column's labels sit to its left.
+  `showNodeValues` appends the node value.
+- Hovering a node lifts its ribbons and dims the rest of the graph; hovering a ribbon lifts just that ribbon.
+  The default tooltip shows the node label or `source → target`, the value, and its share of `layout.total` (the summed inflow of the nodes with no incoming link).
+  `onNodeClick` and `onLinkClick` receive the laid-out datum with its `meta`.
+  `tooltip.placement` takes the cartesian charts' values and defaults to `cursor`.
+  On touch, the first tap on a node or ribbon shows its tooltip and a second tap on the same one fires the click handler.
+- Custom overlays read `useSankeyLayout()` for the positioned `nodes`, `links`, `columnX`, and `total`.
+- The layout engine ships on its own as `sankeyLayout` (plus the `sankeyLeft` / `sankeyJustify` alignments and `sankeyLinkHorizontal`) for hosts that draw their own SVG.
+
 ## Sparkline
 
 An axis-less preset over `LineChart` (default, gradient-filled line) or stacked bars via `type: 'bar'`.

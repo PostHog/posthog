@@ -8,14 +8,14 @@
  * versions of the d3 modules we actually use.
  */
 
-import { Link, linkHorizontal } from 'd3'
-import { max, min, sum } from 'd3'
+import { max, min, sum } from 'd3-array'
+import { type Link, linkHorizontal } from 'd3-shape'
 
 // ---- Public types ----
 
-export interface SankeyExtraProperties {
-    [key: string]: any
-}
+/** Consumer fields carried on nodes and links. Any object type qualifies; the layout adds its own
+ *  geometry fields on top. */
+export type SankeyExtraProperties = object
 
 export type SankeyNode<N extends SankeyExtraProperties, L extends SankeyExtraProperties> = N & {
     sourceLinks: Array<SankeyLink<N, L>>
@@ -47,7 +47,9 @@ export interface SankeyGraph<N extends SankeyExtraProperties, L extends SankeyEx
     links: Array<SankeyLink<N, L>>
 }
 
-export type SankeyInputGraph = { nodes: any[]; links: any[] }
+/** Input graph. Link `source`/`target` may be node ids (resolved through `nodeId`) or node
+ *  objects; the layout mutates both arrays in place, so pass copies of data you keep. */
+export type SankeyInputGraph = { nodes: object[]; links: object[] }
 
 export interface SankeyLayout<N extends SankeyExtraProperties, L extends SankeyExtraProperties> {
     (graph: SankeyInputGraph): SankeyGraph<N, L>
@@ -91,7 +93,7 @@ export function targetDepth(d: SankeyLink<{}, {}>): number {
 }
 
 export function sankeyRight(node: SankeyNode<{}, {}>, n: number): number {
-    return n - 1 - node.depth
+    return n - 1 - node.height
 }
 
 export function sankeyLeft(node: SankeyNode<{}, {}>): number {
@@ -125,7 +127,7 @@ function horizontalTarget<N extends SankeyExtraProperties, L extends SankeyExtra
 }
 
 export function sankeyLinkHorizontal<N extends SankeyExtraProperties, L extends SankeyExtraProperties>(): Link<
-    any,
+    unknown,
     SankeyLink<N, L>,
     [number, number]
 > {
@@ -188,9 +190,9 @@ function computeLinkBreadths<N extends SankeyExtraProperties, L extends SankeyEx
 
 // ---- Main sankey factory ----
 
-export default function sankey<
-    N extends SankeyExtraProperties = any,
-    L extends SankeyExtraProperties = any,
+export function sankeyLayout<
+    N extends SankeyExtraProperties = SankeyExtraProperties,
+    L extends SankeyExtraProperties = SankeyExtraProperties,
 >(): SankeyLayout<N, L> {
     let x0 = 0,
         y0 = 0,
@@ -203,10 +205,10 @@ export default function sankey<
     let id: (d: SankeyNode<N, L>) => string | number = (d) => d.index
     let align: (node: SankeyNode<N, L>, n: number) => number = sankeyJustify
     let sort: ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | null | undefined
-    let nodesFn: (graph: SankeyInputGraph) => SankeyNode<N, L>[] = (graph) => graph.nodes
-    let linksFn: (graph: SankeyInputGraph) => SankeyLink<N, L>[] = (graph) => graph.links
+    let nodesFn: (graph: SankeyInputGraph) => SankeyNode<N, L>[] = (graph) => graph.nodes as SankeyNode<N, L>[]
+    let linksFn: (graph: SankeyInputGraph) => SankeyLink<N, L>[] = (graph) => graph.links as SankeyLink<N, L>[]
 
-    let sankeyLayout: SankeyLayout<N, L>
+    let self: SankeyLayout<N, L>
 
     function layout(graph: SankeyInputGraph): SankeyGraph<N, L> {
         const g = { nodes: nodesFn(graph), links: linksFn(graph) }
@@ -232,7 +234,7 @@ export default function sankey<
     ): ((graph: SankeyInputGraph) => SankeyNode<N, L>[]) | SankeyLayout<N, L> {
         if (fn) {
             nodesFn = typeof fn === 'function' ? fn : () => fn
-            return sankeyLayout
+            return self
         }
         return nodesFn
     }
@@ -245,7 +247,7 @@ export default function sankey<
     ): ((graph: SankeyInputGraph) => SankeyLink<N, L>[]) | SankeyLayout<N, L> {
         if (fn) {
             linksFn = typeof fn === 'function' ? fn : () => fn
-            return sankeyLayout
+            return self
         }
         return linksFn
     }
@@ -257,7 +259,7 @@ export default function sankey<
     ): ((node: SankeyNode<N, L>) => string | number) | SankeyLayout<N, L> {
         if (fn) {
             id = fn
-            return sankeyLayout
+            return self
         }
         return id
     }
@@ -269,7 +271,7 @@ export default function sankey<
     ): ((node: SankeyNode<N, L>, n: number) => number) | SankeyLayout<N, L> {
         if (fn) {
             align = fn
-            return sankeyLayout
+            return self
         }
         return align
     }
@@ -283,7 +285,7 @@ export default function sankey<
     ): ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | undefined | null | SankeyLayout<N, L> {
         if (arguments.length) {
             sort = fn
-            return sankeyLayout
+            return self
         }
         return sort
     }
@@ -293,7 +295,7 @@ export default function sankey<
     function nodeWidthAccessor(width?: number): number | SankeyLayout<N, L> {
         if (width !== undefined) {
             dx = width
-            return sankeyLayout
+            return self
         }
         return dx
     }
@@ -303,7 +305,7 @@ export default function sankey<
     function nodePaddingAccessor(padding?: number): number | SankeyLayout<N, L> {
         if (padding !== undefined) {
             dy = py = padding
-            return sankeyLayout
+            return self
         }
         return dy
     }
@@ -315,7 +317,7 @@ export default function sankey<
             x0 = y0 = 0
             x1 = size[0]
             y1 = size[1]
-            return sankeyLayout
+            return self
         }
         return [x1 - x0, y1 - y0]
     }
@@ -330,7 +332,7 @@ export default function sankey<
             y0 = extent[0][1]
             x1 = extent[1][0]
             y1 = extent[1][1]
-            return sankeyLayout
+            return self
         }
         return [
             [x0, y0],
@@ -338,7 +340,7 @@ export default function sankey<
         ] satisfies [[number, number], [number, number]]
     }
 
-    sankeyLayout = Object.assign(layout, {
+    self = Object.assign(layout, {
         update,
         nodes: nodesAccessor,
         links: linksAccessor,
@@ -620,5 +622,5 @@ export default function sankey<
         return y
     }
 
-    return sankeyLayout
+    return self
 }
