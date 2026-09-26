@@ -89,7 +89,7 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
-        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
+        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "true")):
             posthoganalytics.capture_exception_code_variables = False
         else:
             posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
