@@ -1,7 +1,7 @@
 import dns from 'dns/promises'
 import { range } from 'lodash'
 import http from 'node:http'
-import { AddressInfo } from 'node:net'
+import net, { AddressInfo } from 'node:net'
 
 import { getExternalRequestConfig } from '~/common/config'
 
@@ -155,6 +155,53 @@ describe('fetch', () => {
                 process.env.NODE_ENV = originalNodeEnv
             }
         }, 10000)
+
+        it.each([
+            ['HTTP/1.1', false],
+            ['HTTP/2', true],
+        ])(
+            'fails a %s request at the connect timeout when the proxy never answers the CONNECT',
+            async (_protocol, allowH2) => {
+                const proxySockets = new Set<net.Socket>()
+                const silentProxy = net.createServer((socket) => {
+                    proxySockets.add(socket)
+                    socket.on('data', () => undefined)
+                })
+                await new Promise<void>((resolve) => silentProxy.listen(0, '127.0.0.1', resolve))
+                const originalNodeEnv = process.env.NODE_ENV
+                process.env.NODE_ENV = 'test'
+                process.env.HTTPS_PROXY = `http://127.0.0.1:${(silentProxy.address() as AddressInfo).port}`
+                process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS = '200'
+                try {
+                    await jest.isolateModulesAsync(async () => {
+                        const fresh = require('./request')
+                        let guard: NodeJS.Timeout | undefined
+                        const outcome = await Promise.race([
+                            fresh
+                                .fetchStreamed('https://images.example.com/a.png', { timeoutMs: 30_000, allowH2 })
+                                .then(
+                                    () => 'resolved',
+                                    (error: { code?: string }) => error.code
+                                ),
+                            new Promise((resolve) => {
+                                guard = setTimeout(() => resolve('still pending'), 3000)
+                            }),
+                        ])
+                        clearTimeout(guard)
+                        await fresh.closeSharedAgents(100)
+
+                        expect(outcome).toBe('UND_ERR_HEADERS_TIMEOUT')
+                    })
+                } finally {
+                    delete process.env.HTTPS_PROXY
+                    delete process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS
+                    process.env.NODE_ENV = originalNodeEnv
+                    proxySockets.forEach((socket) => socket.destroy())
+                    silentProxy.close()
+                }
+            },
+            10000
+        )
 
         it('keeps a timeout the caller set explicitly', async () => {
             const originalNodeEnv = process.env.NODE_ENV

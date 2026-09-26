@@ -8,6 +8,7 @@ import {
     Agent,
     Dispatcher,
     type HeadersInit,
+    Pool,
     ProxyAgent,
     RequestInfo,
     RequestInit,
@@ -358,6 +359,12 @@ function makeSecureDispatcher({
             proxyTunnel: true,
             allowH2,
             requestTls: { allowH2 },
+            connectTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
+            // The proxy answers a CONNECT only after it reaches the target, and undici does not apply a request's abort
+            // signal before its connection opens. The proxy client's headersTimeout is therefore the only limit on
+            // that wait, so it gets the same budget as a direct connect.
+            clientFactory: (origin, options) =>
+                new Pool(origin, { ...options, headersTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS }),
         })
     }
     return new Agent({
@@ -484,46 +491,6 @@ function destroyBody(body: Dispatcher.ResponseData['body']): void {
 }
 
 /**
- * undici records an abort that comes before the request has a connection, but it rejects only when a connection
- * opens. Through the egress proxy, a CONNECT that the proxy never answers therefore holds the request long past its
- * timeout. This rejects when the signal aborts, and destroys the body of a response that arrives after that.
- */
-async function requestUntilAborted(
-    url: string,
-    options: NonNullable<Parameters<typeof request<null>>[1]>,
-    signal: AbortSignal | undefined
-): Promise<Dispatcher.ResponseData> {
-    const pending = request<null>(url, { ...options, signal })
-    if (!signal) {
-        return await pending
-    }
-    return await new Promise<Dispatcher.ResponseData>((resolve, reject) => {
-        const onAbort = (): void => {
-            reject(signal.reason)
-            pending.then(
-                (late) => destroyBody(late.body),
-                () => undefined
-            )
-        }
-        if (signal.aborted) {
-            onAbort()
-            return
-        }
-        signal.addEventListener('abort', onAbort, { once: true })
-        pending.then(
-            (response) => {
-                signal.removeEventListener('abort', onAbort)
-                resolve(response)
-            },
-            (error: unknown) => {
-                signal.removeEventListener('abort', onAbort)
-                reject(error)
-            }
-        )
-    })
-}
-
-/**
  * The prototype is null because every key comes from the remote server, and `__proto__` on a plain
  * object literal is a setter rather than a key.
  */
@@ -585,17 +552,14 @@ export async function _fetch(
 
     let result: Dispatcher.ResponseData
     try {
-        result = await requestUntilAborted(
-            parsed.toString(),
-            {
-                method: options.method ?? 'GET',
-                headers: options.headers,
-                body: options.body,
-                dispatcher,
-                // request() does not follow redirects, so a response can never bounce to an unvalidated host
-            },
-            lifecycle?.signal ?? (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined)
-        )
+        result = await request(parsed.toString(), {
+            method: options.method ?? 'GET',
+            headers: options.headers,
+            body: options.body,
+            dispatcher,
+            // request() does not follow redirects, so a response can never bounce to an unvalidated host
+            signal: lifecycle?.signal ?? (options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined),
+        })
     } catch (error) {
         lifecycle?.onError()
         throw error
@@ -803,16 +767,13 @@ export async function fetchStreamed(url: string, options: StreamedFetchOptions):
         const { dispatcher, gate } = getSecureDispatcher(options)
         const signal = AbortSignal.timeout(options.timeoutMs)
         lifecycle = await gatedLifecycle(gate, parsed.origin, signal)
-        result = await requestUntilAborted(
-            parsed.toString(),
-            {
-                method: 'GET',
-                headers: options.headers,
-                dispatcher,
-                responseHeaders: 'raw',
-            },
-            signal
-        )
+        result = await request(parsed.toString(), {
+            method: 'GET',
+            headers: options.headers,
+            dispatcher,
+            signal,
+            responseHeaders: 'raw',
+        })
     } catch (error) {
         lifecycle?.onError()
         inflightExternalRequests.dec()
