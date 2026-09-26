@@ -11,7 +11,12 @@ from drf_spectacular.generators import SchemaGenerator
 from rest_framework import status
 from rest_framework.request import Request
 
-from posthog.api.emoji_search import EmojiSearchRequestSerializer, EmojiSearchUnavailable, EmojiSearchViewSet
+from posthog.api.emoji_search import (
+    EmojiSearchDailyThrottle,
+    EmojiSearchRequestSerializer,
+    EmojiSearchUnavailable,
+    EmojiSearchViewSet,
+)
 from posthog.auth import (
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
@@ -23,6 +28,18 @@ from posthog.llm.system_one import SystemOneNotConfigured
 
 
 class TestEmojiSearch(SimpleTestCase):
+    def test_daily_throttle_is_shared_by_team(self) -> None:
+        throttle = EmojiSearchDailyThrottle()
+        keys = []
+        for team_id, user_id in ((1, 1), (1, 2), (2, 1)):
+            request = cast(Request, SimpleNamespace(user=SimpleNamespace(pk=user_id, is_authenticated=True)))
+            view = EmojiSearchViewSet()
+            view.team_id = team_id
+            keys.append(throttle.get_cache_key(request, view))
+
+        assert keys[0] == keys[1]
+        assert keys[0] != keys[2]
+
     def test_only_web_app_sessions_are_allowed(self) -> None:
         permission = EmojiSearchViewSet.permission_classes[0]()
         for authenticator, allowed in (

@@ -10,7 +10,7 @@ from django.core.cache import cache
 import structlog
 
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
+from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, SystemOneRequestFailed
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
 
 MODEL = "posthog/hogference/jevk5-fp8-0.2"
@@ -80,7 +80,7 @@ def build_subgroup_questions(catalog: EmojiCatalog) -> dict[str, ChoiceQuestion]
             criteria[f"s{subgroup_id}"] = f"{subgroup.label}: {', '.join(examples)}"
         criteria["none"] = "None of these emoji groups fit the search"
         questions[f"subgroup{index}"] = ChoiceQuestion(
-            instructions="Which emoji groups are relevant to the search?", criteria=criteria
+            instructions="Which emoji groups are relevant to the emoji_search value in state?", criteria=criteria
         )
     return questions
 
@@ -95,7 +95,7 @@ def build_emoji_questions(catalog: EmojiCatalog, subgroup_ids: list[str]) -> dic
             }
             criteria["none"] = "No emoji in this set fits the search"
             questions[f"emoji{len(questions)}"] = ChoiceQuestion(
-                instructions="Which emojis are relevant to the search?", criteria=criteria
+                instructions="Which emojis are relevant to the emoji_search value in state?", criteria=criteria
             )
     return questions
 
@@ -161,7 +161,17 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
         for index in range(0, len(emoji_questions), GATEWAY_MAX_QUESTIONS)
     ]
     with ThreadPoolExecutor(max_workers=len(batches)) as executor:
-        results = list(executor.map(lambda questions: client.decide(state=state, questions=questions), batches))
+        futures = [executor.submit(client.decide, state=state, questions=questions) for questions in batches]
+        results = []
+        failures = []
+        for future in futures:
+            try:
+                results.append(future.result())
+            except SystemOneRequestFailed as error:
+                failures.append(error)
+                logger.warning("emoji_search_batch_failed", team_id=team_id, exc_info=True)
+    if not results:
+        raise failures[0]
     emoji_scores = {
         key: score
         for result in results
@@ -171,5 +181,6 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
         emoji_scores,
         key=lambda key: -emoji_scores[key] * subgroup_scores[f"s{catalog.emojis[key].subgroup}"],
     )[:5]
-    _cache_suggestions(cache_key, keys)
+    if not failures:
+        _cache_suggestions(cache_key, keys)
     return [catalog.emojis[key].suggestion for key in keys]

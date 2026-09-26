@@ -50,6 +50,9 @@ class EmojiSearchDailyThrottle(UserRateThrottle):
     scope = "emoji_search_daily"
     rate = "3000/day"
 
+    def get_cache_key(self, request: Request, view: APIView) -> str:
+        return self.cache_format % {"scope": self.scope, "ident": view.team_id}
+
 
 class EmojiSearchSessionPermission(BasePermission):
     message = "Emoji suggestions are available only in the web app."

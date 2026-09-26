@@ -8,7 +8,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import SimpleTestCase
 
-from posthog.llm.system_one import ChoiceAnswer, SystemOneResult
+from posthog.llm.system_one import ChoiceAnswer, SystemOneRequestFailed, SystemOneResult
 
 from .match import _ranked_probabilities, build_emoji_questions, build_subgroup_questions, load_catalog, suggest_emojis
 
@@ -29,6 +29,29 @@ def answer_questions(questions, selected):
 
 
 class TestSuggestEmojis(SimpleTestCase):
+    @patch("posthog.emoji_search.match.build_system_one_client")
+    def test_failed_emoji_batch_keeps_successful_results_without_caching_them(self, build_client) -> None:
+        cache.clear()
+        catalog = load_catalog()
+        largest_subgroups = sorted(catalog.subgroups, key=lambda key: -len(catalog.subgroups[key].emoji_keys))[:5]
+        selected_labels = {catalog.subgroups[key].label for key in largest_subgroups}
+
+        def decide(*, state, questions):
+            if "subgroup" in next(iter(questions)):
+                return answer_questions(questions, selected_labels)
+            if "emoji0" in questions:
+                first_question = next(iter(questions.values()))
+                first_emoji = next(description for key, description in first_question.criteria.items() if key != "none")
+                return answer_questions(questions, (first_emoji,))
+            raise SystemOneRequestFailed("batch failed")
+
+        build_client.return_value.decide.side_effect = decide
+        with patch("posthog.emoji_search.match._cache_suggestions") as cache_suggestions:
+            suggestions = suggest_emojis("jurassic park", team_id=1)
+
+        assert suggestions
+        cache_suggestions.assert_not_called()
+
     def test_rank_scores_against_each_questions_none_option(self) -> None:
         answers = {
             "first": ChoiceAnswer(choice="a", confidence=0.6, probabilities={"a": 0.6, "none": 0.4}),
