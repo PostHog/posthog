@@ -15,6 +15,11 @@ export interface ViewServiceMetricsButtonProps extends Pick<
     dateFrom?: string | null
     dateTo?: string | null
     iconOnly?: boolean
+    /**
+     * Overrides the default graph icon, for surfaces where IconGraph already means something
+     * else nearby (e.g. the log row's "create log-based metric" action).
+     */
+    icon?: LemonButtonProps['icon']
 }
 
 /**
@@ -40,6 +45,7 @@ export function ViewServiceMetricsButton({
     dateFrom,
     dateTo,
     iconOnly,
+    icon,
     ...buttonProps
 }: ViewServiceMetricsButtonProps): JSX.Element | null {
     const canViewServiceMetrics = useCanViewServiceMetrics()
@@ -50,7 +56,7 @@ export function ViewServiceMetricsButton({
 
     return (
         <LemonButton
-            icon={<IconGraph />}
+            icon={icon ?? <IconGraph />}
             to={metricsUrlForService(serviceName, { dateFrom, dateTo })}
             tooltip={iconOnly ? `Metrics for ${serviceName}` : undefined}
             {...buttonProps}
