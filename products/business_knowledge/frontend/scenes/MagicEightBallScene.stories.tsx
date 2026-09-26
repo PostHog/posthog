@@ -93,13 +93,20 @@ export const Loading: Story = {
     decorators: [
         mswDecorator({
             post: {
-                [eightBallUrl]: () => new Promise<never>(() => {}),
+                [eightBallUrl]: () => {
+                    return new Promise((resolve) => {
+                        setTimeout(() => {
+                            resolve(new Response(JSON.stringify({ detail: 'Request timeout' }), { status: 503 }))
+                        }, 2000)
+                    })
+                },
             },
         }),
     ],
     play: async ({ canvasElement }) => {
         await askQuestion(canvasElement)
         await within(canvasElement).findByRole('button', { name: 'Shake the magic 8 ball', busy: true })
+        await within(canvasElement).findByText(/The ball couldn't answer:/)
     },
 }
 
