@@ -370,7 +370,7 @@ impl PgMcp {
             .map_err(err)?)
     }
     #[tool(
-        description = "System view: host CPU % / memory / load and vCPU count (pg_proctab), CPU by user, by code path (query tags) and by query (cpu_seconds, avg_cores, host_pct, backends), a per-minute cores-by-user series, checkpoints, bgwriter, Aurora replica status and per-database commit/DML latency."
+        description = "System view: host CPU % / memory / load and vCPU count (pg_proctab), CPU by user, by code path (query tags) and by query (estimated from pg_stat_statements: each role's measured CPU split between its queries by execution time minus I/O, then by calls; cpu_seconds, avg_cores, host_pct, share_pct of query CPU on the instance, calls), a per-minute cores-by-user series, checkpoints, bgwriter, Aurora replica status and per-database commit/DML latency."
     )]
     async fn system_stats(
         &self,
