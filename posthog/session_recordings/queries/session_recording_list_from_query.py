@@ -529,6 +529,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 response = execute_hogql_query(
                     query=blocked_query,
                     team=self._team,
+                    # Same user as the listing query, so per-user property restrictions apply here too.
+                    user=self._user,
                     query_type="SessionRecordingListPersonPropertyCheck",
                     modifiers=self._hogql_query_modifiers,
                     settings=self._person_check_query_settings(),
@@ -548,11 +550,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             return results
         return [row for row in results if row["session_id"] not in blocked_sessions]
 
-    def _person_check_query_settings(self) -> HogQLGlobalSettings | None:
-        """The caller's execution-time limit also bounds the post-fetch person check queries."""
-        if self._max_execution_time is None:
-            return None
-        return HogQLGlobalSettings(max_execution_time=self._max_execution_time)
+    def _person_check_query_settings(self) -> HogQLGlobalSettings:
+        """The caller's execution-time limit also bounds the post-fetch person check queries.
+
+        A timeout must throw, not return partial rows: a partial blocked-id set would keep a
+        blocked session without entering the fail-open exception handler.
+        """
+        if self._max_execution_time is not None:
+            return HogQLGlobalSettings(max_execution_time=self._max_execution_time, timeout_overflow_mode="throw")
+        return HogQLGlobalSettings(timeout_overflow_mode="throw")
 
     def _session_distinct_ids(self, results: list[dict[str, Any]]) -> dict[str, set[str]]:
         """Every distinct id the fetched sessions' replay rows were written under, per session id.
@@ -580,6 +586,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         response = execute_hogql_query(
             query=query,
             team=self._team,
+            user=self._user,
             query_type="SessionRecordingListPersonPropertyCheckDistinctIds",
             modifiers=self._hogql_query_modifiers,
             settings=self._person_check_query_settings(),
