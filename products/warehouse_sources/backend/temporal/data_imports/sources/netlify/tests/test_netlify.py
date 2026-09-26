@@ -314,6 +314,7 @@ class TestValidateCredentials:
             ok, error = validate_credentials("tok")
 
         assert (ok, error) == (False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR)
+        assert error is not None
         assert "418" not in error
         # The status has to reach error tracking, or a later triage has only the generic message.
         assert "418" in str(capture.call_args.args[0])
