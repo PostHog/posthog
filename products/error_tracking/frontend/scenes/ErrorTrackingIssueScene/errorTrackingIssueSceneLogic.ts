@@ -57,6 +57,7 @@ import { issueActionsLogic } from '../../components/IssueActions/issueActionsLog
 import {
     DEFAULT_DATE_RANGE,
     ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY,
+    dateRangeCoveringTimestamp,
     issueFiltersLogic,
     triggerFilterActions,
     updateFilterSearchParams,
@@ -90,6 +91,7 @@ export interface errorTrackingIssueSceneLogicValues {
     eventsQueryKey: string
     firstSeen: Dayjs | null
     initialEvent: ErrorEventType | null
+    initialEventFailed: boolean
     initialEventLoading: boolean
     initialEventTimestamp: string | null
     issue: ErrorTrackingRelationalIssue | null
@@ -754,6 +756,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         listDateRange: {
             setListDateRange: (_, { dateRange }) => dateRange,
         },
+        // The loader returns null both when the query finds nothing and when it never ran, so a
+        // failed query is indistinguishable from an issue with no exception in the window. Track
+        // the failure separately, otherwise a broken query reads as an ordinary empty detail pane
+        // and the reader has nothing to retry.
+        initialEventFailed: [
+            false,
+            {
+                loadInitialEvent: () => false,
+                loadInitialEventSuccess: () => false,
+                loadInitialEventFailure: () => true,
+            },
+        ],
     }),
 
     loaders(({ values, actions, props }) => ({
@@ -1106,10 +1120,20 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
     urlToAction(({ actions, values }) => {
         return {
             '**/error_tracking/:id': (_, params) => {
+                let filterParams = params
+                // listDateRange is unset only before the first run, which is the one arrival where
+                // the URL still says where the reader came from rather than what they have since
+                // chosen in the scene. Reconcile the linked exception with the range here alone, so
+                // a range the reader narrows afterwards stays narrow.
                 if (values.listDateRange == null) {
-                    actions.setListDateRange(params.dateRange ?? DEFAULT_DATE_RANGE)
+                    const dateRange = dateRangeCoveringTimestamp(
+                        params.dateRange ?? DEFAULT_DATE_RANGE,
+                        params.timestamp
+                    )
+                    actions.setListDateRange(dateRange)
+                    filterParams = { ...params, dateRange }
                 }
-                triggerFilterActions(params, values, actions)
+                triggerFilterActions(filterParams, values, actions)
             },
         }
     }),

@@ -4,7 +4,7 @@ import { quickFiltersLogic } from 'lib/components/QuickFilters'
 import { quickFiltersSectionLogic } from 'lib/components/QuickFilters/quickFiltersSectionLogic'
 
 import { useMocks } from '~/mocks/jest'
-import { QuickFilterContext } from '~/queries/schema/schema-general'
+import { DateRange, QuickFilterContext } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     EventPropertyFilter,
@@ -15,7 +15,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { issueFiltersLogic } from './issueFiltersLogic'
+import { dateRangeCoveringTimestamp, issueFiltersLogic } from './issueFiltersLogic'
 
 const LOGIC_KEY = 'test'
 
@@ -242,6 +242,52 @@ describe('issueFiltersLogic', () => {
                     value: ['production'],
                 },
             ])
+        })
+    })
+
+    describe('dateRangeCoveringTimestamp', () => {
+        const NOW = '2026-03-10T12:00:00.000Z'
+
+        beforeEach(() => {
+            jest.useFakeTimers().setSystemTime(new Date(NOW))
+        })
+
+        afterEach(() => jest.useRealTimers())
+
+        it.each<[string, DateRange, unknown, DateRange]>([
+            [
+                'widens a range that starts after the linked exception',
+                { date_from: '-1h', date_to: null },
+                '2026-03-10T09:00:00+00:00',
+                { date_from: '2026-03-10T08:00:00.000Z', date_to: null },
+            ],
+            [
+                'extends a range that ends before the linked exception',
+                { date_from: '-30d', date_to: '2026-03-01' },
+                '2026-03-05T09:00:00+00:00',
+                { date_from: '-30d', date_to: '2026-03-05T10:00:00.000Z' },
+            ],
+            [
+                'leaves a range that already reaches the linked exception',
+                { date_from: '-7d', date_to: null },
+                '2026-03-10T11:00:00+00:00',
+                { date_from: '-7d', date_to: null },
+            ],
+            [
+                'leaves a range when the link carries no timestamp',
+                { date_from: '-1h', date_to: null },
+                undefined,
+                { date_from: '-1h', date_to: null },
+            ],
+            [
+                // A `+` that reached the query string unencoded decodes back to a space.
+                'leaves a range when the timestamp is unparseable',
+                { date_from: '-1h', date_to: null },
+                '2026-03-10T09:00:00.221000 00:00',
+                { date_from: '-1h', date_to: null },
+            ],
+        ])('%s', (_name, dateRange, timestamp, expected) => {
+            expect(dateRangeCoveringTimestamp(dateRange, timestamp)).toEqual(expected)
         })
     })
 })

@@ -3,6 +3,8 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 
 import { SelectedQuickFilter, quickFiltersSectionLogic } from 'lib/components/QuickFilters'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
+import { dayjs } from 'lib/dayjs'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { Params } from 'scenes/sceneTypes'
 
 import { DateRange, QuickFilterContext } from '~/queries/schema/schema-general'
@@ -323,6 +325,33 @@ export interface IssueFilterActions {
     setSearchQuery: (searchQuery: string) => void
     setFilterGroup: (filterGroup: UniversalFiltersGroup) => void
     setFilterTestAccounts: (filterTestAccounts: boolean) => void
+}
+
+// A deep link names one exception through the `timestamp` parameter, but the date range comes from
+// whatever else the URL carried. A range that does not reach that exception cannot list it, so the
+// selection falls back to the newest row and the reader gets "no exceptions found" for the link
+// they just followed. Widen the range until it reaches the exception. Callers apply this on arrival
+// only, because after that the reader owns the range and narrowing it has to stick.
+export function dateRangeCoveringTimestamp(dateRange: DateRange, timestamp: unknown): DateRange {
+    if (typeof timestamp !== 'string') {
+        return dateRange
+    }
+    const occurredAt = dayjs(timestamp)
+    if (!occurredAt.isValid()) {
+        return dateRange
+    }
+    // One hour of margin on each side matches the window the issue scene queries around the linked
+    // exception, so the list and that query agree on whether the exception is reachable.
+    const reconciled = { ...dateRange }
+    const from = dateStringToDayJs(dateRange.date_from ?? null)
+    if (from?.isAfter(occurredAt)) {
+        reconciled.date_from = occurredAt.subtract(1, 'hour').toISOString()
+    }
+    const to = dateStringToDayJs(dateRange.date_to ?? null)
+    if (to?.isBefore(occurredAt)) {
+        reconciled.date_to = occurredAt.add(1, 'hour').toISOString()
+    }
+    return reconciled
 }
 
 export function updateFilterSearchParams(params: Params, values: IssueFilterValues): Params {
