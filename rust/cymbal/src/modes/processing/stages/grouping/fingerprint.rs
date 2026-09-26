@@ -8,7 +8,9 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{Fingerprint, FingerprintVersion},
     issue_resolution::IssueFingerprintOverride,
-    metric_consts::{FINGERPRINT_GENERATOR_OPERATOR, FINGERPRINT_LEGACY_VERSION_USED},
+    metric_consts::{
+        FINGERPRINT_GENERATOR_OPERATOR, FINGERPRINT_LEGACY_VERSION_USED, FINGERPRINT_LOOKUPS,
+    },
     modes::processing::normalization::legacy_wire_order,
     modes::processing::rules::grouping::evaluate_grouping_rules,
     stages::grouping::GroupingStage,
@@ -129,16 +131,19 @@ async fn select_automatic_fingerprint(
 
     // Cache pass: collect known hits without short-circuiting — a cached hit
     // for an older version must not outrank a newer version whose row exists
-    // in Postgres but is not in this worker's cache.
+    // in Postgres but is not in this worker's cache. The issue cache is read
+    // first, so a row this worker inserted after a cached miss still wins.
     let mut known: HashMap<String, Uuid> = HashMap::new();
     let mut uncached: Vec<String> = Vec::new();
     for (_, fingerprint) in fingerprints.iter() {
         let cache_key = (input.team_id(), fingerprint.value.clone());
-        match ctx.issue_cache.get(&cache_key).await {
-            Some(issue_id) => {
-                known.insert(fingerprint.value.clone(), issue_id);
-            }
-            None => uncached.push(fingerprint.value.clone()),
+        if let Some(issue_id) = ctx.issue_cache.get(&cache_key).await {
+            metrics::counter!(FINGERPRINT_LOOKUPS, "outcome" => "cache_hit").increment(1);
+            known.insert(fingerprint.value.clone(), issue_id);
+        } else if ctx.fingerprint_miss_cache.get(&cache_key).await.is_some() {
+            metrics::counter!(FINGERPRINT_LOOKUPS, "outcome" => "cached_miss").increment(1);
+        } else {
+            uncached.push(fingerprint.value.clone());
         }
     }
 
@@ -162,6 +167,16 @@ async fn select_automatic_fingerprint(
                 .await;
             known.insert(record.fingerprint, record.issue_id);
         }
+        for value in uncached {
+            if known.contains_key(&value) {
+                metrics::counter!(FINGERPRINT_LOOKUPS, "outcome" => "db_hit").increment(1);
+            } else {
+                metrics::counter!(FINGERPRINT_LOOKUPS, "outcome" => "db_miss").increment(1);
+                ctx.fingerprint_miss_cache
+                    .insert((input.team_id(), value), ())
+                    .await;
+            }
+        }
     }
 
     for (version, fingerprint) in fingerprints.into_iter().rev() {
@@ -171,4 +186,114 @@ async fn select_automatic_fingerprint(
     }
 
     Ok(newest)
+}
+
+#[cfg(test)]
+mod tests {
+    use common_types::error_tracking::FrameId;
+    use moka::future::Cache;
+    use serde_json::json;
+    use sqlx::PgPool;
+
+    use super::*;
+    use crate::{
+        frames::Frame,
+        modes::processing::config::ProcessingConfig,
+        teams::TeamManager,
+        types::{event::AnyEvent, exception_event::Parsed},
+    };
+
+    const TEAM_ID: i32 = 1;
+
+    fn resolved_event() -> ExceptionEvent<Resolved> {
+        // v2 strips the cache-busting query string from the source and v1 keeps it,
+        // so the two versions compute different values for this event.
+        let frame = Frame {
+            frame_id: FrameId::new(Uuid::now_v7().to_string(), TEAM_ID, 0),
+            mangled_name: "handleClick".to_string(),
+            line: Some(42),
+            column: Some(10),
+            source: Some("https://example.com/app.js?v=123".to_string()),
+            module: None,
+            in_app: true,
+            resolved_name: Some("handleClick".to_string()),
+            lang: "javascript".to_string(),
+            resolved: true,
+            resolve_failure: None,
+            synthetic: false,
+            suspicious: false,
+            junk_drawer: None,
+            code_variables: None,
+            context: None,
+        };
+        let event = AnyEvent {
+            uuid: Uuid::now_v7(),
+            event: "$exception".to_string(),
+            team_id: TEAM_ID,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            properties: json!({
+                "$exception_list": [{
+                    "type": "Error",
+                    "value": "boom",
+                    "stacktrace": {"type": "resolved", "frames": [frame]},
+                }],
+            }),
+            others: HashMap::new(),
+        };
+        ExceptionEvent::<Parsed>::try_from(event)
+            .expect("event should parse")
+            .into_resolved()
+    }
+
+    async fn insert_fingerprint_row(db: &PgPool, fingerprint: &str, issue_id: Uuid) {
+        sqlx::query(
+            "INSERT INTO posthog_errortrackingissuefingerprintv2 (id, team_id, issue_id, fingerprint, version) VALUES ($1, $2, $3, $4, 0)",
+        )
+        .bind(Uuid::new_v4())
+        .bind(TEAM_ID)
+        .bind(issue_id)
+        .bind(fingerprint)
+        .execute(db)
+        .await
+        .expect("fingerprint row should insert");
+    }
+
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn cached_miss_skips_postgres_until_the_issue_cache_knows_the_row(db: PgPool) {
+        let ctx = GroupingStage {
+            connection: db.clone(),
+            team_manager: TeamManager::new(&ProcessingConfig::init_with_defaults().unwrap()),
+            issue_cache: Cache::new(100),
+            fingerprint_miss_cache: Cache::new(100),
+        };
+        let event = resolved_event();
+        let values: Vec<String> = FingerprintVersion::all()
+            .iter()
+            .filter(|version| !version.is_legacy())
+            .map(|version| version.compute(event.exception_list()).value)
+            .collect();
+        let (oldest, newest) = (values.first().unwrap(), values.last().unwrap());
+        assert_ne!(oldest, newest);
+
+        insert_fingerprint_row(&db, oldest, Uuid::new_v4()).await;
+        let (_, selected) = select_automatic_fingerprint(&event, None, &ctx)
+            .await
+            .unwrap();
+        assert_eq!(&selected.value, oldest);
+
+        let newest_issue_id = Uuid::new_v4();
+        insert_fingerprint_row(&db, newest, newest_issue_id).await;
+        let (_, selected) = select_automatic_fingerprint(&event, None, &ctx)
+            .await
+            .unwrap();
+        assert_eq!(&selected.value, oldest, "cached miss should skip Postgres");
+
+        ctx.issue_cache
+            .insert((TEAM_ID, newest.clone()), newest_issue_id)
+            .await;
+        let (_, selected) = select_automatic_fingerprint(&event, None, &ctx)
+            .await
+            .unwrap();
+        assert_eq!(&selected.value, newest);
+    }
 }

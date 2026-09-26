@@ -146,6 +146,12 @@ async fn resolve_via_id_cache(
         .await
         .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
 
+    // The fingerprint now has a row, so drop any cached miss for it.
+    ctx.app_context
+        .fingerprint_miss_cache
+        .invalidate(&key)
+        .await;
+
     // If we ran the loader, the just-resolved Issue is current — return it directly.
     if let Some(issue) = just_resolved
         .lock()

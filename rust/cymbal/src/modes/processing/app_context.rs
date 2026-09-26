@@ -57,6 +57,10 @@ pub struct AppContext {
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
     pub issue_cache: Cache<(TeamId, String), Uuid>,
+    // `(team_id, fingerprint)` keys that had no row in Postgres at the last lookup. Without it,
+    // an issue grouped under an older fingerprint version re-queries the newest version on
+    // every event. The short TTL bounds how long a row that another worker inserts stays hidden.
+    pub fingerprint_miss_cache: Cache<(TeamId, String), ()>,
     // Caches event-level release resolution (`$release_id` and the mobile app-metadata hash) so a
     // per-event lookup doesn't re-hit Postgres for the same release, including the negative result
     // for apps that never bound one. Lives here so it survives across batches.
@@ -169,6 +173,12 @@ impl AppContext {
             .time_to_live(Duration::from_secs(config.issue_cache_ttl_seconds))
             .build();
 
+        let fingerprint_miss_cache = CacheBuilder::new(config.issue_cache_capacity)
+            .time_to_live(Duration::from_secs(
+                config.fingerprint_miss_cache_ttl_seconds,
+            ))
+            .build();
+
         let release_cache = ReleaseCache::new(
             config.release_cache_max_entries,
             Duration::from_secs(config.release_cache_ttl_seconds),
@@ -195,6 +205,7 @@ impl AppContext {
             rate_limiter,
             rate_limiter_enabled_team_ids,
             issue_cache,
+            fingerprint_miss_cache,
             release_cache,
             remote_resolution,
             remote_resolution_refresh_task,
