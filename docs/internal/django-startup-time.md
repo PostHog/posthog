@@ -163,6 +163,41 @@ When the floor has crept, the lever is the same as it ever was — find the heav
   Sometimes you cannot just defer a heavy import because it is load-bearing in a circular import — deferring one edge only relocates the cycle.
   `grimp`'s `nominate_cycle_breakers` ranks which edge to cut, so the real work becomes untangling the owning package's cycle before the heavy import can come off the startup path.
 
+## Where the floor is now, and what is left
+
+Re-profiled September 2026 (`TEST=1 DEBUG=1`, warm page cache, GC disabled): a bare `django.setup()` went from ~1.95s to ~1.5s and `manage.py shell -c '1'` from ~1.9s to ~1.6s wall, by removing ~460 modules from the setup path.
+Every removal was a `ready()` chain or a model file dragging a subsystem in at module scope — the same shape as before, one level further down the tail:
+
+- `products/signals/backend/receivers.py` imported `scout_harness.suggestions` → `prompt` → `products.tasks.backend.facade.api` → `facade.contracts` (61 pydantic dataclasses) to wire one `post_delete` receiver. Deferred to the receiver body.
+- `ee` `ready()` imported all of `ee/vercel/integration.py` to wire four receivers. That module imports `ee.api.authentication`, which holds `@api_view` functions, and DRF's decorator resolves `DEFAULT_SCHEMA_CLASS` at decoration time → `posthog.api.documentation` → `drf_spectacular.plumbing` → `rest_framework.test` → `django.test` → `jinja2`. The receivers now live in `ee/vercel/receivers.py` (a light module, as the skill asks) and import the integration when they fire.
+- `posthog/helpers/impersonation.py` (reached from the activity-log signal handlers) imported `posthog.auth`, which pulls `zxcvbn` and `webauthn`. Deferred. The guard then caught that `WebauthnCredential` only registered through that import — it is now imported from `posthog/models/__init__.py`.
+- `posthog/apps.py` imported `posthog.async_migrations.setup` (which imports every async migration) even when `SKIP_ASYNC_MIGRATIONS_SETUP` is on. Import moved under the branch that runs it. That module also used `infi.clickhouse_orm.utils.import_submodules`, and the `infi` package `__init__` imports `pkg_resources` (~40ms); replaced with a local `pkgutil` helper.
+- `boto3`/`botocore` reached setup through three doors: `products.workflows.backend.providers` (eager aggregator `__init__`, hit by the email and twilio integration models), `posthog/storage/object_storage.py`, and `posthog/models/js_snippet_versioning.py`, plus an `except (BotoCoreError, ClientError)` in `posthog/storage/hypercache.py`. All build clients or classify exceptions at call time now. Web workers pay the boto3 import on their first request that touches object storage.
+
+The _deferred_ modules are pinned in `FORBIDDEN_AT_SETUP` (`scout_harness.suggestions`, `ee.vercel.integration`, the vendor SDKs) — never a product facade or its contracts, which must stay importable from anywhere (see #100055).
+
+**Bytecode.** "Warm" in these numbers means the `.pyc` files exist and the source is in the page cache.
+Without first-party `.pyc` files a bare `django.setup()` costs ~2.4s instead of ~1.5s: ~1300 first-party modules get compiled on import.
+Site-packages are compiled at image build (`UV_COMPILE_BYTECODE=1`). The app runs as `nobody` (`bin/docker-server`), which cannot write `__pycache__` under the `posthog`-owned `/code`, so before September 2026 _every_ process compiled the first-party modules in memory at _every_ start, not just the first boot of a container.
+The production `Dockerfile` now runs `compileall` over the first-party source after the `COPY` (tests excluded; default timestamp validation, so one `stat` per module and a later `COPY` of edited `.py` files still takes effect). Measured locally: ~3s build time, ~15.9k `.pyc` files, ~117 MB in the layer; the layer is rebuilt on every source change.
+Locally, the first run after a checkout or a large rebase pays the compile once; `__pycache__` is gitignored and persists after that.
+Tests that patched a moved name were repointed to the defining module (`boto3.client`, `products.workflows.backend.providers.SESProvider`).
+
+**Evaluated and left alone**, so nobody re-measures them from scratch:
+
+- `clickhouse_driver` (~70ms, mostly a date lookup table built at import in `columns/datecolumn.py`) — blocked structurally: `posthog/clickhouse/client/connection.py` subclasses `clickhouse_driver.Client`, `posthog/errors.py` subclasses `ServerException`, and `posthog.clickhouse.client` has ~25 setup-path importers. Only evicting `posthog.clickhouse.client` from setup would remove it.
+- `posthog.personhog_client` (grpc + protobuf, ~20ms) — six model-file importers for a small win. Not worth the churn.
+- `posthog.utils` (~250ms cumulative) is imported by `posthog/settings/utils.py` for `str_to_bool`. Moving the helper only relocates the cost: model files import `posthog.utils` later in setup regardless, and its heavy children (`posthoganalytics`, `structlog`, `rest_framework`, `redis`) each have dozens of other setup-path importers.
+- `posthog.celery` (~120ms) is imported from `posthog/__init__.py` so `shared_task` binds to our app. Structural.
+- `posthog.settings.web` self time under `TEST=1` is the ephemeral 2048-bit RSA key for OIDC. Test-only.
+
+**Measuring.** [hothog](https://github.com/PostHog/hothog) runs `django.setup()` under an import hook, ranks each heavy import by removable self-time, and names the single best module to defer it in; `hothog --compare base.log pr.log` diffs two captures. Use it before a raw `python -X importtime` read.
+
+**The next lever is `posthog.hogql`**: ~170 modules and ~190ms self time, plus it is what keeps `posthog.clickhouse.client` (and so `clickhouse_driver`) and the `warehouse_sources` facade on the path.
+It reaches setup from 27 first-party modules outside the package.
+Some are one-line fixes (`posthog/models/group_usage_metric.py` uses `ast.Constant` in a method body), but most define HogQL objects at module scope — `products/cohorts/backend/models/util.py`, `products/customer_analytics/backend/facade/hogql.py`, `products/data_modeling/backend/models/{datawarehouse_saved_query,modeling}.py`, `products/warehouse_sources/backend/models/external_table_definitions.py`, `products/revenue_analytics/backend/views/` — so the work is cutting the `models/__init__` edges that pull those facade modules in, not deferring individual imports.
+Expect ~250-300ms; do it entry point by entry point, with the stub A/B first.
+
 ## Traps (these have all caused follow-up fixes)
 
 **`ready()` that re-drags a heavy subsystem onto startup.**

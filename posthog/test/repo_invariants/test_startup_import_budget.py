@@ -45,6 +45,17 @@ FORBIDDEN_AT_SETUP = [
     "posthog.hogql_queries",  # the query-runner layer (every insight runner)
     "posthog.api.services.query",  # API query service — viewset-request-time only
     "products.signals.backend.tasks",  # celery task module — workers load it by autodiscovery; at setup it drags the signals and tasks contracts in
+    "products.signals.backend.scout_harness.suggestions",  # reaches the tasks facade contracts (pydantic DTOs) — deferred in the signals receivers; the facade itself stays importable
+    "ee.vercel.integration",  # reaches ee.api.authentication (@api_view -> DRF schema class) — receivers live in ee.vercel.receivers and import it at call time
+    "posthog.api.documentation",  # drf_spectacular schema hooks — request-time only
+    "django.test",  # test client — was dragged in by drf_spectacular.plumbing via rest_framework.test
+    "zxcvbn",  # password strength — only posthog.auth needs it, deferred in posthog.helpers.impersonation
+    "webauthn",  # passkeys — same door as zxcvbn (posthog.auth)
+    "posthog.async_migrations.setup",  # imports every async migration — only when SKIP_ASYNC_MIGRATIONS_SETUP is off
+    "infi.clickhouse_orm",  # ClickHouse ORM — migration commands only; its package __init__ imports pkg_resources
+    "pkg_resources",  # setuptools shim (~40ms) — only reached via infi.clickhouse_orm
+    "boto3",  # AWS SDK — object storage, SES and JS snippet clients build it at call time
+    "botocore",  # AWS SDK core — same door as boto3
 ]
 
 # Runs in a clean interpreter: pytest has already imported half the world, so we cannot

@@ -1,6 +1,6 @@
 """Native email-sending integration (SES / maildev) and its cleanup signal."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import models, transaction
@@ -14,9 +14,10 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
-from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS, SESProvider
-
 from . import model
+
+if TYPE_CHECKING:
+    from products.workflows.backend.providers import SESProvider
 
 
 class EmailIntegration:
@@ -28,7 +29,11 @@ class EmailIntegration:
         self.integration = integration
 
     @property
-    def ses_provider(self) -> SESProvider:
+    def ses_provider(self) -> "SESProvider":
+        from products.workflows.backend.providers import (
+            SESProvider,  # noqa: PLC0415 — keeps the heavy dep off the import path
+        )
+
         return SESProvider()
 
     @classmethod
@@ -55,6 +60,10 @@ class EmailIntegration:
 
         # Create domain in the appropriate provider
         if provider == "ses":
+            from products.workflows.backend.providers import (
+                SESProvider,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            )
+
             ses = SESProvider()
             org_team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
             ses.create_email_domain(
@@ -102,6 +111,10 @@ class EmailIntegration:
 
         # Update domain in the appropriate provider
         if provider == "ses":
+            from products.workflows.backend.providers import (
+                SESProvider,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            )
+
             ses = SESProvider()
             ses.update_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
         elif provider == "maildev" and settings.DEBUG:
@@ -130,6 +143,10 @@ class EmailIntegration:
                 domain, mail_from_subdomain=mail_from_subdomain, team_id=self.integration.team_id
             )
         elif provider == "maildev":
+            from products.workflows.backend.providers import (
+                MAILDEV_MOCK_DNS_RECORDS,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            )
+
             verification_result = {
                 "status": "success",
                 "dnsRecords": MAILDEV_MOCK_DNS_RECORDS,
