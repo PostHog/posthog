@@ -249,13 +249,19 @@ def fetch_app_metric_totals_by_source(
     before: Optional[datetime] = None,
     name: Optional[list[str]] = None,
     hour_aligned: bool = False,
+    app_source_ids: Optional[list[str]] = None,
+    max_execution_time: Optional[int] = None,
 ) -> dict[str, dict[str, int]]:
     """Per-`app_source_id` metric totals for a whole team in one grouped query.
 
     Unlike `fetch_app_metric_totals` (single object), this drops the `app_source_id`
     filter and groups by it, so callers get counts for every object at once — e.g. a
     failure overview across all workflows. Returns `{app_source_id: {metric_name: count}}`.
+    Pass `app_source_ids` to count only those objects, and `max_execution_time` (seconds)
+    to make ClickHouse give up rather than hold the caller.
     """
+    if app_source_ids is not None and not app_source_ids:
+        return {}
     name = name or ["succeeded", "failed"]
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
@@ -273,6 +279,7 @@ def fetch_app_metric_totals_by_source(
         "after": after.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if after else None,
         "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
         "name": name,
+        "app_source_ids": app_source_ids,
     }
 
     clickhouse_query = f"""
@@ -283,13 +290,15 @@ def fetch_app_metric_totals_by_source(
         FROM app_metrics2
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
+        {"AND app_source_id IN %(app_source_ids)s" if app_source_ids is not None else ""}
         {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
         {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
         AND metric_name IN %(name)s
         GROUP BY app_source_id, metric_name
     """
 
-    results = sync_execute(clickhouse_query, clickhouse_kwargs)
+    settings = {"max_execution_time": max_execution_time} if max_execution_time is not None else None
+    results = sync_execute(clickhouse_query, clickhouse_kwargs, settings=settings)
 
     if not isinstance(results, list):
         raise ValueError("Unexpected results from ClickHouse")

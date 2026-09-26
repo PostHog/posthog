@@ -301,6 +301,31 @@ Existing example:
 - `posthog_assignee` type defined in nodejs/src/cdp/templates/\_destinations/posthog_conversations/posthog-update-ticket.template.ts
 - Renderer in products/conversations/frontend/components/Assignee/CyclotronJobInputAssignee.tsx
 
+## Listing workflows
+
+Two endpoints list workflows, and they share one set of filters:
+
+- `GET /api/projects/:id/hog_flows/` returns full workflows with the step graph, 100 a page by default. The MCP `workflows-list` tool reads it with the `x-posthog-client: mcp` header, which swaps in a metadata-only serializer.
+- `GET /api/projects/:id/hog_flows/summaries/` returns slim rows for loading a whole project at once, 500 a page by default and at most 1000. A row carries the type, trigger type, channels, dispatch counts, each email step's subject and senders, and 7-day totals for the workflows on the page. It never carries the step graph, step inputs or email bodies.
+
+`GET /api/projects/:id/messaging_templates/summaries/` is the slim twin for email templates: name, subject and From addresses, without the content.
+
+Filters live in `apply_list_filters` in `backend/api/hog_flow_list.py`:
+
+- `status`, `created_by` (user uuids), `type`, `trigger_type` and `channel` take comma lists. Values within one param are OR, and params are AND.
+- Each has an `exclude_*` twin that leaves out rows with any of its values. `exclude_created_by` keeps rows with no creator.
+- An unknown value returns 400 with the allowed values.
+- `search`, `trigger` (a JSON object), `origin_product`, `broadcast_eligible`, `id`, `created_at` and `updated_at` work on both endpoints too.
+
+Things to keep in mind when you change them:
+
+- **A row field and its filter share one rule.** `workflow_type_of` and `workflow_type_q` decide the type. `_trigger_type` and `annotate_trigger_type` both read the first trigger step, and the legacy `trigger` column only when there is no trigger step. Change each pair together, or the list's facet counts disagree with what API and MCP callers get back.
+- **Senders follow the send path.** A step's senders are its `integrationIds` rotation when that is set, otherwise its `integrationId`, the same rule as `selectEmailSenderIntegrationId` in the CDP worker. `parse_email_sender_ids` in `posthog/cdp/validation.py` is the one reader of those keys. A plain-string sender such as `Name <address>` lists the bare address, so a filter on the address matches it.
+- **Row fields come from `summarize_hog_flow`.** It reads the live `actions` only, never the draft, so the list shows what runs. Adding a field there adds it to the summaries and the MCP list at once.
+- **Only the `summaries` paths are gzipped.** The full list carries step config next to the reflected `search` input in its `next` link, which is the shape `ScopedGZipMiddleware` warns about.
+- **`summaries` filters by access level itself.** `_filter_queryset_by_access_level` only runs for `list`, so a new custom list action needs the same explicit call.
+- **Both `summaries` endpoints sort on `-created_at, -id`.** The web app follows `next` to load every row, and `updated_at` changes on every save, so sorting on it drops and repeats rows when someone saves during the load.
+
 ## Metrics and version attribution
 
 Workflow metrics live in the ClickHouse `app_metrics2` table, written by the CDP workers.

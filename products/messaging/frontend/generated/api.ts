@@ -23,9 +23,11 @@ import type {
     MessagingPreferencesOptOutsRetrieveParams,
     MessagingSuppressionsSuppressionsRetrieveParams,
     MessagingTemplatesListParams,
+    MessagingTemplatesSummariesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageSuppressionApi,
     PaginatedMessageTemplateListApi,
+    PaginatedMessageTemplateListRowListApi,
     PaginatedOptOutsApi,
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
@@ -720,4 +722,41 @@ export const messagingTemplatesDesignPartialUpdate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDesignPatchApi),
     })
+}
+
+export const getMessagingTemplatesSummariesListUrl = (
+    projectId: string,
+    params?: MessagingTemplatesSummariesListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/messaging_templates/summaries/?${stringifiedParams}`
+        : `/api/projects/${projectId}/messaging_templates/summaries/`
+}
+
+/**
+ * Slim email template rows for loading the whole library at once: name, subject and sender. Never returns the template content, html or design.
+ * @summary List email template summaries
+ */
+export const messagingTemplatesSummariesList = async (
+    projectId: string,
+    params?: MessagingTemplatesSummariesListParams,
+    options?: RequestInit
+): Promise<PaginatedMessageTemplateListRowListApi> => {
+    return apiMutator<PaginatedMessageTemplateListRowListApi>(
+        getMessagingTemplatesSummariesListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
