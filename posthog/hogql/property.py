@@ -650,6 +650,11 @@ def _multi_search_not_found_for_values(expr: ast.Expr, value: list) -> ast.Expr:
     return ast.Not(expr=_multi_search_found_for_values(expr, value))
 
 
+# log_errors=False keeps RE2 from writing rejected patterns to stderr.
+_RE2_QUIET = re2.Options()
+_RE2_QUIET.log_errors = False
+
+
 def _validate_regex(value: ValueT) -> None:
     """Reject an invalid regular expression with a clear user-facing error rather
     than letting ClickHouse fail the whole query with CANNOT_COMPILE_REGEXP. The
@@ -657,7 +662,7 @@ def _validate_regex(value: ValueT) -> None:
     if not isinstance(value, str):
         return
     try:
-        re2.compile(value)
+        re2.compile(value, options=_RE2_QUIET)
     except re2.error as err:
         raise QueryError(f"Invalid regular expression: '{value}'") from err
 
@@ -1683,6 +1688,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                 exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
                 if step.href_matching == "regex":
+                    _validate_regex(step.href)
                     exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Regex,
@@ -1709,6 +1715,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             if step.text is not None:
                 value = step.text
                 if step.text_matching == "regex":
+                    _validate_regex(value)
                     exprs.append(
                         parse_expr(
                             "arrayExists(x -> x =~ {value}, elements_chain_texts)",
@@ -1744,6 +1751,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
                     right=ast.Constant(value=step.url),
                 )
             elif step.url_matching == "regex":
+                _validate_regex(step.url)
                 expr = ast.CompareOperation(
                     op=ast.CompareOperationOp.Regex,
                     left=ast.Field(
