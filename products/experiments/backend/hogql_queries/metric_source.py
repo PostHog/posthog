@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Union
 
 from posthog.schema import ActionsNode, EventsNode, ExperimentDataWarehouseNode
@@ -7,9 +6,10 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.dataclasses import frozen
 
 
-@dataclass
+@frozen
 class MetricSourceInfo:
     """
     Normalized metadata for an events, actions, or data warehouse metric source,
