@@ -10,14 +10,18 @@ from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 
+from products.logs.backend.pattern_response import MCP_MAX_PATTERN_CHARS, MIN_PATTERN_CHARS
+
 
 class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
     def _insert(self, rows: list[dict]) -> None:
         sql = "".join(json.dumps({"team_id": self.team.id, **r}) + "\n" for r in rows)
         sync_execute(f"INSERT INTO logs FORMAT JSONEachRow\n{sql}")
 
-    def _request(self, query: dict, expected_status: int = status.HTTP_200_OK):
-        response = self.client.post(f"/api/projects/{self.team.id}/logs/patterns", data={"query": query})
+    def _request(self, query: dict, expected_status: int = status.HTTP_200_OK, headers: dict | None = None):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/patterns", data={"query": query}, headers=headers or {}
+        )
         self.assertEqual(response.status_code, expected_status)
         return response.json() if expected_status == status.HTTP_200_OK else response
 
@@ -108,3 +112,81 @@ class TestPatternsAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert body["scanned_count"] == 1
         assert body["total_count"] == 1
+
+    @time_machine.travel("2026-06-23T13:00:00Z", tick=False)
+    def test_patterns_endpoint_bounds_the_response_for_an_mcp_caller(self) -> None:
+        self._insert(
+            [
+                {
+                    "timestamp": "2026-06-23 12:00:00.000000",
+                    "body": "Query failed: " + "stack frame in module handler called from dispatcher " * 12,
+                    "severity_text": "error",
+                    "service_name": "api",
+                },
+                {
+                    "timestamp": "2026-06-23 12:01:00.000000",
+                    "body": "db connection failed",
+                    "severity_text": "error",
+                    "service_name": "api",
+                },
+            ]
+        )
+        query = {"dateRange": {"date_from": "2026-06-23T00:00:00Z", "date_to": "2026-06-23T13:00:00Z"}}
+
+        over_mcp = self._request(query, headers={"x-posthog-client": "mcp"})
+        direct = self._request(query)
+        opted_out = self._request({**query, "maxPatternChars": 0}, headers={"x-posthog-client": "mcp"})
+
+        bounded = next(p for p in over_mcp["patterns"] if p["pattern"].startswith("Query failed:"))
+        assert len(bounded["pattern"]) == MCP_MAX_PATTERN_CHARS
+        assert "maxPatternChars=0" in bounded["pattern"]
+        assert bounded["pattern_truncated"] is True
+        assert bounded["match_regex"] is None
+        assert bounded["match_regex_omitted"] is True
+        assert len(bounded["match_literal"]) == MCP_MAX_PATTERN_CHARS
+        assert bounded["match_literal_truncated"] is True
+        assert over_mcp["returned_pattern_count"] == len(over_mcp["patterns"])
+        whole = next(p for p in direct["patterns"] if p["pattern"].startswith("Query failed:"))
+        assert len(whole["pattern"]) > MCP_MAX_PATTERN_CHARS
+        assert whole["pattern_truncated"] is False
+        # An explicit zero has to beat the MCP default, or an agent asking for one whole template
+        # silently reads a cut one.
+        unbounded = next(p for p in opted_out["patterns"] if p["pattern"].startswith("Query failed:"))
+        assert unbounded["pattern"] == whole["pattern"]
+        assert unbounded["pattern_truncated"] is False
+        assert unbounded["match_regex_omitted"] is False
+        assert unbounded["match_literal_truncated"] is False
+
+    @time_machine.travel("2026-06-23T13:00:00Z", tick=False)
+    def test_patterns_endpoint_honors_an_explicit_limit(self) -> None:
+        self._insert(
+            [
+                {
+                    "timestamp": "2026-06-23 12:00:00.000000",
+                    "body": "db connection failed",
+                    "severity_text": "error",
+                    "service_name": "api",
+                },
+                {
+                    "timestamp": "2026-06-23 12:01:00.000000",
+                    "body": "checkout service timed out after 30 seconds waiting for the payment provider",
+                    "severity_text": "error",
+                    "service_name": "checkout",
+                },
+            ]
+        )
+        query = {"dateRange": {"date_from": "2026-06-23T00:00:00Z", "date_to": "2026-06-23T13:00:00Z"}}
+
+        body = self._request({**query, "limit": 1})
+
+        assert body["returned_pattern_count"] == 1
+        assert body["omitted_pattern_count"] == 1
+        assert len(body["patterns"]) == 1
+
+    def test_patterns_endpoint_rejects_a_budget_too_small_for_the_cut_marker(self) -> None:
+        response = self._request(
+            {"dateRange": {"date_from": "-1h"}, "maxPatternChars": MIN_PATTERN_CHARS - 1},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        assert str(MIN_PATTERN_CHARS) in response.json()["detail"]
