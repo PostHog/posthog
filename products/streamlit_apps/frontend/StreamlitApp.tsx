@@ -3,14 +3,14 @@ import { useActions, useValues } from 'kea'
 import { IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { streamlitAppsFeaturePreviewGate } from './featurePreviewGate'
 import { StreamlitAppLoading } from './StreamlitAppLoading'
 import { StreamlitAppLogicProps, streamlitAppLogic } from './streamlitAppLogic'
 
@@ -49,16 +49,18 @@ function curateErrorMessage(raw?: string | null): string {
 }
 
 export function StreamlitAppViewer(props: Record<string, any>): JSX.Element {
-    const streamlitAppsFeatureFlagEnabled = useFeatureFlag('STREAMLIT_APPS')
-    const shortId = props.id as string
+    return (
+        <FeaturePreviewSceneGate config={streamlitAppsFeaturePreviewGate}>
+            <StreamlitAppViewerContent shortId={props.id as string} />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function StreamlitAppViewerContent({ shortId }: { shortId: string }): JSX.Element {
     const { streamlitApp, streamlitAppLoading, appStatus, iframeSrc, sandboxStatus, connectError } = useValues(
         streamlitAppLogic({ shortId })
     )
     const { startApp, restartApp, loadConnectInfo } = useActions(streamlitAppLogic({ shortId }))
-
-    if (!streamlitAppsFeatureFlagEnabled) {
-        return <NotFound object="page" />
-    }
 
     if (streamlitAppLoading && !streamlitApp) {
         return (

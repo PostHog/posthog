@@ -49,7 +49,7 @@ Fetch that copy from your conversation or wherever it's kept — versions store 
 ## Troubleshooting
 
 - **`status: error` with `last_error: "Start failed: ..."`** — the sandbox failed to provision or boot. Retry `streamlit-apps-start` once; if it persists, surface `last_error` to the user (provisioning failures are usually platform-side, not app-side).
-- **Tool calls return 403 "Streamlit apps is not available."** — the `streamlit-apps` feature flag is off for this organization. This is a rollout gate, not an error you can fix; tell the user.
+- **Tool calls return 403 "Streamlit apps is not available."** — the `streamlit-apps` feature flag is off for this organization and you cannot turn it on. Point the user at `/streamlit-apps` in their project: that page describes the product and shows how to get access, which can be registering interest or contacting support. Access still depends on a PostHog-side rollout decision, so do not promise it.
 - **App runs but a query inside it fails** — that's an app-code concern; see `writing-streamlit-apps` (bridge limits: 30s execution, 256 MB memory per query).
 - **App shows old code after set-source** — you skipped step "start after set-source"; the sandbox was stopped and needs a start.
 
