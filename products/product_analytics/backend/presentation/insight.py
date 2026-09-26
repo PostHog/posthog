@@ -14,7 +14,14 @@ from django.utils.timezone import now
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_serializer,
+    extend_schema_view,
+)
 from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import (
@@ -37,7 +44,6 @@ from posthog.schema import ProductKey, QueryStatus
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog import schema
-from posthog.api.documentation import extend_schema, extend_schema_field, extend_schema_serializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import Feature, monitor

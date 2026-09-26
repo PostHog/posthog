@@ -21,7 +21,7 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsOrderBy, LogsQuery
 
 from posthog.hogql.errors import QueryError
 
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin

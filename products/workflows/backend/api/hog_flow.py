@@ -50,7 +50,7 @@ from posthog.api.app_metrics2 import (
     fetch_app_metric_totals_by_source,
     fetch_app_metric_totals_by_team_and_source,
 )
-from posthog.api.documentation import _FallbackSerializer
+from posthog.api.documentation.autoschema import _FallbackSerializer
 from posthog.api.hog_invocation_cancel import (
     HogInvocationCancelRequestSerializer,
     HogInvocationCancelResponseSerializer,
