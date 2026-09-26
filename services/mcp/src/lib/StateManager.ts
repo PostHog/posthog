@@ -1,5 +1,6 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
+import { backgroundRefreshRateLimitedTotal } from '@/hono/metrics'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
@@ -7,6 +8,7 @@ import {
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
+    PostHogRateLimitError,
     wrapError,
 } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
@@ -16,6 +18,13 @@ import type { CachedOrg, CachedProject, CachedUser, State } from '@/tools/types'
 
 const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
+
+// How long background refreshes stand down for an identity the API has
+// throttled. The server's Retry-After wins when it sends one; the cap keeps a
+// very long hint from freezing context for the rest of the session, and the
+// floor covers a 429 that arrives without the header.
+const BACKGROUND_REFRESH_BACKOFF_DEFAULT_MS = 60 * 1000
+const BACKGROUND_REFRESH_BACKOFF_MAX_MS = 15 * 60 * 1000
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -28,6 +37,7 @@ export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
+    private _backgroundRefreshBlockedUntil?: number
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
         this._api = api
@@ -216,12 +226,58 @@ export class StateManager {
         return error instanceof PostHogApiError && error.status === 404
     }
 
+    /**
+     * Every caller of this method already recovers — it serves the stale cache
+     * or drops the context from the prompt. A 429 is therefore the API working
+     * as designed, not a service fault, so count it and leave Error Tracking
+     * for failures a person has to act on.
+     */
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
+        if (error instanceof PostHogRateLimitError) {
+            backgroundRefreshRateLimitedTotal.inc({ entity: context, reason: 'rate_limited' })
+            console.warn(`[StateManager] Rate limited (429) during ${context}; keeping the cached value`)
+            return
+        }
         try {
             getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
         } catch {
             // Never let observability break the request.
         }
+    }
+
+    /**
+     * Record that the API throttled this identity, so the other background
+     * refreshes stop spending throttle budget the user's tool calls need.
+     */
+    private async _noteRateLimited(error: PostHogRateLimitError): Promise<void> {
+        const requestedMs =
+            error.retryAfterSeconds !== null ? error.retryAfterSeconds * 1000 : BACKGROUND_REFRESH_BACKOFF_DEFAULT_MS
+        const backoffMs = Math.min(
+            Math.max(requestedMs, BACKGROUND_REFRESH_BACKOFF_DEFAULT_MS),
+            BACKGROUND_REFRESH_BACKOFF_MAX_MS
+        )
+        // Deadlines merge by maximum. Parallel refreshes can carry different
+        // Retry-After hints, and a short one must not cut a long one short.
+        // The read and the write are not atomic, so a deadline written between
+        // them is lost; that costs one early refresh, which the next 429
+        // re-blocks.
+        const blockedUntil = Math.max(await this._readBackgroundRefreshBlock(), Date.now() + backoffMs)
+        this._backgroundRefreshBlockedUntil = blockedUntil
+        await this._cache.set('backgroundRefreshBlockedUntil', blockedUntil).catch(() => {})
+    }
+
+    /**
+     * The later of what this manager recorded and what the shared cache holds.
+     * A concurrent request for the same identity has its own manager and writes
+     * only to the cache, so a local value alone would miss its deadline.
+     */
+    private async _readBackgroundRefreshBlock(): Promise<number> {
+        const stored = await this._cache.get('backgroundRefreshBlockedUntil').catch(() => undefined)
+        return Math.max(stored ?? 0, this._backgroundRefreshBlockedUntil ?? 0)
+    }
+
+    private async _isBackgroundRefreshBlocked(): Promise<boolean> {
+        return (await this._readBackgroundRefreshBlock()) > Date.now()
     }
 
     async setDefaultOrganizationAndProject(): Promise<{
@@ -319,6 +375,11 @@ export class StateManager {
             return cached
         }
 
+        if (await this._isBackgroundRefreshBlocked()) {
+            backgroundRefreshRateLimitedTotal.inc({ entity: opts.name, reason: 'backed_off' })
+            return cached
+        }
+
         try {
             const data = await opts.fetcher()
             await Promise.all([
@@ -328,6 +389,12 @@ export class StateManager {
             return data as State[D]
         } catch (error) {
             this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (error instanceof PostHogRateLimitError) {
+                // Leave `fetchedAt` alone so the backoff, not the full TTL,
+                // decides when this entity tries again.
+                await this._noteRateLimited(error)
+                return cached
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }

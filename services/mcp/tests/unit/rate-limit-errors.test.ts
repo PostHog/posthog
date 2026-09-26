@@ -63,6 +63,18 @@ describe('outbound 429 handling', () => {
             expect(error.retryAfterSeconds).toBeNull()
             expect(error.message).not.toContain('Retry after')
         })
+
+        it('leaves the query string out so one cause stays one issue', () => {
+            const error = new PostHogRateLimitError({
+                body: '{}',
+                url: 'https://us.posthog.com/api/projects/42/integrations/?limit=100',
+                method: 'GET',
+                retryAfterSeconds: 60,
+            })
+
+            expect(error.message).toContain('/api/projects/42/integrations/')
+            expect(error.message).not.toContain('?limit=100')
+        })
     })
 
     describe('ApiClient on 429', () => {

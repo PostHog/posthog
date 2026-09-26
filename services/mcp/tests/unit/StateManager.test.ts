@@ -2,10 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogRateLimitError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
+
+const captureException = vi.fn()
+vi.mock('@/lib/posthog', () => ({
+    getPostHogClient: () => ({ captureException }),
+}))
 
 describe('StateManager', () => {
     let stateManager: StateManager
@@ -898,6 +903,94 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+    })
+
+    describe('getOrFetchCached rate limiting', () => {
+        const rateLimit = (retryAfterSeconds: number | null): PostHogRateLimitError =>
+            new PostHogRateLimitError({
+                body: '{}',
+                url: 'https://us.posthog.com/api/projects/42/integrations/?limit=100',
+                method: 'GET',
+                retryAfterSeconds,
+            })
+
+        beforeEach(() => {
+            captureException.mockClear()
+            vi.spyOn(console, 'warn').mockImplementation(() => {})
+        })
+
+        it('keeps a throttled background refresh out of error tracking', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(rateLimit(638))
+            ;(stateManager as any)._api = { getGroupTypes }
+
+            const result = await stateManager.getOrFetchGroupTypes('42')
+
+            expect(result).toBeUndefined()
+            expect(captureException).not.toHaveBeenCalled()
+        })
+
+        it('still reports a background refresh that failed for any other reason', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(new Error('boom'))
+            ;(stateManager as any)._api = { getGroupTypes }
+
+            await stateManager.getOrFetchGroupTypes('42')
+
+            expect(captureException).toHaveBeenCalledOnce()
+        })
+
+        it('stands every other background refresh down while the Retry-After is outstanding', async () => {
+            const cachedGroupTypes = [{ group_type: 'company', group_type_index: 0 }]
+            await cache.set('groupTypes:7' as any, cachedGroupTypes as any)
+            const getGroupTypes = vi.fn().mockRejectedValue(rateLimit(638))
+            ;(stateManager as any)._api = { getGroupTypes }
+
+            await stateManager.getOrFetchGroupTypes('42')
+            const result = await stateManager.getOrFetchGroupTypes('7')
+
+            expect(result).toEqual(cachedGroupTypes)
+            expect(getGroupTypes).toHaveBeenCalledOnce()
+        })
+
+        it('resumes background refreshes on a later request once the backoff has passed', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValueOnce(rateLimit(60)).mockResolvedValue([])
+            ;(stateManager as any)._api = { getGroupTypes }
+
+            await stateManager.getOrFetchGroupTypes('42')
+            await cache.set('backgroundRefreshBlockedUntil', Date.now() - 1)
+
+            const laterRequest = new StateManager(cache, { getGroupTypes } as unknown as ApiClient)
+
+            expect(await laterRequest.getOrFetchGroupTypes('7')).toEqual([])
+        })
+
+        it('lets the throttled entity itself retry as soon as the backoff passes', async () => {
+            vi.useFakeTimers()
+            try {
+                const getGroupTypes = vi.fn().mockRejectedValueOnce(rateLimit(60)).mockResolvedValue([])
+                ;(stateManager as any)._api = { getGroupTypes }
+
+                await stateManager.getOrFetchGroupTypes('42')
+                // Past the backoff but well inside the 10-minute cache TTL.
+                vi.advanceTimersByTime(61 * 1000)
+
+                expect(await stateManager.getOrFetchGroupTypes('42')).toEqual([])
+                expect(getGroupTypes).toHaveBeenCalledTimes(2)
+            } finally {
+                vi.useRealTimers()
+            }
+        })
+
+        it('keeps the longest deadline when concurrent refreshes report different hints', async () => {
+            const getGroupTypes = vi.fn().mockRejectedValue(rateLimit(600))
+            const other = new StateManager(cache, { getGroupTypes } as unknown as ApiClient)
+            await other.getOrFetchGroupTypes('42')
+            const longDeadline = (await cache.get('backgroundRefreshBlockedUntil'))!
+
+            ;(stateManager as any)._api = { getGroupTypes: vi.fn().mockRejectedValue(rateLimit(60)) }
+            await stateManager.getOrFetchGroupTypes('7')
+
+            expect(await cache.get('backgroundRefreshBlockedUntil')).toBe(longDeadline)
         })
     })
 
