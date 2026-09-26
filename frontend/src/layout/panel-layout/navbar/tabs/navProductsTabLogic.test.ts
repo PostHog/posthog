@@ -5,10 +5,11 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
 
-import { getDefaultTreeDataAndPeople, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
+import { getDefaultTreeData, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
@@ -22,57 +23,100 @@ describe('navProductsTabLogic', () => {
     })
 
     it.each([false, true])('retains every existing product and data destination with flags enabled: %s', (enabled) => {
-        const registry = [...getDefaultTreeProducts(), ...getDefaultTreeDataAndPeople()]
+        const registry = [...getDefaultTreeProducts(), ...getDefaultTreeData()]
         const flags = Object.fromEntries(registry.flatMap((item) => (item.flag ? [[item.flag, enabled]] : [])))
+        const definitionsTabHrefs = new Set([
+            urls.coreEvents(),
+            urls.propertyDefinitions(),
+            urls.schemaManagement(),
+            urls.revenueSettings(),
+            urls.warehouseProperties(),
+        ])
         featureFlagLogic.actions.setFeatureFlags([], flags)
         const expected = new Set([
             urls.projectRoot(),
             urls.activity(ActivityTab.ExploreEvents),
-            ...registry.filter((item) => item.href && (!item.flag || enabled)).map((item) => item.href),
-            ...projectTreeDataLogic.values.groupItems
-                .filter((item) => item.href && (!item.flag || flags[item.flag]))
+            ...registry
+                .filter((item) => item.href && (!item.flag || enabled) && !definitionsTabHrefs.has(item.href))
                 .map((item) => item.href),
         ])
-        const actual = navProductsTabLogic.values.groupedItems.flatMap((group) => group.items.map((item) => item.href))
+        const actual = [
+            ...navProductsTabLogic.values.pinnedItems,
+            ...navProductsTabLogic.values.groupedItems.flatMap((group) => group.items),
+        ].map((item) => item.href)
         expect(new Set(actual)).toEqual(expected)
         expect(actual).toHaveLength(expected.size)
     })
 
-    it('searches display names and preserves person ordering alongside dynamic groups', async () => {
+    it('searches display names and sorts categories in a fixed order and products alphabetically', async () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
-        expect(navProductsTabLogic.values.groupedItems[0].items.map(productsItemName)).toEqual([
+        expect(navProductsTabLogic.values.pinnedItems.map(productsItemName)).toEqual([
             'Home',
             'Self-driving',
-            'Activity',
+            'Activity and people',
+        ])
+        expect(navProductsTabLogic.values.configurableProducts.map(productsItemName)).not.toContain('Home')
+        const [popular] = navProductsTabLogic.values.groupedItems
+        expect([popular.label, popular.items.map(productsItemName)]).toEqual([
+            'Popular',
+            [
+                'Dashboards',
+                'Product analytics',
+                'Web analytics',
+                'AI observability',
+                'Session replay',
+                'Replay vision',
+                'Feature flags',
+                'Experiments',
+                'Error tracking',
+                'Logs',
+            ],
         ])
         await expectLogic(navProductsTabLogic, () =>
             navProductsTabLogic.actions.setSearch('  self-driving  ')
         ).toMatchValues({
-            groupedItems: [
-                {
-                    label: 'Project',
-                    items: [expect.objectContaining({ href: urls.inbox(), path: 'Inbox', tags: ['beta'] })],
-                },
-            ],
+            pinnedItems: [expect.objectContaining({ href: urls.inbox(), path: 'Inbox', tags: ['beta'] })],
+            groupedItems: [],
         })
-        const groups = groupProducts(
-            [
-                { path: 'Cohorts', category: 'People', href: '/cohorts', visualOrder: 20 },
-                { path: 'Persons', category: 'People', href: '/persons', visualOrder: 10 },
-                { path: 'group_0', displayLabel: 'Organizations', category: 'Groups', href: '/groups/0' },
-            ],
-            ''
-        )
-        expect(groups.find((group) => group.label === 'People')?.items.map(productsItemName)).toEqual([
-            'Persons',
-            'Cohorts',
+        const items = [
+            { path: 'Links', category: 'Unreleased', href: '/links' },
+            { path: 'Web analytics', category: 'Analytics', href: '/web' },
+            {
+                path: 'LLM analytics',
+                displayLabel: 'AI observability',
+                category: 'AI engineering',
+                href: '/ai',
+                visualOrder: 1,
+            },
+            { path: 'AI gateway', category: 'AI engineering', href: '/ai-gateway' },
+            { path: 'Logs', category: 'Monitoring', href: '/logs' },
+        ]
+        const groups = groupProducts(items, '')
+        expect(groups.map((group) => [group.label, group.items.map(productsItemName)])).toEqual([
+            ['Analytics', ['Web analytics']],
+            ['AI engineering', ['AI gateway', 'AI observability']],
+            ['Monitoring', ['Logs']],
+            ['Unreleased', ['Links']],
         ])
-        expect(
-            groupProducts(
-                groups.flatMap((group) => group.items),
-                'organizations'
-            )[0].items[0].href
-        ).toEqual('/groups/0')
+        expect(groupProducts(items, 'observability')[0].items[0].href).toEqual('/ai')
+    })
+
+    it('lets all products close only when something is starred, and keeps it open after the first star', async () => {
+        const starred = [{ id: 'star', path: 'Dashboards', type: 'dashboard', href: '/dashboard' }] as FileSystemEntry[]
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        navProductsTabLogic.actions.setAllProductsOpen(false)
+        projectTreeDataLogic.actions.loadShortcutsSuccess(starred)
+        expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: true, allProductsVisible: false })
+
+        navProductsTabLogic.actions.setSearch('logs')
+        expect(navProductsTabLogic.values.allProductsVisible).toBe(true)
+        navProductsTabLogic.actions.setSearch('')
+
+        projectTreeDataLogic.actions.loadShortcutsSuccess([])
+        expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: false, allProductsVisible: true })
+
+        projectTreeDataLogic.actions.loadShortcutsSuccess(starred)
+        expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: true, allProductsVisible: true })
     })
 
     it('filters starred products with the product search', async () => {
