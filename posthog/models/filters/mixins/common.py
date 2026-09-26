@@ -292,11 +292,20 @@ class DisplayDerivedMixin(InsightMixin):
         return {"display": self.display}
 
 
+def parse_paging_param(value: Any, name: str) -> int:
+    # A JSON body on a GET request can put any type here, so int() alone raises
+    # TypeError, ValueError or OverflowError on input the caller controls.
+    try:
+        return int(value)
+    except (TypeError, ValueError, OverflowError):
+        raise ValidationError(f"'{name}' must be an integer")
+
+
 class OffsetMixin(BaseParamMixin):
     @cached_property
     def offset(self) -> int:
         offset_raw = self._data.get(OFFSET)
-        return int(offset_raw) if offset_raw else 0
+        return parse_paging_param(offset_raw, OFFSET) if offset_raw else 0
 
     @include_dict
     def offset_to_dict(self):
@@ -307,7 +316,7 @@ class LimitMixin(BaseParamMixin):
     @cached_property
     def limit(self) -> int:
         limit_raw = self._data.get(LIMIT, None)
-        return int(limit_raw) if limit_raw else 0
+        return parse_paging_param(limit_raw, LIMIT) if limit_raw else 0
 
     @include_dict
     def limit_to_dict(self):
