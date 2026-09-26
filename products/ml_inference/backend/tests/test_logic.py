@@ -128,7 +128,7 @@ class TestDecide:
         assert request.headers["X-PostHog-Trace-Id"] == "decision-1"
         assert request.headers["X-PostHog-Distinct-Id"] == "team-42"
         body = json.loads(request.content)
-        assert body["model"] == "posthog/hogference/jevk5-fp8-0.2"
+        assert body["model"] == "posthog/hogference/jevk5-bf16-0.3"
         assert body["state"] == state
         assert body["questions"]["urgent"] == {"type": "noul", "instructions": "Is it urgent?"}
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}
