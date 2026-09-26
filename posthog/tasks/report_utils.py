@@ -1,6 +1,7 @@
 import dataclasses
 from datetime import datetime
 from typing import Any, Optional, Union, cast
+from uuid import UUID
 
 from django.conf import settings
 
@@ -45,6 +46,7 @@ def capture_event(
     properties: dict[str, Any],
     timestamp: Optional[Union[datetime, str]] = None,
     distinct_id: Optional[str] = None,
+    event_uuid: Optional[UUID] = None,
 ) -> None:
     """
     Captures a single event.
@@ -81,6 +83,7 @@ def capture_event(
             properties={**properties, "scope": "user"},
             groups={"organization": str(organization_id), "instance": settings.SITE_URL},
             timestamp=timestamp,
+            uuid=event_uuid,
         )
     else:
         pha_client.capture(
@@ -89,6 +92,7 @@ def capture_event(
             properties={**properties, "scope": "machine"},
             groups={"instance": settings.SITE_URL},
             timestamp=timestamp,
+            uuid=event_uuid,
         )
 
 
