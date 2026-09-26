@@ -466,6 +466,7 @@ the row lists both.
 | mistral_ai                       | HTTP                        | requests                                                        | ✅                          |
 | mixmax                           | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                         | HTTP                        | requests                                                        | ✅                          |
+| moengage                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mollie                           | HTTP                        | requests                                                        | ✅                          |
 | monday                           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | mongodb                          | DB protocol                 | pymongo                                                         | ➖                          |
@@ -1213,7 +1214,6 @@ doesn't conflict with concurrent PRs.
 - miro
 - missive
 - mode
-- moengage
 - moesif
 - monaco
 - moneybird
