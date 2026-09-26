@@ -1181,8 +1181,14 @@ describe('process all snapshots', () => {
             expect(
                 results.filter((r) => r.type === 3).map((r) => [r.timestamp, (r.data as any).attributes[0]])
             ).toEqual([
-                [4000, { id: 10, attributes: { src: 'data:image/webp;base64,second', 'data-posthog-screenshot': 'true' } }],
-                [7000, { id: 10, attributes: { src: 'data:image/webp;base64,third', 'data-posthog-screenshot': 'true' } }],
+                [
+                    4000,
+                    { id: 10, attributes: { src: 'data:image/webp;base64,second', 'data-posthog-screenshot': 'true' } },
+                ],
+                [
+                    7000,
+                    { id: 10, attributes: { src: 'data:image/webp;base64,third', 'data-posthog-screenshot': 'true' } },
+                ],
             ])
 
             const snapshotsByWindowId = mapSnapshotsToWindowId(results)

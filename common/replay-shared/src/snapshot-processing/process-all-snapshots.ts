@@ -113,9 +113,7 @@ function extractScreenshotOnlyFrame(snapshot: fullSnapshotEvent): ScreenshotFram
     const otherNodesAreEmptyPlaceholders = body.childNodes.every(
         (child: any) =>
             child === img ||
-            (EMPTY_PLACEHOLDER_IDS.has(child?.id) &&
-                Array.isArray(child.childNodes) &&
-                child.childNodes.length === 0)
+            (EMPTY_PLACEHOLDER_IDS.has(child?.id) && Array.isArray(child.childNodes) && child.childNodes.length === 0)
     )
     if (!otherNodesAreEmptyPlaceholders || typeof img.id !== 'number' || typeof img.attributes.src !== 'string') {
         return undefined
