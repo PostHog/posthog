@@ -243,7 +243,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "get_query_log":
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-        query = self.request.data.get("query")
+        query = self.request.data.get("query") if isinstance(self.request.data, dict) else None
         if isinstance(query, dict) and query.get("kind") == "ErrorTrackingFingerprintProjectionQuery":
             return [
                 ErrorTrackingFingerprintProjectionBurstRateThrottle(),
@@ -283,10 +283,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @monitor(feature=MonitoringFeature.QUERY, endpoint="query", method="POST")
     def create(self, request: Request, *args, **kwargs) -> Response:
-        self._validate_query_kind(request, kwargs.get("query_kind"))
+        body = self._get_object_body(request)
+        self._validate_query_kind(body, kwargs.get("query_kind"))
         start_time = perf_counter()
         with tracer.start_as_current_span("posthog.query.upgrade"):
-            upgraded_query = upgrade(request.data)
+            upgraded_query = upgrade(body)
         data = self.get_model(upgraded_query, QueryRequest)
 
         query = None
@@ -533,8 +534,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     )
     @action(methods=["POST"], detail=False, url_path="upgrade")
     def upgrade(self, request: Request, *args, **kwargs) -> Response:
-        upgraded_query = upgrade(request.data)
-        return Response({"query": upgraded_query["query"]}, status=200)
+        query = self._get_object_body(request).get("query")
+        if not isinstance(query, dict):
+            raise ValidationError("Query must be a JSON object.")
+        return Response({"query": upgrade(query)}, status=200)
 
     @extend_schema(
         description="Get query log details from query_log_archive table for a specific query_id, the query must have been issued in last 24 hours.",
@@ -621,12 +624,15 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def create_with_kind(self, request: Request, *args, **kwargs) -> Response:
         return self.create(request, *args, **kwargs)
 
-    def _validate_query_kind(self, request: Request, query_kind: str | None) -> None:
-        if not query_kind:
-            return
+    def _get_object_body(self, request: Request) -> dict:
         if not isinstance(request.data, dict):
             raise ValidationError("Query body must be a JSON object.")
-        query_payload = request.data.get("query")
+        return request.data
+
+    def _validate_query_kind(self, body: dict, query_kind: str | None) -> None:
+        if not query_kind:
+            return
+        query_payload = body.get("query")
         if query_payload is not None and not isinstance(query_payload, dict):
             raise ValidationError("Query must be a JSON object.")
         body_kind = query_payload.get("kind") if isinstance(query_payload, dict) else None
