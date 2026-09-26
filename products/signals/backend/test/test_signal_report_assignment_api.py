@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.apps import apps
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -537,6 +538,34 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert pr.state == SignalReportAssignment.PrState.MERGED
         assert pr.state == "merged"
         assert response.json()["work_state"] == "done"
+
+    @parameterized.expand(
+        [
+            ("researched", True, SignalReport.Status.RESOLVED),
+            ("never_researched", False, SignalReport.Status.POTENTIAL),
+        ]
+    )
+    @patch("products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository", return_value=None)
+    def test_merged_pull_request_resolves_a_snoozed_report(self, _name, researched, expected, _integration):
+        report = self._create_report()
+        if researched:
+            report.first_visible_at = timezone.now()
+            report.save(update_fields=["first_visible_at"])
+        claim = self.client.post(
+            self._claim_url(report),
+            {"pull_requests": ["https://github.com/example/app/pull/7"]},
+            format="json",
+        )
+        assert claim.status_code == status.HTTP_200_OK
+        report.refresh_from_db()
+        report.save(update_fields=report.transition_to(SignalReport.Status.POTENTIAL))
+
+        update_assignments_for_pull_request(
+            team_ids=[self.team.id], repository="example/app", pr_number=7, pr_state="merged"
+        )
+
+        report.refresh_from_db()
+        assert report.status == expected
 
     @patch(
         "products.signals.backend.report_assignments.GitHubIntegration.first_for_team_repository",

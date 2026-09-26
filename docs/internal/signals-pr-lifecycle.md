@@ -60,6 +60,8 @@ New failed reports consume a daily inbox slot when they first become visible.
 Existing failed reports without a visibility timestamp remain historical backlog; they do not consume the rollout day's slots.
 The desktop eligibility change must ship separately after this backend transition is deployed.
 A suppressed report can resolve if its prior status was `ready`, `pending_input`, `failed`, or `resolved`.
+A snoozed report in `potential` can resolve if the pipeline researched it, so its merged implementation PR still resolves it.
+A report the pipeline never researched cannot resolve from `potential`.
 
 ## Scout revisions
 
