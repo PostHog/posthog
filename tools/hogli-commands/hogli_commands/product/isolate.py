@@ -304,7 +304,7 @@ def _strip_inline_comment(line: str) -> str:
     """Strip inline comments while preserving '#' inside quoted strings.
 
     Returns the code part of the line, with comments removed.
-    If the line cannot be safely parsed, returns the whole line unchanged.
+    If the line cannot be safely parsed, returns the whole line without stripping trailing whitespace.
     """
     try:
         # Use tokenize to identify comments accurately
