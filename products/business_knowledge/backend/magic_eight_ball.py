@@ -120,11 +120,12 @@ def ask(team: Team, question: str) -> EightBallAnswer:
     if not team.organization.is_ai_data_processing_approved:
         raise PermissionDenied("AI data processing is not approved for this organization.")
 
+    if not decision_api.decisions_enabled(team.id):
+        raise DecisionsDisabledError(team.id)
+
     chunks = logic.search_knowledge_for_team(team, question, limit=SEARCH_LIMIT)
     state, used = build_state(question, chunks)
     if not used:
-        if not decision_api.decisions_enabled(team.id):
-            raise DecisionsDisabledError(team.id)
         return EightBallAnswer(answer="Cannot predict now", confidence=0, sources=[])
 
     result = decision_api.decide(

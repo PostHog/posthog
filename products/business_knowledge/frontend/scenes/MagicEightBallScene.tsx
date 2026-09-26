@@ -18,6 +18,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { Region } from '~/types'
 
 import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs'
 import { magicEightBallLogic } from './magicEightBallLogic'
@@ -77,7 +78,10 @@ export function MagicEightBallScene(): JSX.Element {
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
     }
-    if (!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS] && !preflight?.is_debug) {
+    if (
+        !preflight?.is_debug &&
+        (preflight?.region !== Region.US || !featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS])
+    ) {
         return receivedFeatureFlags || featureFlagsTimedOut ? (
             <NotFound object="Magic 8 ball" caption="The decision model is not enabled for this project." />
         ) : (
@@ -134,6 +138,7 @@ function MagicEightBall(): JSX.Element {
                         placeholder="Do we offer refunds on annual plans?"
                         autoFocus
                         fullWidth
+                        maxLength={500}
                         disabled={resultLoading}
                         data-attr="magic-eight-ball-question"
                     />
@@ -162,7 +167,9 @@ function MagicEightBall(): JSX.Element {
                         <span>The ball couldn't answer: {askError}</span>
                     ) : showResult ? (
                         <>
-                            <span>The ball was {Math.round(result.confidence * 100)}% sure.</span>
+                            <span>
+                                The ball was <span translate="no">{Math.round(result.confidence * 100)}%</span> sure.
+                            </span>
                             {result.sources.length > 0 ? (
                                 <span className="text-sm">
                                     Drawn from{' '}

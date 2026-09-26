@@ -80,6 +80,11 @@ class TestBuildState(BaseTest):
 class TestEightBallAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        decisions_enabled = patch(
+            "products.business_knowledge.backend.magic_eight_ball.decision_api.decisions_enabled", return_value=True
+        )
+        decisions_enabled.start()
+        self.addCleanup(decisions_enabled.stop)
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
         self.url = f"/api/projects/{self.team.id}/business_knowledge/documents/eight_ball/"
@@ -126,7 +131,7 @@ class TestEightBallAPI(APIBaseTest):
             patch(
                 "products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team",
                 return_value=[_chunk("x" * (STATE_MAX_BYTES * 2))],
-            ),
+            ) as search,
             patch(
                 "products.business_knowledge.backend.magic_eight_ball.decision_api.decisions_enabled",
                 return_value=False,
@@ -136,6 +141,7 @@ class TestEightBallAPI(APIBaseTest):
             response = self.client.post(self.url, {"question": "Will it ship?"}, format="json")
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        search.assert_not_called()
         decide.assert_not_called()
 
     def test_requires_ai_processing_approval_before_search(self, _embed, _ff) -> None:

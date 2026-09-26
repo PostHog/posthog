@@ -77,6 +77,7 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
             null as string | null,
             {
                 ask: () => null,
+                setQuestion: () => null,
                 askFailure: (_, { error }) => error,
             },
         ],

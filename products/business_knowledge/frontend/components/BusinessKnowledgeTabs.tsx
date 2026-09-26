@@ -7,12 +7,16 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { Region } from '~/types'
+
 export type BusinessKnowledgeTab = 'sources' | 'magic-eight-ball' | 'settings'
 
 export function BusinessKnowledgeTabs({ activeTab }: { activeTab: BusinessKnowledgeTab }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
-    const decisionsAvailable = !!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS] || !!preflight?.is_debug
+    const decisionsAvailable =
+        !!preflight?.is_debug ||
+        (preflight?.region === Region.US && !!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS])
 
     return (
         <LemonTabs
