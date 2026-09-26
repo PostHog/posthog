@@ -2,13 +2,18 @@
 Claude Code's server-side classifier needs `safeguards` and its beta to reach Anthropic.
 """
 
-from typing import Any
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 
 import litellm
 from litellm.llms.anthropic.experimental_pass_through.messages.transformation import AnthropicMessagesConfig
 from litellm.llms.anthropic.experimental_pass_through.messages.utils import _anthropic_messages_optional_param_keys
 from litellm.types.llms.anthropic import AnthropicMessagesRequestOptionalParams
 from litellm.utils import ProviderConfigManager
+
+if TYPE_CHECKING:
+    from starlette.datastructures import Headers
 
 PASSTHROUGH_BODY_FIELDS: tuple[str, ...] = ("safeguards",)
 
@@ -25,17 +30,17 @@ def install() -> None:
         AnthropicMessagesRequestOptionalParams.__annotations__.setdefault(field, Any)
     _anthropic_messages_optional_param_keys.cache_clear()
 
-    litellm.AnthropicMessagesConfig = VerbatimBetaAnthropicMessagesConfig  # type: ignore[misc]
+    litellm.AnthropicMessagesConfig = VerbatimBetaAnthropicMessagesConfig  # type: ignore[misc, unused-ignore]
     ProviderConfigManager._get_provider_anthropic_messages_config_cached.cache_clear()
 
 
-def caller_anthropic_beta(headers: Any) -> str | None:
+def caller_anthropic_beta(headers: Headers) -> str | None:
     values = [value.strip() for line in headers.getlist("anthropic-beta") for value in line.split(",")]
     joined = ",".join(value for value in values if value)
     return joined or None
 
 
-def with_caller_anthropic_beta(data: dict[str, Any], headers: Any) -> dict[str, Any]:
+def with_caller_anthropic_beta(data: dict[str, Any], headers: Headers) -> dict[str, Any]:
     beta = caller_anthropic_beta(headers)
     if beta is None:
         return data
