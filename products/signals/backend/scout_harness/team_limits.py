@@ -155,7 +155,7 @@ def _read_flag_payload() -> dict | None:
 
 # Sentinel inside `guaranteed_team_ids` that enrolls EVERY team which already has scout configs,
 # instead of an explicit per-team allowlist. With `"*"` present, enrollment inverts: the gate
-# becomes "does this team have enabled scout configs" (created via the product-autonomy-gated UI /
+# becomes "does this team have enabled scout configs" (created via the Inbox UI /
 # the on-demand `sync` materialization), not "is this id listed". Explicit numeric ids can still sit
 # alongside `"*"` to force-provision teams that haven't self-enrolled yet (the pinned internal
 # projects), and `skip_team_ids` still hard-excludes. So `["*"]` flips scouts to "on for everyone
@@ -466,7 +466,7 @@ def resolve_sync_seed_inputs(canonical_team_id: int) -> tuple[list[dict], set[st
 
     `seed_config_layers` (most-specific first: the team's `team_configs` override over the fleet
     `default_team_config`) mirror what the coordinator builds for the scheduled path, so the on-demand
-    materialization (the product-autonomy-gated wizard's self-driving program) seeds the SAME launch
+    materialization (the Inbox wizard's self-driving program) seeds the SAME launch
     posture (e.g. general-only, daily) instead of the full fleet enabled — without this the self-serve
     path silently bypassed the launch cost posture. `canonical_team_id` must be the parent/project id;
     `team_configs` keys are canonicalized so a child-keyed override still resolves. A missing/unreadable

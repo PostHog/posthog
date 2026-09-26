@@ -1,6 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
@@ -39,7 +38,6 @@ describe('navAppsTabLogic', () => {
     })
 
     it('searches display names and preserves person ordering alongside dynamic groups', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
         expect(navAppsTabLogic.values.groupedItems[0].items.map(appsItemName)).toEqual([
             'Home',
             'Self-driving',

@@ -105,7 +105,6 @@ const meta: Meta<typeof SidebarStory> = {
                     item.flag ? [item.flag] : []
                 )
             ),
-            FEATURE_FLAGS.PRODUCT_AUTONOMY,
             FEATURE_FLAGS.SIMPLE_SIDEPANEL,
         ],
     },

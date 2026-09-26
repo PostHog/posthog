@@ -72,7 +72,7 @@ describe('signalSourcesLogic', () => {
     let logic: ReturnType<typeof signalSourcesLogic.build>
     let warehouseSources: ExternalDataSource[]
 
-    beforeEach(() => {
+    beforeEach(async () => {
         warehouseSources = []
         useMocks({
             get: {
@@ -95,6 +95,7 @@ describe('signalSourcesLogic', () => {
         initKeaTests()
         logic = signalSourcesLogic()
         logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {

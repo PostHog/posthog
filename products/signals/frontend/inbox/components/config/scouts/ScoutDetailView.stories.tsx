@@ -22,7 +22,7 @@ const meta: Meta<typeof ScoutDetailView> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [

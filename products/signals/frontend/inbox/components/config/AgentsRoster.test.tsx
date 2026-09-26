@@ -3,9 +3,6 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -35,11 +32,6 @@ describe('AgentsRoster', () => {
                 '/api/projects/:team_id/event_definitions/': () => [200, EMPTY_LIST],
                 '/api/environments/:team_id/external_data_sources/': () => [200, EMPTY_LIST],
             },
-        })
-        // The roster only loads its sources behind this flag, so without it every list stays empty.
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
         })
     })
     afterEach(cleanup)

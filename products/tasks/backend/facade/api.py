@@ -1085,10 +1085,10 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     - ``SIGNAL_REPORT`` linked to a report in this team, repo-less, and carrying no GitHub
       integration (the Inbox "Discuss" fallback). Reports are minted by scouts and the link is
       team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
-      entitled through self-driving (`product-autonomy`). A discussion that resolved a
-      repository, or that carries the team integration while repo-less, is not exempt under
-      this shape, because `create_task` only gives it either after the gate passed. Re-checking
-      here costs the caller nothing.
+      entitled through self-driving. A discussion that resolved a repository, or that carries
+      the team integration while repo-less, is not exempt under this shape, because
+      `create_task` only gives it either after the gate passed. Re-checking here costs the
+      caller nothing.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update

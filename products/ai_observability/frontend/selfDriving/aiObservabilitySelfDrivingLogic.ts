@@ -204,13 +204,8 @@ export const aiObservabilitySelfDrivingLogic = kea<aiObservabilitySelfDrivingLog
         },
     })),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         actions.loadAnomalyAlertInvestigations()
         actions.loadSelfDrivingEvaluationReports()
-        // signalSourcesLogic only loads these behind the inbox's own flag, and the signal source
-        // switches in this tab need the rows either way.
-        if (values.sourceConfigs === null && !values.sourceConfigsLoading) {
-            actions.loadSourceConfigs()
-        }
     }),
 ])
