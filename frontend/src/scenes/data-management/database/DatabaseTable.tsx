@@ -47,7 +47,17 @@ const editSchemaOptions: Record<EditableSerializedFieldTypes, string> = {
     unknown: 'Unknown',
 }
 const editSchemaOptionsKeys = Object.keys(editSchemaOptions) as Array<EditableSerializedFieldTypes>
-const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({ value: n, label: editSchemaOptions[n] }))
+// Types `update_schema` cannot store. It has no ClickHouse type for `unknown` and fails on it. It
+// writes `array` and `json` as `Nullable(Array)` and `Nullable(Map)`, which ClickHouse rejects
+// because both need an element type and neither may sit in `Nullable`, so the column is saved as
+// invalid and drops out of every query. A column can already read as any of these, so hiding keeps
+// the label for the current value and takes the option out of the menu.
+const unsavableSchemaTypes: EditableSerializedFieldTypes[] = ['unknown', 'array', 'json']
+const editSchemaOptionsAsArray = editSchemaOptionsKeys.map((n) => ({
+    value: n,
+    label: editSchemaOptions[n],
+    hidden: unsavableSchemaTypes.includes(n),
+}))
 
 const isNonEditableSchemaType = (schemaType: unknown): schemaType is NonEditableSchemaTypes => {
     return typeof schemaType === 'string' && nonEditableSchemaTypes.includes(schemaType as NonEditableSchemaTypes)
@@ -105,7 +115,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
 
 export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange }: DatabaseTableProps): JSX.Element {
     const dataSource = Object.values(tables.find(({ name }) => name === table)?.fields ?? {})
-    const { dataWarehouseTables, databaseLoading } = useValues(dataWarehouseSettingsSceneLogic)
+    const { dataWarehouseTables, databaseLoading, editSchemaIsLoading } = useValues(dataWarehouseSettingsSceneLogic)
 
     return (
         <LemonTable
@@ -131,6 +141,10 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                                 <LemonSelect
                                     options={editSchemaOptionsAsArray}
                                     value={type}
+                                    // The save reads the pending types once, and the refresh that
+                                    // follows it drops whatever arrived later, so nothing may be
+                                    // picked while a save is in flight.
+                                    disabledReason={editSchemaIsLoading ? 'Wait for the save to finish' : undefined}
                                     onChange={(newValue) => {
                                         if (schemaOnChange) {
                                             schemaOnChange(name, newValue as DatabaseSerializedFieldType)
@@ -215,6 +229,9 @@ export function DatabaseTable({ table, tables, inEditSchemaMode, schemaOnChange 
                     },
                 },
                 {
+                    // Without a key this column derives one from `dataIndex` and collides with the
+                    // "Type" column, so React drops one of the two cells.
+                    key: 'actions',
                     width: 0,
                     dataIndex: 'type',
                     render: function RenderActions(_, data) {
