@@ -100,6 +100,9 @@ export function EvalResultBadges({
             {summaries.map((summary) => {
                 const { type, icon, label } = getEvalBadgeProps(summary.latestRun, {
                     trueIsFailure: detectorEvaluationIds.includes(summary.latestRun.evaluation_id),
+                    categoryOptions: evaluations?.find(
+                        (evaluation) => evaluation.id === summary.latestRun.evaluation_id
+                    )?.output_config.options,
                     passingRule: evaluations?.find((evaluation) => evaluation.id === summary.latestRun.evaluation_id)
                         ?.output_config.passing_rule,
                 })

@@ -38366,24 +38366,53 @@ export namespace Schemas {
       source?: 'user_messages';
     };
 
+    export type EvaluationOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type EvaluationOutputConfigSelectionMode = typeof EvaluationOutputConfigSelectionMode[keyof typeof EvaluationOutputConfigSelectionMode];
+
+
+    export const EvaluationOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
      */
     export type EvaluationOutputConfigPassingRule = {
       /** Pass at or above (gte), or at or below (lte), the threshold. */
       operator: 'gte' | 'lte';
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
+    } | {
+      /** Passing category keys. Every returned category must be in this list; an empty result passes. */
+      categories: string[];
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
      */
     export type EvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
@@ -38403,9 +38432,13 @@ export namespace Schemas {
          */
       step?: number | null;
       /**
-         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-         * @nullable
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
          */
+      options?: EvaluationOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: EvaluationOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
       passing_rule?: EvaluationOutputConfigPassingRule;
     };
 
@@ -38495,6 +38528,7 @@ export namespace Schemas {
     /**
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      * * `sentiment` - Sentiment
      */
     export type OutputTypeEnum = typeof OutputTypeEnum[keyof typeof OutputTypeEnum];
@@ -38503,6 +38537,7 @@ export namespace Schemas {
     export const OutputTypeEnum = {
       Boolean: 'boolean',
       Numeric: 'numeric',
+      Categorical: 'categorical',
       Sentiment: 'sentiment',
     } as const;
 
@@ -38617,13 +38652,14 @@ export namespace Schemas {
       evaluation_type: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: EvaluationEvaluationConfig;
-      /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
+      /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
        *
        * * `boolean` - Boolean (Pass/Fail)
        * * `numeric` - Numeric
+       * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -38936,24 +38972,53 @@ export namespace Schemas {
       reason?: string;
     }
 
+    export type EvaluationReportMetricsOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type EvaluationReportMetricsOutputConfigSelectionMode = typeof EvaluationReportMetricsOutputConfigSelectionMode[keyof typeof EvaluationReportMetricsOutputConfigSelectionMode];
+
+
+    export const EvaluationReportMetricsOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
      */
     export type EvaluationReportMetricsOutputConfigPassingRule = {
       /** Pass at or above (gte), or at or below (lte), the threshold. */
       operator: 'gte' | 'lte';
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
+    } | {
+      /** Passing category keys. Every returned category must be in this list; an empty result passes. */
+      categories: string[];
     } | null;
 
     /**
-     * Numeric score configuration and passing rule used for both report periods.
+     * Output configuration and passing rule used for both report periods.
      */
     export type EvaluationReportMetricsOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
@@ -38973,9 +39038,13 @@ export namespace Schemas {
          */
       step?: number | null;
       /**
-         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-         * @nullable
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
          */
+      options?: EvaluationReportMetricsOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: EvaluationReportMetricsOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
       passing_rule?: EvaluationReportMetricsOutputConfigPassingRule;
     };
 
@@ -39002,12 +39071,13 @@ export namespace Schemas {
     export type EvaluationReportMetricsPreviousResultRates = {[key: string]: number} | null;
 
     export interface EvaluationReportMetrics {
-      /** Numeric score configuration and passing rule used for both report periods. */
+      /** Output configuration and passing rule used for both report periods. */
       output_config?: EvaluationReportMetricsOutputConfig;
       /** Evaluation result type. Stored metrics without this field represent boolean evaluations.
        *
        * * `boolean` - Boolean (Pass/Fail)
        * * `numeric` - Numeric
+       * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
       /** Number of evaluation results in the report period. */
@@ -39036,12 +39106,12 @@ export namespace Schemas {
          */
       previous_result_rates?: EvaluationReportMetricsPreviousResultRates;
       /**
-         * Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.
+         * Pass percentage for boolean, numeric, or categorical results, excluding N/A. Null when no applicable results were produced.
          * @nullable
          */
       pass_rate?: number | null;
       /**
-         * Boolean or numeric pass percentage for the previous period, or null when unavailable.
+         * Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.
          * @nullable
          */
       previous_pass_rate?: number | null;
@@ -49540,6 +49610,7 @@ export namespace Schemas {
     /**
      * * `boolean` - Boolean (Pass/Fail)
      * * `numeric` - Numeric
+     * * `categorical` - Categorical
      */
     export type HogEvaluationOutputTypeEnum = typeof HogEvaluationOutputTypeEnum[keyof typeof HogEvaluationOutputTypeEnum];
 
@@ -49547,6 +49618,7 @@ export namespace Schemas {
     export const HogEvaluationOutputTypeEnum = {
       Boolean: 'boolean',
       Numeric: 'numeric',
+      Categorical: 'categorical',
     } as const;
 
     /**
@@ -72677,24 +72749,53 @@ export namespace Schemas {
       source?: 'user_messages';
     };
 
+    export type PatchedEvaluationOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type PatchedEvaluationOutputConfigSelectionMode = typeof PatchedEvaluationOutputConfigSelectionMode[keyof typeof PatchedEvaluationOutputConfigSelectionMode];
+
+
+    export const PatchedEvaluationOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
      */
     export type PatchedEvaluationOutputConfigPassingRule = {
       /** Pass at or above (gte), or at or below (lte), the threshold. */
       operator: 'gte' | 'lte';
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
+    } | {
+      /** Passing category keys. Every returned category must be in this list; an empty result passes. */
+      categories: string[];
     } | null;
 
     /**
-     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}.
+     * Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}.
      */
     export type PatchedEvaluationOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
@@ -72714,9 +72815,13 @@ export namespace Schemas {
          */
       step?: number | null;
       /**
-         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-         * @nullable
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
          */
+      options?: PatchedEvaluationOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: PatchedEvaluationOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
       passing_rule?: PatchedEvaluationOutputConfigPassingRule;
     };
 
@@ -72783,13 +72888,14 @@ export namespace Schemas {
       evaluation_type?: EvaluationTypeEnum;
       /** Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}. */
       evaluation_config?: PatchedEvaluationEvaluationConfig;
-      /** Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.
+      /** Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.
        *
        * * `boolean` - Boolean (Pass/Fail)
        * * `numeric` - Numeric
+       * * `categorical` - Categorical
        * * `sentiment` - Sentiment */
       output_type?: OutputTypeEnum;
-      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}. */
+      /** Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}. */
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
@@ -99857,24 +99963,53 @@ export namespace Schemas {
       temperature?: number | null;
     }
 
+    export type TestHogRequestOutputConfigOptionsItem = {
+      /**
+         * Stable category key.
+         * @minLength 1
+         * @maxLength 128
+         * @pattern ^[a-z0-9]+(?:[_-][a-z0-9]+)*$
+         */
+      key: string;
+      /**
+         * Category display label.
+         * @minLength 1
+         * @maxLength 256
+         */
+      label: string;
+    };
+
     /**
-     * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-     * @nullable
+     * Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.
+     */
+    export type TestHogRequestOutputConfigSelectionMode = typeof TestHogRequestOutputConfigSelectionMode[keyof typeof TestHogRequestOutputConfigSelectionMode];
+
+
+    export const TestHogRequestOutputConfigSelectionMode = {
+      Single: 'single',
+      Multiple: 'multiple',
+    } as const;
+
+    /**
+     * Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.
      */
     export type TestHogRequestOutputConfigPassingRule = {
       /** Pass at or above (gte), or at or below (lte), the threshold. */
       operator: 'gte' | 'lte';
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
+    } | {
+      /** Passing category keys. Every returned category must be in this list; an empty result passes. */
+      categories: string[];
     } | null;
 
     /**
-     * Output settings used to validate the preview, including numeric bounds and allows_na.
+     * Output settings used to validate the preview, including bounds, categories, and allows_na.
      */
     export type TestHogRequestOutputConfig = {
       /** Whether the evaluation can return N/A for non-applicable generations. */
       allows_na?: boolean;
-      /** Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
+      /** Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail. */
       true_is_failure?: boolean;
       /**
          * Inclusive minimum numeric score. Omit for no lower bound.
@@ -99894,9 +100029,13 @@ export namespace Schemas {
          */
       step?: number | null;
       /**
-         * Optional numeric passing rule. Null removes the rule; historical scores use the current rule.
-         * @nullable
+         * Categorical output options. Keys identify stored results; labels are displayed to users.
+         * @minItems 1
          */
+      options?: TestHogRequestOutputConfigOptionsItem[];
+      /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
+      selection_mode?: TestHogRequestOutputConfigSelectionMode;
+      /** Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule. */
       passing_rule?: TestHogRequestOutputConfigPassingRule;
     };
 
@@ -99918,12 +100057,13 @@ export namespace Schemas {
     }
 
     export interface TestHogRequest {
-      /** Expected output: boolean or numeric. Sentiment is not supported by Hog.
+      /** Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.
        *
        * * `boolean` - Boolean (Pass/Fail)
-       * * `numeric` - Numeric */
+       * * `numeric` - Numeric
+       * * `categorical` - Categorical */
       output_type?: HogEvaluationOutputTypeEnum;
-      /** Output settings used to validate the preview, including numeric bounds and allows_na. */
+      /** Output settings used to validate the preview, including bounds, categories, and allows_na. */
       output_config?: TestHogRequestOutputConfig;
       /**
          * Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.
@@ -99951,6 +100091,11 @@ export namespace Schemas {
     }
 
     export interface TestHogResultItem {
+      /**
+         * Selected category keys. An empty list is an applicable result; null means no categorical result was produced.
+         * @nullable
+         */
+      categories?: string[] | null;
       /**
          * Raw numeric score, or null when no numeric score was produced.
          * @nullable

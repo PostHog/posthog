@@ -563,6 +563,11 @@ export const evaluationsCreateBodyNameMax = 400
 export const evaluationsCreateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsCreateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsCreateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsCreateBodyOutputConfigOptionsItemLabelMax = 256
+
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -628,10 +633,12 @@ export const EvaluationsCreateBody = () => zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'numeric', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
             .describe(
-                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
+            .describe(
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
@@ -643,7 +650,7 @@ export const EvaluationsCreateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
                 min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
                 max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
@@ -652,23 +659,60 @@ export const EvaluationsCreateBody = () => zod
                     .gt(evaluationsCreateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
-                    .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
-                    })
-                    .nullish()
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsCreateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsCreateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .optional()
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. Every returned category must be in this list; an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                     ),
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -809,6 +853,11 @@ export const evaluationsPartialUpdateBodyNameMax = 400
 export const evaluationsPartialUpdateBodyEvaluationConfigThreeSourceDefault = `user_messages`
 export const evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax = 256
+
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -875,11 +924,13 @@ export const EvaluationsPartialUpdateBody = () => zod
                 "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
             ),
         output_type: zod
-            .enum(['boolean', 'numeric', 'sentiment'])
-            .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment')
+            .enum(['boolean', 'numeric', 'categorical', 'sentiment'])
+            .describe(
+                '\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment'
+            )
             .optional()
             .describe(
-                "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `sentiment` - Sentiment"
+                "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical\n\* `sentiment` - Sentiment"
             ),
         output_config: zod
             .object({
@@ -891,7 +942,7 @@ export const EvaluationsPartialUpdateBody = () => zod
                     .boolean()
                     .optional()
                     .describe(
-                        'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                        'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                     ),
                 min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
                 max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
@@ -900,23 +951,60 @@ export const EvaluationsPartialUpdateBody = () => zod
                     .gt(evaluationsPartialUpdateBodyOutputConfigStepExclusiveMin)
                     .nullish()
                     .describe('Optional positive input increment. Does not round evaluation results.'),
-                passing_rule: zod
-                    .object({
-                        operator: zod
-                            .enum(['gte', 'lte'])
-                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                        threshold: zod
-                            .number()
-                            .describe('Finite passing threshold within any configured score bounds.'),
-                    })
-                    .nullish()
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax)
+                                .regex(evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp)
+                                .describe('Stable category key.'),
+                            label: zod
+                                .string()
+                                .min(1)
+                                .max(evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax)
+                                .describe('Category display label.'),
+                        })
+                    )
+                    .min(1)
+                    .optional()
                     .describe(
-                        'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                        'Categorical output options. Keys identify stored results; labels are displayed to users.'
+                    ),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .optional()
+                    .describe(
+                        'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.object({
+                            categories: zod
+                                .array(zod.string())
+                                .describe(
+                                    'Passing category keys. Every returned category must be in this list; an empty result passes.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                     ),
             })
             .optional()
             .describe(
-                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. Do not send true_is_failure for numeric output. For 'sentiment': {}."
+                "Output config. For 'boolean' output_type: {allows_na} to permit N\/A results, and {true_is_failure} to declare that a true result means the evaluation found a problem. For 'numeric': only min\/max\/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
             ),
         conditions: zod
             .array(
@@ -1060,6 +1148,11 @@ export const EvaluationsTestHogCreateParams = () => zod.object({
 export const evaluationsTestHogCreateBodyOutputTypeDefault = `boolean`
 export const evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin = 0
 
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax = 128
+
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
+export const evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax = 256
+
 export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
@@ -1075,11 +1168,11 @@ export const evaluationsTestHogCreateBodyTargetConfigOneQuietPeriodSecondsMax = 
 
 export const EvaluationsTestHogCreateBody = () => zod.object({
     output_type: zod
-        .enum(['boolean', 'numeric'])
-        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric')
+        .enum(['boolean', 'numeric', 'categorical'])
+        .describe('\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical')
         .default(evaluationsTestHogCreateBodyOutputTypeDefault)
         .describe(
-            'Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric'
+            'Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.\n\n\* `boolean` - Boolean (Pass\/Fail)\n\* `numeric` - Numeric\n\* `categorical` - Categorical'
         ),
     output_config: zod
         .object({
@@ -1091,7 +1184,7 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                 .boolean()
                 .optional()
                 .describe(
-                    'Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
+                    'Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass\/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.'
                 ),
             min: zod.number().nullish().describe('Inclusive minimum numeric score. Omit for no lower bound.'),
             max: zod.number().nullish().describe('Inclusive maximum numeric score. Omit for no upper bound.'),
@@ -1100,20 +1193,57 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                 .gt(evaluationsTestHogCreateBodyOutputConfigStepExclusiveMin)
                 .nullish()
                 .describe('Optional positive input increment. Does not round evaluation results.'),
-            passing_rule: zod
-                .object({
-                    operator: zod
-                        .enum(['gte', 'lte'])
-                        .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
-                    threshold: zod.number().describe('Finite passing threshold within any configured score bounds.'),
-                })
-                .nullish()
+            options: zod
+                .array(
+                    zod.object({
+                        key: zod
+                            .string()
+                            .min(1)
+                            .max(evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax)
+                            .regex(evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp)
+                            .describe('Stable category key.'),
+                        label: zod
+                            .string()
+                            .min(1)
+                            .max(evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax)
+                            .describe('Category display label.'),
+                    })
+                )
+                .min(1)
+                .optional()
+                .describe('Categorical output options. Keys identify stored results; labels are displayed to users.'),
+            selection_mode: zod
+                .enum(['single', 'multiple'])
+                .optional()
                 .describe(
-                    'Optional numeric passing rule. Null removes the rule; historical scores use the current rule.'
+                    'Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.'
+                ),
+            passing_rule: zod
+                .union([
+                    zod.object({
+                        operator: zod
+                            .enum(['gte', 'lte'])
+                            .describe('Pass at or above (gte), or at or below (lte), the threshold.'),
+                        threshold: zod
+                            .number()
+                            .describe('Finite passing threshold within any configured score bounds.'),
+                    }),
+                    zod.object({
+                        categories: zod
+                            .array(zod.string())
+                            .describe(
+                                'Passing category keys. Every returned category must be in this list; an empty result passes.'
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.'
                 ),
         })
         .optional()
-        .describe('Output settings used to validate the preview, including numeric bounds and allows_na.'),
+        .describe('Output settings used to validate the preview, including bounds, categories, and allows_na.'),
     source: zod
         .string()
         .min(1)

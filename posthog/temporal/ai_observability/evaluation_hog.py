@@ -18,7 +18,11 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_user_errors
 
-from products.ai_observability.backend.models.evaluation_configs import NumericOutputConfig, NumericScoreOutOfBounds
+from products.ai_observability.backend.models.evaluation_configs import (
+    CategoricalOutputConfig,
+    NumericOutputConfig,
+    NumericScoreOutOfBounds,
+)
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
@@ -198,6 +202,13 @@ def execute_hog_eval_bytecode(
     if response.result is None and allows_na:
         return {"verdict": None, "applicable": False, "reasoning": reasoning, "error": None}
 
+    if output_type == "categorical":
+        try:
+            categories = CategoricalOutputConfig.model_validate(output_config or {}).validate_result(response.result)
+        except ValueError as error:
+            return {"verdict": None, "reasoning": reasoning, "error": str(error)}
+        return {"categories": categories, "reasoning": reasoning, "error": None, "applicable": True}
+
     if output_type == "numeric":
         try:
             score = NumericOutputConfig.model_validate(output_config or {}).validate_score(response.result)
@@ -299,7 +310,11 @@ def finalize_hog_eval_result(
         "reasoning": result["reasoning"],
         "allows_na": allows_na,
     }
-    if evaluation.get("output_type") == "numeric":
+    if evaluation.get("output_type") == "categorical":
+        activity_result["result_type"] = "categorical"
+        if "categories" in result:
+            activity_result["categories"] = result["categories"]
+    elif evaluation.get("output_type") == "numeric":
         activity_result["result_type"] = "numeric"
         if "score" in result:
             config = NumericOutputConfig.model_validate(evaluation.get("output_config") or {})

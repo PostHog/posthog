@@ -425,9 +425,9 @@ def _period_summary_dict(
         "result_counts": result_counts,
         "result_rates": result_rates,
     }
-    if output_type in ("boolean", "numeric"):
+    if output_type in ("boolean", "numeric", "categorical"):
         summary["pass_rate"] = calculate_pass_rate(
-            result_counts, empty_as_none=empty_rates_as_none or output_type == "numeric"
+            result_counts, empty_as_none=empty_rates_as_none or output_type in ("numeric", "categorical")
         )
     return summary
 
@@ -609,6 +609,8 @@ def list_all_eval_results(
         score = ""
         if isinstance(row[3], int | float):
             score = f" ({row[3]})" if output_type == "numeric" else f" ({row[3]:.2f})"
+        if output_type == "categorical":
+            score = f" ({json.dumps(row[1])})"
         fields = [f"{outcome}{score}", target_id]
         if output_type != "sentiment":
             reasoning = (row[4] or "")[:max_reasoning_length]
@@ -709,6 +711,8 @@ def sample_eval_results(
         }
         if output_type in ("sentiment", "numeric"):
             entry["score"] = row[4]
+        if output_type == "categorical":
+            entry["categories"] = row[1]
         if output_type != "sentiment":
             entry["reasoning"] = row[2] or ""
         result.append(entry)
@@ -831,7 +835,7 @@ def sample_generation_details(
 def _label_generation_evals(
     eval_rows: Sequence[Sequence[object]],
     detector_evaluation_ids: Container[str],
-    numeric_output_configs: dict[str, dict] | None = None,
+    evaluation_output_configs: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Label every evaluation on one generation, each by its own polarity."""
     labeled = []
@@ -842,11 +846,14 @@ def _label_generation_evals(
             definition = get_outcome_definition(
                 output_type,
                 true_is_failure=evaluation_id in detector_evaluation_ids,
-                output_config=(numeric_output_configs or {}).get(evaluation_id),
+                output_config=(evaluation_output_configs or {}).get(evaluation_id),
             )
         except ValueError:
             continue
-        raw_result = row[7] if output_type == "numeric" else row[3] if output_type == "sentiment" else row[2]
+        if output_type == "categorical":
+            raw_result = row[8]
+        else:
+            raw_result = row[7] if output_type == "numeric" else row[3] if output_type == "sentiment" else row[2]
         entry = {
             "evaluation_id": evaluation_id,
             "output_type": output_type,
@@ -855,6 +862,8 @@ def _label_generation_evals(
         }
         if output_type in ("sentiment", "numeric"):
             entry["score"] = row[7] if output_type == "numeric" else row[4]
+        if output_type == "categorical":
+            entry["categories"] = raw_result
         labeled.append(entry)
     return labeled
 
@@ -959,7 +968,8 @@ def get_generation_detail(
             properties.$ai_sentiment_score as sentiment_score,
             properties.$ai_evaluation_reasoning as reasoning,
             properties.$ai_evaluation_applicable as applicable,
-            toFloat(properties.$ai_evaluation_numeric_result) as numeric_score
+            toFloat(properties.$ai_evaluation_numeric_result) as numeric_score,
+            JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)') as categories
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_target_event_id = {generation_id}
@@ -972,7 +982,7 @@ def get_generation_detail(
     )
 
     evals = _label_generation_evals(
-        eval_rows, set(state.get("detector_evaluation_ids") or []), state.get("numeric_output_configs")
+        eval_rows, set(state.get("detector_evaluation_ids") or []), state.get("evaluation_output_configs")
     )
 
     result: dict = {
@@ -1405,9 +1415,9 @@ def list_recent_report_runs(
         }
         if "result_rates" in normalized_metrics:
             entry["result_rates"] = normalized_metrics["result_rates"]
-        if output_type in ("boolean", "numeric") and "pass_rate" in normalized_metrics:
+        if output_type in ("boolean", "numeric", "categorical") and "pass_rate" in normalized_metrics:
             entry["pass_rate"] = normalized_metrics["pass_rate"]
-        if output_type == "numeric":
+        if output_type in ("numeric", "categorical"):
             config = normalized_metrics.get("output_config") or {}
             previous_rule = config.get("passing_rule")
             current_rule = (state.get("output_config") or {}).get("passing_rule")

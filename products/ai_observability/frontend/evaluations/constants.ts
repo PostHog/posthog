@@ -22,7 +22,8 @@ export const EVALUATION_NOT_SKIPPED_HOGQL =
     "(isNull(properties.$ai_evaluation_skipped) OR properties.$ai_evaluation_skipped != 'true')"
 
 export function numericOutputConfigError(config: EvaluationOutputConfig): string | null {
-    const { min, max, step, passing_rule } = config
+    const { min, max, step } = config
+    const passing_rule = config.passing_rule && 'threshold' in config.passing_rule ? config.passing_rule : null
     if ([min, max, step, passing_rule?.threshold].some((value) => value != null && !Number.isFinite(value))) {
         return 'Enter finite numbers for the score bounds, step, and threshold.'
     }
@@ -47,7 +48,7 @@ export const EVALUATION_NUMERIC_MEAN_HOGQL = `avgIf(toFloat(properties.$ai_evalu
 
 export function numericEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {
     const rule = evaluation.output_config.passing_rule
-    if (!rule || !Number.isFinite(rule.threshold)) {
+    if (!rule || !('threshold' in rule) || !Number.isFinite(rule.threshold)) {
         return 'false'
     }
     return `toFloat(properties.$ai_evaluation_numeric_result) ${rule.operator === 'gte' ? '>=' : '<='} ${rule.threshold}`
@@ -91,8 +92,81 @@ export function numericScorePasses(
     score: number | null | undefined,
     rule: EvaluationOutputConfig['passing_rule']
 ): boolean | null {
-    if (score == null || !Number.isFinite(score) || !rule || !Number.isFinite(rule.threshold)) {
+    if (
+        score == null ||
+        !Number.isFinite(score) ||
+        !rule ||
+        !('threshold' in rule) ||
+        !Number.isFinite(rule.threshold)
+    ) {
         return null
     }
     return rule.operator === 'gte' ? score >= rule.threshold : score <= rule.threshold
+}
+
+export const EVALUATION_CATEGORIES_HOGQL =
+    "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
+export const EVALUATION_CATEGORICAL_GRADED_HOGQL = `properties.$ai_evaluation_result_type = 'categorical' AND properties.$ai_evaluation_categorical_result IS NOT NULL AND (isNull(properties.$ai_evaluation_applicable) OR properties.$ai_evaluation_applicable != 'false') AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
+
+export function categoricalResultPasses(
+    categories: string[] | null | undefined,
+    rule: EvaluationOutputConfig['passing_rule']
+): boolean | null {
+    if (categories == null || !rule || !('categories' in rule)) {
+        return null
+    }
+    return categories.every((category) => rule.categories.includes(category))
+}
+
+export function categoricalEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {
+    const rule = evaluation.output_config.passing_rule
+    if (!rule || !('categories' in rule)) {
+        return 'false'
+    }
+    const categories = rule.categories.map(escapeHogQLString).join(', ')
+    return `hasAll([${categories}], ${EVALUATION_CATEGORIES_HOGQL})`
+}
+
+export function categoricalOutputConfigError(config: EvaluationOutputConfig): string | null {
+    if (!config.options?.length) {
+        return 'Add at least one category.'
+    }
+    if (
+        config.options.some(
+            ({ key, label }) =>
+                !/^[a-z0-9]+(?:[_-][a-z0-9]+)*$/.test(key) || key.length > 128 || !label.trim() || label.length > 256
+        )
+    ) {
+        return 'Give each category a label and a key using lowercase letters, numbers, underscores, or hyphens.'
+    }
+    if (new Set(config.options.map(({ key }) => key)).size !== config.options.length) {
+        return 'Use a different key for each category.'
+    }
+    const rule = config.passing_rule
+    if (
+        rule &&
+        (!('categories' in rule) ||
+            rule.categories.some((key) => !config.options?.some((option) => option.key === key)))
+    ) {
+        return 'Choose passing categories from the configured categories.'
+    }
+    return null
+}
+
+export function categoricalEvaluationsPassedHogQL(
+    evaluations: Pick<EvaluationConfig, 'id' | 'output_type' | 'output_config'>[]
+): string {
+    const rules = evaluations.flatMap((evaluation) => {
+        const rule = evaluation.output_config.passing_rule
+        return evaluation.output_type === 'categorical' && rule && 'categories' in rule
+            ? [{ id: evaluation.id, categories: rule.categories }]
+            : []
+    })
+    if (!rules.length) {
+        return 'false'
+    }
+    const ids = rules.map(({ id }) => escapeHogQLString(id)).join(', ')
+    const categories = rules.map(({ categories }) => `[${categories.map(escapeHogQLString).join(', ')}]`).join(', ')
+    const indexes = rules.map((_, index) => index + 1).join(', ')
+    return `properties.$ai_evaluation_id IN (${ids}) AND hasAll(arrayElement([${categories}], transform(properties.$ai_evaluation_id, [${ids}], [${indexes}], 0)), ${EVALUATION_CATEGORIES_HOGQL})`
 }

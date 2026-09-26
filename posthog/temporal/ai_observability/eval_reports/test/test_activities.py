@@ -157,7 +157,7 @@ async def test_run_agent_activity_loads_target_and_forwards_output_type(
             return_value=["detector-id"],
         ) as load_detectors,
         patch(
-            "posthog.temporal.ai_observability.eval_reports.activities._load_numeric_output_configs",
+            "posthog.temporal.ai_observability.eval_reports.activities._load_evaluation_output_configs",
             return_value={"evaluation-id": {"passing_rule": {"operator": "gte", "threshold": 7}}}
             if output_config is not None
             else {},
@@ -851,6 +851,53 @@ class TestPeriodForScheduledReport(BaseTest):
 
 
 class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand([("registered", True), ("unregistered", False)])
+    def test_categorical_reports_count_empty_selections_and_exclude_skips(self, _name: str, registered: bool) -> None:
+        if registered:
+            PropertyDefinition.objects.create(
+                team=self.team, name="$ai_evaluation_categorical_result", property_type="String"
+            )
+            PropertyDefinition.objects.create(team=self.team, name="$ai_evaluation_applicable", property_type="Boolean")
+        start = dt.datetime(2026, 7, 1, tzinfo=dt.UTC)
+        results: list[dict[str, object]] = [
+            {"$ai_evaluation_categorical_result": ["resolved"]},
+            {"$ai_evaluation_categorical_result": []},
+            {"$ai_evaluation_categorical_result": ["resolved", "incorrect"]},
+            {"$ai_evaluation_applicable": False},
+            {"$ai_evaluation_skipped": True},
+        ]
+        for index, properties in enumerate(results):
+            _create_event(
+                team=self.team,
+                event="$ai_evaluation",
+                distinct_id=f"categorical-{index}",
+                timestamp=start,
+                properties={
+                    "$ai_evaluation_id": "categorical-eval",
+                    "$ai_evaluation_result_type": "categorical",
+                    **properties,
+                },
+            )
+        config = {
+            "options": [{"key": "resolved", "label": "Resolved"}, {"key": "incorrect", "label": "Incorrect"}],
+            "selection_mode": "multiple",
+            "passing_rule": {"categories": ["resolved"]},
+        }
+        metrics = _compute_metrics(
+            self.team.id,
+            "categorical-eval",
+            start.isoformat(),
+            (start + dt.timedelta(days=1)).isoformat(),
+            (start - dt.timedelta(days=1)).isoformat(),
+            output_type="categorical",
+            output_config=config,
+        )
+        assert metrics is not None
+        self.assertEqual(metrics.total_runs, 4)
+        self.assertEqual(metrics.result_counts, {"pass": 2, "fail": 1, "na": 1})
+        self.assertEqual(metrics.pass_rate, 66.67)
+        self.assertEqual(metrics.output_config, config)
+
     @parameterized.expand(
         [("registered", True, True), ("unregistered_applicable", False, True), ("unregistered", False, False)]
     )

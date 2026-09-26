@@ -303,7 +303,13 @@ def build_evaluation_event_properties(
         properties["$ai_evaluation_key_type"] = "byok" if result.get("is_byok") else "posthog"
         properties["$ai_evaluation_key_id"] = result.get("key_id")
 
-    if result["result_type"] == "numeric":
+    if result["result_type"] == "categorical":
+        properties["$ai_evaluation_allows_na"] = allows_na
+        if allows_na:
+            properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))
+        if not result.get("skipped") and result.get("applicable", True) and "categories" in result:
+            properties["$ai_evaluation_categorical_result"] = result["categories"]
+    elif result["result_type"] == "numeric":
         properties["$ai_evaluation_allows_na"] = allows_na
         if allows_na:
             properties["$ai_evaluation_applicable"] = result.get("applicable", not result.get("skipped", False))

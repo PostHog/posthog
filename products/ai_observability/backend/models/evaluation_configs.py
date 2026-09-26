@@ -19,6 +19,7 @@ class OutputType(models.TextChoices):
 
     BOOLEAN = "boolean", "Boolean (Pass/Fail)"
     NUMERIC = "numeric", "Numeric"
+    CATEGORICAL = "categorical", "Categorical"
     SENTIMENT = "sentiment", "Sentiment"
 
 
@@ -111,6 +112,63 @@ class NumericOutputConfig(BaseModel):
                 raise NumericScoreOutOfBounds(f"Score must be at most {self.max}")
             score = self.max
         return score
+
+
+class CategoricalOption(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+    key: str = Field(min_length=1, max_length=128, pattern=r"^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
+    label: str = Field(min_length=1, max_length=256)
+
+
+class CategoricalPassingRule(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    categories: list[str]
+
+    @model_validator(mode="after")
+    def validate_categories(self) -> Self:
+        if len(set(self.categories)) != len(self.categories):
+            raise ValueError("Select each passing category only once")
+        self.categories.sort()
+        return self
+
+    def passes(self, categories: list[str]) -> bool:
+        return set(categories) <= set(self.categories)
+
+
+class CategoricalOutputConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    options: list[CategoricalOption] = Field(min_length=1)
+    selection_mode: Literal["single", "multiple"] = "single"
+    allows_na: bool = False
+    passing_rule: CategoricalPassingRule | None = None
+
+    @model_validator(mode="after")
+    def validate_options(self) -> Self:
+        keys = {option.key for option in self.options}
+        if len(keys) != len(self.options):
+            raise ValueError("Category keys must be unique")
+        if self.passing_rule is not None:
+            rule = self.passing_rule
+            if not set(rule.categories) <= keys:
+                raise ValueError("Passing rules must use configured category keys")
+        return self
+
+    def validate_result(self, value: object) -> list[str]:
+        if self.selection_mode == "single" and isinstance(value, str):
+            value = [value]
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError("Return category keys as a list, or one category key for single selection")
+        if self.selection_mode == "single" and len(value) != 1:
+            raise ValueError("Single selection must return exactly one category")
+        keys = {option.key for option in self.options}
+        if not set(value) <= keys:
+            raise ValueError("Return only configured category keys")
+        if len(value) != len(set(value)):
+            raise ValueError("Return each category only once")
+        return value
 
 
 class SentimentEvalConfig(BaseModel):
@@ -304,6 +362,8 @@ def validate_target_config(target: str, target_config: dict) -> dict:
 
 # Mapping: (evaluation_type, output_type) -> (evaluation_config_model, output_config_model)
 EVALUATION_CONFIG_MODELS: dict[tuple[str, str], tuple[type[BaseModel], type[BaseModel]]] = {
+    (EvaluationType.LLM_JUDGE.value, OutputType.CATEGORICAL.value): (LLMJudgeConfig, CategoricalOutputConfig),
+    (EvaluationType.HOG.value, OutputType.CATEGORICAL.value): (HogEvalConfig, CategoricalOutputConfig),
     (EvaluationType.LLM_JUDGE.value, OutputType.NUMERIC.value): (LLMJudgeConfig, NumericOutputConfig),
     (EvaluationType.HOG.value, OutputType.NUMERIC.value): (HogEvalConfig, NumericOutputConfig),
     (EvaluationType.LLM_JUDGE.value, OutputType.BOOLEAN.value): (LLMJudgeConfig, BooleanOutputConfig),
@@ -321,13 +381,14 @@ REPORTABLE_OUTPUT_TYPES: tuple[str, ...] = (
     OutputType.BOOLEAN.value,
     OutputType.SENTIMENT.value,
     OutputType.NUMERIC.value,
+    OutputType.CATEGORICAL.value,
 )
 # Sentiment is generation-only (see the target check in the evaluations API), so the aggregate
-# targets support boolean and numeric results.
+# targets support boolean, numeric, and categorical results.
 REPORTABLE_OUTPUT_TYPES_BY_TARGET: dict[str, tuple[str, ...]] = {
     "generation": REPORTABLE_OUTPUT_TYPES,
-    "trace": (OutputType.BOOLEAN.value, OutputType.NUMERIC.value),
-    "session": (OutputType.BOOLEAN.value, OutputType.NUMERIC.value),
+    "trace": (OutputType.BOOLEAN.value, OutputType.NUMERIC.value, OutputType.CATEGORICAL.value),
+    "session": (OutputType.BOOLEAN.value, OutputType.NUMERIC.value, OutputType.CATEGORICAL.value),
 }
 
 
@@ -336,7 +397,7 @@ def evaluation_uses_model_configuration(evaluation_type: str | None) -> bool:
 
 
 def evaluation_supports_reports(output_type: str | None, target: str | None, output_config: dict | None = None) -> bool:
-    if output_type == OutputType.NUMERIC and not (output_config or {}).get("passing_rule"):
+    if output_type in (OutputType.NUMERIC, OutputType.CATEGORICAL) and not (output_config or {}).get("passing_rule"):
         return False
     return output_type in REPORTABLE_OUTPUT_TYPES_BY_TARGET.get(target or "", ())
 

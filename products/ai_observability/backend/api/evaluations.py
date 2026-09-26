@@ -85,9 +85,10 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 NUMERIC_EVALUATIONS_FEATURE_FLAG = "llm-analytics-numeric-evaluations"
+CATEGORICAL_EVALUATIONS_FEATURE_FLAG = "llm-analytics-categorical-evaluations"
 
 
-def _numeric_evaluations_enabled(serializer: serializers.BaseSerializer) -> bool:
+def _evaluation_output_enabled(serializer: serializers.BaseSerializer, flag_key: str) -> bool:
     request = serializer.context.get("request")
     get_team = serializer.context.get("get_team")
     user = getattr(request, "user", None)
@@ -97,7 +98,7 @@ def _numeric_evaluations_enabled(serializer: serializers.BaseSerializer) -> bool
     team = get_team()
     try:
         return posthog_feature_flag_enabled(
-            NUMERIC_EVALUATIONS_FEATURE_FLAG,
+            flag_key,
             str(user.distinct_id),
             organization_id=team.organization_id,
             team_id=team.id,
@@ -171,7 +172,7 @@ class _EvaluationConfigField(serializers.JSONField):
             },
             "true_is_failure": {
                 "type": "boolean",
-                "description": "Boolean output only. Omit for numeric and sentiment "
+                "description": "Boolean output only. Omit for numeric, categorical, and sentiment "
                 "output. Whether a true result means the evaluation found "
                 "a problem. False (the default) suits pass/fail "
                 "evaluations, where a true result satisfied the criteria. "
@@ -195,24 +196,70 @@ class _EvaluationConfigField(serializers.JSONField):
                 "minimum": 0,
                 "description": "Optional positive input increment. Does not round evaluation results.",
             },
-            "passing_rule": {
-                "type": "object",
-                "nullable": True,
-                "required": ["operator", "threshold"],
-                "description": "Optional numeric passing rule. Null removes the rule; "
-                "historical scores use the current rule.",
-                "properties": {
-                    "operator": {
-                        "type": "string",
-                        "enum": ["gte", "lte"],
-                        "description": "Pass at or above (gte), or at or below (lte), the threshold.",
+            "options": {
+                "type": "array",
+                "minItems": 1,
+                "description": "Categorical output options. Keys identify stored results; labels are displayed to users.",
+                "items": {
+                    "type": "object",
+                    "required": ["key", "label"],
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 128,
+                            "pattern": "^[a-z0-9]+(?:[_-][a-z0-9]+)*$",
+                            "description": "Stable category key.",
+                        },
+                        "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256,
+                            "description": "Category display label.",
+                        },
                     },
-                    "threshold": {
-                        "type": "number",
-                        "description": "Finite passing threshold within any configured score bounds.",
-                    },
+                    "additionalProperties": False,
                 },
-                "additionalProperties": False,
+            },
+            "selection_mode": {
+                "type": "string",
+                "enum": ["single", "multiple"],
+                "description": "Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.",
+            },
+            "passing_rule": {
+                "nullable": True,
+                "description": "Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule.",
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": ["operator", "threshold"],
+                        "properties": {
+                            "operator": {
+                                "type": "string",
+                                "enum": ["gte", "lte"],
+                                "description": "Pass at or above (gte), or at or below (lte), the threshold.",
+                            },
+                            "threshold": {
+                                "type": "number",
+                                "description": "Finite passing threshold within any configured score bounds.",
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
+                    {
+                        "type": "object",
+                        "required": ["categories"],
+                        "properties": {
+                            "categories": {
+                                "type": "array",
+                                "uniqueItems": True,
+                                "items": {"type": "string"},
+                                "description": "Passing category keys. Every returned category must be in this list; an empty result passes.",
+                            },
+                        },
+                        "additionalProperties": False,
+                    },
+                ],
             },
         },
         "additionalProperties": False,
@@ -396,7 +443,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             "Output config. For 'boolean' output_type: {allows_na} to permit N/A results, and "
             "{true_is_failure} to declare that a true result means the evaluation found a problem. "
             "For 'numeric': only min/max/step, allows_na, and passing_rule {operator: 'gte'|'lte', threshold}. "
-            "Do not send true_is_failure for numeric output. For 'sentiment': {}."
+            "For 'categorical': options [{key, label}], selection_mode (single or multiple), allows_na, and optional passing_rule {categories: [key]}. Do not send true_is_failure for numeric or categorical output. For 'sentiment': {}."
         ),
     )
     target_config = _TargetConfigField(
@@ -468,7 +515,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             },
             "output_type": {
                 "help_text": (
-                    "Output format: 'boolean', 'numeric' for a finite score, or 'sentiment' for sentiment analysis."
+                    "Output format: 'boolean', 'numeric' for a finite score, 'categorical' for category keys, or 'sentiment' for sentiment analysis."
                 )
             },
             "target": {
@@ -489,19 +536,24 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
     def validate(self, data):
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         output_type = data.get("output_type") or getattr(self.instance, "output_type", None)
-        is_new_numeric_evaluation = output_type == "numeric" and (
-            self.instance is None or self.instance.output_type != "numeric"
-        )
-        if is_new_numeric_evaluation and not _numeric_evaluations_enabled(self):
-            raise serializers.ValidationError({"output_type": "Numeric evaluations are not enabled for this project."})
+        flag_key = {
+            "numeric": NUMERIC_EVALUATIONS_FEATURE_FLAG,
+            "categorical": CATEGORICAL_EVALUATIONS_FEATURE_FLAG,
+        }.get(str(output_type))
+        if (
+            flag_key
+            and (self.instance is None or self.instance.output_type != output_type)
+            and not _evaluation_output_enabled(self, flag_key)
+        ):
+            raise serializers.ValidationError(
+                {"output_type": f"{str(output_type).capitalize()} evaluations are not enabled for this project."}
+            )
         if (
             self.instance
             and output_type != self.instance.output_type
-            and "numeric" in (output_type, self.instance.output_type)
+            and ({output_type, self.instance.output_type} & {"numeric", "categorical"})
         ):
-            raise serializers.ValidationError(
-                {"output_type": "Create a new evaluation to change between numeric and other output types."}
-            )
+            raise serializers.ValidationError({"output_type": "Create a new evaluation to change its output type."})
         model_configuration = data.get(
             "model_configuration",
             getattr(self.instance, "model_configuration", None) if self.instance else None,
@@ -852,6 +904,7 @@ class TestHogTargetConfigSerializer(serializers.Serializer):
 class HogEvaluationOutputType(models.TextChoices):
     BOOLEAN = OutputType.BOOLEAN.value, OutputType.BOOLEAN.label
     NUMERIC = OutputType.NUMERIC.value, OutputType.NUMERIC.label
+    CATEGORICAL = OutputType.CATEGORICAL.value, OutputType.CATEGORICAL.label
 
 
 class TestHogRequestSerializer(serializers.Serializer):
@@ -859,12 +912,12 @@ class TestHogRequestSerializer(serializers.Serializer):
         choices=HogEvaluationOutputType.choices,
         required=False,
         default=OutputType.BOOLEAN,
-        help_text="Expected output: boolean or numeric. Sentiment is not supported by Hog.",
+        help_text="Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.",
     )
     output_config = _OutputConfigField(
         required=False,
         default=dict,
-        help_text="Output settings used to validate the preview, including numeric bounds and allows_na.",
+        help_text="Output settings used to validate the preview, including bounds, categories, and allows_na.",
     )
     source = serializers.CharField(
         required=True,
@@ -923,6 +976,12 @@ class TestHogRequestSerializer(serializers.Serializer):
 
 
 class TestHogResultItemSerializer(serializers.Serializer):
+    categories = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text="Selected category keys. An empty list is an applicable result; null means no categorical result was produced.",
+    )
     score = serializers.FloatField(
         required=False, allow_null=True, help_text="Raw numeric score, or null when no numeric score was produced."
     )
@@ -965,7 +1024,13 @@ def _hog_test_result_counts(
         if result["error"]:
             counts["error"] += 1
         else:
-            value = result.get("score") if output_type == "numeric" else result["result"]
+            value = (
+                result.get("categories")
+                if output_type == "categorical"
+                else result.get("score")
+                if output_type == "numeric"
+                else result["result"]
+            )
             counts[definition.label_for(value, applicable=value is not None)] += 1
     return {f"{outcome}_count": counts[outcome] for outcome in ("pass", "fail", "na", "error")}
 
@@ -1023,6 +1088,7 @@ def _test_hog_over_sessions(
             "output_preview": r.output_preview,
             "result": r.verdict,
             **({"score": r.score} if output_type == "numeric" else {}),
+            **({"categories": r.categories} if output_type == "categorical" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
         }
@@ -1100,6 +1166,7 @@ def _test_hog_over_traces(
             "output_preview": r.output_preview,
             "result": r.verdict,
             **({"score": r.score} if output_type == "numeric" else {}),
+            **({"categories": r.categories} if output_type == "categorical" else {}),
             "reasoning": r.reasoning,
             "error": r.error,
         }
@@ -1524,6 +1591,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                     "output_preview": output_preview,
                     "result": result.get("verdict"),
                     **({"score": result.get("score")} if output_type == "numeric" else {}),
+                    **({"categories": result.get("categories")} if output_type == "categorical" else {}),
                     "reasoning": result["reasoning"],
                     "error": result["error"],
                 }

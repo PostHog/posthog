@@ -144,7 +144,7 @@ def build_eval_report_system_prompt(
             "- Ground every claim about frustration in the user's own words. Quote or closely paraphrase the actual "
             "last user message from real negative generations you cited.\n"
         )
-    elif output_type in ("boolean", "numeric"):
+    elif output_type in ("boolean", "numeric", "categorical"):
         evaluated_unit = get_target_descriptor(evaluation_target).unit_label
         if output_type == "numeric":
             rule = definition.numeric_config.passing_rule if definition.numeric_config else None
@@ -160,6 +160,13 @@ def build_eval_report_system_prompt(
                 "Equal non-null rates mean unchanged pass rate; either rate null means insufficient data. "
                 "Interpret scores using the evaluation criteria, not as normalized percentages. "
                 f"Score configuration: {output_config}"
+            )
+        elif output_type == "categorical":
+            result_semantics = (
+                "A result passes when every returned category is marked as passing. An empty selection passes; null is N/A. "
+                "Exclude N/A from pass rates. Use get_summary_metrics() to compare periods under the current rule. "
+                "Historical reports use saved rules; do not compare snapshots with different or unknown rules. "
+                f"Category configuration: {output_config}"
             )
         elif true_is_failure:
             result_semantics = (
