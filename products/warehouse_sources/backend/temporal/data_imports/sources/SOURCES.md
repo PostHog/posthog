@@ -453,6 +453,7 @@ the row lists both.
 | marketstack                      | HTTP                        | requests                                                        | ✅                          |
 | matomo                           | HTTP                        | requests                                                        | ✅                          |
 | maxio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| medusa                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mention                          | HTTP                        | requests                                                        | ✅                          |
 | mercury                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | meta_ads                         | HTTP                        | requests                                                        | ✅                          |
@@ -1179,7 +1180,6 @@ doesn't conflict with concurrent PRs.
 - mantle
 - manychat
 - mastodon
-- medusa
 - meetup
 - memberful
 - membrain
