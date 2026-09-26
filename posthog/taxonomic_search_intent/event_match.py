@@ -143,7 +143,10 @@ def likely_core_events(team_id: int, query: str, *, use_cache: bool = True) -> l
 
 def _ingested(project_id: int, names: Sequence[str]) -> set[str]:
     return set(
-        EventDefinition.objects.filter(team__project_id=project_id, name__in=names).values_list("name", flat=True)
+        # A definition can exist before its first event arrives, and only a seen event has data to show.
+        EventDefinition.objects.filter(
+            team__project_id=project_id, name__in=names, last_seen_at__isnull=False
+        ).values_list("name", flat=True)
     )
 
 

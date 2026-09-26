@@ -158,12 +158,15 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
                 query.length < MIN_QUERY_LENGTH ||
                 query.length > MAX_QUERY_LENGTH ||
                 projectId === null ||
-                unavailableProjectIds.has(projectId) ||
-                !values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]
+                unavailableProjectIds.has(projectId)
             ) {
                 return
             }
             await breakpoint(EVENT_MATCH_DEBOUNCE_MS)
+            // Read after the pause, so flags that load while the person types still count.
+            if (!values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]) {
+                return
+            }
 
             let matches: EventMatchApi[]
             try {
@@ -178,11 +181,13 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
             }
             breakpoint()
             actions.setEventMatches({ projectId, query, matches })
-            if (matches.length > 0) {
+            // Only the suggestions the picker shows, after its exclusions, count for the flag's metric.
+            const shown = values.suggestedEvents
+            if (shown.length > 0) {
                 // pinned: analytics event name and properties, the flag's success metric reads them
                 posthog.capture('taxonomic filter event match suggested', {
                     surface: legacyTaxonomicSurface(),
-                    suggestedEvents: matches.map((match) => match.name),
+                    suggestedEvents: shown.map((match) => match.name),
                 })
             }
         },

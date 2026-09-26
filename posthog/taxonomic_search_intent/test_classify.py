@@ -79,6 +79,8 @@ class TestClassifySearchIntent(SimpleTestCase):
             ("path_after_words", "visits /reset?token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("key_value_pair", "token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("wrapped_url", "visits (https://example.com/reset)", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("url_inside_word", "visits:https://example.com/reset", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("bare_host_url", "visits example.com/reset/abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("too_short", "e", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("one_option_left", "email", ("events", "suggested_filters"), None, SearchIntentSource.SKIPPED),
         ]

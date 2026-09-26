@@ -115,12 +115,14 @@ describe('taxonomicEventMatchLogic', () => {
         const excludingLogic = taxonomicEventMatchLogic(excludingProps)
         excludingLogic.mount()
         enroll(true)
+        const captureSpy = jest.spyOn(posthog, 'capture')
 
         excludingFilterLogic.actions.setSearchQuery('browser capture')
         await expectLogic(excludingLogic).toFinishAllListeners()
 
         expect(matchRequests).toHaveLength(1)
         expect(excludingLogic.values.suggestedEvents).toEqual([])
+        expect(captureSpy).not.toHaveBeenCalledWith('taxonomic filter event match suggested', expect.anything())
     })
 
     it('stops asking for the project after a 404', async () => {

@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -40,7 +41,11 @@ class TestMatchCoreEvents(BaseTest):
         super().setUp()
         cache.clear()
         for name in ("$autocapture", "$rageclick", "$pageview", "$exception"):
-            EventDefinition.objects.create(team=self.team, project_id=self.team.project_id, name=name)
+            EventDefinition.objects.create(
+                team=self.team, project_id=self.team.project_id, name=name, last_seen_at=timezone.now()
+            )
+        # Defined but never seen, so it has no data to show.
+        EventDefinition.objects.create(team=self.team, project_id=self.team.project_id, name="$screen")
 
     def _search(self, query: str, team_id: int | None = None) -> EventMatchRequest:
         return EventMatchRequest(team_id=team_id or self.team.id, project_id=self.team.project_id, query=query)
@@ -79,7 +84,7 @@ class TestMatchCoreEvents(BaseTest):
                 "Dead click": 0.9,
                 "Pageview": 0.72,
                 "Exception": 0.71,
-                "Screen": 0.4,
+                "Screen": 0.85,
             }
         )
         with patch(BUILD_CLIENT, return_value=client):
