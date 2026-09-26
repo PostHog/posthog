@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, cast
 
@@ -43,6 +43,7 @@ KIND_POLICIES: dict[FailureKind, KindPolicy] = {
 }
 
 BASE_BACKOFF = timedelta(minutes=2)
+WARMING_BASE_BACKOFF = timedelta(hours=2)
 RECORD_TTL = timedelta(hours=24)
 
 
@@ -85,8 +86,16 @@ class QueryFailureCache:
     def __init__(self, cache_key: str) -> None:
         self.key = f"query_failure:{cache_key}"
 
-    def get_open(self) -> Optional[QueryFailureRecord]:
+    def get_open(self, *, for_warming: bool = False) -> Optional[QueryFailureRecord]:
         record = self._load()
+        if record is not None and for_warming:
+            policy = KIND_POLICIES[record.kind]
+            if record.consecutive_failures >= policy.open_threshold:
+                # Minute-scale backoff expires before the hourly warmer runs again.
+                max_doublings = (policy.max_backoff // WARMING_BASE_BACKOFF).bit_length()
+                doublings = min(record.consecutive_failures - policy.open_threshold, max_doublings)
+                backoff = min(WARMING_BASE_BACKOFF * 2**doublings, policy.max_backoff)
+                record = replace(record, open_until=record.last_failed_at + backoff)
         return record if record is not None and record.is_open else None
 
     def record_failure(
