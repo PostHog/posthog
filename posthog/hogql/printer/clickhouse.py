@@ -30,7 +30,11 @@ from posthog.hogql.escape_sql import (
     quote_clickhouse_identifier,
     safe_identifier,
 )
-from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions import (
+    ADD_OR_NULL_DATETIME_FUNCTIONS,
+    ALWAYS_ARRAY_JSON_EXTRACT_FUNCTIONS,
+    FIRST_ARG_DATETIME_FUNCTIONS,
+)
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.udfs import (
     JSON_DROP_KEYS_CLICKHOUSE_NAME,
@@ -90,6 +94,10 @@ def retention_floor_for_table(table_type: ast.TableOrSelectType, retention_month
         type=ast.BooleanType(),
     )
 
+
+# Type names ClickHouse rejects inside Nullable that `parse_sql_runtime_type` reports as an unknown family. The
+# Array, Map, and LowCardinality cases are classified from the parsed type instead.
+NON_NULLABLE_CLICKHOUSE_TYPE_PREFIXES = ("nested", "variant", "dynamic")
 
 # The $ai_* properties whose materialized columns carry bloom-filter skip indexes. We read them bare — no nullIf/ifNull
 # wrapping — so the index stays usable. Canonical set; ClickHouse property resolution imports it to make the same call.
@@ -214,6 +222,11 @@ class ClickHousePrinter(BasePrinter):
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
         elif node.name == "toJSONString":
             args = [self._visit_json_function_argument(arg) for arg in node_args]
+        elif self._json_extract_result_rejects_nullable(node) and node_args and self._is_nullable(node_args[0]):
+            # ClickHouse refuses to put an Array or Map inside Nullable, so an extraction that returns one fails
+            # outright when its JSON argument is nullable — which every `properties.x` read is. Feed the extraction an
+            # empty string instead of NULL, so a missing property yields the type's default (an empty array).
+            args = [f"ifNull({self.visit(node_args[0])}, '')", *(self.visit(arg) for arg in node_args[1:])]
         else:
             args = [self.visit(arg) for arg in node_args]
 
@@ -595,6 +608,21 @@ class ClickHousePrinter(BasePrinter):
         if serialized is None:
             return None
         return self._maybe_apply_json_drop_keys(arg_type, serialized)
+
+    def _json_extract_result_rejects_nullable(self, node: ast.Call) -> bool:
+        """Whether this JSON extraction returns a type ClickHouse cannot place inside Nullable."""
+        if node.name in ALWAYS_ARRAY_JSON_EXTRACT_FUNCTIONS:
+            return True
+        if node.name != "JSONExtract" or len(node.args) < 2:
+            return False
+        # JSONExtract takes the ClickHouse type name as its last argument.
+        type_arg = node.args[-1]
+        if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+            return False
+        runtime_type = parse_sql_runtime_type(type_arg.value)
+        if runtime_type.low_cardinality or runtime_type.family in ("array", "map"):
+            return True
+        return type_arg.value.strip().lower().startswith(NON_NULLABLE_CLICKHOUSE_TYPE_PREFIXES)
 
     def _visit_json_function_argument(self, node: ast.Expr) -> str:
         depth = getattr(self, "_json_function_argument_depth", 0)
