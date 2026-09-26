@@ -134,7 +134,7 @@ def _collect_calendar_integrations() -> list[CalendarSyncInput]:
         last_run = max((date for date in (last_sync, attempted) if date), default=None)
         if last_run and last_run + timedelta(minutes=get_calendar_sync_interval(config)) > now:
             continue
-        due.append((attempted or datetime.min.replace(tzinfo=now.tzinfo), integration.id, integration.team_id))
+        due.append((last_run or datetime.min.replace(tzinfo=now.tzinfo), integration.id, integration.team_id))
 
     due.sort()
     return [

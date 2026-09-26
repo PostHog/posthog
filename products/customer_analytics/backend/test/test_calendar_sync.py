@@ -8,7 +8,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.integration import Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
 
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
@@ -170,10 +170,15 @@ class TestCalendarSync(BaseTest):
         self.integration.refresh_from_db(fields=["config"])
         assert calendar_sync.SYNC_ATTEMPTED_AT_CONFIG_KEY not in self.integration.config
 
+    @parameterized.expand([("google_error", False), ("token_refresh_failed", True)])
     @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
-    def test_failed_sync_clears_active_marker_and_waits_for_its_cadence(self) -> None:
+    def test_failed_sync_clears_active_marker_and_waits_for_its_cadence(
+        self, _name: str, token_refresh_failed: bool
+    ) -> None:
         self.integration.config[calendar_sync.SYNC_INTERVAL_CONFIG_KEY] = 5
-        self.integration.save(update_fields=["config"])
+        if token_refresh_failed:
+            self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        self.integration.save(update_fields=["config", "errors"])
         error_response = MagicMock(status_code=500, text="Google Calendar unavailable")
 
         with self.assertRaises(calendar_sync.CalendarSyncError):
@@ -203,7 +208,12 @@ class TestCalendarSync(BaseTest):
 
         assert [item.integration_id for item in selected] == [self.integration.id]
 
-    def test_collector_limits_each_run_to_two_hundred_accounts(self) -> None:
+    @time_machine.travel("2026-09-25T12:00:00Z", tick=False)
+    def test_collector_limits_each_run_to_the_two_hundred_longest_waiting_accounts(self) -> None:
+        self.integration.config[calendar_sync.LAST_SYNCED_AT_CONFIG_KEY] = (
+            timezone.now() - timedelta(hours=1)
+        ).isoformat()
+        self.integration.save(update_fields=["config"])
         Integration.objects.bulk_create(
             [
                 Integration(
@@ -215,7 +225,10 @@ class TestCalendarSync(BaseTest):
             ]
         )
 
-        assert len(temporal_calendar_sync._collect_calendar_integrations()) == 200
+        selected = temporal_calendar_sync._collect_calendar_integrations()
+
+        assert len(selected) == 200
+        assert self.integration.id not in [item.integration_id for item in selected]
 
     def test_backfill_uses_the_date_range_without_changing_the_incremental_cursor(self) -> None:
         self.integration.config["calendar_sync_token"] = "existing"

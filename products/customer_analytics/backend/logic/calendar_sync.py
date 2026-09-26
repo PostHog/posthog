@@ -124,16 +124,16 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     """
     integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
     team = integration.team
-    access_token = _get_fresh_access_token(integration)
-    connected_email = (integration.config or {}).get("email", "")
-    internal_domain = _domain_of(connected_email)
-
-    mark_calendar_sync_started(integration_id, team_id)
-    integration.refresh_from_db(fields=["config"])
-
     counts = CalendarSyncCounts()
-    sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
     try:
+        access_token = _get_fresh_access_token(integration)
+        connected_email = (integration.config or {}).get("email", "")
+        internal_domain = _domain_of(connected_email)
+
+        mark_calendar_sync_started(integration_id, team_id)
+        integration.refresh_from_db(fields=["config"])
+
+        sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
         try:
             next_sync_token = _sync_events(
                 team, access_token, str(integration.integration_id), sync_token, internal_domain, counts
