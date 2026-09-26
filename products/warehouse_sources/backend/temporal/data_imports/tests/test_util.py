@@ -1,4 +1,5 @@
 import errno
+import asyncio
 import contextlib
 from types import SimpleNamespace
 
@@ -94,6 +95,38 @@ class TestPrepareS3FilesForQuerying:
 
         assert s3._cp_file.await_count == 2
         s3._copy.assert_not_awaited()
+
+    async def test_copy_keeps_its_task_count_off_the_file_count(self):
+        # A Delta table can hold tens of thousands of parquet files. Creating one task per file
+        # made the copy step's memory scale with the table rather than with the few dozen copies
+        # that actually run at once, and a large table's final batch was OOM-killed mid-copy -
+        # every retry restarting the same doomed copy until the run ran out of attempts.
+        file_uris = [f"s3://bucket/job/my_table/part-{index}.parquet" for index in range(2000)]
+        peak_tasks = 0
+        copied_sources: list[str] = []
+
+        async def cp_file(source: str, destination: str) -> None:
+            nonlocal peak_tasks
+            peak_tasks = max(peak_tasks, len(asyncio.all_tasks()))
+            copied_sources.append(source)
+            await asyncio.sleep(0)
+
+        s3 = _fake_s3(_cp_file=cp_file)
+
+        with patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)):
+            await prepare_s3_files_for_querying(
+                folder_path="job",
+                table_name="my_table",
+                file_uris=file_uris,
+                delete_existing=False,
+            )
+
+        # The exact set, not the count: workers sharing one iterator must not hand the same file
+        # to two of them and drop another, which a count-only assertion would pass.
+        assert sorted(copied_sources) == sorted(file_uris)
+        # Generous headroom over the concurrency ceiling, so the assertion tracks "bounded" rather
+        # than the exact number of tasks the event loop happens to be running.
+        assert peak_tasks < util_module._S3_FILE_CONCURRENCY * 4
 
     async def test_retries_with_fresh_listing_when_source_file_vanishes_mid_copy(self):
         # A concurrent compact/vacuum pass on the same Delta table can delete a source file
