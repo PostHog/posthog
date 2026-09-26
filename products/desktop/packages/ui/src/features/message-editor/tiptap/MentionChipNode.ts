@@ -74,7 +74,11 @@ export const MentionChipNode = Node.create({
   renderHTML({ node, HTMLAttributes }) {
     const { type, label } = node.attrs as MentionChipAttrs;
     const isCommand = type === "command";
-    const prefix = isCommand ? "/" : type === "posthog_object" ? "" : "@";
+    const prefix = isCommand
+      ? "/"
+      : type === "posthog_object" || type === "comment_context"
+        ? ""
+        : "@";
 
     return [
       "span",

@@ -73,7 +73,7 @@ export async function checkListener(
   probe: PortProbe = probePort,
   externalAddress: string | null = externalIPv4Address(),
 ): Promise<string | null> {
-  if (!(await probe("127.0.0.1", port))) {
+  if (!(await probe("127.0.0.1", port)) && !(await probe("::1", port))) {
     return `Nothing listens on port ${port}. Start the server first, then call ${EXPOSE_PORT_TOOL_NAME} again.`;
   }
   if (externalAddress && !(await probe(externalAddress, port))) {
@@ -92,8 +92,11 @@ export const exposePortTool = defineLocalTool({
     "Call it again with the same port to change the name.",
   schema: exposePortSchema,
   alwaysLoad: true,
-  isEnabled: (ctx, meta) =>
-    !!ctx.taskId && (meta?.environment !== "cloud" || !!ctx.taskRunId),
+  isEnabled: (ctx, meta) => {
+    const cloud = isCloudRun(undefined);
+    if (!ctx.taskId || (meta?.environment === "cloud" && !cloud)) return false;
+    return !cloud || !!ctx.taskRunId;
+  },
   handler: async (ctx, args): Promise<LocalToolResult> => {
     if (!ctx.taskId) {
       return errorResult("Port preview is not available in this session.");

@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   prConversation: [] as unknown[],
   prReviewThreads: [] as unknown[],
   openArtifactTab: vi.fn(),
+  openPreviewTab: vi.fn(),
   openPrInReview: vi.fn(),
   openExternalUrl: vi.fn(),
   requestScrollToFile: vi.fn(),
@@ -46,7 +47,16 @@ vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
   useOrgMembers: () => ({ members: [] }),
 }));
 vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
-  usePanelLayoutStore: () => mocks.openArtifactTab,
+  usePanelLayoutStore: (
+    selector: (state: {
+      openArtifactTab: typeof mocks.openArtifactTab;
+      openPreviewTab: typeof mocks.openPreviewTab;
+    }) => unknown,
+  ) =>
+    selector({
+      openArtifactTab: mocks.openArtifactTab,
+      openPreviewTab: mocks.openPreviewTab,
+    }),
   useActiveArtifactId: () => mocks.activeArtifactId,
 }));
 vi.mock("@posthog/ui/features/pr-review/usePrCommentsForUrls", () => ({
@@ -238,6 +248,7 @@ describe("TaskCommentsList", () => {
     mocks.prConversation = [];
     mocks.prReviewThreads = [];
     mocks.openArtifactTab.mockReset();
+    mocks.openPreviewTab.mockReset();
     mocks.openPrInReview.mockReset();
     mocks.openExternalUrl.mockReset();
     mocks.requestScrollToFile.mockReset();
@@ -467,7 +478,8 @@ describe("TaskCommentsList", () => {
     expect(screen.getByText("Web app")).toBeTruthy();
     openThread("Make the heading red");
 
-    expect(mocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+    expect(mocks.openArtifactTab).not.toHaveBeenCalled();
+    expect(mocks.openPreviewTab).toHaveBeenCalledWith("task-1", {
       runId: "run-live",
       port: 5173,
       label: "Web app",

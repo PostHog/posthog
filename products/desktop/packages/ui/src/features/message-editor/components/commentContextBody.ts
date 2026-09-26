@@ -10,13 +10,19 @@ export function parseCommentContextBody(body: string): CommentContextDetails {
   const fields: CommentContextDetails["fields"] = [];
   const quoteLines: string[] = [];
   const snippetLines: string[] = [];
-  let inSnippet = false;
+  let fence: string | null = null;
   for (const line of body.split("\n")) {
-    if (line.startsWith("```")) {
-      inSnippet = !inSnippet;
+    const opening: string | undefined =
+      fence === null ? line.match(/^`{3,}/)?.[0] : undefined;
+    if (opening) {
+      fence = opening;
       continue;
     }
-    if (inSnippet) {
+    if (fence !== null && line === fence) {
+      fence = null;
+      continue;
+    }
+    if (fence !== null) {
       snippetLines.push(line);
       continue;
     }

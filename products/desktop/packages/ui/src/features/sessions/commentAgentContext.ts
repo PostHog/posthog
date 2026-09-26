@@ -23,6 +23,14 @@ function inlineCode(value: string): string {
   return `\`${value.replaceAll("`", "'")}\``;
 }
 
+function codeFence(content: string): string {
+  const longestRun = Math.max(
+    0,
+    ...Array.from(content.matchAll(/`+/g), (match) => match[0].length),
+  );
+  return "`".repeat(Math.max(3, longestRun + 1));
+}
+
 function resourceLine(resource: CommentResource): string {
   if (resource.kind === "preview") {
     return `- **Preview** ${resource.name} on port ${resource.port}`;
@@ -53,9 +61,9 @@ export function commentAgentContext(
         `- **Element** ${inlineCode(`<${anchor.tag}>`)}${anchor.text ? ` ${truncate(anchor.text, 120)}` : ""}`,
         `- **Selector** ${inlineCode(anchor.selector)}`,
         "",
-        "```html",
+        `${codeFence(anchor.html)}html`,
         anchor.html,
-        "```",
+        codeFence(anchor.html),
       ].join("\n"),
     };
   }

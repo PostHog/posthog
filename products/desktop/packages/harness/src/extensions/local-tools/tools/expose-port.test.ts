@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { enabledLocalTools } from "../index";
 import {
   checkListener,
@@ -8,29 +8,47 @@ import {
 } from "./expose-port";
 
 describe("expose_port tool", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it.each([
     {
       name: "a cloud run",
       ctx: { cwd: "/repo", taskId: "task", taskRunId: "run" },
       meta: { environment: "cloud" as const },
+      sandbox: true,
       exposed: true,
+    },
+    {
+      name: "cloud metadata outside a sandbox",
+      ctx: { cwd: "/repo", taskId: "task", taskRunId: "run" },
+      meta: { environment: "cloud" as const },
+      sandbox: false,
+      exposed: false,
     },
     {
       name: "a local task",
       ctx: { cwd: "/repo", taskId: "task" },
       meta: { environment: "local" as const },
+      sandbox: false,
       exposed: true,
     },
     {
       name: "a session without a task",
       ctx: { cwd: "/repo" },
       meta: { environment: "local" as const },
+      sandbox: false,
       exposed: false,
     },
-  ])("is exposed for $name only when it can work", ({ ctx, meta, exposed }) => {
-    const tools = enabledLocalTools(ctx, meta);
-    expect(tools.some((t) => t.name === EXPOSE_PORT_TOOL_NAME)).toBe(exposed);
-  });
+  ])(
+    "is exposed for $name only when it can work",
+    ({ ctx, meta, sandbox, exposed }) => {
+      vi.stubEnv("IS_SANDBOX", sandbox ? "1" : "");
+      const tools = enabledLocalTools(ctx, meta);
+      expect(tools.some((t) => t.name === EXPOSE_PORT_TOOL_NAME)).toBe(exposed);
+    },
+  );
 
   it.each([80, 70000])("rejects port %i", (port) => {
     expect(exposePortSchema.port.safeParse(port).success).toBe(false);
@@ -56,6 +74,11 @@ describe("expose_port tool", () => {
     {
       name: "a localhost-only listener",
       open: new Set(["127.0.0.1"]),
+      expected: /bound to 0\.0\.0\.0/,
+    },
+    {
+      name: "an IPv6 loopback-only listener",
+      open: new Set(["::1"]),
       expected: /bound to 0\.0\.0\.0/,
     },
     {

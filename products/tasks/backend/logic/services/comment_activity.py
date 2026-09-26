@@ -19,7 +19,7 @@ logger = structlog.get_logger(__name__)
 
 def is_task_preview_item(task_id: UUID, item_id: str) -> bool:
     prefix, _, port = item_id.rpartition(":")
-    return prefix == str(task_id) and port.isdigit() and 0 < int(port) <= 65535
+    return prefix == str(task_id) and port.isascii() and port.isdigit() and 0 < int(port) <= 65535
 
 
 def _visible_tasks(team_id: int, user_id: int | None):

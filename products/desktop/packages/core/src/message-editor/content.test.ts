@@ -215,6 +215,16 @@ describe("xmlToContent", () => {
     ]);
   });
 
+  it("keeps a leading file tag that is not the screenshot", () => {
+    const [segment] = xmlToContent(
+      '<comment_context label="h1" screenshot="/tmp/shot.png">\n<file path="/repo/notes.md" />\n- **Page** /\n</comment_context>',
+    ).segments;
+    expect(segment).toMatchObject({
+      type: "chip",
+      chip: { id: '<file path="/repo/notes.md" />\n- **Page** /' },
+    });
+  });
+
   it.each([
     ["dashboard", "17"],
     ["report", "rep-1"],

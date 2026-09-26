@@ -75,6 +75,7 @@ import type {
   TaskRunArtefact,
   TaskRunArtifact,
   TaskRunPreviewSession,
+  TaskRunPreviewSessionOutcome,
   TaskSearchResultRun,
   TaskThreadMessage,
   UserBasic,
@@ -1060,6 +1061,13 @@ export class ContextWikiUnavailableError extends Error {
 }
 
 /** DRF error bodies carry the human-readable message in `detail`. */
+const PREVIEW_SESSION_OUTCOMES: readonly TaskRunPreviewSessionOutcome[] = [
+  "ready",
+  "not_ready",
+  "ended",
+  "unavailable",
+];
+
 function readDetail(error: ApiRequestError): string {
   const body = error.body as { detail?: string } | null;
   return body?.detail ?? error.message;
@@ -4764,10 +4772,17 @@ export class PostHogAPIClient {
       );
     }
 
-    const data = (await response.json()) as Partial<TaskRunPreviewSession>;
+    const data = (await response.json()) as {
+      outcome?: unknown;
+      url?: unknown;
+    };
+    const outcome = PREVIEW_SESSION_OUTCOMES.find(
+      (known) => known === data.outcome,
+    );
     return {
-      outcome: data.outcome ?? "unavailable",
-      url: typeof data.url === "string" ? data.url : null,
+      outcome: outcome ?? "unavailable",
+      url:
+        outcome === "ready" && typeof data.url === "string" ? data.url : null,
     };
   }
 

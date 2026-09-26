@@ -277,9 +277,11 @@ function hogqlChipFromBody(body: string): MentionChip | null {
 function commentContextChip(rawAttrs: string, body: string): MentionChip {
   const attrs = parseXmlAttrs(rawAttrs);
   const imagePath = attrs.screenshot || undefined;
-  const text = imagePath
-    ? body.replace(/^\s*<file\s+path="[^"]*"\s*\/>\n?/, "")
-    : body;
+  const leadingFile = body.match(/^\s*<file\s+(path="[^"]*")\s*\/>\n?/);
+  const text =
+    imagePath && leadingFile && parseXmlAttrs(leadingFile[1]).path === imagePath
+      ? body.slice(leadingFile[0].length)
+      : body;
   return {
     type: "comment_context",
     id: text.trim(),

@@ -5339,7 +5339,10 @@ def expose_task_run_port(
 
 
 def _exposed_port_probe(port: int) -> str:
-    return f"curl -s -o /dev/null --max-time 5 http://127.0.0.1:{port}/"
+    return (
+        f"code=$(curl -s -o /dev/null -w '%{{http_code}}' --max-time 5 http://127.0.0.1:{port}/) "
+        '&& [ "$code" -gt 0 ] && [ "$code" -lt 500 ]'
+    )
 
 
 def _preview_target(state: dict, port: int | None) -> tuple[int, str] | None:

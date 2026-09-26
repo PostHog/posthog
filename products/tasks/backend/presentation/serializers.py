@@ -53,7 +53,7 @@ from products.tasks.backend.facade.contracts import (
     TaskUserBasicInfo,
     WizardCloudRunDTO,
 )
-from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES, TaskRunPreviewSessionOutcome
+from products.tasks.backend.facade.enums import CHANNEL_WRITE_TYPE_CHOICES
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
@@ -1260,6 +1260,13 @@ class TaskRunExposePortRequestSerializer(serializers.Serializer):
         if not tasks_facade.is_exposable_port(value):
             raise serializers.ValidationError("This port is reserved for the sandbox and cannot be exposed.")
         return value
+
+
+class TaskRunPreviewSessionOutcome(models.TextChoices):
+    READY = "ready", "Ready"
+    NOT_READY = "not_ready", "Not ready"
+    ENDED = "ended", "Ended"
+    UNAVAILABLE = "unavailable", "Unavailable"
 
 
 class TaskRunPreviewSessionRequestSerializer(serializers.Serializer):
