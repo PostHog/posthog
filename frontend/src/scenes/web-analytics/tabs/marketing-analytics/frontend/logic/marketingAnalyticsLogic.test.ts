@@ -10,6 +10,7 @@ import { databaseTableListLogic } from 'scenes/data-management/database/database
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import {
     ConversionGoalFilter,
     MARKETING_INTEGRATION_CONFIGS,
@@ -27,10 +28,11 @@ import {
     WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
+import { ExternalDataSchemaStatus, ExternalDataSource, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     MarketingAnalyticsTab,
+    MarketingSourceStatus,
     MarketingDashboardView,
     SetupSection,
     marketingAnalyticsLogic,
@@ -387,6 +389,75 @@ describe('marketingAnalyticsLogic', () => {
         ).toFinishAllListeners()
 
         expect(logic.values.unconfiguredNativeSources).toEqual([])
+    })
+
+    it('shows validation errors for the affected connection and clears them after reload', async () => {
+        let errors: Record<string, string[]> = {}
+        useMocks({
+            get: {
+                '/api/projects/:team_id/marketing_analytics/source_validation/': () => [
+                    200,
+                    { errors_by_source: errors },
+                ],
+            },
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true })
+        const sources = ['outdated', 'current'].map(
+            (id) =>
+                ({
+                    id,
+                    source_type: 'OpenAIAds',
+                    schemas: ['campaigns', 'campaign_insights'].map((name) => ({
+                        id: `${id}-${name}`,
+                        name,
+                        should_sync: true,
+                        status: ExternalDataSchemaStatus.Completed,
+                    })),
+                }) as ExternalDataSource
+        )
+        await expectLogic(logic, () =>
+            logic.actions.loadSourcesSuccess({ count: 2, next: null, previous: null, results: sources })
+        ).toFinishAllListeners()
+        expect(logic.values.allAvailableSourcesWithStatus.every(({ status }) => status === 'Completed')).toBe(true)
+
+        errors = { outdated: ["Missing 'currency_code' in 'campaign_insights'.", "Missing 'name' in 'campaigns'."] }
+        await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+        for (const sourcesWithStatus of [
+            logic.values.allAvailableSourcesWithStatus,
+            logic.values.allExternalTablesWithStatus,
+        ]) {
+            expect(sourcesWithStatus.find((source) => source.id === 'outdated')).toMatchObject({
+                status: MarketingSourceStatus.Warning,
+                statusMessage: expect.stringContaining(errors.outdated.join(' ')),
+            })
+            expect(sourcesWithStatus.find((source) => source.id === 'current')?.status).toBe('Completed')
+        }
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: false })
+        expect(logic.values.allAvailableSourcesWithStatus).toEqual([])
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS]: true })
+        errors = {}
+        await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+        for (const sourcesWithStatus of [
+            logic.values.allAvailableSourcesWithStatus,
+            logic.values.allExternalTablesWithStatus.filter((source) => sources.some(({ id }) => id === source.id)),
+        ]) {
+            expect(sourcesWithStatus.map(({ status }) => status)).toEqual(['Completed', 'Completed'])
+        }
+        useMocks({
+            get: { '/api/projects/:team_id/marketing_analytics/source_validation/': () => [500, {}] },
+        })
+        await expectLogic(logic, () => logic.actions.loadSourceValidation()).toFinishAllListeners()
+        expect(logic.values.sourceValidationError).not.toBeNull()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/marketing_analytics/source_validation/': () => [200, { errors_by_source: {} }],
+            },
+        })
+        await expectLogic(logic, () => logic.actions.loadSourceValidation()).toFinishAllListeners()
+        expect(logic.values.sourceValidationError).toBeNull()
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {

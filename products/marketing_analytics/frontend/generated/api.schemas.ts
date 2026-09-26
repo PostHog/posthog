@@ -1647,6 +1647,16 @@ export interface SetupPlanResponseApi {
     summary: string
 }
 
+/**
+ * Validation errors keyed by the source or mapped table ID. Valid sources are omitted.
+ */
+export type SourceValidationApiErrorsBySource = { [key: string]: string[] }
+
+export interface SourceValidationApi {
+    /** Validation errors keyed by the source or mapped table ID. Valid sources are omitted. */
+    errors_by_source: SourceValidationApiErrorsBySource
+}
+
 export interface CandidateEventApi {
     /** Name of the candidate event */
     event_name: string

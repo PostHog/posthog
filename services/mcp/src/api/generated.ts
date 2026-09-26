@@ -95540,6 +95540,16 @@ export namespace Schemas {
     }
 
     /**
+     * Validation errors keyed by the source or mapped table ID. Valid sources are omitted.
+     */
+    export type SourceValidationErrorsBySource = {[key: string]: string[]};
+
+    export interface SourceValidation {
+      /** Validation errors keyed by the source or mapped table ID. Valid sources are omitted. */
+      errors_by_source: SourceValidationErrorsBySource;
+    }
+
+    /**
      * The setup task that was started for the channel.
      */
     export interface SpaceSetupStartedDTO {

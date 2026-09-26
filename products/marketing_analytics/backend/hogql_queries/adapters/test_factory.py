@@ -553,7 +553,7 @@ class TestNativeCampaignTableResolution(FactoryTestMixin, BaseTest):
 
 class TestNativeSourceKillSwitch(SimpleTestCase):
     @parameterized.expand([(False,), (True,)])
-    def test_factory_excludes_disabled_source_without_affecting_google(self, enabled: bool) -> None:
+    def test_factory_excludes_disabled_sources_from_discovery_and_validation(self, enabled: bool) -> None:
         team = Team(id=1)
         factory = MarketingSourceFactory.__new__(MarketingSourceFactory)
         factory.context = Mock(spec=QueryContext, team=team)
@@ -581,4 +581,7 @@ class TestNativeSourceKillSwitch(SimpleTestCase):
         assert [adapter.get_source_type() for adapter in adapters] == (
             ["GoogleAds", "AppleSearchAds", "OpenAIAds"] if enabled else ["GoogleAds"]
         )
+        errors = factory.get_validation_errors(adapters)
+        assert set(errors) == ({adapter.config.source_id for adapter in adapters[1:]} if enabled else set())
+        assert all(messages for messages in errors.values())
         factory.logger.exception.assert_not_called()

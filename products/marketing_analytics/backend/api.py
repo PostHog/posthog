@@ -29,6 +29,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import ConversionGoalFilter1, ConversionGoalFilter2, ConversionGoalFilter3, DateRange, SourceMap
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import _FallbackSerializer
@@ -427,6 +428,13 @@ class ConversionGoalWriteResponseSerializer(serializers.Serializer):
 
 
 # --- list_data_sources ---
+
+
+class SourceValidationSerializer(serializers.Serializer):
+    errors_by_source = serializers.DictField(
+        child=serializers.ListField(child=serializers.CharField()),
+        help_text="Validation errors keyed by the source or mapped table ID. Valid sources are omitted.",
+    )
 
 
 class DataSourcesQuerySerializer(serializers.Serializer):
@@ -1322,6 +1330,23 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             {"conversion_goals": goals},
             context=self.get_serializer_context(),
         )
+
+    @validated_request(
+        responses={200: SourceValidationSerializer},
+        summary="Validate marketing sources",
+        description="Check connected marketing sources using the same validators as campaign queries. Read-only.",
+    )
+    @action(methods=["GET"], detail=False, url_path="source_validation", required_scopes=["marketing_analytics:read"])
+    def source_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        factory = MarketingSourceFactory(
+            context=QueryContext(
+                date_range=None,
+                team=self.team,
+                database=Database.create_for(team=self.team, user=cast(User, request.user)),
+            )
+        )
+        errors = factory.get_validation_errors(factory.create_adapters(raise_on_error=True))
+        return Response(SourceValidationSerializer({"errors_by_source": errors}).data)
 
     @validated_request(
         query_serializer=DataSourcesQuerySerializer,
