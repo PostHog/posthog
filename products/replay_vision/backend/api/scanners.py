@@ -96,6 +96,7 @@ from products.replay_vision.backend.impact import (
     compute_scanner_impact,
     create_affected_cohort,
 )
+from products.replay_vision.backend.jev_watch_feed import load_watch_ranks, rank_watch_feed_by_jev, watch_feed_ranker
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -1425,6 +1426,7 @@ class WatchFeedReason(models.TextChoices):
     RARE_TAG = "rare_tag"
     NOVEL_SUMMARY = "novel_summary"
     FRICTION = "friction"
+    JEV_WATCHABLE = "jev_watchable"
     UNVIEWED_RECENT = "unviewed_recent"
     RECENT = "recent"
 
@@ -1519,6 +1521,8 @@ class WatchFeedReasonSerializer(serializers.Serializer):
             "`rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that "
             "reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the "
             "session worth watching), `friction` (the scan describes errors, retries, or dead ends), "
+            "`jev_watchable` (the decision model judged the session worth watching; teams on the "
+            "Jev ranker experiment only), "
             "`unviewed_recent` (new to you), `recent` (nothing special, newest available)."
         ),
     )
@@ -1554,6 +1558,11 @@ class WatchFeedReasonSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.",
+    )
+    jev_probability = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.",
     )
     notability_reason = serializers.CharField(
         required=False,
@@ -2284,7 +2293,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
             .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
-        ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
+        # The flag selects one of two independent rankers; nothing is blended between them. Shadow
+        # teams rank on the weighted score too, because only the `jev` arm reads the probabilities
+        # the hourly sweep cached. Neither arm makes a model call here.
+        if watch_feed_ranker(self.team_id) == "jev":
+            ranked = rank_watch_feed_by_jev(candidate_rows, load_watch_ranks(self.team_id, allowed_ids))[
+                : params["limit"]
+            ]
+        else:
+            ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
             row.id: row

@@ -125,6 +125,8 @@ export function watchReasonCopy(reason: WatchFeedReasonApi): string {
             return 'The scanner judged this session worth watching.'
         case 'friction':
             return 'The session shows signs of friction, like errors, retries, or dead ends.'
+        case 'jev_watchable':
+            return 'The decision model judged this session worth watching.'
         case 'unviewed_recent':
             return 'New since you last looked.'
         case 'recent':

@@ -35,6 +35,7 @@ from products.replay_vision.backend.api.scanners import ReplayScannerSerializer,
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
+from products.replay_vision.backend.jev_watch_feed import WindowJudgment, store_watch_ranks
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -4733,6 +4734,52 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         )
         resp = self.client.get(self.feed_url)
         self.assertEqual(resp.json()["results"][0]["reason"], {"kind": "unviewed_recent"})
+
+    def test_the_flag_switches_the_whole_ranker_between_weighted_score_and_jev(self) -> None:
+        # The two rankers are independent: a cached Jev probability must not move the weighted-score
+        # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
+        # probabilities alone, with unjudged rows below every judged row as filler.
+        scanner = self._create_scanner(name="m")
+        jev_high = self._succeeded_observation(scanner, "jev-high", 40, self._monitor_result("no"))
+        self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
+        jev_low = self._succeeded_observation(scanner, "jev-low", 10, self._monitor_result("yes"))
+        store_watch_ranks(
+            self.team.id,
+            scanner.id,
+            WindowJudgment(
+                probabilities={str(jev_high.id): 0.95, str(jev_low.id): 0.2},
+                model="jevk5-fp8-0.2",
+                chunks=1,
+                failed_chunks=0,
+                input_tokens=10,
+                estimated_cost_usd=0.0,
+            ),
+        )
+
+        ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
+        for mode in ("weighted-score", "jev-shadow"):
+            with patch(ranker, return_value=mode):
+                resp = self.client.get(self.feed_url)
+            items = resp.json()["results"]
+            # The signal and the verdict hit lead as today; the cached 0.95 moves nothing.
+            self.assertEqual(
+                [item["observation"]["session_id"] for item in items],
+                ["signal", "jev-low", "jev-high"],
+                mode,
+            )
+            self.assertEqual(items[0]["reason"]["kind"], "signal_emitted", mode)
+            self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"}, mode)
+
+        with patch(ranker, return_value="jev"):
+            resp = self.client.get(self.feed_url)
+        items = resp.json()["results"]
+        self.assertEqual(
+            [item["observation"]["session_id"] for item in items],
+            ["jev-high", "jev-low", "signal"],
+        )
+        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
+        self.assertEqual(items[1]["reason"], {"kind": "jev_watchable", "jev_probability": 0.2})
+        self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
 
     def test_viewed_orders_within_tiers_but_never_sinks_a_signal_below_plain_rows(self) -> None:
         # Seen-state is a within-tier order, not a top-level one: a signal the reader saw yesterday
