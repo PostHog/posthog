@@ -3,8 +3,10 @@ import uuid
 import typing
 import asyncio
 import hashlib
+from itertools import pairwise
 
 from django.conf import settings
+from django.db.models import QuerySet
 from django.db.utils import OperationalError as DjangoOperationalError
 
 import orjson
@@ -39,6 +41,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.util import PostHogInternalDatabaseError
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
+from common.hogvm.python.operation import Operation
+
 # Per-file exceptions are swallowed (the file is deleted and the run continues), so a failed file
 # is silently dropped rows. The outcome label is what makes that visible to alerting.
 CDP_PRODUCER_FILES_TOTAL = Counter(
@@ -62,6 +66,24 @@ TRIGGER_SOURCE_BY_KIND: dict[TableKind, str] = {
     "view": "data-warehouse-view",
 }
 
+# A filter that calls one of these can reject a row on one run and accept the same row on a later
+# run, so an unchanged row is not a repeat for it.
+CLOCK_FUNCTIONS = frozenset({"now", "today", "yesterday"})
+
+
+def reads_the_clock(config: object) -> bool:
+    """Whether any compiled bytecode inside `config` calls a function whose result depends on the time."""
+    if isinstance(config, dict):
+        return any(reads_the_clock(value) for value in config.values())
+    if isinstance(config, list):
+        if any(
+            op == Operation.CALL_GLOBAL and isinstance(name, str) and name in CLOCK_FUNCTIONS
+            for op, name in pairwise(config)
+        ):
+            return True
+        return any(reads_the_clock(item) for item in config if isinstance(item, dict | list))
+    return False
+
 
 @frozen
 class CDPTriggerTable:
@@ -82,6 +104,7 @@ class CDPProducer:
     job_id: str
     logger: FilteringBoundLogger
     _should_run_cache: bool | None
+    _suppress_repeats_cache: bool | None
     _table_name_cache: str | None
     _fs_cache: pa_fs.S3FileSystem | None
 
@@ -91,6 +114,7 @@ class CDPProducer:
         self.job_id = job_id
         self.logger = logger
         self._should_run_cache = None
+        self._suppress_repeats_cache = None
         self._table_name_cache = None
         self._fs_cache = None
 
@@ -222,6 +246,42 @@ class CDPProducer:
             .exists()
         )
 
+    def _subscribed_hog_functions(self, dot_notated_table_name: str) -> QuerySet[HogFunction]:
+        return HogFunction.objects.filter(
+            team_id=self.team_id,
+            enabled=True,
+            filters__source=TRIGGER_SOURCE_BY_KIND[self.table.kind],
+            filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
+        ).exclude(deleted=True)
+
+    def _subscribed_hog_flows(self, dot_notated_table_name: str) -> QuerySet[HogFlow]:
+        return HogFlow.objects.filter(
+            team_id=self.team_id,
+            status=HogFlow.State.ACTIVE,
+            trigger__type=TRIGGER_SOURCE_BY_KIND[self.table.kind],
+            trigger__table_name=dot_notated_table_name,
+        )
+
+    async def _should_suppress_repeats(self) -> bool:
+        """Repeat suppression is only safe when every subscriber decides on the row content alone.
+
+        A filter such as `ready_at <= now()` rejects a row while its time is in the future. The same
+        unchanged row must reach that filter again on a later run, when the filter accepts it.
+        """
+        if self._suppress_repeats_cache is not None:
+            return self._suppress_repeats_cache
+
+        dot_notated_table_name = await self.get_dot_notated_table_name()
+
+        @database_sync_to_async_pool
+        def _check() -> bool:
+            filters = self._subscribed_hog_functions(dot_notated_table_name).values_list("filters", flat=True)
+            triggers = self._subscribed_hog_flows(dot_notated_table_name).values_list("trigger", flat=True)
+            return not any(reads_the_clock(config) for config in [*filters, *triggers])
+
+        self._suppress_repeats_cache = await _check()
+        return self._suppress_repeats_cache
+
     async def should_run(self) -> bool:
         if self._should_run_cache is not None:
             return self._should_run_cache
@@ -238,28 +298,12 @@ class CDPProducer:
                 if self.table.kind == "view" and not self._view_can_trigger():
                     return False
 
-                has_matching_hog_function = (
-                    HogFunction.objects.filter(
-                        team_id=self.team_id,
-                        enabled=True,
-                        filters__source=trigger_source,
-                        filters__data_warehouse__contains=[{"table_name": dot_notated_table_name}],
-                    )
-                    .exclude(deleted=True)
-                    .exists()
-                )
-
-                if has_matching_hog_function:
+                if self._subscribed_hog_functions(dot_notated_table_name).exists():
                     return True
 
                 # Also gate on active workflows (HogFlows) triggered by this table - without this the
                 # producer never emits to Kafka for a team whose only consumer is a warehouse-triggered workflow.
-                return HogFlow.objects.filter(
-                    team_id=self.team_id,
-                    status=HogFlow.State.ACTIVE,
-                    trigger__type=trigger_source,
-                    trigger__table_name=dot_notated_table_name,
-                ).exists()
+                return self._subscribed_hog_flows(dot_notated_table_name).exists()
             except (DjangoOperationalError, OSError) as e:
                 # This queries PostHog's own database, not the source being synced. A transient
                 # failure reaching it (e.g. a DNS blip resolving our host) stringifies with the
@@ -311,14 +355,15 @@ class CDPProducer:
             logger=self.logger,
         )
 
-    def _build_emitted_row_store(self) -> EmittedRowStore:
+    async def _build_emitted_row_store(self) -> EmittedRowStore:
         """Repeat suppression only applies to a view.
 
         A source sync mixes the job id into every event id, so the same row in a later sync is a
         new delivery and never a repeat. Leaving the source path clear of Redis also keeps the
         high-volume path as it was.
         """
-        key = emitted_rows_key(self.team_id, self.table.id) if self.table.kind == "view" else None
+        suppress = self.table.kind == "view" and await self._should_suppress_repeats()
+        key = emitted_rows_key(self.team_id, self.table.id) if suppress else None
         return EmittedRowStore(key, self.logger)
 
     async def produce_to_kafka_from_s3(self) -> None:
@@ -334,7 +379,7 @@ class CDPProducer:
 
         await self.logger.adebug(f"Found {len(files_to_produce)} files to produce to Kafka")
 
-        emitted_rows = self._build_emitted_row_store()
+        emitted_rows = await self._build_emitted_row_store()
         await emitted_rows.load()
         suppressed_rows = 0
 

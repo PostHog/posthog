@@ -1256,8 +1256,9 @@ def test_staging_paths_never_collide_between_a_schema_and_a_view_of_the_same_id(
 
 
 def _producer_with_known_table_name(producer: CDPProducer) -> CDPProducer:
-    """Prime the table-name cache so a produce cycle needs no database."""
+    """Prime the table-name and subscriber caches so a produce cycle needs no database."""
     producer._table_name_cache = "my_view"
+    producer._suppress_repeats_cache = True
     return producer
 
 
@@ -1360,6 +1361,37 @@ async def test_what_a_later_view_run_produces(runs, produced_by_the_last_run):
         produced = await _produce_staged_rows(_view_producer_for_id(view_id, f"job_{run}"), rows)
 
     assert produced == produced_by_the_last_run
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize(
+    "filter_expression,repeats",
+    [
+        # A time-window filter rejects a row while its time is in the future. The same unchanged row
+        # must reach the filter again on a later run, or the destination never receives it.
+        ("toUnixTimestamp(properties.ready_at, 'UTC') <= toUnixTimestamp(now())", True),
+        ("properties.total > 1", False),
+    ],
+    ids=["filter reads the clock", "filter reads only the row"],
+)
+@pytest.mark.asyncio
+async def test_an_unchanged_view_row_repeats_only_for_a_filter_that_reads_the_clock(team, filter_expression, repeats):
+    view = await _create_view(team, name="my_view")
+    await sync_to_async(HogFunction.objects.create)(
+        team=team,
+        enabled=True,
+        hog="return 1",
+        filters={
+            "source": "data-warehouse-view",
+            "data_warehouse": [{"table_name": "my_view"}],
+            "properties": [{"key": filter_expression, "type": "hogql"}],
+        },
+    )
+    rows = [{"id": 1, "total": 5, "ready_at": "2099-01-01T00:00:00Z"}]
+
+    await _produce_staged_rows(_view_producer_for(view), rows)
+
+    assert await _produce_staged_rows(_view_producer_for(view), rows) == (rows if repeats else [])
 
 
 @pytest.mark.parametrize(
