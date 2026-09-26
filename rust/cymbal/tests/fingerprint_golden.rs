@@ -7,7 +7,7 @@
 
 use common_types::error_tracking::FrameId;
 use common_types::ClickHouseEvent;
-use cymbal::fingerprinting::Fingerprint;
+use cymbal::fingerprinting::{Fingerprint, FingerprintVersion};
 use cymbal::frames::Frame;
 use cymbal::types::{Exception, RawExceptionProperties, Stacktrace};
 
@@ -61,6 +61,10 @@ fn resolved_stack(frames: Vec<Frame>) -> Option<Stacktrace> {
 fn snapshot(name: &str, exceptions: Vec<Exception>) {
     let fingerprint = Fingerprint::from_exception_list(&exceptions.into());
     insta::assert_json_snapshot!(name, fingerprint);
+}
+
+fn snapshot_version(name: &str, version: FingerprintVersion, exceptions: Vec<Exception>) {
+    insta::assert_json_snapshot!(name, version.compute(&exceptions.into()));
 }
 
 #[test]
@@ -249,5 +253,37 @@ fn golden_static_raw_ch_exception_list() {
     snapshot(
         "static_raw_ch_exception_list",
         props.exception_list.iter().cloned().collect(),
+    );
+}
+
+#[test]
+fn golden_v3_masks_minified_names() {
+    // An unresolved javascript stack, which is what a bundle shipped without source maps
+    // produces. Pins the masked key so a refactor cannot silently regroup live issues: the
+    // receiver and the bare name must read as `*`, and the authored members must survive.
+    let minified = |name: &str, line: u32| {
+        frame(
+            name,
+            Some("/static/chunk-ABCDEFGH.js"),
+            None,
+            None,
+            false,
+            true,
+            Some(line),
+            Some(line + 1),
+        )
+    };
+    snapshot_version(
+        "v3_minified_names",
+        FingerprintVersion::V3,
+        vec![exception(
+            "TypeError",
+            "Cannot read properties of undefined",
+            resolved_stack(vec![
+                minified("async loadBilling", 1),
+                minified("Ge.fileSystem", 3),
+                minified("Ns", 5),
+            ]),
+        )],
     );
 }

@@ -86,22 +86,29 @@ pub enum FingerprintVersion {
     // line/column, and normalizes volatile path and message tokens. Selected by an offline
     // research loop: pairwise F1 0.40 vs 0.26 for V1 on a held-out LLM-labeled pair dataset.
     V2,
+    // V2 plus masked minified function names. V2 normalizes the volatile parts of a frame's path
+    // but still hashes an unresolved function name raw, so a customer shipping minified
+    // javascript without source maps gets a fresh issue for an ongoing error at every deploy.
+    // No legacy twin: wire-order normalization predates this version, so no V3-keyed issue was
+    // ever created over the pre-flip order.
+    V3,
 }
 
 impl FingerprintVersion {
     // All registered versions, ascending. Order is meaningful: selection keeps the newest
     // already-used fingerprint, and new issues are created under the last (newest) entry.
     pub fn all() -> &'static [FingerprintVersion] {
-        // Each legacy twin sits immediately below its canonical version, so the
-        // newest-first selection walk prefers V2, then V2's legacy order, then
-        // V1, then V1's — an event matching both a V2-era legacy row and an
-        // older V1 row stays on the newer issue. The last entry (the new-issue
-        // fallback) must never be a legacy version.
+        // Each legacy twin sits immediately below the version it twins, so the
+        // newest-first selection walk prefers V3, then V2, then V2's legacy
+        // order, then V1, then V1's — an event matching both a V2-era legacy
+        // row and an older V1 row stays on the newer issue. The last entry
+        // (the new-issue fallback) must never be a legacy version.
         &[
             FingerprintVersion::V1Legacy,
             FingerprintVersion::V1,
             FingerprintVersion::V2Legacy,
             FingerprintVersion::V2,
+            FingerprintVersion::V3,
         ]
     }
 
@@ -111,6 +118,7 @@ impl FingerprintVersion {
             FingerprintVersion::V2Legacy => "v2_legacy",
             FingerprintVersion::V1 => "v1",
             FingerprintVersion::V2 => "v2",
+            FingerprintVersion::V3 => "v3",
         }
     }
 
@@ -144,6 +152,7 @@ impl FingerprintVersion {
                     strip_hashed_chunks: true,
                     basename_only: true,
                     mask_page_paths: true,
+                    mask_minified_names: false,
                 },
                 message_normalize: MessageNormalization {
                     mask_quoted: true,
@@ -152,6 +161,11 @@ impl FingerprintVersion {
                     truncate: Some(200),
                 },
             },
+            FingerprintVersion::V3 => {
+                let mut strategy = FingerprintVersion::V2.strategy();
+                strategy.normalize.mask_minified_names = true;
+                strategy
+            }
         }
     }
 }
@@ -194,14 +208,22 @@ pub struct Normalization {
     // document URL as its source, and the frame builder keeps the path of that URL, so the page
     // a person happened to be on keys the hash and one bug forks into an issue per page.
     pub mask_page_paths: bool,
+    // "Ge.fileSystem" -> "*.fileSystem". Masks the bundler-generated tokens of an unresolved
+    // javascript function name, which are renamed on every build.
+    pub mask_minified_names: bool,
 }
 
 // The source of a javascript frame that ran in a page rather than in a script, as hashed in
 // place of the page path.
 const PAGE_SOURCE: &str = "<page>";
 
+// A bundler draws mangled names from a short alphabet and hands them out in frequency order, so
+// one to three characters is the generated range. A longer token is a name somebody wrote.
+const MINIFIED_NAME_MAX_LEN: usize = 3;
+
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
 static HEX_GROUP_TOKEN: OnceLock<Regex> = OnceLock::new();
+static NAME_TOKEN: OnceLock<Regex> = OnceLock::new();
 
 // Build hashes are long alphanumeric runs. Most bundler hash alphabets include digits, but
 // esbuild's can land on an all-letter token (chunk-SURMLCAQ.js), so a digit-only test misses
@@ -233,7 +255,8 @@ impl Normalization {
         !(self.strip_query_strings
             || self.strip_hashed_chunks
             || self.basename_only
-            || self.mask_page_paths)
+            || self.mask_page_paths
+            || self.mask_minified_names)
     }
 
     fn apply_source<'a>(&self, value: &'a str, lang: &str) -> Cow<'a, str> {
@@ -276,6 +299,27 @@ impl Normalization {
             }
         }
         Cow::Owned(out)
+    }
+
+    // Masks the build-volatile tokens of an unresolved javascript function name. A bundler
+    // renames the same function on every build, so hashing the name whole forks the issue of an
+    // ongoing error at each deploy. Only the short tokens are generated: a name like
+    // `Ge.fileSystem` or `async Object.getResponse` carries a member the author wrote next to a
+    // receiver that moves, so mask per token and keep the separators, which leaves the authored
+    // part of the name still separating issues. Other languages do not minify.
+    fn apply_function_name<'a>(&self, value: &'a str, lang: &str) -> Cow<'a, str> {
+        if !self.mask_minified_names || lang != "javascript" {
+            return Cow::Borrowed(value);
+        }
+        let re = NAME_TOKEN.get_or_init(|| Regex::new(r"[A-Za-z0-9_$]+").expect("valid regex"));
+        re.replace_all(value, |caps: &regex::Captures| {
+            let token = &caps[0];
+            if token.len() <= MINIFIED_NAME_MAX_LEN {
+                "*".to_string()
+            } else {
+                token.to_string()
+            }
+        })
     }
 
     fn apply_module<'a>(&self, value: &'a str) -> Cow<'a, str> {
@@ -474,7 +518,11 @@ impl FingerprintStrategy {
         }
 
         // Otherwise, get more granular
-        fp.update(frame.mangled_name.as_bytes());
+        fp.update(
+            self.normalize
+                .apply_function_name(&frame.mangled_name, &frame.lang)
+                .as_bytes(),
+        );
         included_pieces.push("Mangled function name");
 
         if self.unresolved_include_line {
@@ -894,6 +942,107 @@ mod test {
                 "V2 should merge {msg_a:?} vs {msg_b:?}"
             );
         }
+    }
+
+    // ---- V2 vs V3 direction tests ----
+
+    // An unresolved javascript stack, as a customer shipping minified bundles without source
+    // maps produces. Only the function names move between builds.
+    fn minified_stack(names: [&str; 2]) -> Vec<Exception> {
+        let at = |name: &str| {
+            frame(
+                name,
+                Some("/static/chunk-ABCDEFGH.js"),
+                None,
+                false,
+                true,
+                None,
+            )
+        };
+        vec![exception(
+            "TypeError",
+            "Cannot read properties of undefined",
+            resolved_stack(vec![at(names[0]), at(names[1])]),
+        )]
+    }
+
+    #[test]
+    fn v3_merges_stacks_that_only_differ_by_minified_names() {
+        // Each pair is one stack across two builds: bare mangled names, a moved receiver in
+        // front of a member the author wrote, and a moved name behind a keyword.
+        let cases = [
+            (["Ns", "Ss"], ["Ni", "Si"]),
+            (["we.get", "wmt"], ["We.get", "T1t"]),
+            (["async Hs", "new cE"], ["async Kl", "new yl"]),
+        ];
+        for (build_a, build_b) in cases {
+            assert_ne!(
+                value(FingerprintVersion::V2, minified_stack(build_a)),
+                value(FingerprintVersion::V2, minified_stack(build_b)),
+                "V2 should split {build_a:?} vs {build_b:?}"
+            );
+            assert_eq!(
+                value(FingerprintVersion::V3, minified_stack(build_a)),
+                value(FingerprintVersion::V3, minified_stack(build_b)),
+                "V3 should merge {build_a:?} vs {build_b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn v3_keeps_authored_names_apart() {
+        // The other direction: masking only the generated tokens has to leave enough of a
+        // minified name to still separate two different bugs in one bundle.
+        let cases = [
+            (
+                ["async loadBilling", "Nd.apply"],
+                ["async loadActions", "Nd.apply"],
+            ),
+            (["Ge.fileSystem", "l"], ["Ge.coreMemory", "l"]),
+            (
+                ["async Object.getResponse", "l"],
+                ["async Object.createResponse", "l"],
+            ),
+        ];
+        for (stack_a, stack_b) in cases {
+            assert_ne!(
+                value(FingerprintVersion::V3, minified_stack(stack_a)),
+                value(FingerprintVersion::V3, minified_stack(stack_b)),
+                "V3 should split {stack_a:?} vs {stack_b:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn v3_only_masks_unresolved_javascript_names() {
+        // A resolved name comes from a source map and is stable, and no other language
+        // minifies, so a short name still separates issues in both cases.
+        let short_name = |name: &str, resolved_name: Option<&str>, lang: &str| {
+            let mut f = frame(
+                name,
+                Some("/static/app.js"),
+                resolved_name,
+                resolved_name.is_some(),
+                true,
+                None,
+            );
+            f.lang = lang.to_string();
+            vec![exception("TypeError", "boom", resolved_stack(vec![f]))]
+        };
+        assert_ne!(
+            value(
+                FingerprintVersion::V3,
+                short_name("Ns", Some("fn"), "javascript")
+            ),
+            value(
+                FingerprintVersion::V3,
+                short_name("Ss", Some("go"), "javascript")
+            ),
+        );
+        assert_ne!(
+            value(FingerprintVersion::V3, short_name("Ns", None, "python")),
+            value(FingerprintVersion::V3, short_name("Ss", None, "python")),
+        );
     }
 
     #[test]
