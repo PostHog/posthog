@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 16,
     INDEX idx_trace_bloom_part trace_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
     INDEX idx_span_id_bloom_part span_id TYPE bloom_filter(0.00001) GRANULARITY 99999,
+    INDEX idx_trace_bloom_part_v2 trace_id TYPE bloom_filter(0.05) GRANULARITY 99999,
+    INDEX idx_span_id_bloom_part_v2 span_id TYPE bloom_filter(0.05) GRANULARITY 99999,
 
     -- Powers the Spans-view sparkline (spans per minute via sum(event_count)). is_root_span is a
     -- projection dimension so the Traces-view sparkline (distinct traces per minute) can serve from
@@ -104,6 +106,18 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     PROJECTION projection_index_trace_id
     (
         SELECT _part_offset
+        ORDER BY trace_id
+    ),
+
+    PROJECTION projection_index_team_span_id
+    (
+        SELECT team_id, _part_offset
+        ORDER BY span_id
+    ),
+
+    PROJECTION projection_index_team_trace_id
+    (
+        SELECT team_id, _part_offset
         ORDER BY trace_id
     )
 )
@@ -333,10 +347,13 @@ SETTINGS
 """
 
 
-def KAFKA_TRACE_SPANS_AVRO_MV():
+def KAFKA_TRACE_SPANS_AVRO_MV(to_table: str = TABLE_NAME):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
+    # `to_table` defaults to `trace_spans` for the environments that keep this MV on the logs
+    # nodes, where that table is local. Dev keeps it on the apm nodes instead, which host only
+    # `writable_trace_spans` — the Distributed proxy — so migration 0330 passes that name there.
     return f"""
-CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{TABLE_NAME}
+CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{KAFKA_TABLE_NAME}_mv TO {db}.{to_table}
 (
     `uuid` String,
     `trace_id` String,

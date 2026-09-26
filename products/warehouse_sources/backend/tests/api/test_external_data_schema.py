@@ -1,9 +1,10 @@
 import uuid
 import contextlib
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
@@ -89,6 +90,37 @@ class TestExternalDataSchema(APIBaseTest):
         self.postgres_connection = postgres_connection
         self.postgres_config = postgres_config
         self.temporal = temporal
+
+    @parameterized.expand(
+        [
+            ("healthy", {}, ExternalDataSchema.Status.RUNNING),
+            (
+                "halted",
+                {"cdc_extraction_paused": {"reason": "transaction_too_large"}},
+                ExternalDataSchema.Status.FAILED,
+            ),
+        ]
+    )
+    def test_sync_now_leaves_a_halted_cdc_schema_failed(self, _name: str, config: dict, expected: str) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="users",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config=config,
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema._trigger_schema_sync"
+        ):
+            response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/reload/")
+
+        assert response.status_code == 200, response.content
+        schema.refresh_from_db()
+        assert schema.status == expected
 
     def test_incremental_fields_stripe(self):
         source = ExternalDataSource.objects.create(
@@ -1064,6 +1096,18 @@ class TestExternalDataSchema(APIBaseTest):
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
             ),
+            (
+                "rejects_a_source_column_named_like_the_position_column",
+                {
+                    "primary_key_columns": ["id"],
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "_ph_cdc_seq"}]},
+                },
+                None,
+                status.HTTP_400_BAD_REQUEST,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                "_ph_cdc_seq",
+            ),
         ]
     )
     def test_update_schema_to_cdc(
@@ -1074,6 +1118,7 @@ class TestExternalDataSchema(APIBaseTest):
         expected_status: int,
         expected_sync_type: str,
         expected_pk_columns: list[str] | None,
+        expected_error: str = "primary key",
     ):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -1113,7 +1158,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == expected_status, response.content
         if expected_status == status.HTTP_400_BAD_REQUEST:
-            assert "primary key" in str(response.json()).lower()
+            assert expected_error in str(response.json()).lower()
         schema.refresh_from_db()
         assert schema.sync_type == expected_sync_type
         if expected_pk_columns is not None:
@@ -1612,6 +1657,122 @@ class TestExternalDataSchema(APIBaseTest):
         # The missing schedule is created (recovered) with the new cadence, not left absent.
         mock_sync_workflow.assert_called_once()
         assert mock_sync_workflow.call_args.kwargs["create"] is True
+
+    @parameterized.expand(
+        [
+            (
+                "enabling_starts_the_clock",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                {"full_refresh_interval_days": 7},
+                200,
+                (7, datetime(2026, 10, 1, 12, tzinfo=UTC)),
+            ),
+            (
+                "changing_the_interval_restarts_the_clock",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 3},
+                200,
+                (3, datetime(2026, 9, 27, 12, tzinfo=UTC)),
+            ),
+            (
+                "resaving_the_same_interval_keeps_the_clock",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": 7, "sync_time_of_day": "05:00:00"},
+                200,
+                (7, datetime(2026, 9, 26, tzinfo=UTC)),
+            ),
+            (
+                "clearing_the_interval_clears_the_clock",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"full_refresh_interval_days": None},
+                200,
+                (None, None),
+            ),
+            (
+                "switching_to_full_refresh_turns_it_off",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"sync_type": "full_refresh"},
+                200,
+                (None, None),
+            ),
+            (
+                "switching_to_full_refresh_with_the_saved_interval_resent_turns_it_off",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                7,
+                {"sync_type": "full_refresh", "full_refresh_interval_days": 7},
+                200,
+                (None, None),
+            ),
+            (
+                "a_full_refresh_table_rejects_it",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                None,
+                {"full_refresh_interval_days": 7},
+                400,
+                (None, None),
+            ),
+            (
+                "an_interval_shorter_than_the_sync_frequency_is_rejected",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                None,
+                {"full_refresh_interval_days": 3, "sync_frequency": "7day"},
+                400,
+                (None, None),
+            ),
+            (
+                "a_sync_frequency_longer_than_the_interval_is_rejected",
+                ExternalDataSchema.SyncType.INCREMENTAL,
+                3,
+                {"sync_frequency": "7day"},
+                400,
+                (3, datetime(2026, 9, 26, tzinfo=UTC)),
+            ),
+        ]
+    )
+    def test_full_refresh_interval_schedules_the_next_full_refresh(
+        self,
+        _name: str,
+        sync_type: str,
+        initial_days: int | None,
+        payload: dict[str, Any],
+        expected_status: int,
+        expected: tuple[int | None, datetime | None],
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=sync_type,
+            sync_type_config={"incremental_field": "updated_at", "incremental_field_type": "timestamp"},
+            full_refresh_interval_days=initial_days,
+            next_full_refresh_at=datetime(2026, 9, 26, tzinfo=UTC) if initial_days else None,
+        )
+
+        with (
+            time_machine.travel(datetime(2026, 9, 24, 12, tzinfo=UTC), tick=False),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data=payload, format="json"
+            )
+
+        assert response.status_code == expected_status, response.content
+        schema.refresh_from_db()
+        assert (schema.full_refresh_interval_days, schema.next_full_refresh_at) == expected
 
     def test_update_schema_enable_should_sync_rejects_cdc_without_primary_key(self):
         # Schemas already in CDC mode with an empty primary_key_columns (created before the
@@ -3058,6 +3219,12 @@ class TestUpdateExternalDataSchema:
             ),
             mock.patch(
                 "products.warehouse_sources.backend.presentation.views.external_data_schema.sync_cdc_extraction_schedule"
+            ),
+            # The load queue lives in the warehouse-sources database, which this test does not
+            # create. Left real, the probe raises and the reset is handed to capture instead.
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.has_queued_batches",
+                return_value=False,
             ),
         ):
             response = client.patch(

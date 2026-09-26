@@ -1,7 +1,7 @@
 import datetime as dt
 from uuid import UUID
 
-from temporalio.common import Priority
+from temporalio.common import Priority, RetryPolicy
 
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
@@ -18,6 +18,17 @@ ADMISSION_BUDGET_TTL = dt.timedelta(seconds=15)
 # between phases. If this timeout wins instead of an activity, the workflow's except block never runs and the
 # row is stranded in `running` until the reaper's cutoff below.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(minutes=110)
+
+# Retry policy for the short Postgres writes that move an observation or its media between states.
+STATE_ACTIVITY_RETRY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=1),
+    maximum_interval=dt.timedelta(seconds=10),
+    maximum_attempts=5,
+)
+
+# Bounds each state write's whole retry chain, backoff included, so the failure path provably fits inside
+# APPLY_SCANNER_EXECUTION_TIMEOUT (see the arithmetic on that constant).
+STATE_ACTIVITY_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=3)
 
 
 def on_demand_priority(team_id: int) -> Priority:

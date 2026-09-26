@@ -61,14 +61,15 @@ tools:
             Session recordings are reachable from events, errors, and persons via the `$session_id` property on events.
             Any `$session_id` value from an event can be passed as the `id` parameter to this tool. Note: a
             `$session_id` on an event does not guarantee a recording exists — session replay may not be enabled for that
-            project or session. A 404 means no recording was captured. If the user wants to understand what happened
-            without watching the recording, check `vision-observations-list` for an existing Replay Vision AI summary of
-            the session. To generate one, call `vision-scanners-inline-scan-create` with the session id in
+            project or session. When no recording is available, the tool returns `found: false` with reason
+            `recording_not_found`; this is a normal lookup result, not a tool failure. If the user wants to understand
+            what happened without watching the recording, check `vision-observations-list` for an existing Replay Vision
+            AI summary of the session. To generate one, call `vision-scanners-inline-scan-create` with the session id in
             `session_ids`, `scanner_type: "summarizer"`, and a `prompt` (required), then read the summary back with
             `vision-observations-list`. The investigating-replay skill carries the exact prompt and `scanner_config` the
             Summarize button in the player uses, so pass those to land on the same summary (scanning is slow).
             `vision-scanners-scan-session` points a saved scanner at the session instead. If a recording is missing
-            (404) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query
+            (`found: false`) or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query
             `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and
             `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific
             session, or sample recent events for project-wide issues).

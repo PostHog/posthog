@@ -1,3 +1,6 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { SceneExport } from 'scenes/sceneTypes'
@@ -12,12 +15,12 @@ export interface ProjectFilesSceneProps {
 
 export const scene: SceneExport<ProjectFilesSceneProps> = {
     component: ProjectFilesScene,
-    paramsToProps: ({ searchParams }) => ({
-        folder: typeof searchParams.folder === 'string' ? searchParams.folder.replace(/^\/+|\/+$/g, '') : '',
-    }),
 }
 
-export function ProjectFilesScene({ folder = '' }: ProjectFilesSceneProps): JSX.Element {
+export function ProjectFilesScene({ folder: folderProp }: ProjectFilesSceneProps): JSX.Element {
+    const { searchParams } = useValues(router)
+    const folder =
+        folderProp ?? (typeof searchParams.folder === 'string' ? searchParams.folder.replace(/^\/+|\/+$/g, '') : '')
     return (
         <SceneContent className="h-full min-h-0 flex-1 overflow-hidden gap-y-2 pb-1">
             <div className="flex shrink-0 items-center gap-2">

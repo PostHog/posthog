@@ -830,6 +830,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         return self.list(request, *args, **kwargs)
 
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(
         methods=["POST"],
         detail=False,

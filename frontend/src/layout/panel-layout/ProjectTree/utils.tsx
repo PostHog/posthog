@@ -17,6 +17,7 @@ export const CATEGORY_ORDER = [
     'Analytics',
     'AI engineering',
     'Behavior',
+    'Messaging',
     'App monitoring',
     'Features',
     'Tools',
@@ -140,7 +141,7 @@ export function convertFileSystemEntryToTreeDataItem({
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
         // Check for custom icon component first (e.g., badges), then fall back to static icon
-        const CustomIcon = getCustomIcon(item.type)
+        const CustomIcon = getCustomIcon(item.type, item.href)
         const icon = CustomIcon ? (
             <CustomIcon />
         ) : (

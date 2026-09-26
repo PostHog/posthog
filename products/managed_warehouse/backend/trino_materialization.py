@@ -46,10 +46,6 @@ def execute_trino_shadow_materialization(
         try:
             if control:
                 control.checkpoint()
-            cursor.execute("SET SESSION query_max_run_time = '15m'")
-            cursor.fetchall()
-            if control:
-                control.checkpoint()
             cursor.execute(f"CREATE SCHEMA IF NOT EXISTS {schema}")
             cursor.fetchall()
             if control:

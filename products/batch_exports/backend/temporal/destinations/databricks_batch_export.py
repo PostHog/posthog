@@ -1020,6 +1020,7 @@ def _events_table_fields(json_type: str) -> list[DatabricksField]:
         ("event", "STRING"),
         ("properties", json_type),
         ("person_properties", json_type),
+        ("person_id", "STRING"),
         ("distinct_id", "STRING"),
         ("team_id", "BIGINT"),
         ("timestamp", "TIMESTAMP"),

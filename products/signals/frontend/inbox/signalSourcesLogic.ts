@@ -74,6 +74,12 @@ function inheritedErrorTrackingConfig(configs: SignalSourceConfig[]): Record<str
 /** Warehouse-backed signal sources, keyed by roster source id. */
 export type WarehouseBackedSource = 'github' | 'linear' | 'zendesk' | 'pganalyze' | 'engineering_analytics'
 
+/** Why the Linear teams picker is open: enabling the source (its save turns it on) or editing the filter. */
+export interface LinearTeamsPickerState {
+    enableOnSave: boolean
+    viaSetupWizard: boolean
+}
+
 type WarehouseSourceCompletion =
     | {
           kind: 'source_config'
@@ -246,6 +252,7 @@ export interface signalSourcesLogicValues {
     isPgAnalyzeIssuesToggling: boolean
     isZendeskTicketsToggling: boolean
     linearIssuesConfig: SignalSourceConfig | null
+    linearTeamsPicker: LinearTeamsPickerState | null
     pgAnalyzeIssuesConfig: SignalSourceConfig | null
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoadFailed: boolean
@@ -267,6 +274,9 @@ export interface signalSourcesLogicActions {
         value: true
     } // sourcesDataLogic
     closeDataSourceSetup: () => {
+        value: true
+    }
+    closeLinearTeamsPicker: () => {
         value: true
     }
     closeSourcesModal: () => {
@@ -350,6 +360,7 @@ export interface signalSourcesLogicActions {
     openDataSourceSetup: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
+    openLinearTeamsPicker: (state: LinearTeamsPickerState) => LinearTeamsPickerState
     openSourcesModal: () => {
         value: true
     }
@@ -516,6 +527,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         openDataSourceSetup: (source: WarehouseBackedSource) => ({ source }),
         closeDataSourceSetup: true,
         onDataSourceSetupComplete: true,
+        openLinearTeamsPicker: (state: LinearTeamsPickerState) => state,
+        closeLinearTeamsPicker: true,
         toggleSignalSource: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceSuccess: (params: ToggleSignalSourceParams) => ({ params }),
         toggleSignalSourceFailure: (params: ToggleSignalSourceParams, error: string) => ({ params, error }),
@@ -637,6 +650,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 openDataSourceSetup: (_, { source }) => source,
                 closeDataSourceSetup: () => null,
+                closeSourcesModal: () => null,
+            },
+        ],
+        linearTeamsPicker: [
+            null as LinearTeamsPickerState | null,
+            {
+                openLinearTeamsPicker: (_, state) => state,
+                closeLinearTeamsPicker: () => null,
                 closeSourcesModal: () => null,
             },
         ],
@@ -1074,6 +1095,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     if ((currentConfig?.enabled ?? false) === desiredEnabled) {
                         return
                     }
+                    // Linear asks which teams to read before it turns on; the picker's save does the toggle.
+                    if (source === 'linear' && desiredEnabled) {
+                        actions.openLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: false })
+                        return
+                    }
                     actions.setDataWarehouseSourceEnabled(source, desiredEnabled)
                     downstreamToggleStarted = true
                 } catch (error: any) {
@@ -1093,6 +1119,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 const { completion } = WAREHOUSE_SOURCE_SETUP[source]
                 if (completion.kind === 'ci_signals_bundle') {
                     actions.toggleCiSignals(true)
+                    return
+                }
+                if (source === 'linear') {
+                    actions.openLinearTeamsPicker({ enableOnSave: true, viaSetupWizard: true })
                     return
                 }
                 actions.toggleSignalSource({

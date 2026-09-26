@@ -359,6 +359,76 @@ class TestKnowledgeSourceAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_lists_live_indexed_urls(self, _ff) -> None:
+        from posthog.models.team import Team
+
+        source = KnowledgeSource.objects.unscoped().create(
+            team=self.team,
+            name="Docs",
+            source_type="url",
+            status="ready",
+            source_url="https://docs.example.com",
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/b",
+            title="Beta",
+            content="secret page body",
+            url="https://docs.example.com/b",
+            safety_verdict=SafetyVerdict.SAFE,
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/a",
+            title="Alpha",
+            content="another secret body",
+            url="https://docs.example.com/a",
+            safety_verdict=SafetyVerdict.UNKNOWN,
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=self.team,
+            source=source,
+            stable_id="https://docs.example.com/gone",
+            title="Gone",
+            content="removed page",
+            url="https://docs.example.com/gone",
+            safety_verdict=SafetyVerdict.SAFE,
+            tombstoned_at=timezone.now(),
+        )
+        other_team = Team.objects.create_with_data(
+            organization=self.organization, initiating_user=self.user, name="Other"
+        )
+        other_source = KnowledgeSource.objects.unscoped().create(
+            team=other_team,
+            name="Theirs",
+            source_type="url",
+            status="ready",
+            source_url="https://other.example.com",
+        )
+        KnowledgeDocument.objects.unscoped().create(
+            team=other_team,
+            source=other_source,
+            stable_id="https://other.example.com/secret",
+            title="Secret",
+            content="other team",
+            url="https://other.example.com/secret",
+        )
+
+        response = self.client.get(f"{self.url}{source.id}/documents/?limit=500")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        rows = response.json()["results"]
+        assert [row["url"] for row in rows] == [
+            "https://docs.example.com/a",
+            "https://docs.example.com/b",
+        ]
+        assert rows[0]["title"] == "Alpha"
+        assert rows[0]["safety_verdict"] == "unknown"
+        assert "content" not in rows[0]
+        assert self.client.get(f"{self.url}{other_source.id}/documents/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{self.url}not-a-uuid/documents/").status_code == status.HTTP_404_NOT_FOUND
+
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
 class TestEmbeddingStatusAPI(APIBaseTest):

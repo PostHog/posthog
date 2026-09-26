@@ -23,9 +23,10 @@ import type { SyncStatusEnumApi } from 'products/engineering_analytics/frontend/
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceToolDataStatus, SourceToolStatus } from '../../signalSourcesLogic'
-import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType } from '../../types'
+import { SignalSourceConfig, SignalSourceConfigStatus, SignalSourceType, linearTeamIdsFromConfig } from '../../types'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
+import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
@@ -61,6 +62,14 @@ function entityKindLabel(kind: string): string {
 /** Above this many entities the list gets a filter box. */
 const ENTITY_FILTER_THRESHOLD = 8
 
+function linearTeamsSummary(config: SignalSourceConfig): string {
+    const count = linearTeamIdsFromConfig(config.config).length
+    if (count === 0) {
+        return 'Reads issues from all Linear teams.'
+    }
+    return `Reads issues from ${count} Linear ${count === 1 ? 'team' : 'teams'}.`
+}
+
 /** The entity rows are part of the source list, so an unbounded one would push every source below it off screen. */
 const ENTITY_VISIBLE_LIMIT = 8
 
@@ -87,6 +96,13 @@ interface RosterEntity {
     detail?: string
     kind?: string
     enabled: boolean
+}
+
+interface SourceFilters {
+    summary: string
+    changeLabel: string
+    onChange: () => void
+    disabledReason?: string
 }
 
 /** Per-source derived state assembled by `AgentsRoster` from `signalSourcesLogic`. */
@@ -224,7 +240,7 @@ interface ExpansionProps {
     enablingTool: boolean
     onEnableTool: (tool: SourceToolStatus) => void
     onToggleEntity: (entityId: string) => void
-    onConfigureFilters?: () => void
+    filters?: SourceFilters
     /** Opens the steering form. Only set for steerable sources that are on with a persisted config row. */
     onSteer?: () => void
     onRetryData: () => void
@@ -293,7 +309,7 @@ function Expansion({
     enablingTool,
     onEnableTool,
     onToggleEntity,
-    onConfigureFilters,
+    filters,
     onSteer,
     onRetryData,
 }: ExpansionProps): JSX.Element {
@@ -312,7 +328,7 @@ function Expansion({
     const steeringIsSet = state.steeringConfigs.some(sourceSteeringIsSet)
     // `ToolDataStatus` renders nothing for an unavailable status, so the meta line would be empty.
     const hasToolLine = !!tool && (toolOff || tool.dataStatus !== 'unavailable')
-    const hasMetaLine = hasToolLine || !!onSteer || !!onConfigureFilters
+    const hasMetaLine = hasToolLine || !!onSteer
     const newEntityButton = agent.manageUrl ? (
         <LemonButton size="xsmall" type="secondary" to={agent.manageUrl} icon={<IconPlus />} targetBlank>
             New {agent.entityNounSingular}
@@ -372,12 +388,21 @@ function Expansion({
                                     {steeringIsSet ? 'Edit guidance' : 'Add guidance'}
                                 </LemonButton>
                             )}
-                            {onConfigureFilters && (
-                                <LemonButton type="secondary" size="xsmall" onClick={onConfigureFilters}>
-                                    Configure filters
-                                </LemonButton>
-                            )}
                         </div>
+                    </div>
+                )}
+                {filters && (
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-secondary">{filters.summary}</span>
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            onClick={filters.onChange}
+                            disabledReason={filters.disabledReason}
+                            data-attr="signal-source-change-filters"
+                        >
+                            {filters.changeLabel}
+                        </LemonButton>
                     </div>
                 )}
             </div>
@@ -467,7 +492,7 @@ interface AgentRowProps {
     onToggle: (source: AgentRosterSource) => void
     onToggleEntity: (source: AgentRosterSource, entityId: string) => void
     onEnableTool: (tool: SourceToolStatus) => void
-    onConfigureFilters?: () => void
+    filters?: SourceFilters
     onSteer?: () => void
     onRetryData: () => void
 }
@@ -482,7 +507,7 @@ const AgentRow = memo(function AgentRow({
     onToggle,
     onToggleEntity,
     onEnableTool,
-    onConfigureFilters,
+    filters,
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
@@ -584,7 +609,7 @@ const AgentRow = memo(function AgentRow({
                     enablingTool={enablingTool}
                     onEnableTool={onEnableTool}
                     onToggleEntity={(entityId) => onToggleEntity(agent.source, entityId)}
-                    onConfigureFilters={onConfigureFilters}
+                    filters={filters}
                     onSteer={onSteer}
                     onRetryData={onRetryData}
                 />
@@ -647,8 +672,11 @@ export function AgentsRoster(): JSX.Element {
         enablingTool,
         sourceConfigsLoadFailed,
         sourceConfigsLoading,
+        linearTeamsPicker,
     } = useValues(signalSourcesLogic)
     const {
+        openLinearTeamsPicker,
+        closeLinearTeamsPicker,
         toggleConversations,
         toggleErrorTracking,
         toggleErrorTrackingType,
@@ -918,6 +946,23 @@ export function AgentsRoster(): JSX.Element {
                                 state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
                                     ? state.steeringConfigs
                                     : null
+                            const filters =
+                                agent.source === 'linear' &&
+                                linearIssuesConfig &&
+                                !linearIssuesConfig.id.startsWith('new_')
+                                    ? {
+                                          summary: linearTeamsSummary(linearIssuesConfig),
+                                          changeLabel: 'Change teams',
+                                          onChange: () =>
+                                              openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                                          // A save or reload can replace the row, and the picker reads it on open.
+                                          disabledReason: isLinearIssuesToggling
+                                              ? 'Saving'
+                                              : sourceConfigsLoading
+                                                ? 'Refreshing'
+                                                : undefined,
+                                      }
+                                    : undefined
                             return (
                                 <AgentRow
                                     key={agent.source}
@@ -934,7 +979,7 @@ export function AgentsRoster(): JSX.Element {
                                     onToggle={handleToggle}
                                     onToggleEntity={handleToggleEntity}
                                     onEnableTool={(tool) => tool.enablement && enableSourceTool(tool.enablement)}
-                                    onConfigureFilters={undefined}
+                                    filters={filters}
                                     onSteer={
                                         steeringConfigs
                                             ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
@@ -947,6 +992,15 @@ export function AgentsRoster(): JSX.Element {
                     </div>
                 </div>
             ))}
+
+            {linearTeamsPicker && (
+                <LinearTeamsModal
+                    config={linearIssuesConfig}
+                    enableOnSave={linearTeamsPicker.enableOnSave}
+                    viaSetupWizard={linearTeamsPicker.viaSetupWizard}
+                    onClose={closeLinearTeamsPicker}
+                />
+            )}
 
             {/* Remounts per target (the key), so the form defaults re-derive from that source's config. */}
             {steeringTarget && (
