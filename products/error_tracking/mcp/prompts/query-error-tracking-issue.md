@@ -14,3 +14,5 @@ Defaults are intentionally useful: last 7 days, test accounts filtered out, aggr
 # Next steps
 
 Use `query-error-tracking-issue-events` with the same `issueId` when the user needs concrete event examples, stack traces, browser/OS/URL context, or `$session_id` values for Session replay.
+
+To act on the issue once you have triaged it, use `error-tracking-issues-partial-update` to set its status (`active`, `resolved`, `suppressed`), severity, name, or description, and `error-tracking-issues-assign-partial-update` to assign it.
