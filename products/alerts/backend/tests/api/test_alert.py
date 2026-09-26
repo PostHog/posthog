@@ -1847,16 +1847,38 @@ class TestAlertSimulate(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert mock_simulate.call_args.kwargs["insight"].id == self.insight["id"]
 
-    def test_simulate_invalid_detector_config_returns_400(self) -> None:
+    @parameterized.expand(
+        [
+            ("unknown_type", {"type": "nonexistent_detector"}, "Invalid detector configuration"),
+            ("z_score_threshold", {"type": "zscore", "threshold": 3.5, "window": 30}, "not a z-score"),
+            (
+                "z_score_threshold_in_ensemble",
+                {
+                    "type": "ensemble",
+                    "operator": "or",
+                    "detectors": [
+                        {"type": "zscore", "threshold": 0.95, "window": 30},
+                        {"type": "mad", "threshold": 3.5, "window": 30},
+                    ],
+                },
+                "between 0.0 and 1.0",
+            ),
+        ]
+    )
+    def test_simulate_invalid_detector_config_returns_400(
+        self, _name: str, detector_config: dict[str, Any], expected: str
+    ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
             {
                 "insight": self.insight["id"],
-                "detector_config": {"type": "nonexistent_detector"},
+                "detector_config": detector_config,
                 "series_index": 0,
             },
+            format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert expected in response.json()["detail"]
 
     @mock.patch("products.alerts.backend.evaluation.detector.calculate_for_query_based_insight")
     def test_simulate_does_not_create_alert_check_records(self, mock_calculate) -> None:

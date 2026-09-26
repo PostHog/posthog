@@ -157,7 +157,10 @@ tools:
             (threshold 0.95, window 90, first-difference preprocessing). To choose another detector, pass
             detector_config with a type (zscore, mad, iqr, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca,
             ensemble, or llm). Always send the type explicitly: a config with no type is read as a z-score detector, and
-            any llm-only field you sent with it is dropped without an error. A statistical detector only reads, so
+            any llm-only field you sent with it is dropped without an error. For every statistical detector, threshold
+            is an anomaly probability between 0 and 1 (for example 0.95), not a z-score: a value such as 3.5 is
+            rejected. A valid config is {"type": "zscore", "threshold": 0.95, "window": 90, "preprocessing":
+            {"diffs_n": 1}}. A statistical detector only reads, so
             alert:read and insight:read are enough for it. The llm type makes a real model call per simulation, so that
             type also needs the alert:write scope; it is rate limited per project, and takes the same instructions,
             threshold (default 0.7), and window (default 90) as an llm alert; its scores are the model's confidence, not
