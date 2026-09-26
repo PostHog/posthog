@@ -1,12 +1,13 @@
 import json
 
-from posthog.test.base import APIBaseTest
+import time_machine
+from posthog.test.base import APIBaseTest, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import DateRange, EventsNode, InsightVizNode, TrendsFilter, TrendsQuery
+from posthog.schema import DateRange, EventsNode, FunnelsQuery, InsightVizNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models.organization import Organization
@@ -353,3 +354,45 @@ class TestDashboardRunInsights(APIBaseTest):
             ),
         )
         self.assertEqual(overridden["results"][0]["insight"]["result"][0][0], 99)
+
+    @time_machine.travel("2025-01-20T12:00:00Z", tick=False)
+    def test_filters_override_date_range_matches_insight_query_for_a_funnel(self) -> None:
+        _create_person(distinct_ids=["user_1"], team=self.team)
+        _create_event(event="step_one", distinct_id="user_1", team=self.team, timestamp="2025-01-05T10:00:00Z")
+        _create_event(event="step_two", distinct_id="user_1", team=self.team, timestamp="2025-01-05T10:05:00Z")
+        flush_persons_and_events()
+
+        dashboard = Dashboard.objects.create(team=self.team, name="dash")
+        insight = Insight.objects.create(
+            team=self.team,
+            name="funnel",
+            query=InsightVizNode(
+                source=FunnelsQuery(
+                    series=[EventsNode(event="step_one"), EventsNode(event="step_two")],
+                    dateRange=DateRange(date_from="-3d"),
+                )
+            ).model_dump(),
+        )
+        DashboardTile.objects.create(insight=insight, dashboard=dashboard)
+        filters_override = json.dumps({"date_from": "2025-01-01", "date_to": "2025-01-10"})
+
+        dashboard_text = self._run(dashboard.pk, refresh="blocking", filters_override=filters_override)["results"][0][
+            "insight"
+        ]["result"]
+
+        insight_response = self.client.get(
+            f"/api/environments/{self.team.id}/insights/{insight.id}/", data={"filters_override": filters_override}
+        )
+        self.assertEqual(insight_response.status_code, status.HTTP_200_OK, insight_response.content)
+        query_response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            data={"query": insight_response.json()["query"]},
+            format="json",
+            headers={"x-posthog-client": "mcp"},
+        )
+        self.assertEqual(query_response.status_code, status.HTTP_200_OK, query_response.content)
+        insight_text = query_response.json()["formatted_results"]
+
+        dashboard_range = dashboard_text.splitlines()[0]
+        self.assertIn("2025-01-01", dashboard_range)
+        self.assertEqual(dashboard_range, insight_text.splitlines()[0])
