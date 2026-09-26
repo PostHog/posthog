@@ -26,6 +26,7 @@ import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/constants'
 import { isActionFilter, isEventFilter, isEventPropertyFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { isString } from 'lib/utils/guards'
@@ -34,6 +35,7 @@ import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -68,7 +70,7 @@ import {
     isValidRecordingOrder,
 } from '../filters/recordingsQueryConversions'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { filtersFromUniversalFilterGroups, isUniversalFilters } from '../utils'
+import { filtersFromUniversalFilterGroups, isUniversalFilters, retentionPeriodDateFrom } from '../utils'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 
 // Re-exported for back-compat with existing import sites; the implementations now live in the leaf
@@ -528,6 +530,12 @@ export interface SessionRecordingPlaylistLogicProps {
  * records which recording the server was already asked to include. What the request returned goes
  * to `landedListResponses` instead, which outlives the logic.
  */
+/** The newest recording outside the default date range, and a `date_from` that includes it. */
+export interface OlderRecordingsProbe {
+    newestStartTime: string
+    dateFrom: string
+}
+
 interface IssuedListRequest {
     key: string
     selectedRecordingId: RecordingsQuery['session_recording_id']
@@ -609,6 +617,8 @@ export interface sessionRecordingsPlaylistLogicValues {
     matchingEventsMatchType: MatchingEventsMatchType
     newCollectionName: string
     nextSessionRecording: Partial<SessionRecordingType> | undefined
+    olderRecordingsProbe: OlderRecordingsProbe | null
+    olderRecordingsProbeLoading: boolean
     otherRecordings: SessionRecordingType[]
     pinnedFilters: UniversalFiltersGroup | undefined
     pinnedRecordings: SessionRecordingType[]
@@ -745,6 +755,21 @@ export interface sessionRecordingsPlaylistLogicActions {
     }
     loadNext: () => {
         value: true
+    }
+    loadOlderRecordingsProbe: () => any
+    loadOlderRecordingsProbeFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOlderRecordingsProbeSuccess: (
+        olderRecordingsProbe: OlderRecordingsProbe | null,
+        payload?: any
+    ) => {
+        olderRecordingsProbe: OlderRecordingsProbe | null
+        payload?: any
     }
     loadPinnedRecordings: () => {
         value: true
@@ -1261,6 +1286,37 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 },
             },
         ],
+        // An empty default range can hide recordings that are only a few days older, so look once
+        // over the whole retention period before the empty state blames capture or retention.
+        olderRecordingsProbe: [
+            null as OlderRecordingsProbe | null,
+            {
+                loadOlderRecordingsProbe: async (_, breakpoint) => {
+                    const retentionDateFrom = retentionPeriodDateFrom(
+                        teamLogic.findMounted()?.values.currentTeam?.session_recording_retention_period
+                    )
+                    const filters = getEffectiveRecordingFilters(values.filters, values.featureFlags)
+                    const response = await api.recordings.list({
+                        ...convertUniversalFiltersToRecordingsQuery({ ...filters, date_from: retentionDateFrom }),
+                        order: 'start_time',
+                        order_direction: 'DESC',
+                        limit: 1,
+                        person_uuid: props.personUUID ?? '',
+                        distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
+                        hide_viewed_recordings: values.hideViewedRecordings || undefined,
+                    })
+                    breakpoint()
+                    const newest = response.results[0]
+                    if (!newest) {
+                        return null
+                    }
+                    return {
+                        newestStartTime: newest.start_time,
+                        dateFrom: dayjs().diff(dayjs(newest.start_time), 'day') < 30 ? '-30d' : retentionDateFrom,
+                    }
+                },
+            },
+        ],
         collectionsForBulkAdd: [
             { results: [], count: 0 } as SavedSessionRecordingPlaylistsResult,
             {
@@ -1314,6 +1370,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
     reducers(({ props, key }) => ({
+        olderRecordingsProbe: {
+            loadOlderRecordingsProbe: () => null,
+        },
         unusableEventsInFilter: [
             [] as string[],
             {
@@ -1760,6 +1819,19 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
 
             loadSessionRecordingsSuccess: ({ sessionRecordingsResponse, payload }) => {
+                // Reloads with the same filters ask the same question, so probe once per filter state.
+                const probeKey = JSON.stringify([values.filters, values.hideViewedRecordings])
+                if (
+                    !payload?.direction &&
+                    sessionRecordingsResponse.results.length === 0 &&
+                    values.totalFiltersCount === 0 &&
+                    values.filters.date_from === DEFAULT_RECORDING_FILTERS.date_from &&
+                    !values.filters.date_to &&
+                    cache.olderRecordingsProbeKey !== probeKey
+                ) {
+                    cache.olderRecordingsProbeKey = probeKey
+                    actions.loadOlderRecordingsProbe()
+                }
                 actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
                 // A load without a direction replaces the list rather than paging it, the same
                 // reading the `sessionRecordings` reducer takes.
