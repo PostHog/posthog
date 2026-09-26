@@ -149,6 +149,10 @@ from products.notebooks.backend.presentation.widget_throttles import (
     WidgetSnapshotPublishThrottle,
     WidgetSnapshotThrottle,
 )
+from products.notebooks.backend.product_analytics_home import (
+    PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID,
+    get_or_create_product_analytics_home_notebook,
+)
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
 from products.notebooks.backend.sql_v2 import (
@@ -1514,6 +1518,12 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return queryset
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        if kwargs.get(self.lookup_field) == PRODUCT_ANALYTICS_HOME_NOTEBOOK_SHORT_ID:
+            current_user = self._current_user()
+            if current_user is None:
+                raise PermissionDenied
+            get_or_create_product_analytics_home_notebook(self.team.id, current_user.id)
+
         instance = self.get_object()
         serializer = self.get_serializer(instance)
 
