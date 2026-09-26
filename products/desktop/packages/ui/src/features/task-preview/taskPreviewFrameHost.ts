@@ -23,12 +23,25 @@ export type TaskPreviewPin = {
 
 export type TaskPreviewLocateRequest = { id: string; nonce: number };
 
+export type TaskPreviewLocation = {
+  path: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+};
+
+export type TaskPreviewNavigationRequest = { nonce: number } & (
+  | { kind: "load"; path: string }
+  | { kind: "back" }
+  | { kind: "forward" }
+);
+
 export type TaskPreviewFrameProps = {
   url: string;
   title: string;
   picking: boolean;
   pins: TaskPreviewPin[];
   locateRequest: TaskPreviewLocateRequest | null;
+  navigationRequest: TaskPreviewNavigationRequest | null;
   onLoadFailed: () => void;
   onPicked: (
     element: TaskPreviewElement,
@@ -38,6 +51,7 @@ export type TaskPreviewFrameProps = {
   onPickCancelled: () => void;
   onActivatePin: (id: string) => void;
   onPinsChanged: (ids: string[]) => void;
+  onLocationChange: (location: TaskPreviewLocation) => void;
 };
 
 export type TaskPreviewFrameComponent = ComponentType<TaskPreviewFrameProps>;

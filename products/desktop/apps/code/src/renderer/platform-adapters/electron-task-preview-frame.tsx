@@ -23,6 +23,12 @@ type CapturedImage = {
 
 type TaskPreviewWebviewElement = HTMLElement & {
   send: (channel: string, ...args: unknown[]) => void;
+  getURL: () => string;
+  loadURL: (url: string) => Promise<void>;
+  canGoBack: () => boolean;
+  canGoForward: () => boolean;
+  goBack: () => void;
+  goForward: () => void;
   capturePage: (rect?: {
     x: number;
     y: number;
@@ -42,6 +48,17 @@ type WebviewIpcMessageEvent = Event & {
 };
 
 const ABORTED_LOAD_ERROR_CODE = -3;
+const PREVIEW_TOKEN_PARAM = "_modal_connect_token";
+
+function locationPath(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.delete(PREVIEW_TOKEN_PARAM);
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return "/";
+  }
+}
 
 async function captureAround(
   webview: TaskPreviewWebviewElement,
@@ -71,6 +88,8 @@ export function ElectronTaskPreviewFrame({
   onPickCancelled,
   onActivatePin,
   onPinsChanged,
+  navigationRequest,
+  onLocationChange,
 }: TaskPreviewFrameProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const webviewRef = useRef<TaskPreviewWebviewElement | null>(null);
@@ -85,6 +104,7 @@ export function ElectronTaskPreviewFrame({
     onPickCancelled,
     onActivatePin,
     onPinsChanged,
+    onLocationChange,
   });
 
   useEffect(() => {
@@ -94,8 +114,16 @@ export function ElectronTaskPreviewFrame({
       onPickCancelled,
       onActivatePin,
       onPinsChanged,
+      onLocationChange,
     };
-  }, [onLoadFailed, onPicked, onPickCancelled, onActivatePin, onPinsChanged]);
+  }, [
+    onLoadFailed,
+    onPicked,
+    onPickCancelled,
+    onActivatePin,
+    onPinsChanged,
+    onLocationChange,
+  ]);
 
   const send = (message: TaskPreviewHostMessage) => {
     if (readyRef.current) {
@@ -132,6 +160,16 @@ export function ElectronTaskPreviewFrame({
       callbacksRef.current.onLoadFailed();
     };
     const onGone = () => callbacksRef.current.onLoadFailed();
+    const onNavigated = (event: Event) => {
+      if ((event as Event & { isMainFrame?: boolean }).isMainFrame === false) {
+        return;
+      }
+      callbacksRef.current.onLocationChange({
+        path: locationPath(webview.getURL()),
+        canGoBack: webview.canGoBack(),
+        canGoForward: webview.canGoForward(),
+      });
+    };
     const onIpcMessage = (event: Event) => {
       const ipcEvent = event as WebviewIpcMessageEvent;
       if (ipcEvent.channel !== TASK_PREVIEW_TO_HOST_CHANNEL) return;
@@ -159,6 +197,8 @@ export function ElectronTaskPreviewFrame({
     webview.addEventListener("did-fail-load", onFailed);
     webview.addEventListener("render-process-gone", onGone);
     webview.addEventListener("ipc-message", onIpcMessage);
+    webview.addEventListener("did-navigate", onNavigated);
+    webview.addEventListener("did-navigate-in-page", onNavigated);
     void trpcClient.taskPreview.authorize
       .mutate({ url })
       .catch(() => null)
@@ -179,6 +219,8 @@ export function ElectronTaskPreviewFrame({
       webview.removeEventListener("did-fail-load", onFailed);
       webview.removeEventListener("render-process-gone", onGone);
       webview.removeEventListener("ipc-message", onIpcMessage);
+      webview.removeEventListener("did-navigate", onNavigated);
+      webview.removeEventListener("did-navigate-in-page", onNavigated);
       readyRef.current = false;
       webviewRef.current = null;
       webview.remove();
@@ -200,6 +242,24 @@ export function ElectronTaskPreviewFrame({
       sendRef.current({ type: "locate", id: locateRequest.id });
     }
   }, [locateRequest]);
+
+  useEffect(() => {
+    const webview = webviewRef.current;
+    if (!navigationRequest || !webview || !readyRef.current) return;
+    if (navigationRequest.kind === "back") {
+      if (webview.canGoBack()) webview.goBack();
+      return;
+    }
+    if (navigationRequest.kind === "forward") {
+      if (webview.canGoForward()) webview.goForward();
+      return;
+    }
+    const current = new URL(webview.getURL());
+    const next = new URL(navigationRequest.path, current.origin);
+    if (next.origin === current.origin) {
+      void webview.loadURL(next.toString()).catch(() => undefined);
+    }
+  }, [navigationRequest]);
 
   useEffect(() => {
     webviewRef.current?.setAttribute("aria-label", title);

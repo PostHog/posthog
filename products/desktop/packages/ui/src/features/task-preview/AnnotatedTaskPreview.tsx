@@ -26,6 +26,8 @@ import { TaskPreviewFrame } from "./TaskPreviewFrame";
 import type {
   TaskPreviewElement,
   TaskPreviewLocateRequest,
+  TaskPreviewLocation,
+  TaskPreviewNavigationRequest,
   TaskPreviewRect,
 } from "./taskPreviewFrameHost";
 
@@ -42,6 +44,8 @@ export function AnnotatedTaskPreview({
   title,
   commenting,
   chatVisible,
+  navigationRequest,
+  onLocationChange,
   onCommentingChange,
   onLoadFailed,
 }: {
@@ -51,6 +55,8 @@ export function AnnotatedTaskPreview({
   title: string;
   commenting: boolean;
   chatVisible: boolean;
+  navigationRequest: TaskPreviewNavigationRequest | null;
+  onLocationChange: (location: TaskPreviewLocation) => void;
   onCommentingChange: (commenting: boolean) => void;
   onLoadFailed: () => void;
 }) {
@@ -182,6 +188,8 @@ export function AnnotatedTaskPreview({
           onPickCancelled={() => onCommentingChange(false)}
           onActivatePin={revealThread}
           onPinsChanged={onPinsChanged}
+          navigationRequest={navigationRequest}
+          onLocationChange={onLocationChange}
         />
         {commenting && (
           <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center">

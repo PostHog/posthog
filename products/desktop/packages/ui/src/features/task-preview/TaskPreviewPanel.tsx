@@ -23,7 +23,13 @@ import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useEffect, useState } from "react";
 import { AnnotatedTaskPreview } from "./AnnotatedTaskPreview";
+import { PreviewAddressBar } from "./PreviewAddressBar";
+import { resolvePreviewNavigation } from "./previewNavigation";
 import { type PreviewProblem, previewProblem } from "./previewProblem";
+import type {
+  TaskPreviewLocation,
+  TaskPreviewNavigationRequest,
+} from "./taskPreviewFrameHost";
 import { usePreviewTabInMainPanel } from "./usePreviewTabInMainPanel";
 import { useTaskPreviewAnnotationsSupported } from "./useTaskPreviewAnnotationsSupported";
 import { useTaskPreviewSession } from "./useTaskPreviewSession";
@@ -80,6 +86,13 @@ export function TaskPreviewPanel({
   const [attempt, setAttempt] = useState(0);
   const [failedAttempt, setFailedAttempt] = useState<number | null>(null);
   const [commenting, setCommenting] = useState(false);
+  const [location, setLocation] = useState<TaskPreviewLocation>({
+    path: "/",
+    canGoBack: false,
+    canGoForward: false,
+  });
+  const [navigationRequest, setNavigationRequest] =
+    useState<TaskPreviewNavigationRequest | null>(null);
   const annotationsSupported = useTaskPreviewAnnotationsSupported();
   const inMainPanel = usePreviewTabInMainPanel(taskId, runId, port);
   const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
@@ -108,6 +121,26 @@ export function TaskPreviewPanel({
   }, [outcome]);
 
   const retry = () => setAttempt((current) => current + 1);
+  const requestNavigation = (
+    request:
+      | { kind: "load"; path: string }
+      | { kind: "back" }
+      | { kind: "forward" },
+  ) =>
+    setNavigationRequest((current) => ({
+      ...request,
+      nonce: (current?.nonce ?? 0) + 1,
+    }));
+  const navigate = (input: string) => {
+    if (!url) return;
+    const target = resolvePreviewNavigation(input, url, location.path);
+    if (!target) return;
+    if (target.kind === "external") {
+      openExternalUrl(target.url);
+      return;
+    }
+    requestNavigation(target);
+  };
   const openSideBySide = () => {
     track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED, {
       source: "preview_tab",
@@ -163,6 +196,8 @@ export function TaskPreviewPanel({
         title={`Preview of ${label}`}
         commenting={commenting}
         chatVisible={!inMainPanel}
+        navigationRequest={navigationRequest}
+        onLocationChange={setLocation}
         onCommentingChange={setCommenting}
         onLoadFailed={() => setFailedAttempt(attempt)}
       />
@@ -238,10 +273,15 @@ export function TaskPreviewPanel({
           </>
         }
       >
-        <span className="min-w-0 truncate text-foreground text-xs">
-          {label}
-        </span>
-        <span className="shrink-0 text-muted-foreground text-xs">:{port}</span>
+        <PreviewAddressBar
+          label={label}
+          port={port}
+          location={location}
+          disabled={!url}
+          onNavigate={navigate}
+          onBack={() => requestNavigation({ kind: "back" })}
+          onForward={() => requestNavigation({ kind: "forward" })}
+        />
       </ChromeBar>
       <div className="min-h-0 flex-1">{body}</div>
     </div>
