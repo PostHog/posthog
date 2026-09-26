@@ -42,6 +42,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
 
 import { EmailTemplater } from '../../../scenes/hog-functions/email-templater/EmailTemplater'
+import { EmailTemplaterLogicProps } from '../../../scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { EmailFieldErrors } from '../../../scenes/hog-functions/email-templater/types'
 import { CUSTOM_INPUT_RENDERERS } from './customInputRenderers'
 import { cyclotronJobInputLogic, formatJsonValue } from './cyclotronJobInputLogic'
@@ -129,6 +130,9 @@ export type CyclotronJobInputsProps = {
     // (the workflow builder's auto-save). Only the email input types read these.
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
+    // Called with the Library template's id when one is inserted into an email input, for a host
+    // that stores which template the email is based on. Only the email input types read this.
+    onEmailTemplateApplied?: EmailTemplaterLogicProps['onTemplateApplied']
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     // Classes for the column the inputs are laid out in, so a host with height to spare can let
@@ -148,6 +152,7 @@ export function CyclotronJobInputs({
     emailFieldErrors,
     emailLiveChanges,
     emailSaveIndicator,
+    onEmailTemplateApplied,
     showSource,
     sampleGlobalsWithInputs,
     className,
@@ -192,6 +197,7 @@ export function CyclotronJobInputs({
                                         emailFieldErrors={emailFieldErrors}
                                         emailLiveChanges={emailLiveChanges}
                                         emailSaveIndicator={emailSaveIndicator}
+                                        onEmailTemplateApplied={onEmailTemplateApplied}
                                     />
                                 )
                             })}
@@ -295,6 +301,7 @@ function EmailTemplateField({
     fieldErrors,
     liveChanges,
     saveIndicator,
+    onTemplateApplied,
 }: {
     schema: CyclotronJobInputSchemaType
     value: any
@@ -303,6 +310,7 @@ function EmailTemplateField({
     fieldErrors?: EmailFieldErrors
     liveChanges?: boolean
     saveIndicator?: ReactNode
+    onTemplateApplied?: EmailTemplaterLogicProps['onTemplateApplied']
 }): JSX.Element {
     return (
         <EmailTemplater
@@ -315,6 +323,7 @@ function EmailTemplateField({
             fieldErrors={fieldErrors}
             liveChanges={liveChanges}
             saveIndicator={saveIndicator}
+            onTemplateApplied={onTemplateApplied}
         />
     )
 }
@@ -587,6 +596,7 @@ type CyclotronJobInputProps = {
     emailFieldErrors?: EmailFieldErrors
     emailLiveChanges?: boolean
     emailSaveIndicator?: ReactNode
+    onEmailTemplateApplied?: EmailTemplaterLogicProps['onTemplateApplied']
 }
 
 function NonFailureStatusCodesField({
@@ -641,6 +651,7 @@ function CyclotronJobInputRenderer({
     emailFieldErrors,
     emailLiveChanges,
     emailSaveIndicator,
+    onEmailTemplateApplied,
 }: CyclotronJobInputProps): JSX.Element {
     const templating = schema.templating ?? true
 
@@ -756,6 +767,7 @@ function CyclotronJobInputRenderer({
                     fieldErrors={emailFieldErrors}
                     liveChanges={emailLiveChanges}
                     saveIndicator={emailSaveIndicator}
+                    onTemplateApplied={onEmailTemplateApplied}
                 />
             )
         case 'non_failure_status_codes':
@@ -944,6 +956,7 @@ function CyclotronJobInputWithSchema({
     emailFieldErrors,
     emailLiveChanges,
     emailSaveIndicator,
+    onEmailTemplateApplied,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
@@ -1106,6 +1119,7 @@ function CyclotronJobInputWithSchema({
                                 emailFieldErrors={emailFieldErrors}
                                 emailLiveChanges={emailLiveChanges}
                                 emailSaveIndicator={emailSaveIndicator}
+                                onEmailTemplateApplied={onEmailTemplateApplied}
                             />
                         )}
                         {warning && !value?.secret ? (

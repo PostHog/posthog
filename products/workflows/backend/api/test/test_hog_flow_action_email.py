@@ -1,17 +1,27 @@
 from copy import deepcopy
+from io import StringIO
+from typing import TYPE_CHECKING
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.management import call_command
+
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerRenderError
+from products.workflows.backend.facade import api as workflows_facade
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -540,9 +550,91 @@ class TestHogFlowEmailTemplateReference(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "'from'" in response.json()["detail"], response.json()
 
-    def test_lenient_web_save_skips_unresolvable_template_reference(self):
-        # Web drafts (and internal re-saves) stay storable mid-edit: a dangling reference is
-        # only an error on the strict programmatic path.
+    def _publish(self, flow_id: str) -> "_MonkeyPatchedResponse":
+        with patch("products.workflows.backend.api.hog_flow.get_hog_flow_in_flight_count") as mock_count:
+            mock_count.side_effect = Exception("count service down")
+            preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {})
+        assert preview.status_code == 200, preview.json()
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+        )
+
+    def _stage_linked_web_edit(self, body_edit: dict) -> tuple[str, MessageTemplate]:
+        template = self._create_library_template()
+        create = self._post_flow(_email_action()["config"], mcp=False)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        assert activate.status_code == 200, activate.json()
+
+        linked_step = _email_action()
+        linked_step["config"]["template_uuid"] = str(template.id)
+        linked_step["config"]["inputs"]["email"]["value"].update(body_edit)
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), linked_step], "stage_draft": True},
+        )
+        assert staged.status_code == 200, staged.json()
+        return flow_id, template
+
+    def test_web_draft_save_with_template_uuid_and_body_publishes_both_to_live(self):
+        flow_id, template = self._stage_linked_web_edit({"subject": "Edited after insert"})
+
+        publish = self._publish(flow_id)
+        assert publish.status_code == 200, publish.json()
+
+        live_config = next(a for a in HogFlow.objects.get(pk=flow_id).actions if a["id"] == "email_1")["config"]
+        assert live_config["template_uuid"] == str(template.id)
+        assert live_config["inputs"]["email"]["value"]["subject"] == "Edited after insert"
+
+    def test_web_save_does_not_refill_a_cleared_linked_step_from_its_template(self):
+        # A web save sends the whole email, so an empty body is one the user cleared. The link is
+        # provenance only on this path: publish reports the missing body, even once the template is
+        # gone, instead of refilling it or failing on a template id the user never typed.
+        flow_id, template = self._stage_linked_web_edit({"subject": "", "text": "", "html": "", "design": None})
+
+        draft_value = _stored_email_value(HogFlow.objects.get(pk=flow_id), from_draft=True)
+        assert [draft_value.get(key) for key in ("subject", "text", "html", "design")] == ["", "", "", None]
+
+        MessageTemplate.objects.filter(pk=template.pk).update(deleted=True)
+        publish = self._publish(flow_id)
+        assert publish.status_code == 400, publish.json()
+        assert publish.json()["detail"] == "Missing values for 'subject', either 'text' or 'html'."
+
+    @parameterized.expand([("canvas_enable",), ("refresh_command",)])
+    def test_internal_resave_does_not_refill_a_cleared_linked_step_from_its_template(self, resave: str):
+        # Internal re-saves carry no request source. Programmatic callers had their body filled
+        # in when they saved, so a re-save must keep the stored body, even when it is empty.
+        template = self._create_library_template()
+        cleared_step = _email_action()["config"]
+        cleared_step["template_uuid"] = str(template.id)
+        cleared_step["inputs"]["email"]["value"].update({"subject": "", "text": "", "html": "", "design": None})
+        create = self._post_flow(cleared_step, mcp=False)
+        assert create.status_code == 201, create.json()
+        flow_id = create.json()["id"]
+
+        if resave == "canvas_enable":
+            with self.assertRaises(ValidationError):
+                workflows_facade.set_workflow_enabled(
+                    team_id=self.team.id, user_id=self.user.id, workflow_id=UUID(flow_id), enabled=True
+                )
+        else:
+            with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers"):
+                call_command("refresh_hog_flows", hog_flow_id=flow_id, stdout=StringIO())
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.status == "draft"
+        assert [_stored_email_value(flow).get(key) for key in ("subject", "text", "html", "design")] == [
+            "",
+            "",
+            "",
+            None,
+        ]
+
+    def test_web_save_stores_an_unresolvable_template_reference_as_provenance(self):
+        # Web saves never resolve the reference, so a dangling one does not block a draft save.
+        # Programmatic saves reject it (test_unresolvable_template_uuid_is_rejected_on_strict_save).
         response = self._post_flow(
             {"template_id": "template-email", "template_uuid": "0199aabb-ccdd-0000-1122-334455667788", "inputs": {}},
             mcp=False,

@@ -4,6 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
+
 import {
     EMAIL_TYPE_SUPPORTED_FIELDS,
     EditorRef,
@@ -28,6 +30,21 @@ function makeProps(overrides?: Partial<EmailTemplaterLogicProps>): EmailTemplate
         onChange: jest.fn(),
         type: 'native_email',
         ...overrides,
+    }
+}
+
+function makeLibraryTemplate(id: string, subject: string): MessageTemplate {
+    return {
+        id,
+        name: `Library template ${id}`,
+        description: '',
+        content: {
+            templating: 'liquid',
+            email: { from: '', to: '', subject, html: `<p>${subject}</p>`, text: subject, design: null },
+        },
+        created_at: null,
+        updated_at: null,
+        created_by: null,
     }
 }
 
@@ -169,6 +186,25 @@ describe('emailTemplaterLogic', () => {
 
             logic.actions.setIsModalOpen(false)
             await expectLogic(logic).toMatchValues({ isTemplatePickerOpen: false })
+        })
+
+        it.each([
+            { description: 'reports the template id to a host that tracks it', tracksLink: true },
+            { description: 'still applies the content for a host that does not track it', tracksLink: false },
+        ])('applying a template $description', async ({ tracksLink }) => {
+            // One log for both callbacks, so the assertion also checks that the host gets the
+            // content before the link it stores next to that content.
+            const calls: string[] = []
+            const onChange = (value: EmailTemplate): void => void calls.push(`content: ${value.subject}`)
+            const onTemplateApplied = (templateId: string): void => void calls.push(`link: ${templateId}`)
+            logic = emailTemplaterLogic(makeProps({ onChange, ...(tracksLink ? { onTemplateApplied } : {}) }))
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate(makeLibraryTemplate('template-a', 'Subject A'))
+            }).toFinishAllListeners()
+
+            expect(calls).toEqual(tracksLink ? ['content: Subject A', 'link: template-a'] : ['content: Subject A'])
         })
     })
 
