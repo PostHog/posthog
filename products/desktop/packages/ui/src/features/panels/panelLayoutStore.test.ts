@@ -5,6 +5,8 @@ vi.mock("@posthog/ui/shell/analytics", () => ({
   setActiveTaskContext: vi.fn(),
 }));
 
+import { collectLeafPanels } from "@posthog/core/panels/panelTree";
+import { track } from "@posthog/ui/shell/analytics";
 import { usePanelLayoutStore } from "./panelLayoutStore";
 import {
   assertActiveTab,
@@ -17,11 +19,6 @@ import {
   openMultipleFiles,
   withRootGroup,
 } from "./panelTestHelpers";
-import type { LeafPanel, PanelNode } from "./panelTypes";
-
-function leafPanels(node: PanelNode): LeafPanel[] {
-  return node.type === "leaf" ? [node] : node.children.flatMap(leafPanels);
-}
 
 describe("panelLayoutStore", () => {
   beforeEach(() => {
@@ -260,10 +257,11 @@ describe("panelLayoutStore", () => {
       store.openInjectedBlockTab("task-1", contextSnapshot("# Growth v2"));
       store.openInjectedBlockTab("task-1", contextSnapshot("# Growth v1"));
 
-      const snapshots = leafPanels(getPanelTree("task-1")).flatMap((leaf) =>
-        leaf.content.tabs
-          .filter((tab) => tab.data.type === "injected-block")
-          .map((tab) => ({ tab, activeTabId: leaf.content.activeTabId })),
+      const snapshots = collectLeafPanels(getPanelTree("task-1")).flatMap(
+        (leaf) =>
+          leaf.content.tabs
+            .filter((tab) => tab.data.type === "injected-block")
+            .map((tab) => ({ tab, activeTabId: leaf.content.activeTabId })),
       );
       expect(snapshots.map(({ tab }) => tab.label)).toEqual([
         "#growth CONTEXT.md",
@@ -322,6 +320,23 @@ describe("panelLayoutStore", () => {
         .closeTab("task-1", "main-panel", "file-src/Other.tsx");
 
       assertActiveTab(getPanelTree("task-1"), "main-panel", "shell");
+    });
+
+    it("closes every tab of a deleted file, copies included", () => {
+      const state = usePanelLayoutStore.getState();
+      state.splitPanelWithCopy("task-1", "main-panel", "right", "shortcut");
+      state.closeTabsForFile("task-1", "src/Other.tsx");
+
+      const fileTabs = collectLeafPanels(getPanelTree("task-1")).flatMap(
+        (leaf) =>
+          leaf.content.tabs.filter(
+            (tab) =>
+              tab.data.type === "file" &&
+              tab.data.relativePath === "src/Other.tsx",
+          ),
+      );
+      expect(fileTabs).toEqual([]);
+      expect(getLayout("task-1").openFiles).toEqual(["src/App.tsx"]);
     });
   });
 
@@ -628,6 +643,46 @@ describe("panelLayoutStore", () => {
           expect(newPanel.content.activeTabId).toBe("file-src/App.tsx");
         }
       }
+    });
+  });
+
+  describe("panel analytics", () => {
+    beforeEach(() => {
+      usePanelLayoutStore.getState().initializeTask("task-1");
+      vi.mocked(track).mockClear();
+    });
+
+    it("reports how a pane was split and closed", () => {
+      usePanelLayoutStore
+        .getState()
+        .splitPanelWithCopy("task-1", "main-panel", "right", "shortcut");
+      expect(track).toHaveBeenCalledWith("Panel split", {
+        source: "shortcut",
+        direction: "right",
+        task_id: "task-1",
+      });
+
+      const newPaneId = getLayout("task-1").focusedPanelId;
+      if (!newPaneId) throw new Error("expected the new pane to be focused");
+      usePanelLayoutStore.getState().closePanel("task-1", newPaneId, "button");
+      expect(track).toHaveBeenCalledWith("Panel closed", {
+        source: "button",
+        task_id: "task-1",
+      });
+      expect(getPanelTree("task-1").type).toBe("leaf");
+    });
+
+    it("leaves drag-and-drop splits and actions on a missing pane untracked", () => {
+      const state = usePanelLayoutStore.getState();
+      state.splitPanel("task-1", "logs", "main-panel", "main-panel", "right");
+      const layoutsBeforeNoOps = usePanelLayoutStore.getState().taskLayouts;
+      state.splitPanelWithCopy("task-1", "missing", "right", "shortcut");
+      state.closePanel("task-1", "missing", "shortcut");
+
+      expect(track).not.toHaveBeenCalled();
+      expect(usePanelLayoutStore.getState().taskLayouts).toBe(
+        layoutsBeforeNoOps,
+      );
     });
   });
 

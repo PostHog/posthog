@@ -92,8 +92,13 @@ export function activeArtifactId(layout: TaskLayout): string | null {
 
 let nextPanelId = 1;
 
-export function generatePanelId(): string {
-  return `panel-${nextPanelId++}`;
+// The counter restarts on each launch but layouts persist, so skip ids the tree uses.
+export function generatePanelId(tree: PanelNode): string {
+  let id = `panel-${nextPanelId++}`;
+  while (findPanelById(tree, id)) {
+    id = `panel-${nextPanelId++}`;
+  }
+  return id;
 }
 
 export function resetPanelIdCounter(): void {

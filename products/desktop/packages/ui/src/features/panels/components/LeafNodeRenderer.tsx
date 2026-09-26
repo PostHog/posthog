@@ -8,7 +8,7 @@ import {
 } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import type React from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useHostCapabilities } from "../../../shell/useHostCapabilities";
 import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { useTabInjection } from "../hooks/usePanelLayoutHooks";
@@ -30,6 +30,7 @@ interface LeafNodeRendererProps {
   onPanelFocus: (panelId: string) => void;
   onAddTerminal: (panelId: string) => void;
   onSplitPanel: (panelId: string, direction: SplitDirection) => void;
+  onClosePanel: (panelId: string) => void;
 }
 
 export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
@@ -46,6 +47,7 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   onPanelFocus,
   onAddTerminal,
   onSplitPanel,
+  onClosePanel,
 }) => {
   const isCloud = useIsCloudTask(task);
   const { localWorkspaces } = useHostCapabilities();
@@ -62,14 +64,13 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   const activeTabId = tabs.some((t) => t.id === node.content.activeTabId)
     ? node.content.activeTabId
     : (tabs[0]?.id ?? node.content.activeTabId);
-  const hiddenTabIds = useMemo(() => {
-    const visibleTabIds = new Set(tabs.map((tab) => tab.id));
-    const hiddenIds: string[] = [];
-    for (const tab of node.content.tabs) {
-      if (!visibleTabIds.has(tab.id)) hiddenIds.push(tab.id);
+  useEffect(() => {
+    if (activeTabId && activeTabId !== node.content.activeTabId) {
+      // oxlint-disable-next-line react-doctor/no-pass-data-to-parent, react-doctor/no-pass-live-state-to-parent -- Keyboard actions read the stored active tab, so keep it on the rendered one.
+      onActiveTabChange(node.id, activeTabId);
     }
-    return hiddenIds;
-  }, [node.content.tabs, tabs]);
+  }, [activeTabId, node.content.activeTabId, node.id, onActiveTabChange]);
+  const hasOnlyHiddenTabs = tabs.length === 0 && node.content.tabs.length > 0;
 
   const cloudEmptyState = useMemo(
     () =>
@@ -112,15 +113,7 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
       onSplitPanel={
         isCloud ? undefined : (direction) => onSplitPanel(node.id, direction)
       }
-      onClosePanel={
-        tabs.length === 0 && hiddenTabIds.length > 0
-          ? () => {
-              for (const tabId of hiddenTabIds) {
-                closeTab(taskId, node.id, tabId);
-              }
-            }
-          : undefined
-      }
+      onClosePanel={hasOnlyHiddenTabs ? () => onClosePanel(node.id) : undefined}
       emptyState={cloudEmptyState}
     />
   );
