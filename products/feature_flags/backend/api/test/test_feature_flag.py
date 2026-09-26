@@ -2942,29 +2942,66 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         decrypted = get_decrypted_flag_payload(stored, should_decrypt=True)
         self.assertEqual(decrypted, plaintext)
 
-    def test_update_encrypted_flag_rejects_enabling_without_payload(self):
+    @parameterized.expand(
+        [
+            (
+                "redacted_placeholder_echoed",
+                {},
+                {
+                    "has_encrypted_payloads": True,
+                    "is_remote_configuration": True,
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                        "payloads": {"true": REDACTED_PAYLOAD_VALUE},
+                    },
+                },
+            ),
+            (
+                "plaintext_payload_and_filters_omitted",
+                {"is_remote_configuration": True, "payloads": {"true": '"plaintext"'}},
+                {"has_encrypted_payloads": True},
+            ),
+            (
+                "plaintext_payload_and_redacted_placeholder_echoed",
+                {"is_remote_configuration": True, "payloads": {"true": '"plaintext"'}},
+                {
+                    "has_encrypted_payloads": True,
+                    "filters": {
+                        "groups": [{"properties": [], "rollout_percentage": 100}],
+                        "payloads": {"true": REDACTED_PAYLOAD_VALUE},
+                    },
+                },
+            ),
+        ]
+    )
+    def test_update_encrypted_flag_rejects_enabling_without_payload(
+        self, _name: str, stored: dict, patch_body: dict
+    ) -> None:
+        # Turning encryption on has nothing to preserve, because whatever the row holds is
+        # plaintext. Accepting the write would mark that plaintext as ciphertext, and
+        # /remote_config would then fail to decrypt it.
+        filters: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        if "payloads" in stored:
+            filters["payloads"] = stored["payloads"]
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="my-flag",
             name="Flag",
             active=True,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            is_remote_configuration=stored.get("is_remote_configuration", False),
+            filters=filters,
         )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
-            {
-                "has_encrypted_payloads": True,
-                "is_remote_configuration": True,
-                "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "payloads": {"true": REDACTED_PAYLOAD_VALUE},
-                },
-            },
+            patch_body,
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        flag.refresh_from_db()
+        self.assertFalse(flag.has_encrypted_payloads)
+        self.assertEqual(flag.filters, filters)
 
     def test_get_conflicting_changes(self):
         feature_flag = FeatureFlag.objects.create(

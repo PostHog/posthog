@@ -2876,14 +2876,19 @@ class FeatureFlagSerializer(
                 # placeholder was echoed back, or an empty string slipped past
                 # `validate_filters` (defense in depth: the public API rejects
                 # `""` as invalid JSON upstream, but direct serializer callers
-                # could still land here). Only re-inject when `filters` is
-                # being sent, so a filters-less PATCH stays a partial update.
+                # could still land here).
+                stored_payloads = (instance.filters or {}).get("payloads") or {}
+                if not instance.has_encrypted_payloads or (filters is not None and not stored_payloads.get("true")):
+                    # There is nothing to preserve. A flag that is not encrypted yet stores
+                    # plaintext, so keeping it would mark plaintext as ciphertext and
+                    # /remote_config would fail to decrypt it. A flag that is already encrypted
+                    # has no stored payload to fall back on.
+                    raise exceptions.ValidationError(
+                        "An encrypted payload is required when has_encrypted_payloads is true."
+                    )
+                # Only re-inject when `filters` is being sent, so a filters-less PATCH stays a
+                # partial update.
                 if filters is not None:
-                    stored_payloads = (instance.filters or {}).get("payloads") or {}
-                    if not stored_payloads.get("true"):
-                        raise exceptions.ValidationError(
-                            "An encrypted payload is required when has_encrypted_payloads is true."
-                        )
                     payloads = restore_redacted_flag_payloads(filters.get("payloads") or {}, stored_payloads)
                     payloads["true"] = stored_payloads["true"]
                     filters["payloads"] = payloads

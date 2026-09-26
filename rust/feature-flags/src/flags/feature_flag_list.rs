@@ -883,6 +883,15 @@ mod tests {
             .await
             .expect("Failed to fetch flags from pg");
 
+        // The rows this test commits are the shape the constraint rejects, and the test database
+        // is shared and reused, so a later VALIDATE CONSTRAINT would fail on them. Delete before
+        // the assertions, so a failing assertion cannot leave them behind.
+        sqlx::query("DELETE FROM posthog_featureflag WHERE team_id = $1")
+            .bind(team.id)
+            .execute(&mut *conn)
+            .await
+            .expect("Failed to delete the pre-constraint encrypted flags");
+
         let flag_keys: Vec<&str> = flags_from_pg.iter().map(|f| f.key.as_str()).collect();
         assert!(
             !flag_keys.contains(&"false_remote_encrypted"),

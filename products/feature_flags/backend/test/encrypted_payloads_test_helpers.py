@@ -11,7 +11,7 @@ from products.feature_flags.backend.models.feature_flag import ENCRYPTED_PAYLOAD
 def encrypted_payloads_constraint_dropped() -> Iterator[None]:
     """Drop encrypted_payloads_require_remote_config, then restore it NOT VALID.
 
-    Migration 0021 adds the constraint NOT VALID, so a row written before it survives with
+    Migration 0022 adds the constraint NOT VALID, so a row written before it survives with
     has_encrypted_payloads true and is_remote_configuration false or NULL. The constraint
     rejects that shape, so a test that needs such a row builds it in here.
     pg_get_constraintdef reads the live definition, so the restored constraint cannot drift
