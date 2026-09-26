@@ -129,7 +129,7 @@ jobs:
                         # Same for the generated object-tag registries
                         - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
                         - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
-                        - 'products/desktop/packages/agent-contracts/src/objectTagKinds.generated.ts'
+                        - 'packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'

@@ -50,11 +50,10 @@ HOST_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo un
 # Stream the repo source (no node_modules / build artifacts) into the container
 # so node_modules lives on the container's overlayfs, not a slow FUSE bind mount.
 # Only the output dir is bind-mounted so artifacts come back to the host.
-cd "$REPO_ROOT"
+cd "$REPO_ROOT/../.."
 # COPYFILE_DISABLE stops bsdtar from embedding macOS extended attrs as ._ files.
 COPYFILE_DISABLE=1 tar -cf - \
-  --exclude='./.git' \
-  --exclude='./.pnpm-store' \
+  --exclude='.pnpm-store' \
   --exclude='node_modules' \
   --exclude='.turbo' \
   --exclude='.vite' \
@@ -63,7 +62,7 @@ COPYFILE_DISABLE=1 tar -cf - \
   --exclude='playwright-results' \
   --exclude='._*' \
   --exclude='.DS_Store' \
-  . | exec docker run --rm -i \
+  products/desktop packages/agent | exec docker run --rm -i \
     --platform "$DOCKER_PLATFORM" \
     --name build-linux \
     -e CI=true \
@@ -85,13 +84,12 @@ COPYFILE_DISABLE=1 tar -cf - \
       git config --global --add safe.directory /work
       # Postinstall scripts call `git rev-parse` — give them a repo to find.
       git init -q && git add -A && git -c user.email=x@x -c user.name=x commit -q -m init
+      cd /work/products/desktop
       pnpm install --frozen-lockfile
+      node scripts/build-agent-workspace.mjs
       pnpm --filter @posthog/electron-trpc build
       pnpm --filter @posthog/platform build
-      pnpm --filter @posthog/shared... build
-      pnpm --filter @posthog/git build
-      pnpm --filter @posthog/enricher build
-      pnpm --filter @posthog/agent build
+      pnpm --filter @posthog/shared build
       cd apps/code
       pnpm exec electron-vite build
       if [ -n "${MAKE_TARGETS:-}" ]; then

@@ -126,10 +126,7 @@
       // Object-tag kind registry generated from posthog/object_tags/kinds.py; the
       // generator's byte-stable output is what `hogli build:object-tags --check`
       // compares against, so no formatter may touch it.
-      "includes": [
-        "packages/core/src/inbox/objectKinds.generated.ts",
-        "packages/agent-contracts/src/objectTagKinds.generated.ts"
-      ],
+      "includes": ["packages/core/src/inbox/objectKinds.generated.ts"],
       "formatter": {
         "enabled": false
       }
@@ -149,12 +146,8 @@
       }
     },
     {
-      // Disallow console.* in Code and agent source code - use logger instead
-      "includes": [
-        "apps/code/src/**/*.ts",
-        "apps/code/src/**/*.tsx",
-        "packages/agent/src/**/*.ts"
-      ],
+      // Disallow console.* in Code source code - use logger instead
+      "includes": ["apps/code/src/**/*.ts", "apps/code/src/**/*.tsx"],
       "linter": {
         "rules": {
           "suspicious": {
@@ -166,7 +159,6 @@
     {
       // Logger implementations intentionally wrap console
       "includes": [
-        "packages/agent/src/utils/logger.ts",
         "apps/code/src/main/lib/logger.ts",
         "apps/code/src/renderer/lib/logger.ts"
       ],
@@ -272,51 +264,6 @@
                       "!@posthog/workspace-server"
                     ],
                     "message": "workspace-client must run in any JS environment."
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": [
-        "packages/agent/**/*.ts",
-        "packages/enricher/**/*.ts",
-        "packages/git/**/*.ts",
-        "packages/harness/**/*.ts"
-      ],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "patterns": [
-                  {
-                    "group": ["@posthog/shared", "@posthog/shared/*"],
-                    "message": "The agent runtime must not depend on desktop code. Import from @posthog/agent-contracts."
-                  }
-                ]
-              }
-            }
-          }
-        }
-      }
-    },
-    {
-      "includes": ["packages/agent-contracts/**/*.ts"],
-      "linter": {
-        "rules": {
-          "style": {
-            "noRestrictedImports": {
-              "level": "error",
-              "options": {
-                "patterns": [
-                  {
-                    "group": ["@posthog/*"],
-                    "message": "agent-contracts is a leaf shared with the agent runtime. It imports no internal package."
                   }
                 ]
               }

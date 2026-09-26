@@ -37,22 +37,6 @@
         "@posthog/enricher"
       ]
     },
-    "packages/agent": {
-      "project": ["src/**/*.ts"],
-      "ignore": ["src/templates/**"],
-      "ignoreDependencies": [
-        "yoga-wasm-web",
-        "@vitest/coverage-v8",
-        "@openai/codex"
-      ],
-      "includeEntryExports": false,
-      "entry": ["src/**/*.bench.ts"]
-    },
-    "packages/agent-contracts": {
-      "entry": ["src/**/*.test.ts"],
-      "project": ["src/**/*.ts"],
-      "includeEntryExports": false
-    },
     "packages/api-client": {
       "entry": ["src/**/*.test.ts"],
       "project": ["src/**/*.{ts,tsx}"],
@@ -76,17 +60,6 @@
         "renderer.d.ts"
       ],
       "project": ["src/**/*.ts"]
-    },
-    "packages/enricher": {
-      "entry": ["src/**/*.test.ts", "scripts/*.cjs"],
-      "project": ["src/**/*.ts"],
-      "ignoreDependencies": ["tree-sitter-cli"],
-      "includeEntryExports": true
-    },
-    "packages/git": {
-      "entry": ["src/*.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"],
-      "includeEntryExports": true
     },
     "packages/host-router": {
       "project": ["src/**/*.{ts,tsx}"],

@@ -611,7 +611,7 @@ jobs:
                         # filter excludes. The catalog and its generator are .py under
                         # products/, so the backend filter already catches both.
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
-                        - 'products/desktop/packages/agent-contracts/src/model-catalog.generated.ts'
+                        - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'tools/openapi-codegen/**/*'
                         - 'services/mcp/scripts/lib/**'
                         - 'frontend/bin/generate-openapi-types.mjs'

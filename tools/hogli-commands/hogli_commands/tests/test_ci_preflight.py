@@ -253,8 +253,8 @@ class TestWorkspaceScopedLockfile:
             ("products/desktop/package.json", "products/desktop"),
             ("products/desktop/pnpm-lock.yaml", "products/desktop"),
             ("products/desktop/packages/core/package.json", "products/desktop"),
-            # agent has a publish-only pnpm-lock.yaml but is a desktop workspace member
-            ("products/desktop/packages/agent/package.json", "products/desktop"),
+            ("packages/agent/package.json", "packages/agent"),
+            ("packages/agent/packages/agent/package.json", "packages/agent"),
             ("tools/hedgebox-dummy/package.json", "tools/hedgebox-dummy"),
         ],
     )

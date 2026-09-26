@@ -42,6 +42,10 @@ Step outside only when one of these is true:
    `.dockerignore`, `.oxlintrc.json`, `.oxfmtrc.json`, `.config/.markdownlint-cli2.jsonc`,
    `.github/workflows/ci-{frontend,storybook,backend}.yml` (+ `.depot/workflows/ci-backend.yml`).
    Touch these only to keep an exclusion correct; say so when you do.
+4. **The agent runtime changes.** `@posthog/agent`, `agent-contracts`, `enricher`, `git` and
+   `harness` live in a sibling workspace at `packages/agent/` (same toolchain, own lockfile),
+   because cloud sandboxes boot the agent without the desktop app. Work there, then run
+   `pnpm build:agent` from `products/desktop/` so desktop's turbo cache sees the change.
 
 Anything else outside the tree: stop and ask.
 

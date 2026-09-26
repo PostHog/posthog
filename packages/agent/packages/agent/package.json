@@ -4,7 +4,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/PostHog/posthog.git",
-    "directory": "products/desktop/packages/agent"
+    "directory": "packages/agent/packages/agent"
   },
   "description": "TypeScript agent framework wrapping Claude Agent SDK with Git-based task execution for PostHog",
   "exports": {

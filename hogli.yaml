@@ -1106,16 +1106,16 @@ desktop:
         description: Run the desktop app dev stack (build deps, then phrocs with Electron)
     desktop:test:
         cmd: pnpm --dir products/desktop test
-        description: Run desktop unit tests (Vitest via turbo, nested workspace)
+        description: Run desktop and agent workspace unit tests (Vitest via turbo, nested workspaces)
     desktop:typecheck:
         cmd: pnpm --dir products/desktop typecheck
-        description: Typecheck all desktop packages (turbo)
+        description: Typecheck all desktop and agent workspace packages (turbo)
     desktop:lint:
-        cmd: pnpm --dir products/desktop exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
-        description: Check desktop code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
+        cmd: pnpm --dir products/desktop exec biome ci . && pnpm --dir packages/agent exec biome ci . && node products/desktop/scripts/check-host-boundaries.mjs
+        description: Check desktop and agent workspace code quality without writing (Biome + host boundaries, mirrors desktop-quality CI)
     desktop:lint:fix:
-        cmd: pnpm --dir products/desktop run lint
-        description: Autofix desktop lint issues (biome check --write --unsafe)
+        cmd: pnpm --dir products/desktop run lint && pnpm --dir packages/agent run lint
+        description: Autofix desktop and agent workspace lint issues (biome check --write --unsafe)
 
 owners:
     owners:resolve:

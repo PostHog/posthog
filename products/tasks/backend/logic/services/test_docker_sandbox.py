@@ -253,7 +253,6 @@ class TestDockerSandboxUnit:
     def test_get_local_posthog_code_root(self, tmp_path, monkeypatch):
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             (tmp_path / file_name).touch()
-        (tmp_path / "patches").mkdir()
         (tmp_path / "scripts").mkdir()
         (tmp_path / "scripts" / "rimraf.mjs").touch()
         for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
@@ -270,7 +269,6 @@ class TestDockerSandboxUnit:
         for file_name in (".npmrc", "package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml"):
             monorepo_path.mkdir(exist_ok=True)
             (monorepo_path / file_name).touch()
-        (monorepo_path / "patches").mkdir()
         (monorepo_path / "scripts").mkdir()
         (monorepo_path / "scripts" / "rimraf.mjs").touch()
         for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
