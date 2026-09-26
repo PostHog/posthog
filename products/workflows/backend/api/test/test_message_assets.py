@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -12,6 +13,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person
 
+from products.workflows.backend.api.message_assets import with_new_tab_link_target
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -181,20 +183,48 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
         assert res.status_code == status.HTTP_200_OK
         assert res["Content-Type"] == "text/html; charset=utf-8"
-        assert res.content == b"<html><body>Hello Bob</body></html>"
+        assert b"<html><body>Hello Bob</body></html>" in res.content
         # Sandbox at the response layer so direct navigation to this URL still can't
-        # run scripts as the viewer — the iframe's `sandbox=""` alone doesn't protect
-        # someone who opens the asset URL in a new tab. Regressing this reintroduces
+        # run scripts as the viewer. The iframe sandbox alone doesn't protect someone who
+        # opens the asset URL in a new tab. Granting either capability below reintroduces
         # stored-XSS in captured email HTML.
-        assert "sandbox" in res["Content-Security-Policy"]
+        csp = res["Content-Security-Policy"]
+        assert csp.startswith("sandbox ")
+        assert "allow-scripts" not in csp
+        assert "allow-same-origin" not in csp
         assert res["X-Content-Type-Options"] == "nosniff"
+
+    @parameterized.expand(
+        [
+            (
+                "with_head",
+                "<html><head><title>Hi</title></head><body>hi</body></html>",
+                '<html><head><base target="_blank">',
+            ),
+            ("without_head", "<div>hi</div>", '<base target="_blank"><div>hi</div>'),
+            (
+                "doctype_without_head",
+                '<!doctype html><meta charset="utf-8"><pre>hi</pre>',
+                '<!doctype html><base target="_blank"><meta charset="utf-8">',
+            ),
+        ]
+    )
+    def test_content_sends_link_clicks_to_a_new_tab(self, _name: str, html: str, expected_prefix: str):
+        self._seed("inv-1", action_id="step-a", html=html)
+        res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
+        assert res.status_code == status.HTTP_200_OK
+        # Without both of these, a click on a link in the viewer navigates the viewer's own
+        # iframe, and the destination refuses to be framed, so the viewer goes blank.
+        assert res.content.decode().startswith(expected_prefix)
+        assert "allow-popups allow-popups-to-escape-sandbox" in res["Content-Security-Policy"]
 
     def test_content_returns_latest_version_html(self):
         self._seed("inv-1", action_id="step-a", html="<p>old</p>", version=1)
         self._seed("inv-1", action_id="step-a", html="<p>new</p>", version=2)
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
         assert res.status_code == status.HTTP_200_OK
-        assert res.content == b"<p>new</p>"
+        assert b"<p>new</p>" in res.content
+        assert b"<p>old</p>" not in res.content
 
     def test_content_404_for_unknown_asset(self):
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=nope&action_id=step-a")
@@ -335,3 +365,50 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == 403, res.json()
         assert "person:read" in res.json().get("detail", "")
+
+
+class TestWithNewTabLinkTarget:
+    @parameterized.expand(
+        [
+            (
+                "same_tab",
+                '<a href="https://x.com" target="_self">Go</a>',
+                '<a href="https://x.com" target="_blank">Go</a>',
+            ),
+            (
+                "single_quoted_top",
+                "<a target='_top' href=\"https://x.com\">Go</a>",
+                '<a target="_blank" href="https://x.com">Go</a>',
+            ),
+            (
+                "unquoted_parent",
+                '<a href="https://x.com" target=_parent>Go</a>',
+                '<a href="https://x.com" target="_blank">Go</a>',
+            ),
+            (
+                "uppercase",
+                '<A HREF="https://x.com" TARGET="_self">Go</A>',
+                '<A HREF="https://x.com" target="_blank">Go</A>',
+            ),
+            (
+                "image_map_area",
+                '<area href="https://x.com" target="_self">',
+                '<area href="https://x.com" target="_blank">',
+            ),
+            (
+                "tracking_href_keeps_its_query",
+                '<a href="https://ph.test/redirect?id=1&target=https%3A%2F%2Fx.com" target="_self">Go</a>',
+                '<a href="https://ph.test/redirect?id=1&target=https%3A%2F%2Fx.com" target="_blank">Go</a>',
+            ),
+            ("link_without_target", '<a href="https://x.com">Go</a>', '<a href="https://x.com">Go</a>'),
+            ("non_link_element", '<form target="_self"></form>', '<form target="_self"></form>'),
+            # Malformed HTML must not make the tag patterns rescan the rest of the body from each start.
+            ("unclosed_link_tag_run", "<a " * 32000, "<a " * 32000),
+            ("unclosed_head_tag_run", "<head " * 16000, "<head " * 16000),
+        ]
+    )
+    @pytest.mark.timeout(1, func_only=True)
+    def test_opens_every_link_in_a_new_tab(self, _name: str, html: str, expected_body: str):
+        # An explicit target wins over the base tag, so without the rewrite a "same tab" link
+        # navigates the viewer's iframe and the viewer goes blank.
+        assert with_new_tab_link_target(html) == '<base target="_blank">' + expected_body

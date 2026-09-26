@@ -2,36 +2,33 @@ import { previewLinkTargetCustomJs } from './previewLinkTarget'
 
 describe('previewLinkTargetCustomJs', () => {
     // The customJS runs as a string inside Unlayer's iframe, so typecheck cannot see it. Run it
-    // against a stub of the parts of the Unlayer API it touches.
-    function runPreviewHtml(html?: string): string {
-        let previewHtml: ((params: { html?: string }, done: (result: { html: string }) => void) => void) | undefined
-        const unlayer = {
-            registerCallback: (name: string, callback: typeof previewHtml): void => {
-                if (name === 'previewHtml') {
-                    previewHtml = callback
-                }
-            },
-        }
-        new Function('unlayer', previewLinkTargetCustomJs)(unlayer)
-        if (!previewHtml) {
-            throw new Error('previewHtml callback was not registered')
-        }
-        let result = ''
-        previewHtml({ html }, (params) => {
-            result = params.html
-        })
-        return result
+    // against this document and add a preview iframe the way Unlayer does.
+    async function clickLinkInPreview(linkHtml: string): Promise<HTMLAnchorElement> {
+        new Function(previewLinkTargetCustomJs)()
+
+        const frame = document.createElement('iframe')
+        document.body.appendChild(frame)
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        const frameDocument = frame.contentDocument as Document
+        frameDocument.body.innerHTML = linkHtml
+        const link = frameDocument.querySelector('a') as HTMLAnchorElement
+        link.addEventListener('click', (event) => event.preventDefault())
+        const clickTarget = (frameDocument.querySelector('a *') as HTMLElement | null) ?? link
+        clickTarget.click()
+        return link
     }
 
+    afterEach(() => {
+        document.body.innerHTML = ''
+    })
+
     it.each([
-        [
-            'a full document',
-            '<!DOCTYPE html><html><head><title>t</title></head><body>hi</body></html>',
-            '<!DOCTYPE html><html><head><base target="_blank"><title>t</title></head><body>hi</body></html>',
-        ],
-        ['markup with no head', '<div>hi</div>', '<base target="_blank"><div>hi</div>'],
-        ['empty markup', undefined, '<base target="_blank">'],
-    ])('gives %s a default link target', (_name, html, expected) => {
-        expect(runPreviewHtml(html)).toEqual(expected)
+        ['a same-tab link', '<a href="https://www.facebook.com" target="_self">Go</a>'],
+        ['a link with no target', '<a href="https://www.facebook.com">Go</a>'],
+        ['a click on an element inside a link', '<a href="https://www.facebook.com" target="_top"><span>Go</span></a>'],
+    ])('opens %s in a new tab', async (_name, linkHtml) => {
+        const link = await clickLinkInPreview(linkHtml)
+        expect(link.getAttribute('target')).toEqual('_blank')
     })
 })

@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
@@ -315,6 +316,31 @@ def fetch_message_assets_for_person(
 
     results = cast(list, sync_execute(query, kwargs))
     return [_build_asset(row) for row in results]
+
+
+# A link click inside the viewer's iframe navigates that iframe, and most destinations refuse
+# to be framed, so the viewer goes blank. A `<base target="_blank">` covers links with no
+# target, but an explicit one wins over it, and the editor writes `target="_self"` for "same
+# tab" links. So explicit targets are rewritten too. The base tag has no href, so relative
+# URLs resolve as before.
+_NEW_TAB_BASE_TAG = '<base target="_blank">'
+# Any tag before the doctype puts the page in quirks mode, so with no head the base tag goes after it.
+_LEADING_DOCTYPE = re.compile(r"\s*<!doctype\b[^>]*>", re.IGNORECASE)
+# Both tag patterns stop at a `<` outside quotes, so an unclosed tag fails at the next tag start.
+# Without that stop, each unclosed tag rescans the rest of the body, and the cost grows with the
+# square of the body size.
+_HEAD_OPEN_TAG = re.compile(r"<head(?:\s[^<>]*)?>", re.IGNORECASE)
+_LINK_OPEN_TAG = re.compile(r"""<(?:a|area)\b(?:[^<>"']|"[^"]*"|'[^']*')*>""", re.IGNORECASE)
+# Requires whitespace before `target` so a `&target=` inside a click-tracking href is left alone.
+_TARGET_ATTRIBUTE = re.compile(r"""(\s)target\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)""", re.IGNORECASE)
+
+
+def with_new_tab_link_target(html: str) -> str:
+    html = _LINK_OPEN_TAG.sub(lambda tag: _TARGET_ATTRIBUTE.sub(r'\1target="_blank"', tag.group(0)), html)
+    insert_after = _HEAD_OPEN_TAG.search(html) or _LEADING_DOCTYPE.match(html)
+    if insert_after is None:
+        return _NEW_TAB_BASE_TAG + html
+    return html[: insert_after.end()] + _NEW_TAB_BASE_TAG + html[insert_after.end() :]
 
 
 def fetch_message_asset_html(

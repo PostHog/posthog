@@ -16,7 +16,6 @@ interface EmailViewerModalProps {
     description?: string
 }
 
-// sandbox="" disables scripts so the captured email HTML can't run anything.
 export function EmailViewerModal({
     workflowId,
     invocationId,
@@ -30,7 +29,13 @@ export function EmailViewerModal({
         <LemonModal isOpen={isOpen} onClose={onClose} width={720} title={title} description={description}>
             <iframe
                 title="Rendered email"
-                sandbox=""
+                // Withholding `allow-scripts` and `allow-same-origin` keeps the captured email
+                // HTML from running anything. `allow-popups` lets a link click open a new tab,
+                // and `allow-popups-to-escape-sandbox` drops the restrictions on that tab so the
+                // destination renders as a normal page. The response carries
+                // `<base target="_blank">`, so the click goes to that tab instead of navigating
+                // this frame into a site that refuses to be framed.
+                sandbox="allow-popups allow-popups-to-escape-sandbox"
                 src={getMessageAssetContentUrl(workflowId, invocationId, actionId)}
                 className="w-full h-[60vh] bg-white rounded border"
             />
