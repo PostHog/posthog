@@ -139,8 +139,7 @@ export function stripChromeExtensionDataFromNode(
     needles: string[],
     matchedExtensions: Set<string>
 ): boolean {
-    // Guard against a non-object node (e.g. a full snapshot that failed to decompress): the `'childNodes' in node`
-    // check below throws on undefined, and the safelyCheck* helpers already no-op on non-objects anyway.
+    // Guard against a non-object node, e.g. a full snapshot that failed to decompress.
     if (!isObject(node)) {
         return false
     }
@@ -174,8 +173,9 @@ export function stripChromeExtensionDataFromNode(
         stripped = true
     }
 
-    if ('childNodes' in node) {
-        for (const childNode of node.childNodes) {
+    const childNodes = (node as { childNodes?: serializedNodeWithId[] }).childNodes
+    if (Array.isArray(childNodes)) {
+        for (const childNode of childNodes) {
             if (stripChromeExtensionDataFromNode(childNode, needles, matchedExtensions)) {
                 stripped = true
             }
