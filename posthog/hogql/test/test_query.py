@@ -53,6 +53,7 @@ from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorS3Error, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.models.event.util import create_event, events_only_in_active_schema
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
@@ -77,9 +78,21 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("order_by", "GROUP BY trace_id ORDER BY trace_id < 'c' DESC", [("a", 1), ("z", 1)]),
         ]
     )
+    @events_only_in_active_schema()
     def test_grouped_property_comparisons(self, _name: str, clause: str, expected: list[tuple[str, int]]) -> None:
         for trace_id in ("a", "z"):
-            _create_event(team=self.team, event="test", distinct_id=trace_id, properties={"$ai_trace_id": trace_id})
+            create_event(
+                event_uuid=uuid7(),
+                team=self.team,
+                event="test",
+                distinct_id=trace_id,
+                properties={"$ai_trace_id": trace_id},
+            )
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertEqual(
+                sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk}),
+                [(0,)],
+            )
         response = execute_hogql_query(
             "SELECT properties.$ai_trace_id AS trace_id, count() FROM events " + clause, team=self.team
         )
@@ -149,9 +162,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [(10, 10, 10), (40, None, None), (3, None, None)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    @events_only_in_active_schema()
     def test_query(self):
         with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
+
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                self.assertEqual(
+                    sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk}),
+                    [(0,)],
+                )
 
             response = execute_hogql_query(
                 "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
@@ -159,13 +179,20 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results, [(2, "random event")])
+            self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    @events_only_in_active_schema()
     def test_subquery(self):
         with time_machine.travel("2020-01-10", tick=False):
             random_uuid = self._create_random_events()
+
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                self.assertEqual(
+                    sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk}),
+                    [(0,)],
+                )
 
             response = execute_hogql_query(
                 "select cnt, event from (select count() as cnt, event from events where properties.random_uuid = {random_uuid} group by event) group by cnt, event",
@@ -173,8 +200,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 pretty=False,
             )
-            self.assertResponseMatchesSnapshot(response)
             self.assertEqual(response.results, [(2, "random event")])
+            self.assertResponseMatchesSnapshot(response)
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_subquery_alias(self):
@@ -725,18 +752,27 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][3], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
+    @events_only_in_active_schema()
     def test_query_joins_events_person_properties(self):
         with time_machine.travel("2020-01-10", tick=False):
             self._create_random_events()
+
+            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                self.assertEqual(
+                    sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk}),
+                    [(0,)],
+                )
 
             response = execute_hogql_query(
                 "SELECT event, e.timestamp, e.pdi.person.properties.sneaky_mail FROM events e LIMIT 10",
                 self.team,
                 pretty=False,
             )
+            self.assertEqual(
+                [(row[0], row[2]) for row in response.results],
+                [("random event", "tim@posthog.com"), ("random event", "tim@posthog.com")],
+            )
             self.assertResponseMatchesSnapshot(response)
-            self.assertEqual(response.results[0][0], "random event")
-            self.assertEqual(response.results[0][2], "tim@posthog.com")
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_events_person_properties_in_aggregration(self):
