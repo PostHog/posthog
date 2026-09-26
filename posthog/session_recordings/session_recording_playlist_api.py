@@ -37,6 +37,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.redis import get_client
+from posthog.session_recordings.models.session_recording import CrossTeamSessionIdConflict
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
@@ -97,6 +98,13 @@ class SessionRecordingPlaylistPagination(LimitOffsetPagination):
 # so recordings cannot be pinned to them. Guard the write paths with a clear message.
 SYNTHETIC_PLAYLIST_ADD_ERROR = (
     "This is a built-in collection, so you can't add recordings to it. Create your own collection to save recordings."
+)
+
+# A recording row is keyed by session_id across every team, so a session_id that another team
+# already owns cannot get a row here. Tell the user instead of failing with a 500.
+CROSS_TEAM_RECORDING_ERROR = (
+    "You can't add this recording to a collection because its session ID is already in use in another project. "
+    "Contact support if you need help with this recording."
 )
 
 DEFAULT_PLAYLIST_ORDER = "-last_modified_at"
@@ -1028,11 +1036,16 @@ class SessionRecordingPlaylistViewSet(
             if playlist.type == SessionRecordingPlaylist.PlaylistType.FILTERS:
                 raise serializers.ValidationError("Cannot add recordings to a playlist that is type 'filters'.")
 
-            recording, _ = SessionRecording.objects.get_or_create(
-                session_id=session_recording_id,
-                team=self.team,
-                defaults={"deleted": False},
-            )
+            try:
+                recording, _ = SessionRecording.get_or_create_for_team(session_recording_id, self.team)
+            except CrossTeamSessionIdConflict:
+                logger.warning(
+                    "cross_team_session_id_conflict",
+                    session_recording_id=session_recording_id,
+                    playlist_id=playlist.short_id,
+                )
+                raise ValidationError(CROSS_TEAM_RECORDING_ERROR)
+
             # nosemgrep: idor-lookup-without-team (scoped via DRF parent viewset)
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, recording=recording
@@ -1082,11 +1095,7 @@ class SessionRecordingPlaylistViewSet(
         added_count = 0
         for session_recording_id in session_recording_ids:
             try:
-                recording, _ = SessionRecording.objects.get_or_create(
-                    session_id=session_recording_id,
-                    team=self.team,
-                    defaults={"deleted": False},
-                )
+                recording, _ = SessionRecording.get_or_create_for_team(session_recording_id, self.team)
                 # nosemgrep: idor-lookup-without-team (scoped via DRF parent viewset)
                 playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                     playlist=playlist, recording=recording
