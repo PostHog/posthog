@@ -8,7 +8,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -51,7 +51,7 @@ export function GroupsScene(): JSX.Element {
     if (shouldShowGroupsIntroduction) {
         return (
             <SceneContent>
-                <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+                <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
                 <SceneTitleSection
                     name="Groups"
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
@@ -73,7 +73,7 @@ export function GroupsScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <PersonsManagementSceneTabs tabKey={`groups-${groupTypeIndex}`} />
+            <ActivitySceneTabs activeKey={`groups-${groupTypeIndex}`} />
 
             <SceneTitleSection
                 name={capitalizeFirstLetter(groupTypeNamePlural)}

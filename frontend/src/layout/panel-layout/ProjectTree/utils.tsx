@@ -9,17 +9,17 @@ import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries
 import { UserBasicType } from '~/types'
 
 import { getCustomIcon } from './customIconRegistry'
-import { iconForType } from './defaultTree'
+import { ProductIconWrapper, getSidebarProduct, iconForType } from './defaultTree'
 import { FolderState } from './types'
 
 // Hardcoded category order - categories not in this list will be sorted alphabetically after these
 export const CATEGORY_ORDER = [
     'Analytics',
     'AI engineering',
-    'Behavior',
+    'Data',
+    'Monitoring',
+    'Product engineering',
     'Messaging',
-    'App monitoring',
-    'Features',
     'Tools',
     'Unreleased',
 ]
@@ -34,11 +34,10 @@ export function getCategoryOrder(category: string | undefined): number {
 
 // Define the order of categories in the data management panel
 export const DATA_MANAGEMENT_PANEL_ORDER: Record<string, number> = {
-    Pipeline: 1,
+    CDP: 1,
     Schema: 2,
-    Tools: 3,
-    Metadata: 4,
-    Unreleased: 5,
+    Data: 3,
+    Unreleased: 4,
 }
 
 export interface ConvertProps {
@@ -128,11 +127,14 @@ export function convertFileSystemEntryToTreeDataItem({
     disableCategories = false,
 }: ConvertProps): TreeDataItem[] {
     function itemToTreeDataItem(item: FileSystemImport | FileSystemEntry): TreeDataItem {
-        const pathSplit = splitPath(item.path)
-        const lastPart = pathSplit.pop()
+        const sidebarProduct = getSidebarProduct(item.href)
+        // A starred product keeps the name and tags it had when starred, so show the sidebar's current ones instead.
+        const starredProduct = root === 'shortcuts://' && item.type !== 'folder' ? sidebarProduct : undefined
+        const namedItem = starredProduct ?? item
+        const lastPart = splitPath(namedItem.path).pop()
         const itemName =
-            'displayLabel' in item && item.displayLabel
-                ? item.displayLabel
+            'displayLabel' in namedItem && namedItem.displayLabel
+                ? namedItem.displayLabel
                 : unescapePath(
                       lastPart ? (item.href?.includes('new') ? `New ${lastPart.toLowerCase()}` : lastPart) : 'Unnamed'
                   )
@@ -140,12 +142,21 @@ export function convertFileSystemEntryToTreeDataItem({
         const displayName = <SearchHighlightMultiple string={itemName} substring={searchTerm ?? ''} />
         const user: UserBasicType | undefined = item.meta?.created_by ? users?.[item.meta.created_by] : undefined
 
+        // A link to a sidebar product, such as a starred one, shows that product's icon and color.
+        // Shortcuts store only a type, which can predate the product's current icon.
+        const iconType =
+            sidebarProduct?.iconType ||
+            ('iconType' in item ? item.iconType : undefined) ||
+            (item.type as FileSystemIconType)
+        const iconColor = sidebarProduct?.iconColor ?? ('iconColor' in item ? item.iconColor : undefined)
         // Check for custom icon component first (e.g., badges), then fall back to static icon
         const CustomIcon = getCustomIcon(item.type, item.href)
         const icon = CustomIcon ? (
-            <CustomIcon />
+            <ProductIconWrapper type={iconType} colorOverride={iconColor}>
+                <CustomIcon />
+            </ProductIconWrapper>
         ) : (
-            iconForType(('iconType' in item ? item.iconType : undefined) || (item.type as FileSystemIconType))
+            iconForType(iconType, iconColor)
         )
         const node: TreeDataItem = {
             id: nodeId,
@@ -154,7 +165,7 @@ export function convertFileSystemEntryToTreeDataItem({
             icon: item._loading ? <Spinner /> : item.shortcut || allShortcuts ? wrapWithShortcutIcon(icon) : icon,
             record: { ...item, user },
             checked: checkedItems[nodeId],
-            tags: item.tags,
+            tags: starredProduct ? starredProduct.tags : item.tags,
             visualOrder: item.visualOrder,
         }
         if (item && disabledReason?.(item)) {

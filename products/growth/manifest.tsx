@@ -41,6 +41,7 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.IDENTITY_MATCHING,
             tags: ['alpha'],
             iconType: 'persons',
+            iconColor: ['var(--color-product-identity-matching-light)', 'var(--color-product-identity-matching-dark)'],
             sceneKey: 'IdentityMatching',
         },
     ],

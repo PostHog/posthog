@@ -16,9 +16,10 @@ import {
 } from 'react'
 
 import { IconDay, IconNight, IconSearch, IconSparkles, IconX } from '@posthog/icons'
-import { LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { filterSearchItems } from 'lib/components/Search/utils'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -573,14 +574,13 @@ function SearchRoot({
             const isLoading = loadingByCategory.get(category) ?? false
 
             // When searching: hide empty groups (unless still loading)
-            // When not searching: always show recents/tools (with skeleton if loading); starred only when items or loading
+            // When not searching: always show tools; recents and starred only when they have items or are loading
             // "ai" and "create" are only shown when searching
             const shouldShow = hasSearchValue
                 ? items.length > 0 || isLoading
                 : (category === 'suggested' && items.length > 0) ||
-                  category === 'recents' ||
                   category === 'tools' ||
-                  (category === 'starred' && (items.length > 0 || isLoading))
+                  ((category === 'recents' || category === 'starred') && (items.length > 0 || isLoading))
 
             if (shouldShow) {
                 groups.push({ category, items, isLoading })
@@ -813,16 +813,17 @@ function SearchStatus(): JSX.Element {
         }
         if (filteredItems.length > 0) {
             if (!searchValue.trim()) {
-                return 'Recents and products'
+                return null
             }
             return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }
         return 'Type to search...'
     }, [isSearching, searchValue, filteredItems.length])
 
+    // The live region stays mounted so screen readers announce the first search status.
     return (
-        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center">
-            <span>{statusMessage}</span>
+        <Autocomplete.Status className="px-3 pb-2 text-xs text-muted flex items-center empty:p-0">
+            {statusMessage && <span>{statusMessage}</span>}
         </Autocomplete.Status>
     )
 }
@@ -992,20 +993,11 @@ function SearchResults({
                                                                                 </span>
                                                                             )}
                                                                             {item.tags?.map((tag) => (
-                                                                                <LemonTag
+                                                                                <ProductTag
                                                                                     key={tag}
-                                                                                    type={
-                                                                                        tag === 'alpha'
-                                                                                            ? 'completion'
-                                                                                            : tag === 'beta'
-                                                                                              ? 'warning'
-                                                                                              : 'success'
-                                                                                    }
-                                                                                    size="small"
+                                                                                    tag={tag}
                                                                                     className="shrink-0"
-                                                                                >
-                                                                                    {tag.toUpperCase()}
-                                                                                </LemonTag>
+                                                                                />
                                                                             ))}
                                                                             {item.lastViewedAt && (
                                                                                 <span className="ml-auto text-xs text-tertiary whitespace-nowrap shrink-0 mt-[2px]">

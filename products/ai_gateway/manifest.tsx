@@ -2,7 +2,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-import { FileSystemIconColor, ProductManifest } from '~/types'
+import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'AI gateway',
@@ -32,10 +32,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.AI_ENGINEERING,
             type: 'ai_gateway',
             iconType: 'ai_gateway' as FileSystemIconType,
-            iconColor: [
-                'var(--color-product-ai-gateway-light)',
-                'var(--color-product-ai-gateway-dark)',
-            ] as FileSystemIconColor,
+            iconColor: ['var(--color-product-ai-gateway-light)', 'var(--color-product-ai-gateway-dark)'],
             href: urls.aiGateway(),
             flag: FEATURE_FLAGS.AI_GATEWAY,
             tags: ['alpha'],

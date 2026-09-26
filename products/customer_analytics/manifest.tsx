@@ -125,8 +125,8 @@ export const manifest: ProductManifest = {
         {
             path: 'Customer analytics',
             intents: [ProductKey.CUSTOMER_ANALYTICS],
-            category: ProductItemCategory.ANALYTICS,
-            iconType: 'cohort',
+            category: ProductItemCategory.DATA,
+            iconType: 'customer_analytics',
             iconColor: [
                 'var(--color-product-customer-analytics-light)',
                 'var(--color-product-customer-analytics-dark)',
@@ -149,7 +149,11 @@ export const manifest: ProductManifest = {
         {
             path: 'Warehouse properties',
             category: 'Schema',
-            iconType: 'data_warehouse',
+            iconType: 'warehouse_property',
+            iconColor: [
+                'var(--color-product-warehouse-properties-light)',
+                'var(--color-product-warehouse-properties-dark)',
+            ],
             href: urls.warehouseProperties(),
             flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
             sceneKey: 'WarehouseProperties',

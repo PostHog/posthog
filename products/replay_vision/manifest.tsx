@@ -76,7 +76,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Replay vision',
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             intents: [ProductKey.REPLAY_VISION],
             type: 'replay_vision',
             iconType: 'replay_vision' as FileSystemIconType,

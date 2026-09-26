@@ -1,4 +1,22 @@
-import { escapePath, joinPath, matchesRefType, reparentPath, splitPath } from './utils'
+import { renderToStaticMarkup } from 'react-dom/server'
+
+import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { productsItemName } from '../navbar/tabs/productsCatalog'
+import { getCustomIcon } from './customIconRegistry'
+import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defaultTree'
+import {
+    convertFileSystemEntryToTreeDataItem,
+    escapePath,
+    joinPath,
+    matchesRefType,
+    reparentPath,
+    splitPath,
+} from './utils'
+
+const catalogProducts = [...getDefaultTreeProducts(), ...getDefaultTreeData()].filter(
+    (item) => item.href && item.iconType && !getCustomIcon(item.iconType, item.href)
+)
 
 describe('project tree utils', () => {
     describe('escapePath', () => {
@@ -80,5 +98,32 @@ describe('project tree utils', () => {
             expect(matchesRefType(undefined, 'hog/')).toBe(false)
             expect(matchesRefType(undefined, 'dashboard')).toBe(false)
         })
+    })
+
+    describe('starred products', () => {
+        it.each(catalogProducts.map((item) => [item.path, item]))(
+            'renders a starred %s with the name, tags, icon and color it has in the product list',
+            (_path, item) => {
+                // A star saved before a rename or an icon change still carries the older name and type, and no tags.
+                const shortcut = {
+                    id: 'star',
+                    path: 'Old product name',
+                    type: 'folder_open',
+                    href: item.href,
+                } as FileSystemEntry
+                const [node] = convertFileSystemEntryToTreeDataItem({
+                    imports: [shortcut],
+                    folderStates: {},
+                    checkedItems: {},
+                    root: 'shortcuts://',
+                    disableCategories: true,
+                })
+                expect(node.name).toEqual(productsItemName(item))
+                expect(node.tags).toEqual(item.tags)
+                expect(renderToStaticMarkup(node.icon as JSX.Element)).toEqual(
+                    renderToStaticMarkup(iconForType(item.iconType, item.iconColor))
+                )
+            }
+        )
     })
 })

@@ -61,7 +61,7 @@ export const manifest: ProductManifest = {
         {
             path: `Experiments`,
             intents: [ProductKey.EXPERIMENTS],
-            category: ProductItemCategory.FEATURES,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             type: 'experiment',
             href: urls.experiments(),
             iconType: 'experiment',

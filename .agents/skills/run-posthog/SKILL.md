@@ -112,7 +112,7 @@ The frontend uses kea-router. The mapping rule:
 | Edited path                              | Scene URL (under `/project/{team_id}/`)                 |
 | ---------------------------------------- | ------------------------------------------------------- |
 | `frontend/src/scenes/<name>/**`          | usually `/<name>` (e.g. `insights/` → `/insights`)      |
-| `frontend/src/scenes/activity/**`        | `/activity/explore` (and other `ActivityTab`s)          |
+| `frontend/src/scenes/activity/**`        | `/activity/events` (and other `ActivityTab`s)           |
 | `frontend/src/scenes/data-management/**` | `/data-management/<sub>`                                |
 | `frontend/src/scenes/settings/**`        | `/settings/<section>`                                   |
 | `frontend/src/scenes/authentication/**`  | `/login`, `/signup`, `/preflight` (un-scoped)           |

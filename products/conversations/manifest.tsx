@@ -61,7 +61,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Support',
             intents: [ProductKey.CONVERSATIONS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.MONITORING,
             href: urls.supportTickets(),
             type: 'conversations',
             iconType: 'conversations',
