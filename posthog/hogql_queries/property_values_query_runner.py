@@ -93,7 +93,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
 
     @cached_property
     def _use_new_events_schema(self) -> bool:
-        return use_new_events_schema(self.team.pk)
+        return use_new_events_schema(self.team.pk, self.modifiers)
 
     @cached_property
     def _restricted_event_property_names(self) -> set[str]:

@@ -133,7 +133,7 @@ def query_ai_events(
             AI_EVENTS_QUERY_TOTAL.labels(source="dedicated_table").inc()
             return result
 
-        events_schema = use_new_events_schema(team.pk)
+        events_schema = use_new_events_schema(team.pk, modifiers)
         events_query = rewrite_query_for_events_table(query)
         fallback_source_placeholders = fallback_placeholders if fallback_placeholders is not None else placeholders
         events_placeholders = {
