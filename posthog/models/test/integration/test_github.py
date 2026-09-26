@@ -9,16 +9,19 @@ from typing import Any, Optional
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 import requests
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import RedisError
 
+from posthog.caching.coalesced_refresh import CoalescedCacheRefresh
 from posthog.egress.github.transport import (
     GitHubEgressBudgetExhausted,
     GitHubRateLimitError,
@@ -27,6 +30,7 @@ from posthog.egress.github.transport import (
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
 from posthog.models.github_integration_base import (
+    GITHUB_BRANCH_CACHE_COLD_WAIT_SECONDS,
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_REPOSITORY_CACHE_TTL_SECONDS,
     GitHubIntegrationBase,
@@ -195,6 +199,29 @@ class TestGitHubIntegrationModel(BaseTest):
     def setUp(self):
         super().setUp()
         cache.clear()
+        self.branch_refresh_lock = MagicMock()
+        self.branch_refresh_lock.acquire.return_value = True
+        self.branch_refresh_lock.reacquire.return_value = True
+        self.redis_connection = MagicMock()
+        self.redis_connection.lock.return_value = self.branch_refresh_lock
+        redis_connection_patcher = patch(
+            "posthog.caching.coalesced_refresh.get_redis_connection", return_value=self.redis_connection
+        )
+        redis_connection_patcher.start()
+        self.addCleanup(redis_connection_patcher.stop)
+
+        def publish_branch_cache(refresh: CoalescedCacheRefresh, snapshot: dict[str, Any], _owner_token: str) -> bool:
+            cache.set(refresh.key, snapshot)
+            return True
+
+        publish_patcher = patch.object(
+            CoalescedCacheRefresh,
+            "_publish",
+            autospec=True,
+            side_effect=publish_branch_cache,
+        )
+        publish_patcher.start()
+        self.addCleanup(publish_patcher.stop)
 
     def create_integration(self, config: Optional[dict] = None, sensitive_config: Optional[dict] = None) -> Integration:
         _config = {"expires_at": 3600}
@@ -2113,7 +2140,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert branches == ["main", "develop"]
         assert default_branch == "main"
-        mock_list_all_branches.assert_called_once_with(repo)
+        mock_list_all_branches.assert_called_once()
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
@@ -2210,6 +2237,230 @@ class TestGitHubIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_list_cached_branches_serves_stale_data_during_another_refresh(
+        self, mock_default_branch, mock_list_branches
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        github = GitHubIntegration(integration)
+        cache.set(
+            github._get_branch_cache_key(repo),
+            {
+                "branches": ["main", "develop"],
+                "default_branch": "main",
+                "updated_at": time.time() - (GITHUB_BRANCH_CACHE_TTL_SECONDS + 1),
+            },
+        )
+        self.branch_refresh_lock.acquire.return_value = False
+
+        branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
+        self.branch_refresh_lock.acquire.assert_called_once_with(blocking=False, token=ANY)
+        self.branch_refresh_lock.release.assert_not_called()
+        mock_list_branches.assert_not_called()
+        mock_default_branch.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_list_cached_branches_skips_refresh_if_another_caller_filled_the_cache(
+        self, mock_default_branch, mock_list_branches
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        github = GitHubIntegration(integration)
+        cache.set(
+            github._get_branch_cache_key(repo),
+            {
+                "branches": ["stale"],
+                "default_branch": "stale",
+                "updated_at": time.time() - (GITHUB_BRANCH_CACHE_TTL_SECONDS + 1),
+            },
+        )
+
+        def fill_cache_before_claim(*, blocking: bool, token: str) -> bool:
+            cache.set(
+                github._get_branch_cache_key(repo),
+                {"branches": ["main", "develop"], "default_branch": "main", "updated_at": time.time()},
+            )
+            return True
+
+        self.branch_refresh_lock.acquire.side_effect = fill_cache_before_claim
+
+        branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
+        self.branch_refresh_lock.release.assert_called_once_with()
+        mock_list_branches.assert_not_called()
+        mock_default_branch.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_list_cached_branches_cold_follower_uses_the_owners_snapshot(self, mock_default_branch, mock_list_branches):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        github = GitHubIntegration(integration)
+
+        def acquire_after_owner(*, blocking: bool, token: str, blocking_timeout: float | None = None) -> bool:
+            if not blocking:
+                return False
+            cache.set(
+                github._get_branch_cache_key(repo),
+                {"branches": ["main", "develop"], "default_branch": "main", "updated_at": time.time()},
+            )
+            return True
+
+        self.branch_refresh_lock.acquire.side_effect = acquire_after_owner
+
+        branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
+        assert self.branch_refresh_lock.acquire.call_args_list == [
+            call(blocking=False, token=ANY),
+            call(blocking=True, blocking_timeout=GITHUB_BRANCH_CACHE_COLD_WAIT_SECONDS, token=ANY),
+        ]
+        self.branch_refresh_lock.release.assert_called_once_with()
+        mock_list_branches.assert_not_called()
+        mock_default_branch.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    def test_list_cached_branches_cold_follower_does_not_duplicate_a_timed_out_refresh(self, mock_list_branches):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        self.branch_refresh_lock.acquire.return_value = False
+
+        with pytest.raises(GitHubIntegrationError, match="refresh already in progress"):
+            GitHubIntegration(integration).list_cached_branches("posthog/posthog", limit=10)
+
+        assert self.branch_refresh_lock.acquire.call_count == 2
+        self.branch_refresh_lock.release.assert_not_called()
+        mock_list_branches.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    def test_list_cached_branches_cold_follower_reads_snapshot_published_before_lock_release(self, mock_list_branches):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        github = GitHubIntegration(integration)
+
+        def publish_while_still_locked(*, blocking: bool, token: str, blocking_timeout: float | None = None) -> bool:
+            if blocking:
+                cache.set(
+                    github._get_branch_cache_key(repo),
+                    {"branches": ["main", "develop"], "default_branch": "main", "updated_at": time.time()},
+                )
+            return False
+
+        self.branch_refresh_lock.acquire.side_effect = publish_while_still_locked
+
+        branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
+        self.branch_refresh_lock.release.assert_not_called()
+        mock_list_branches.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_list_cached_branches_refreshes_without_publishing_when_redis_is_unavailable(
+        self, mock_default_branch, mock_list_branches
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        github = GitHubIntegration(integration)
+        self.branch_refresh_lock.acquire.side_effect = RedisError("unavailable")
+        mock_list_branches.return_value = (["main", "develop"], False)
+        mock_default_branch.return_value = "main"
+
+        branches, default_branch, has_more = github.list_cached_branches("posthog/posthog", limit=10)
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
+        assert cache.get(github._get_branch_cache_key("posthog/posthog")) is None
+        self.branch_refresh_lock.release.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_list_cached_branches_refreshes_when_cache_read_and_lock_are_unavailable(
+        self, mock_default_branch, mock_list_branches
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        self.branch_refresh_lock.acquire.side_effect = RedisError("unavailable")
+        mock_list_branches.return_value = (["main", "develop"], False)
+        mock_default_branch.return_value = "main"
+
+        with patch.object(cache, "get", side_effect=ConnectionInterrupted(connection=None)):
+            branches, default_branch, has_more = GitHubIntegration(integration).list_cached_branches(
+                "posthog/posthog", limit=10
+            )
+
+        assert branches == ["main", "develop"]
+        assert default_branch == "main"
+        assert has_more is False
+        self.branch_refresh_lock.release.assert_not_called()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
+    def test_list_cached_branches_does_not_overwrite_a_successor_snapshot(
+        self, mock_default_branch, mock_list_branches
+    ):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        github = GitHubIntegration(integration)
+        cache.set(
+            github._get_branch_cache_key(repo),
+            {"branches": ["stale"], "default_branch": "stale", "updated_at": 0},
+        )
+        mock_list_branches.return_value = (["older-refresh"], False)
+        mock_default_branch.return_value = "older-refresh"
+
+        def reject_expired_owner(_refresh: CoalescedCacheRefresh, _snapshot: dict[str, Any], _owner_token: str) -> bool:
+            cache.set(
+                github._get_branch_cache_key(repo),
+                {"branches": ["successor"], "default_branch": "successor", "updated_at": time.time()},
+            )
+            return False
+
+        with patch.object(CoalescedCacheRefresh, "_publish", autospec=True, side_effect=reject_expired_owner):
+            branches, default_branch, has_more = github.list_cached_branches(repo, limit=10)
+
+        assert branches == ["successor"]
+        assert default_branch == "successor"
+        assert has_more is False
+        assert cache.get(github._get_branch_cache_key(repo))["branches"] == ["successor"]
+        self.branch_refresh_lock.release.assert_called_once_with()
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
     def test_list_cached_branches_keeps_cached_default_branch_on_refresh_failure(
         self, mock_default_branch, mock_list_branches
     ):
@@ -2270,13 +2521,30 @@ class TestGitHubIntegrationModel(BaseTest):
             (second_page, False),
         ]
 
-        branches = GitHubIntegration(integration).list_all_branches(repo)
+        renew_refresh_claim = MagicMock(return_value=True)
+
+        branches = GitHubIntegration(integration).list_all_branches(repo, renew_refresh_claim=renew_refresh_claim)
 
         assert branches == first_page + second_page
+        assert renew_refresh_claim.call_count == 2
         assert mock_list_branches.call_args_list == [
             call(repo, limit=100, offset=0),
             call(repo, limit=100, offset=100),
         ]
+
+    @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
+    def test_list_all_branches_stops_when_refresh_claim_expires(self, mock_list_branches):
+        integration = self.create_integration(
+            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"access_token": "ACCESS_TOKEN"},
+        )
+        repo = "posthog/posthog"
+        mock_list_branches.return_value = (["main"], True)
+
+        with pytest.raises(GitHubIntegrationError, match="refresh claim expired"):
+            GitHubIntegration(integration).list_all_branches(repo, renew_refresh_claim=lambda: False)
+
+        mock_list_branches.assert_called_once_with(repo, limit=100, offset=0)
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_branches")
     @patch("posthog.models.integration.github.GitHubIntegration.get_default_branch")
