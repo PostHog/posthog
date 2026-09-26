@@ -337,6 +337,20 @@ class TestComputeTableStatisticsSync:
             result = compute_table_statistics_sync(team.id, schema.id)
         assert result == {"status": "skipped", "reason": "no_table"}
 
+    def test_skipped_when_team_missing(self) -> None:
+        team = self._team()
+        schema, _, _ = self._schema_table_job(team)
+        team_id = team.id
+        team.delete()
+        result = compute_table_statistics_sync(team_id, schema.id)
+        assert result == {"status": "skipped", "reason": "team_missing"}
+
+    def test_skipped_when_schema_missing(self) -> None:
+        team = self._team()
+        with patch.object(comp, "statistics_enabled", return_value=True):
+            result = compute_table_statistics_sync(team.id, uuid.uuid4())
+        assert result == {"status": "skipped", "reason": "schema_missing"}
+
     def test_skipped_when_no_files(self) -> None:
         team = self._team()
         schema, table, _ = self._schema_table_job(team)
