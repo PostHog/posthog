@@ -486,6 +486,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
     128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
+    # 130 stays internal and uncategorized: a text-format source with an Array column raises it while
+    # deserializing a cell, with no filter involved, so the CH message embeds the failing data value
+    # (see code 6 note) and a broken source file has to stay visible in error tracking.
     130: ErrorCodeMeta("CANNOT_READ_ARRAY_FROM_TEXT"),
     131: ErrorCodeMeta("TOO_LARGE_STRING_SIZE"),
     133: ErrorCodeMeta("AGGREGATE_FUNCTION_DOESNT_ALLOW_PARAMETERS"),
