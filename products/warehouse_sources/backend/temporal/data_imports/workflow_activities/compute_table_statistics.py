@@ -186,7 +186,12 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     # A plain read, so it's safe to retry outright on the Team/Organization join losing a
     # Postgres deadlock race against an unrelated writer of either table.
-    team = _get_team(team_id)
+    try:
+        team = _get_team(team_id)
+    except Team.DoesNotExist:
+        # The team can be deleted after the import starts this workflow.
+        log.debug("Team does not exist, skipping table statistics")
+        return {"status": "skipped", "reason": "team_missing"}
     event_props: dict[str, Any] = {"schema_id": str(schema_id)}
 
     def emit_completed(status: str, **props: Any) -> None:
@@ -196,11 +201,15 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         emit_completed("skipped", reason="flag_disabled")
         return {"status": "skipped", "reason": "flag_disabled"}
 
-    schema = (
-        ExternalDataSchema.objects.select_related("source", "table")
-        .filter(team_id=team_id, deleted=False)
-        .get(id=schema_id)
-    )
+    try:
+        schema = (
+            ExternalDataSchema.objects.select_related("source", "table")
+            .filter(team_id=team_id, deleted=False)
+            .get(id=schema_id)
+        )
+    except ExternalDataSchema.DoesNotExist:
+        emit_completed("skipped", reason="schema_missing")
+        return {"status": "skipped", "reason": "schema_missing"}
     table = schema.table
     event_props["source_type"] = schema.source.source_type
     event_props["schema_name"] = schema.name
