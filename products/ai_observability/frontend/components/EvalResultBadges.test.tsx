@@ -8,7 +8,13 @@ import { initKeaTests } from '~/test/init'
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
 import { EvaluationConfig, EvaluationRun } from '../evaluations/types'
 import { generationEvaluationRunsLogic } from '../generationEvaluationRunsLogic'
-import { EvalResultBadges, getEvalBadgeProps, getEvalSummaries, scopeRunsToTarget } from './EvalResultBadges'
+import {
+    EvalResultBadges,
+    EvalTooltipContent,
+    getEvalBadgeProps,
+    getEvalSummaries,
+    scopeRunsToTarget,
+} from './EvalResultBadges'
 import {
     compareEvaluationResults,
     getEvaluationResultDisplay,
@@ -32,6 +38,12 @@ function makeRun(overrides: Partial<EvaluationRun> = {}): EvaluationRun {
 }
 
 describe('EvalResultBadges', () => {
+    it('shows a fallback when a run has no reasoning', () => {
+        render(<EvalTooltipContent latestRun={makeRun()} runCount={1} />)
+
+        expect(screen.getByText('No reasoning provided')).toBeInTheDocument()
+    })
+
     it('sorts numeric scores together without colliding with status ranks', () => {
         const rows = [
             makeRun({ id: 'negative', result_type: 'numeric', score: -10 }),
