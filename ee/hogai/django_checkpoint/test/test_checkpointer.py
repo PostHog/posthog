@@ -226,6 +226,23 @@ class TestDjangoCheckpointer(NonAtomicBaseTest):
         await saver.aput(write_config, chkpnt, metadata, {})
         self.assertIn("channel_values", chkpnt)
 
+    async def test_put_removes_nul_bytes_and_keeps_escape_like_text(self):
+        thread = await Conversation.objects.acreate(user=self.user, team=self.team)
+        chkpnt: Checkpoint = empty_checkpoint()
+        metadata = {
+            "escape_like": "the user typed \\u0000 here",
+            "with_nul": "before\x00after",
+            "nested": [{"key\x00": "value\x00"}],
+        }
+        write_config = {"configurable": {"thread_id": thread.id, "checkpoint_ns": ""}}
+        saver = DjangoCheckpointer()
+        await saver.aput(write_config, chkpnt, metadata, {})
+
+        stored = await ConversationCheckpoint.objects.aget(id=chkpnt["id"])
+        self.assertEqual(stored.metadata["escape_like"], "the user typed \\u0000 here")
+        self.assertEqual(stored.metadata["with_nul"], "beforeafter")
+        self.assertEqual(stored.metadata["nested"][0], {"key": "value"})
+
     async def test_concurrent_puts_and_put_writes(self):
         """Test concurrent checkpoint operations and write operations."""
         graph: CompiledStateGraph = self._build_graph(DjangoCheckpointer())
