@@ -14,6 +14,7 @@ from django.core.cache import cache
 
 from pydantic import TypeAdapter, ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneResult
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient, build_system_one_client
@@ -39,15 +40,22 @@ CACHE_KEY_PREFIX = "taxonomic_search_intent:event_match:v1"
 _CACHED_MATCHES = TypeAdapter(list[EventMatch])
 
 
-def _candidates() -> dict[str, tuple[str, str]]:
-    """Every core event a picker can select, as name -> (label, meaning)."""
-    candidates: dict[str, tuple[str, str]] = {}
+@frozen
+class CoreEventCandidate:
+    label: str
+    # The description the model judges the search against.
+    meaning: str
+
+
+def _candidates() -> dict[str, CoreEventCandidate]:
+    """Every core event a picker can select, by event name."""
+    candidates: dict[str, CoreEventCandidate] = {}
     for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP["events"].items():
         # "All events" is not an event, and an event hidden from query builders cannot be selected here.
         if name == "All events" or definition.get("hidden_in_query_builders"):
             continue
         meaning = definition.get("description_llm") or definition.get("description") or ""
-        candidates[name] = (definition["label"], meaning)
+        candidates[name] = CoreEventCandidate(label=definition["label"], meaning=meaning)
     return candidates
 
 
@@ -65,16 +73,16 @@ def event_match_state(query: str) -> str:
     )
 
 
-def _question(label: str, meaning: str) -> NoulQuestion:
+def _question(candidate: CoreEventCandidate) -> NoulQuestion:
     return NoulQuestion(
-        instructions=f"Does the search look for the {label} event? {meaning}".strip(),
+        instructions=f"Does the search look for the {candidate.label} event? {candidate.meaning}".strip(),
         criteria_true="The search describes this event, uses a synonym for it, or names what it records.",
         criteria_false="The search is about something else.",
     )
 
 
 def _ask(client: SystemOneClient, state: str, names: Sequence[str]) -> SystemOneResult:
-    questions = {f"e{index}": _question(*CORE_EVENT_CANDIDATES[name]) for index, name in enumerate(names)}
+    questions = {f"e{index}": _question(CORE_EVENT_CANDIDATES[name]) for index, name in enumerate(names)}
     return client.decide(state=state, questions=questions)
 
 
@@ -121,7 +129,7 @@ def likely_core_events(team_id: int, query: str, *, use_cache: bool = True) -> l
     probabilities = _probabilities(team_id, query)
     likely = sorted(
         (
-            EventMatch(name=name, label=CORE_EVENT_CANDIDATES[name][0], probability=probability)
+            EventMatch(name=name, label=CORE_EVENT_CANDIDATES[name].label, probability=probability)
             for name, probability in probabilities.items()
             if probability >= MATCH_THRESHOLD
         ),

@@ -17,7 +17,7 @@ BUILD_CLIENT = "posthog.taxonomic_search_intent.event_match.build_system_one_cli
 
 
 LABEL_BY_INSTRUCTIONS = {
-    _question(label, meaning).instructions: label for label, meaning in CORE_EVENT_CANDIDATES.values()
+    _question(candidate).instructions: candidate.label for candidate in CORE_EVENT_CANDIDATES.values()
 }
 
 
