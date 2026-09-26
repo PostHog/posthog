@@ -435,6 +435,10 @@ def get_http_kwargs(
     on every checkout, which means a read here would only duplicate it on the hot query path.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    if workload == Workload.LOGS:
+        # CLICKHOUSE_LOGS_CLUSTER_PORT is the native port. Without a port, clickhouse_connect uses the
+        # HTTP port that matches `secure` (8443 or 8123).
+        kwargs.pop("port", None)
     creds = get_clickhouse_creds(ch_user)
     if is_file_backed_user(creds, workload, kwargs.get("user")):
         kwargs["password"] = creds.read_password()
