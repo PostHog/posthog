@@ -28,6 +28,19 @@ describe('loadPostHogJS', () => {
         })
 
         it.each([
+            ['the document URL the page loaded with', documentUrl],
+            ['the current document URL', `${window.location.origin}/project/1/insights`],
+        ])('drops an exception on %s after a route change', (_, filename) => {
+            window.history.pushState({}, '', '/project/1/insights')
+            try {
+                const frames = [{ filename, function: '?', lineno: 17 }]
+                expect(dropBrowserExtensionExceptions(exceptionEvent(frames))).toBeNull()
+            } finally {
+                window.history.pushState({}, '', documentUrl)
+            }
+        })
+
+        it.each([
             ['only bundle frames', [{ filename: bundleUrl, function: 'render', lineno: 42 }]],
             [
                 'a bundle frame among document URL frames',

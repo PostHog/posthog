@@ -23,6 +23,10 @@ interface RawStackFrame {
     filename?: string
 }
 
+// The router changes the path with pushState and replaceState, but a script keeps the document URL
+// it was compiled under. Read it here, before initKea() runs, so frames from that first path match.
+const initialDocumentUrl = window.location.origin + window.location.pathname
+
 /**
  * Browser extensions (crypto wallets, reader modes) inject scripts into the page. When such a
  * script throws, every stack frame points at the document URL, and error tracking reads it as an
@@ -39,8 +43,11 @@ export const dropBrowserExtensionExceptions: BeforeSendFn = (event) => {
         return event
     }
     const frames: RawStackFrame[] = exceptionList.flatMap((exception) => exception?.stacktrace?.frames ?? [])
-    const documentUrl = window.location.origin + window.location.pathname
-    const isDocumentUrl = (filename: string | undefined): boolean => filename?.split(/[?#]/)[0] === documentUrl
+    const currentDocumentUrl = window.location.origin + window.location.pathname
+    const isDocumentUrl = (filename: string | undefined): boolean => {
+        const url = filename?.split(/[?#]/)[0]
+        return url === initialDocumentUrl || url === currentDocumentUrl
+    }
     return frames.length > 0 && frames.every((frame) => isDocumentUrl(frame?.filename)) ? null : event
 }
 
