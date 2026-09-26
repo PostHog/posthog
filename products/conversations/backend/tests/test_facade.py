@@ -21,6 +21,7 @@ from products.conversations.backend.facade.api import (
     list_account_ticket_messages,
     list_account_tickets,
     list_resolved_ticket_revisions,
+    list_tickets_by_ids,
     post_support_message,
     trigger_immediate_channel_summary,
 )
@@ -124,6 +125,22 @@ class TestListAccountTickets(BaseTest):
 
         assert [t.id for t in result] == [str(mine.id)]
         assert result[0].deep_link.endswith(f"/project/{self.team.pk}/support/tickets/1")
+
+    def test_by_ids_keeps_the_given_order_and_drops_what_the_caller_cannot_read(self):
+        first = self._create_ticket(team=self.team, organization_id=None, number=1)
+        second = self._create_ticket(team=self.team, organization_id=None, number=2)
+        denied = self._create_ticket(team=self.team, organization_id=None, number=3)
+        self.access_control.filter_queryset_by_access_level.side_effect = lambda queryset: queryset.exclude(
+            id=denied.id
+        )
+
+        result = list_tickets_by_ids(
+            self.team.pk,
+            [str(second.id), str(denied.id), str(first.id), str(uuid4())],
+            self.access_control,
+        )
+
+        assert [t.id for t in result] == [str(second.id), str(first.id)]
 
     def test_returns_latest_public_message_sender(self):
         ticket = self._create_ticket(

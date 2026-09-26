@@ -93,6 +93,7 @@ describe('accountConversationsLogic', () => {
                 created_at: '2026-08-01T09:00:00Z',
                 started_by: 'Example customer',
                 distinct_id: 'customer@example.com',
+                attribution_method: 'native',
             },
         ])
         mockSupportTicketMessages.mockResolvedValue({

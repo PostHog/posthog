@@ -77,6 +77,10 @@ class TicketSummary:
     created_at: datetime
     started_by: str
     distinct_id: str
+    # How the ticket was attributed to the account whose list it appears in. Conversations
+    # never sets this, because the ticket alone does not say which account asked for it.
+    # The consumer that resolved the account stamps it.
+    attribution_method: str | None = None
 
 
 @dataclass(frozen=True)
