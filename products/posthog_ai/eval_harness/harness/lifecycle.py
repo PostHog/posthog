@@ -19,11 +19,7 @@ from posthoganalytics import Posthog
 
 from posthog.ph_client import get_client
 
-from products.tasks.backend.constants import (
-    MCP_EXEC_SKILLS_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-    WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-)
+from products.tasks.backend.constants import MCP_EXEC_SKILLS_FEATURE_FLAG, WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG
 from products.tasks.backend.temporal.process_task.utils import get_reasoning_effort_error
 
 from ..engines.base import EvalEngine
@@ -66,16 +62,11 @@ from .temporal_env import (
 
 logger = logging.getLogger(__name__)
 
-# Exceptions to the blanket "every flag is on" stub the run installs below. These two hand a
+# Exception to the blanket "every flag is on" stub the run installs below. This one hands a
 # task run to `run_task_workflow_dispatcher` instead of starting its Temporal workflow inline,
 # and the harness never starts that command — so a forced-on flag leaves every case parked in
 # QUEUED, with nothing to fail it, until the case's poll budget runs out.
-FORCED_OFF_FEATURE_FLAGS = frozenset(
-    {
-        WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG,
-        WORKFLOW_DISPATCH_RESTART_FEATURE_FLAG,
-    }
-)
+FORCED_OFF_FEATURE_FLAGS = frozenset({WORKFLOW_DISPATCH_ASYNC_FEATURE_FLAG})
 
 
 def eval_feature_enabled(
