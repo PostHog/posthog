@@ -930,8 +930,17 @@ function Root<T>({
 
     const jumpToLatest = useCallback((): void => {
         setPinned(true)
-        virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
-    }, [setPinned, virtualizer, rowCount])
+        const el = scrollRef.current
+        if (following && el) {
+            // By hand while the thread grows, like the live open: `scrollToIndex` arms the core's reconciler,
+            // which keeps re-targeting the growing end and undoes the reader's next upward scroll. The
+            // follow effect holds the bottom as the tail rows measure.
+            el.scrollTop = el.scrollHeight
+            noteProgrammaticScroll()
+        } else {
+            virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
+        }
+    }, [following, setPinned, virtualizer, rowCount, noteProgrammaticScroll])
 
     const rootValue = useMemo<RootContextValue>(
         () => ({
