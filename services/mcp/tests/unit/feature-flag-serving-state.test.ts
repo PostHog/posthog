@@ -1,0 +1,103 @@
+import { describe, expect, it, vi } from 'vitest'
+
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { getToolDefinition } from '@/tools/toolDefinitions'
+import type { Context } from '@/tools/types'
+
+function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
+    return {
+        api: {
+            request: requestMock,
+            getProjectBaseUrl: (projectId: string) => `https://us.posthog.com/project/${projectId}`,
+        } as any,
+        stateManager: { getProjectId: vi.fn().mockResolvedValue('42') } as any,
+        env: {} as any,
+        sessionManager: {} as any,
+        cache: {} as any,
+        getDistinctId: async () => 'test-distinct-id',
+        trackEvent: async () => {},
+    }
+}
+
+// `status` is a staleness classification, so a disabled flag reports `ACTIVE`. An agent that
+// reads serving state from it gets the opposite of the truth, and the list tool trims the
+// response to an allowlist, so `active` has to survive that trim.
+describe('feature flag serving state', () => {
+    it('feature-flag-get-all keeps active alongside status', async () => {
+        const request = vi.fn().mockResolvedValue({
+            results: [
+                {
+                    id: 7,
+                    key: 'new-checkout',
+                    name: 'New checkout',
+                    active: false,
+                    archived: false,
+                    is_remote_configuration: false,
+                    evaluation_runtime: 'client',
+                    evaluation_contexts: ['staging'],
+                    status: 'ACTIVE',
+                    tags: [],
+                    filters: { groups: [] },
+                },
+                {
+                    id: 8,
+                    key: 'pricing-config',
+                    name: 'Pricing config',
+                    active: false,
+                    archived: false,
+                    is_remote_configuration: true,
+                    status: 'ACTIVE',
+                    tags: [],
+                    filters: { groups: [] },
+                },
+            ],
+        })
+
+        const result: any = await GENERATED_TOOL_MAP['feature-flag-get-all']!().handler(createMockContext(request), {
+            active: 'false',
+        })
+
+        expect(result.results[0]).toMatchObject({ key: 'new-checkout', active: false, status: 'ACTIVE' })
+        expect(result.results[0]).not.toHaveProperty('filters')
+        // The evaluation service also leaves an enabled flag out of a caller's payload on a runtime or
+        // context mismatch, so both gates have to survive the trim next to `active`.
+        expect(result.results[0]).toMatchObject({ evaluation_runtime: 'client', evaluation_contexts: ['staging'] })
+        // `active: false` does not stop the remote config payload endpoint, so the row has to say
+        // which of the two disabled flags is still serving something.
+        expect(result.results[1]).toMatchObject({ key: 'pricing-config', is_remote_configuration: true })
+    })
+
+    it.each(['feature-flag-get-all', 'feature-flag-get-definition', 'feature-flags-status-retrieve'])(
+        '%s tells the agent to read serving state from active',
+        (name) => {
+            expect(getToolDefinition(name).description).toContain('serving state')
+        }
+    )
+
+    it.each(['feature-flag-get-all', 'feature-flag-get-definition'])(
+        '%s names the remote config exception to active',
+        (name) => {
+            expect(getToolDefinition(name).description).toContain('is_remote_configuration')
+        }
+    )
+
+    it.each(['feature-flag-get-all', 'feature-flag-get-definition'])(
+        '%s names the runtime and context gates on an enabled flag',
+        (name) => {
+            expect(getToolDefinition(name).description).toContain('evaluation_runtime')
+            expect(getToolDefinition(name).description).toContain('evaluation_contexts')
+        }
+    )
+
+    // These two turn the flag off, so they are where an agent is most likely to tell someone that
+    // delivery stopped. The payload endpoint never reads `active`, so for a remote config flag it
+    // did not.
+    it.each(['feature-flag-disable', 'feature-flag-archive'])('%s does not claim the payload stops', (name) => {
+        expect(getToolDefinition(name).description).toContain('is_remote_configuration')
+    })
+
+    it('feature-flag-get-all explains that the active filter matches the active field', () => {
+        const schema: any = GENERATED_TOOL_MAP['feature-flag-get-all']!().schema
+        expect(schema.shape.active.description).toContain('not on `status`')
+    })
+})

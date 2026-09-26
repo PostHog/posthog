@@ -115,9 +115,10 @@ tools:
             and survey history is preserved. There is no request body.
 
 
-            When the flag is enabled, archiving stops it evaluating everywhere. Tell the user what else this affects:
-            linked experiments, surveys, early access features and session replay settings all appear in the flag's full
-            definition.
+            When the flag is enabled, archiving stops it evaluating everywhere. Archiving sets `active` to false, so a
+            flag with `is_remote_configuration` true keeps serving its payload to SDKs even then. Tell the user what
+            else this affects: linked experiments, surveys, early access features and session replay settings all appear
+            in the flag's full definition.
 
 
             Returns 400 when the flag is enabled and other active flags depend on it. Returns 409 when an approval
@@ -168,9 +169,11 @@ tools:
             so targeting, rollout percentages, variants and payloads cannot change. There is no request body.
 
 
-            A disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user
-            what else this affects: linked experiments, surveys, early access features and session replay settings all
-            appear in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and
+            A disabled flag stops evaluating everywhere, so flag evaluation falls back to the caller's own default. That
+            covers flag evaluation only: when `is_remote_configuration` is true, the payload endpoint keeps serving the
+            payload to SDKs while `active` is false, so do not report payload delivery as stopped. Tell the user what
+            else this affects: linked experiments, surveys, early access features and session replay settings all appear
+            in the flag's full definition. `feature-flag-get-definition-by-key` already returns it, and
             `feature-flag-get-definition` returns it by ID.
 
 
@@ -264,11 +267,46 @@ tools:
         description: >
             Get feature flags in the current project. Supports list filters including search by feature flag key or name
             (case-insensitive), then use the returned ID for get/update/delete tools.
+
+
+            Each row carries two separate states, and they answer different questions. `active` is the serving state:
+            true means the flag is enabled and can evaluate, false means it is turned off and flag evaluation falls back
+            to the caller's own default. `status` is the staleness classification — `ACTIVE`, `STALE`, `ARCHIVED`,
+            `DELETED` or `UNKNOWN`. A disabled flag reports `status: ACTIVE`, because disabled flags are not evaluated
+            for staleness. So `status: ACTIVE` with `active: false` is expected, not a contradiction. Report serving
+            state from `active` only, and never from `status`.
+
+
+            `active: true` permits evaluation, and does not prove that a flag reaches a given caller. The evaluation
+            service leaves an enabled flag out of a caller's payload when `evaluation_runtime` does not match the
+            calling SDK, or when the flag's `evaluation_contexts` do not match the contexts the caller sends. That
+            caller then falls back to its own default, exactly as it does for a disabled flag. Each row carries both
+            fields: `evaluation_runtime: all` and an empty `evaluation_contexts` reach every caller, so check them
+            before you report a flag as live for a client or server SDK.
+
+
+            `active` covers standard flag evaluation only, and remote config flags are the exception. A row with
+            `is_remote_configuration: true` is a remote config flag. Its payload endpoint ignores `active`, so turning
+            the flag off does not stop payload delivery. That endpoint serves a payload only when one is configured, and
+            the row does not show whether one is. So report such a flag as off for evaluation, and say that its payload
+            delivery does not depend on `active`, rather than that a payload is served. A remote config flag with an
+            encrypted payload never evaluates, whatever `active` holds, because only its payload endpoint can decrypt
+            the payload. The row does not show which flags those are, and `feature-flag-get-definition` returns
+            `has_encrypted_payloads` for one flag.
+
+
+            `feature-flag-get-definition` returns the same `active` field for one flag. `feature-flags-status-retrieve`
+            returns the same staleness classification in lower case, with a reason.
         param_overrides:
             search:
                 description:
                     Search by feature flag key or name (case-insensitive). Use this to find the flag ID for get/update/delete
                     tools.
+            active:
+                description:
+                    Filter by serving state - 'true' for enabled flags, 'false' for disabled flags. Both match on the `active`
+                    field of each row, not on `status`. 'STALE' instead selects flags the staleness check calls stale,
+                    which is a different question.
             limit:
                 cast: string-int
             offset:
@@ -279,6 +317,11 @@ tools:
                 - key
                 - name
                 - updated_at
+                - active
+                - archived
+                - is_remote_configuration
+                - evaluation_runtime
+                - evaluation_contexts
                 - status
                 - tags
     feature-flag-get-definition:
@@ -296,6 +339,16 @@ tools:
             Get a single feature flag's full definition — rollout conditions, variants, payloads, active state — by its
             numeric ID. Use `feature-flag-get-definition-by-key` when you only have the string key used in code; use
             `feature-flag-get-all` to search by key or name and find the ID.
+
+
+            `active` is the serving state: true means the flag is enabled and can evaluate, false means it is turned
+            off. The `status` field in the same response is the staleness classification, not the serving state, and a
+            disabled flag reports `status: ACTIVE`. Report serving state from `active` only. An enabled flag still does
+            not reach a caller whose runtime does not match `evaluation_runtime`, or whose contexts do not match
+            `evaluation_contexts`. `active` covers standard flag evaluation only: when `is_remote_configuration` is
+            true, the payload endpoint ignores `active`, so it keeps serving a configured payload while `active` is
+            false. A flag with `has_encrypted_payloads: true` never evaluates, whatever `active` holds, because only
+            that endpoint can decrypt the payload.
         param_overrides:
             id:
                 cast: string-int
@@ -714,11 +767,17 @@ tools:
             idempotent: true
         title: Get feature flag status
         description: >
-            Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or
-            unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether
-            the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use
-            the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no
-            conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.
+            Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, archived,
+            deleted, or unknown) and a human-readable reason explaining the status. The status reflects recent
+            evaluation (whether the flag was called), NOT rollout completeness. To determine whether a flag is fully
+            rolled out / GA, use the returned `rollout` object: `effectively_full_rollout` (true when targeted to
+            everyone with no conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.
+
+
+            This status is also not the serving state. A disabled flag returns `active` here, with a reason that says it
+            is disabled. Read the serving state from the `active` field of `feature-flag-get-definition` or
+            `feature-flag-get-all`. This tool lower-cases the same classification that those tools return in upper case
+            as `status`.
         param_overrides:
             id:
                 cast: string-int

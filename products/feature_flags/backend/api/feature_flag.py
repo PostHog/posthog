@@ -2916,6 +2916,15 @@ class FeatureFlagSerializer(
         if "get_filters" in validated_data:
             validated_data["filters"] = validated_data.pop("get_filters")
 
+    @extend_schema_field(
+        serializers.CharField(
+            help_text=(
+                "Staleness classification: ACTIVE, STALE, ARCHIVED, DELETED or UNKNOWN. This is not the "
+                "serving state — read `active` for that. A disabled flag reports ACTIVE, because disabled "
+                "flags are not evaluated for staleness."
+            )
+        )
+    )
     def get_status(self, feature_flag: FeatureFlag) -> str:
         checker = FeatureFlagStatusChecker(feature_flag=feature_flag)
         flag_status, _ = checker.get_status()
@@ -3210,9 +3219,11 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text=(
-            "Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag "
-            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
-            "out. Use the `rollout` object to determine rollout completeness."
+            "Staleness classification: active, stale, archived, deleted, or unknown. A disabled flag reports "
+            "'active', because disabled flags are not evaluated for staleness, so 'active' does not imply recent "
+            "evaluation. This is not the serving state, and this response carries no serving-state field: read the "
+            "`active` field of the flag itself from the list or retrieve endpoint. 'active' also does NOT mean the "
+            "flag is fully rolled out. Use the `rollout` object to determine rollout completeness."
         )
     )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")
@@ -4062,6 +4073,11 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 enum=["true", "false", "STALE"],
+                description=(
+                    "Filter by serving state: 'true' for enabled flags, 'false' for disabled flags. "
+                    "Both match on the `active` field of each row, not on `status`. 'STALE' instead "
+                    "selects flags the staleness check calls stale, which is a different question."
+                ),
             ),
             OpenApiParameter(
                 "created_by_id",
