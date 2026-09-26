@@ -53,6 +53,7 @@ def create_test_app(
     @asynccontextmanager
     async def test_lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.db_pool = mock_db_pool
+        app.state.openai_available = True
         app.state.redis = None
         app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
         app.state.http_client = MagicMock()
