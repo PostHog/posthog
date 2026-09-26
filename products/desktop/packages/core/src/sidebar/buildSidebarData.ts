@@ -112,6 +112,9 @@ export function filterVisibleTasks(
   return rawTasks.filter(
     (task) =>
       !options.archivedIds.has(task.id) &&
+      (options.showInternal ||
+        (task.origin_product !== "signals_scout" &&
+          !/^\[sandbox_prompt:signals_scout(?::|\])/.test(task.title))) &&
       (options.showAllUsers ||
         options.showInternal ||
         options.workspaceIds.has(task.id) ||
