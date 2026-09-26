@@ -293,11 +293,18 @@ await session.end()
 
 ### Reference implementation
 
-The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` uses a single background session to inspect a scout's instructions and recent runs.
-When no runs exist, it drafts criteria from the instructions and available references and states that limitation.
-The prompt asks the agent to preserve conditional rules and fallback paths and identify conflicting instructions for owner review.
+The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` uses a single background session to inspect a scout's description, instructions and recent runs.
+The `signals-pipeline-models` payload can select its adapter, model and effort through the `scout_rubrics` step without changing regular scout runs.
+When no runs exist, it drafts criteria from the description, instructions and available references and states that limitation.
+The prompt asks for a few outcome-focused checks not already covered by saved criteria, preserving conditional rules and fallback paths.
+Unresolved instruction conflicts stay with the owner, and the summary distinguishes inspected evidence from material the agent did not read.
 Its API records a generation request before dispatching a Temporal workflow, then links the task before the agent starts.
-The worker saves validated suggestions on the scout config and ends the session.
+The agent drafts suggestions, then reviews them in the same session against the supplied rules and output schema.
+The review checks the passing conditions using the context already gathered.
+If its reply fails JSON or schema validation, the agent gets one request to correct the format in the same session.
+All calls share the original runtime limit; a second invalid reply fails the generation.
+Only the validated review result is saved on the scout config; a failed draft or review preserves the saved rubric.
+The worker ends the session after success or failure.
 The browser can close during generation and retrieve the result later without restoring a sandbox.
 Suggestions remain separate from the saved rubric until a person selects and saves them.
 Revision checks protect concurrent saves, and each completion checks its generation identifier before updating the config.

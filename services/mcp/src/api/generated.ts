@@ -1272,6 +1272,21 @@ export namespace Schemas {
       readonly display_name: string;
     }
 
+    export interface AccountPresence {
+      /** Customer analytics account ID. */
+      readonly account_id: string;
+      /** People viewing this account. */
+      readonly viewers: readonly AccountPresenceViewer[];
+    }
+
+    export interface AccountPresenceListRequest {
+      /**
+         * Up to 100 account IDs to read presence for.
+         * @maxItems 100
+         */
+      account_ids: string[];
+    }
+
     /**
      * A team-defined account relationship type (CSM, Onboarding manager, ...).
      */
@@ -23800,6 +23815,26 @@ export namespace Schemas {
       access_secret: string;
     }
 
+    /**
+     * Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected.
+     */
+    export type CredentialAccountsRequestCredentials = {[key: string]: string};
+
+    /**
+     * Body for listing accounts from credentials the user has typed but not yet submitted.
+     */
+    export interface CredentialAccountsRequest {
+      /** The data warehouse source type whose picker is asking (e.g. 'AppleSearchAds'). */
+      source_type: string;
+      /** Values of the sibling fields named by the picker's `credentialFields`. Any other key is rejected. */
+      credentials: CredentialAccountsRequestCredentials;
+      /**
+         * Vendor API version the source is pinned to. Defaults to the source's current default.
+         * @nullable
+         */
+      api_version?: string | null;
+    }
+
     export interface CurrentBranchHealth {
       /** Detected default branch ('master' or 'main') from runs in the same 24-hour window. */
       default_branch: string;
@@ -25080,74 +25115,6 @@ export namespace Schemas {
       layouts?: _DashboardPatchTileLayoutsOpenApi;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
-    }
-
-    export interface DashboardSavedViewFilters {
-      /** @maxLength 200 */
-      search?: string;
-      createdBy?: number[] | 'All users';
-      pinned?: boolean;
-      shared?: boolean;
-      /**
-         * @maxItems 50
-         * @items.maxLength 100
-         */
-      tags?: string[];
-      /**
-         * @maxLength 4000
-         * @nullable
-         */
-      folder?: string | null;
-    }
-
-    /**
-     * * `private` - Private
-     * * `team` - Team
-     */
-    export type DashboardSavedViewScopeEnum = typeof DashboardSavedViewScopeEnum[keyof typeof DashboardSavedViewScopeEnum];
-
-
-    export const DashboardSavedViewScopeEnum = {
-      Private: 'private',
-      Team: 'team',
-    } as const;
-
-    export interface DashboardSavedView {
-      readonly id: string;
-      /**
-         * Name shown in the dashboard list view picker.
-         * @maxLength 200
-         */
-      name: string;
-      /** Dashboard list filters stored by this view. */
-      filters: DashboardSavedViewFilters;
-      /** Whether only the creator or all team members can use this view.
-       *
-       * * `private` - Private
-       * * `team` - Team */
-      scope?: DashboardSavedViewScopeEnum;
-      readonly created_at: string;
-      /** @nullable */
-      readonly updated_at: string | null;
-      /** @nullable */
-      readonly created_by: number | null;
-      /** Whether the current user can change this view's visibility. */
-      readonly can_change_scope: boolean;
-    }
-
-    export interface DashboardSavedViewWrite {
-      /**
-         * Name shown in the dashboard list view picker.
-         * @maxLength 200
-         */
-      name: string;
-      /** Dashboard list filters stored by this view. */
-      filters: DashboardSavedViewFilters;
-      /** Whether only the creator or all team members can use this view.
-       *
-       * * `private` - Private
-       * * `team` - Team */
-      scope?: DashboardSavedViewScopeEnum;
     }
 
     export interface DashboardSubscribeNudgeResponse {
@@ -52846,6 +52813,8 @@ export namespace Schemas {
       errors: number;
       /** Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other". */
       harness: string;
+      /** Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName. */
+      harness_sessions?: number | null;
       sessions: number;
       total_calls: number;
     }
@@ -53096,6 +53065,10 @@ export namespace Schemas {
       errors: number;
       p50_ms?: number | null;
       p95_ms?: number | null;
+      /** Calls to any tool in the same window and filters. The denominator for the tool's call share. */
+      total_calls: number;
+      /** Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share. */
+      total_conversations: number;
       users: number;
       /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
       with_intent: number;
@@ -53196,9 +53169,19 @@ export namespace Schemas {
       p50_duration_ms: number;
       p95_duration_ms: number;
       p99_duration_ms: number;
+      /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
+      previous_calls: number;
+      /** Errored calls in the previous period. */
+      previous_errors: number;
+      /** p95 duration in the previous period, or null when no previous call carried a duration. */
+      previous_p95_duration_ms: number | null;
+      /** Distinct sessions that called the tool in the previous period. */
+      previous_sessions: number;
       sessions: number;
       tool: string;
       total_calls: number;
+      /** Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a large tool's surge. Not a percentage; only meaningful for ordering. */
+      trend_score: number;
       users: number;
     }
 
@@ -53209,6 +53192,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** The same total for the previous period, the denominator for each row's previous session share. */
+      previousTotalSessions: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -53220,6 +53205,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Number of tools matching the date, category, and search filters. */
       totalCount: number;
+      /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
+      totalSessions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
@@ -53238,6 +53225,7 @@ export namespace Schemas {
       Users: 'users',
       Sessions: 'sessions',
       LastSeen: 'last_seen',
+      TrendScore: 'trend_score',
     } as const;
 
     export type MCPToolQualitySortDirection = typeof MCPToolQualitySortDirection[keyof typeof MCPToolQualitySortDirection];
@@ -63658,14 +63646,6 @@ export namespace Schemas {
       results: DashboardBasic[];
     }
 
-    export interface PaginatedDashboardSavedViewList {
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DashboardSavedView[];
-    }
-
     export interface PaginatedDashboardTemplateList {
       count: number;
       /** @nullable */
@@ -71581,29 +71561,6 @@ export namespace Schemas {
       readonly created_at?: string;
       /** @nullable */
       readonly updated_at?: string | null;
-    }
-
-    export interface PatchedDashboardSavedView {
-      readonly id?: string;
-      /**
-         * Name shown in the dashboard list view picker.
-         * @maxLength 200
-         */
-      name?: string;
-      /** Dashboard list filters stored by this view. */
-      filters?: DashboardSavedViewFilters;
-      /** Whether only the creator or all team members can use this view.
-       *
-       * * `private` - Private
-       * * `team` - Team */
-      scope?: DashboardSavedViewScopeEnum;
-      readonly created_at?: string;
-      /** @nullable */
-      readonly updated_at?: string | null;
-      /** @nullable */
-      readonly created_by?: number | null;
-      /** Whether the current user can change this view's visibility. */
-      readonly can_change_scope?: boolean;
     }
 
     export interface PatchedDashboardTemplate {
@@ -85172,6 +85129,8 @@ export namespace Schemas {
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** The same total for the previous period, the denominator for each row's previous session share. */
+      previousTotalSessions: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -85183,6 +85142,8 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
       /** Number of tools matching the date, category, and search filters. */
       totalCount: number;
+      /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
+      totalSessions: number;
       /** Connector-synced data warehouse sources referenced by this query, if any. */
       used_data_warehouse_sources?: DataWarehouseSourceUsage[] | null;
       /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access. */
@@ -89688,6 +89649,70 @@ export namespace Schemas {
       sdks: SdkAssessment[];
     }
 
+    export interface SearchIntentRequest {
+      /**
+         * What the person typed into the filter picker search box.
+         * @maxLength 200
+         */
+      query: string;
+      /**
+         * The picker tab that is open, as a taxonomic group type such as event_properties.
+         * @maxLength 100
+         */
+      active_group_type: string;
+      /**
+         * The taxonomic group types the picker shows. The answer is always one of these, or null.
+         * @maxItems 64
+         * @items.maxLength 100
+         */
+      available_group_types: string[];
+      /**
+         * The id of the scene the picker is open in, such as Insight or Replay.
+         * @nullable
+         * @pattern ^[A-Za-z0-9_-]{1,64}$
+         */
+      scene?: string | null;
+    }
+
+    /**
+     * * `rule` - Matched a value pattern
+     * * `model` - Asked the decision model
+     * * `skipped` - Not classified
+     */
+    export type SearchIntentSourceEnum = typeof SearchIntentSourceEnum[keyof typeof SearchIntentSourceEnum];
+
+
+    export const SearchIntentSourceEnum = {
+      Rule: 'rule',
+      Model: 'model',
+      Skipped: 'skipped',
+    } as const;
+
+    export interface SearchIntentResponse {
+      /**
+         * The taxonomic group type the search most likely belongs to, or null if it was not classified.
+         * @nullable
+         */
+      group_type: string | null;
+      /** How far the chosen group stands out from the rest, from 0 (a coin flip) to 1. */
+      confidence: number;
+      /** Whether the confidence is high enough to act on, for example to suggest a different tab. */
+      is_confident: boolean;
+      /** Whether the picker should suggest switching from the open tab to group_type. */
+      suggests_switch: boolean;
+      /** How the answer was found: a value pattern, the decision model, or not at all.
+       *
+       * * `rule` - Matched a value pattern
+       * * `model` - Asked the decision model
+       * * `skipped` - Not classified */
+      method: SearchIntentSourceEnum;
+      /**
+         * The version of the managed search intent prompt the model read. Null for a value pattern, a skipped search, or the bundled fallback prompt.
+         * @nullable
+         */
+      prompt_version: number | null;
+    }
+
     export interface SearchSuggestionsQuery {
       /** Scope to a single scanner's observations. Defaults to every scanner you can read. */
       scanner_id?: string;
@@ -91296,6 +91321,26 @@ export namespace Schemas {
       type: 'oauth-account-select';
     }
 
+    /**
+     * Account picker for a source whose credentials are typed into the form, not held by an
+     * `Integration` row. Same `IntegrationAccount` shape and same picker as `oauth-account-select`;
+     * only where the credentials come from differs.
+     *
+     * `credentialFields` is the security boundary. The listing endpoint accepts those field names and
+     * no others, so the picker cannot be used to push arbitrary connection details into a source's
+     * client.
+     */
+    export interface SourceFieldCredentialAccountSelectConfig {
+      caption?: string | null;
+      /** Names of the sibling fields whose values the account listing needs. The form sends exactly these, and the listing endpoint accepts exactly these. */
+      credentialFields: string[];
+      label: string;
+      name: string;
+      placeholder?: string | null;
+      required?: boolean | null;
+      type: 'credential-account-select';
+    }
+
     export interface SourceFieldFileUploadJsonFormatConfig {
       format?: '.json';
       keys: '*' | string[];
@@ -91316,7 +91361,7 @@ export namespace Schemas {
     }
 
     export interface SourceFieldSelectConfigOption {
-      fields?: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[] | null;
+      fields?: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldCredentialAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[] | null;
       label: string;
       value: string;
     }
@@ -91337,7 +91382,7 @@ export namespace Schemas {
     export interface SourceFieldSwitchGroupConfig {
       caption?: string | null;
       default: string | number | boolean;
-      fields: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[];
+      fields: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldCredentialAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[];
       label: string;
       name: string;
       type: 'switch-group';
@@ -91376,7 +91421,7 @@ export namespace Schemas {
       featureFlag?: string | null;
       /** Whether this source should be prominently displayed in onboarding flows */
       featured?: boolean | null;
-      fields: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[];
+      fields: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldCredentialAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[];
       iconClassName?: string | null;
       iconPath: string;
       /** Extra search terms (alternate spellings, acronyms) for the catalog search, e.g. GoogleAnalytics → ["ga4", "ga"]. Matched alongside name/label/category. */
@@ -91390,7 +91435,7 @@ export namespace Schemas {
       /** Whether the source-creation wizard should expose the per-column projection picker. Mirrors `SQLSource.supports_column_selection` so the wizard doesn't show a picker for drivers that ignore `enabled_columns` at sync time. */
       supportsColumnSelection: boolean;
       unreleasedSource?: boolean | null;
-      webhookFields?: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[] | null;
+      webhookFields?: (SourceFieldInputConfig | SourceFieldSwitchGroupConfig | SourceFieldSelectConfig | SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig | SourceFieldCredentialAccountSelectConfig | SourceFieldFileUploadConfig | SourceFieldSSHTunnelConfig)[] | null;
       /** If true, the source does not support automatic webhook registration via API (e.g. Slack, where the user must paste the URL into the source's app settings). Adjusts the setup UI copy to avoid promising automatic registration. */
       webhookManualOnly?: boolean | null;
       webhookSetupCaption?: string | null;
@@ -108421,33 +108466,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type DashboardSavedViewsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * Return saved views with this visibility scope.
-     *
-     * * `private` - Private
-     * * `team` - Team
-     * @minLength 1
-     */
-    scope?: DashboardSavedViewsListScope;
-    };
-
-    export type DashboardSavedViewsListScope = typeof DashboardSavedViewsListScope[keyof typeof DashboardSavedViewsListScope];
-
-
-    export const DashboardSavedViewsListScope = {
-      Private: 'private',
-      Team: 'team',
-    } as const;
 
     export type DashboardTemplatesListParams = {
     /**

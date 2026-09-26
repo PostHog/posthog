@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import asyncio
 from collections.abc import Awaitable
 from datetime import timedelta
 from types import SimpleNamespace
@@ -193,26 +195,72 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.config.refresh_from_db()
         self.assertIsNone(self.config.rubrics)
 
-    @parameterized.expand([("completed", False, False), ("failed", True, False), ("cleanup_failed", False, True)])
+    @parameterized.expand(
+        [
+            ("completed", None, False),
+            ("description_only", None, False),
+            ("start_failed", "start", False),
+            ("review_dispatch_value_error", "review", False),
+            ("review_timeout", "timeout", False),
+            ("review_cancelled", "cancelled", False),
+            ("malformed_json_recovered", None, False),
+            ("overlong_summary_recovered", None, False),
+            ("schema_recovered", None, False),
+            ("twice_invalid", "format", False),
+            ("cleanup_failed", None, True),
+        ]
+    )
     def test_agent_output_is_saved_as_suggestions_without_changing_rubric(
-        self, _name: str, fail: bool, cleanup_fails: bool
+        self, name: str, failed_stage: str | None, cleanup_fails: bool
     ) -> None:
+        body = "" if name == "description_only" else "Inspect checkout failures and report reproducible issues."
         LLMSkill.objects.create(
             team=self.team,
             name=self.config.skill_name,
             description="Check the checkout flow.",
-            body="Inspect checkout failures and report reproducible issues.",
+            body=body,
             version=1,
         )
         config, _ = reserve_generation(self.team.id, str(self.config.id))
         generation = read_rubric_state(config).generation
         assert generation is not None
+        criterion = custom_criterion()
+        reviewed_batch = ScoutRubricSuggestionBatch(
+            summary="Reviewed criteria based on the instructions. There are no recent runs.",
+            suggestions=[ScoutRubricSuggestion(**criterion.model_dump(exclude={"id", "source", "enabled"}))],
+        )
+        reviewed_json = reviewed_batch.model_dump_json()
+        review_outputs: list[str | BaseException] = [reviewed_json]
+        if name == "malformed_json_recovered":
+            review_outputs = ['{"summary":', reviewed_json]
+        elif name == "overlong_summary_recovered":
+            review_outputs = [json.dumps({**reviewed_batch.model_dump(), "summary": "x" * 2001}), reviewed_json]
+        elif name == "schema_recovered":
+            review_outputs = [
+                json.dumps({"summary": "Synthetic invalid result", "suggestions": "not a list"}),
+                reviewed_json,
+            ]
+        elif failed_stage == "format":
+            review_outputs = ["This is not JSON", '{"summary":']
+        elif failed_stage == "review":
+            review_outputs = [ValueError("Follow-up dispatch failed")]
+        elif failed_stage == "timeout":
+            review_outputs = [TimeoutError("Follow-up timed out")]
+        elif failed_stage == "cancelled":
+            review_outputs = [asyncio.CancelledError()]
         session = SimpleNamespace(
-            end=AsyncMock(side_effect=RuntimeError("Sandbox unavailable") if cleanup_fails else None)
+            send_followup_raw=AsyncMock(side_effect=review_outputs),
+            end=AsyncMock(side_effect=RuntimeError("Sandbox unavailable") if cleanup_fails else None),
         )
         run_id = uuid4()
 
-        async def start(**kwargs: object) -> tuple[SimpleNamespace, ScoutRubricSuggestionBatch]:
+        async def start(**kwargs: object) -> tuple[SimpleNamespace, str]:
+            prompt = kwargs["prompt"]
+            assert isinstance(prompt, str)
+            scout_context = json.loads(prompt.split("\nUntrusted scout context:\n", 1)[1])
+            self.assertEqual(scout_context["description"], "Check the checkout flow.")
+            self.assertEqual(scout_context["instructions"], body)
+            self.assertEqual(scout_context["recent_runs"], [])
             self.assertEqual(kwargs["origin_product"], "scout_suggestions")
             context = kwargs["context"]
             assert isinstance(context, CustomPromptSandboxContext)
@@ -230,24 +278,37 @@ class TestScoutRubricsAPI(APIBaseTest):
             result = callback(SimpleNamespace(id=run_id, task_id=uuid4()))
             assert isinstance(result, Awaitable)
             await result
-            if fail:
-                raise ValueError("Invalid output")
-            criterion = custom_criterion()
-            return session, ScoutRubricSuggestionBatch(
-                summary="Criteria based on the instructions. There are no recent runs.",
-                suggestions=[ScoutRubricSuggestion(**criterion.model_dump(exclude={"id", "source", "enabled"}))],
-            )
+            if failed_stage == "start":
+                raise ValueError("Draft failed")
+            return session, "An unvalidated draft that still needs review."
 
         with (
             patch("products.signals.backend.scout_harness.rubrics_runner.RUBRIC_TEAM_ID", self.team.id),
-            patch("products.signals.backend.scout_harness.rubrics_runner.MultiTurnSession.start", side_effect=start),
+            patch(
+                "products.signals.backend.scout_harness.rubrics_runner.MultiTurnSession.start_raw", side_effect=start
+            ) as start_session,
         ):
-            async_to_sync(run_rubric_generation)(self.team.id, str(self.config.id), generation.id, self.user.id)
+            if failed_stage == "cancelled":
+                with self.assertRaises(asyncio.CancelledError):
+                    async_to_sync(run_rubric_generation)(self.team.id, str(self.config.id), generation.id, self.user.id)
+            else:
+                async_to_sync(run_rubric_generation)(self.team.id, str(self.config.id), generation.id, self.user.id)
+        start_session.assert_awaited_once()
+        expected_followups = 0 if failed_stage == "start" else len(review_outputs)
+        self.assertEqual(session.send_followup_raw.await_count, expected_followups)
         self.config.refresh_from_db()
         state = read_rubric_state(self.config)
         self.assertEqual(state.revision, 0)
         self.assertEqual([item.id for item in state.criteria], [item.id for item in default_criteria()])
         assert state.generation is not None
         self.assertEqual(state.generation.task_run_id, str(run_id))
-        self.assertEqual(state.generation.status, "failed" if fail else "completed")
-        self.assertEqual(len(state.generation.suggestions), 0 if fail else 1)
+        self.assertEqual(state.generation.status, "failed" if failed_stage else "completed")
+        self.assertEqual(len(state.generation.suggestions), 0 if failed_stage else 1)
+        if not failed_stage:
+            self.assertEqual(state.generation.summary, reviewed_batch.summary)
+            self.assertEqual(state.generation.suggestions[0].pass_condition, criterion.pass_condition)
+        if failed_stage != "start":
+            session.end.assert_awaited_once_with(
+                status="failed" if failed_stage else "completed",
+                error="Rubric generation failed" if failed_stage else None,
+            )
