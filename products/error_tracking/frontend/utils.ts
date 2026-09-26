@@ -305,3 +305,13 @@ export function sourceDisplay(source: string): string {
     const relevantComponents = index >= 0 ? components.slice(0, index) : components
     return [...relevantComponents.reverse(), fileWithoutExtension].join('.')
 }
+
+// Server-side exception events can carry the emitting service as a property. OTel-instrumented
+// services report `service.name`; some capture paths use the `service_name` column form. Returns
+// null when neither is present so the metrics pivot can hide itself rather than link to an
+// unscoped (every-service) metrics page.
+export function serviceNameFromErrorEvent(properties: Record<string, unknown>): string | null {
+    const raw = properties['service.name'] ?? properties['service_name']
+    const name = typeof raw === 'string' ? raw.trim() : ''
+    return name || null
+}
