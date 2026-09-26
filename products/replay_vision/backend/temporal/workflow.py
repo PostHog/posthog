@@ -339,6 +339,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     exported_asset_id=asset_result.asset_id,
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
+                    inline_video=uploaded.inline_video,
                 ),
                 # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single
                 # call, and must cover both mission passes plus the one verify-positives draw: a pass that
@@ -442,7 +443,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 await self._mark_failed(observation_id, scanner_type, failure_kind, _root_cause_message(e))
             raise
         finally:
-            if uploaded is not None:
+            if uploaded is not None and not uploaded.inline_video:
                 # Swallow exceptions so cleanup failure can't fail a workflow that already marked-succeeded.
                 try:
                     await wf.execute_activity(

@@ -18,6 +18,7 @@ from google.genai.types import GenerateContentConfig
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
+from products.replay_vision.backend.gemini_client import replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 
@@ -95,12 +96,15 @@ def cached_feedback_themes(scanner: ReplayScanner) -> dict | None:
 def _summarize(*, comments: list[str], team_id: int, distinct_id: str) -> _LlmFeedbackThemes:
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
     # Runs inline in a web worker during suggestion generation, so a hung provider call must time out.
-    client = genai.Client(
-        api_key=api_key,
-        # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-        posthog_privacy_mode=True,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+    client = replay_gemini_client(
+        lambda: genai.Client(
+            api_key=api_key,
+            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+            posthog_privacy_mode=True,
+            posthog_client=posthoganalytics.default_client,
+            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        ),
+        timeout_ms=_MODEL_CALL_TIMEOUT_MS,
     )
     lines = [f"Feedback comments on sessions the scanner scored wrong ({len(comments)}):"]
     for number, comment in enumerate(comments, start=1):
