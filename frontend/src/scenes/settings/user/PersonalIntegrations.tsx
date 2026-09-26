@@ -340,7 +340,7 @@ export function PersonalSlackIntegrations(): JSX.Element {
                     </LemonButton>
                     <span className="text-xs text-secondary text-balance">
                         You'll be redirected to Slack to authorize this PostHog account. The link binds your Slack user
-                        id to your PostHog account — no Slack token is kept after the redirect.
+                        id to your PostHog account.
                     </span>
                 </div>
             )}

@@ -884,6 +884,8 @@ depends_on = [
     "products.alerts",
     "products.conversations",
     "products.dashboards",
+    # Facade-only: the account-link flow offers the Slack MCP connection in the same consent step.
+    "products.mcp_store",
     "products.product_analytics",
     "products.signals",
     "products.tasks", "products.access_control",
