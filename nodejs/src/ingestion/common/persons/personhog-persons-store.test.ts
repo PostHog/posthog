@@ -800,6 +800,39 @@ describe('PersonhogPersonsStore', () => {
         expect(edgeOf('1:d1')).toBe('1:7')
     })
 
+    it.each([
+        ['another person', '1:7'],
+        ['the same person', '1:9'],
+    ])(
+        'an update read over a stale edge leaves an edge to %s a newer read installed during its leader read',
+        async (_case, newer) => {
+            const bound = store.forBatch(0)
+            ;(store as any).setDistinctIdToPersonId('1:d1', '1:9')
+            let leaderCalled!: () => void
+            const called = new Promise<void>((resolve) => (leaderCalled = resolve))
+            let release!: (answer: null) => void
+            repository.fetchPersonById
+                .mockImplementationOnce((() => {
+                    leaderCalled()
+                    return new Promise((resolve) => (release = resolve))
+                }) as never)
+                .mockResolvedValueOnce({ ...person } as never)
+            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+                { teamId: 1, distinctId: 'd1', person: { ...person } },
+            ] as never)
+
+            const fetching = bound.fetchForUpdate(1, 'd1')
+            await called
+            // A purge and a newer read replace the edge while the leader read is out.
+            ;(store as any).bumpGeneration(1)
+            ;(store as any).setDistinctIdToPersonId('1:d1', newer)
+            release(null)
+            await fetching
+
+            expect(edgeOf('1:d1')).toBe(newer)
+        }
+    )
+
     it('a prefetch leaves an id unresolved when the leader no longer holds the person identity named', async () => {
         repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
             { teamId: 1, distinctId: 'd1', person: { ...person } },

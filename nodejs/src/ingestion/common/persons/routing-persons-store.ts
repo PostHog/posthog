@@ -621,9 +621,10 @@ export class RoutingPersonsStore implements PersonsStore {
                       .map((source) => `${source.sourceDistinctId}=${source.outcome}`)
                       .sort()
                       .join(',')
+        const bothAborted = left.foldAborted !== undefined && right.foldAborted !== undefined
         const disagree =
             (left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null) || verdicts(left) !== verdicts(right)
-        if (disagree) {
+        if (disagree && !bothAborted) {
             logger.info('personhog shadow merge verdicts differ', {
                 team_id: request.teamId,
                 target_distinct_id: request.targetDistinctId,

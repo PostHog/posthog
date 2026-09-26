@@ -8,6 +8,7 @@ import {
     personhogStoreShadowErrorsCounter,
     personhogStoreShadowSkipsCounter,
 } from '~/common/persons/metrics'
+import { logger } from '~/common/utils/logger'
 import { defaultRetryConfig } from '~/common/utils/retries'
 import { InternalPerson } from '~/types'
 
@@ -413,7 +414,8 @@ describe('RoutingPersonsStore', () => {
             }
         })
 
-        it('a fold both backends aborted records nothing', async () => {
+        it('a fold both backends aborted records and logs nothing', async () => {
+            const info = jest.spyOn(logger, 'info')
             const stores = makeStores()
             stores.pg.mergePersons.mockResolvedValue({ survivor: null, results: [], foldAborted: 'limit' })
             stores.personhogMock.mergePersons.mockResolvedValue({
@@ -426,6 +428,7 @@ describe('RoutingPersonsStore', () => {
             await store.mergePersons(mergeRequest() as never, 0)
 
             expect(divergences()).toEqual([])
+            expect(info).not.toHaveBeenCalledWith('personhog shadow merge verdicts differ', expect.anything())
         })
 
         it('tells shadow failures apart by class, not just by verb', async () => {

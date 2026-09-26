@@ -472,9 +472,12 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (person !== null) {
                 return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
             }
-            // The leader no longer holds this person; identity decides where the id lives now.
-            this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
-            this.resolutions.delete(distinctKey)
+            // The leader no longer holds this person; identity decides where the id lives now. A purge or a newer
+            // read during the leader read owns the entry, so only the edge this read found is removed.
+            if (this.generationOf(teamId) === generation && this.resolutions.get(distinctKey) === edge) {
+                this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
+                this.resolutions.delete(distinctKey)
+            }
         }
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         if (!resolved?.person) {
