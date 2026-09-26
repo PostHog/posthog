@@ -65,10 +65,11 @@ export function LegacyExperimentView(): JSX.Element {
                         action={{
                             children: 'Migrate with PostHog AI',
                             icon: <IconSparkles />,
+                            // The "!" prefix submits the prompt without review, so keep user-editable text like the name out of it
                             onClick: () =>
                                 openSidePanel(
                                     SidePanelTab.Max,
-                                    `!Migrate experiment "${experiment.name}" (id ${experiment.id}) to the new experiment engine`
+                                    `!Migrate experiment ${experiment.id} to the new experiment engine`
                                 ),
                             'data-attr': 'legacy-experiment-migrate-with-ai',
                         }}
