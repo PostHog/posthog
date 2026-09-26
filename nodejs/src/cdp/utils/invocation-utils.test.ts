@@ -35,6 +35,7 @@ describe('Invocation utils', () => {
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0].state.globals.source).toEqual({
+                id: fn.id,
                 name: 'Hog Function',
                 url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
             })

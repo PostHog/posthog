@@ -185,11 +185,12 @@ export const messageTemplateTestSendLogic = kea<messageTemplateTestSendLogicType
                         edges,
                     }
 
+                    // nosemgrep: prefer-codegen-api-namespaced-workflows -- the generated hogFlowsInvocationsCreate returns void, and this loader reads the test result.
                     return await api.hogFlows.createTestInvocation('new', {
                         configuration,
                         globals: createExampleEvent(
                             currentTeamId ?? undefined,
-                            configuration.name,
+                            { name: configuration.name },
                             '$pageview',
                             recipientEmail
                         ),

@@ -193,7 +193,7 @@ export const broadcastTestSendLogic = kea<broadcastTestSendLogicType>([
 
                     const globals = createExampleEvent(
                         currentTeamId ?? undefined,
-                        configuration.name,
+                        { name: configuration.name },
                         '$pageview',
                         recipientEmail
                     )

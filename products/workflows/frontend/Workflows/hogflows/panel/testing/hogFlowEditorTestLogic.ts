@@ -45,7 +45,12 @@ import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import type { HogFlowEditorMode } from '../../hogFlowEditorLogic'
 import { isSlackMessageTriggerConfig } from '../../registry/triggers/slackTriggerFilters'
 import { HogflowTestResult } from '../../steps/types'
-import { createExampleEvent, createExampleEventForTrigger } from '../../testEventFactory'
+import {
+    createExampleEvent,
+    createExampleEventForTrigger,
+    createExampleSource,
+    ExampleWorkflow,
+} from '../../testEventFactory'
 import type { HogFlow } from '../../types'
 
 // Time range constants for event search
@@ -104,7 +109,7 @@ export const createGlobalsFromResponse = (
     event: any,
     person: any,
     teamId: number,
-    workflowName?: string | null,
+    workflow?: ExampleWorkflow | null,
     groups: CyclotronJobInvocationGlobals['groups'] = {}
 ): CyclotronJobInvocationGlobals => {
     const projectUrl = `${window.location.origin}/project/${teamId}`
@@ -134,10 +139,7 @@ export const createGlobalsFromResponse = (
             name: 'Default project',
             url: projectUrl,
         },
-        source: {
-            name: workflowName ?? 'Unnamed',
-            url: window.location.href.split('#')[0],
-        },
+        source: createExampleSource(workflow),
     }
 }
 
@@ -912,7 +914,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         if (!response?.results?.[0]) {
                             // No matching events found
-                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow.name)
+                            const exampleGlobals = createExampleEvent(values.workflow.team_id, values.workflow)
                             actions.setNoMatchingEvents(true)
 
                             if (extendedSearch) {
@@ -957,7 +959,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             event,
                             person,
                             values.workflow.team_id,
-                            values.workflow.name,
+                            values.workflow,
                             groups
                         )
                     } catch (e: any) {
@@ -1010,7 +1012,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             const exampleGlobals = createExampleEventForTrigger(
                                 values.triggerAction?.config,
                                 values.workflow.team_id,
-                                values.workflow.name
+                                values.workflow
                             )
 
                             if (extendedSearch) {
@@ -1040,7 +1042,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             event,
                             person,
                             values.workflow.team_id,
-                            values.workflow.name,
+                            values.workflow,
                             groups
                         )
                     } catch {
@@ -1285,7 +1287,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             const exampleGlobals = createExampleEventForTrigger(
                 values.triggerAction?.config,
                 values.workflow.team_id,
-                values.workflow.name
+                values.workflow
             )
             actions.loadSampleGlobalsSuccess(exampleGlobals)
             if (isSlackMessageTriggerConfig(values.triggerAction?.config)) {

@@ -280,6 +280,7 @@ export const createExampleInvocation = (
 
     const globals = createHogExecutionGlobals(_globals)
     globals.source = {
+        id: hogFunction.id,
         name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
         url: `${globals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
     }

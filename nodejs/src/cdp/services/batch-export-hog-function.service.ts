@@ -121,6 +121,7 @@ export class BatchExportHogFunctionService {
         return {
             ...globals,
             source: {
+                id: hogFunction.id,
                 name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                 url: `${projectUrl}/functions/${hogFunction.id}`,
             },
