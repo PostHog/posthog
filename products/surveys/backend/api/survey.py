@@ -695,7 +695,7 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
     autoDisappear = serializers.BooleanField(required=False)
     hideCancelButton = serializers.BooleanField(
         required=False,
-        help_text="Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.",
+        help_text="Whether to hide the cancel button. A respondent then cannot dismiss the survey and can only close it by answering the questions. Product tours set this for their steps. The survey editor has no control for it.",
     )
     displayThankYouMessage = serializers.BooleanField(required=False)
     thankYouMessageHeader = serializers.CharField(required=False)

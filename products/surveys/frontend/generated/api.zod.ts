@@ -832,7 +832,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     .boolean()
                     .optional()
                     .describe(
-                        'Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.'
+                        'Whether to hide the cancel button. A respondent then cannot dismiss the survey and can only close it by answering the questions. Product tours set this for their steps. The survey editor has no control for it.'
                     ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
@@ -1760,7 +1760,7 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                     .boolean()
                     .optional()
                     .describe(
-                        'Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.'
+                        'Whether to hide the cancel button. A respondent then cannot dismiss the survey and can only close it by answering the questions. Product tours set this for their steps. The survey editor has no control for it.'
                     ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
@@ -2690,7 +2690,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     .boolean()
                     .optional()
                     .describe(
-                        'Whether to hide the cancel button, so a respondent cannot dismiss the survey. Product tours set this. The survey editor has no control for it.'
+                        'Whether to hide the cancel button. A respondent then cannot dismiss the survey and can only close it by answering the questions. Product tours set this for their steps. The survey editor has no control for it.'
                     ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
