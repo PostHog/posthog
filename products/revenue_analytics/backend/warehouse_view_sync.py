@@ -15,9 +15,30 @@ from products.data_modeling.backend.facade.models import DataWarehouseManagedVie
 from products.revenue_analytics.backend.views.orchestrator import SUPPORTED_SOURCES
 from products.warehouse_sources.backend.facade.api import list_revenue_source_settings
 from products.warehouse_sources.backend.facade.hooks import RevenueViewSyncInput
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.sources import (
+    CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
+    PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
+    SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+)
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
+
+# The revenue views read only these schemas, so a load of any other schema cannot change them.
+# Each sync takes a per-team advisory lock, so skip every other schema to avoid lock waits.
+_RELEVANT_SCHEMAS: dict[str, frozenset[str]] = {
+    ExternalDataSourceType.STRIPE: frozenset(
+        {
+            STRIPE_CHARGE_RESOURCE_NAME,
+            STRIPE_CUSTOMER_RESOURCE_NAME,
+            STRIPE_INVOICE_RESOURCE_NAME,
+            STRIPE_PRODUCT_RESOURCE_NAME,
+            STRIPE_SUBSCRIPTION_RESOURCE_NAME,
+        }
+    ),
+}
 
 
 def sync_revenue_analytics_views(sync_input: RevenueViewSyncInput) -> None:
@@ -26,6 +47,9 @@ def sync_revenue_analytics_views(sync_input: RevenueViewSyncInput) -> None:
     """
     try:
         if sync_input.source_type not in SUPPORTED_SOURCES:
+            return
+
+        if sync_input.schema_name not in _RELEVANT_SCHEMAS.get(sync_input.source_type, frozenset()):
             return
 
         sources = list_revenue_source_settings(
