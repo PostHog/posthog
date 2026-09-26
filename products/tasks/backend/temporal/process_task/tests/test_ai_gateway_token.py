@@ -1,15 +1,21 @@
+from __future__ import annotations
+
 import json
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError
 
 from posthog.models import Organization, Team
 
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+from products.tasks.backend.facade.billing import get_task_run_spend
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.models import INTERACTIVE_SIGNALS_AI_STAGE_BY_ORIGIN
 from products.tasks.backend.temporal.process_task import utils
@@ -25,6 +31,11 @@ from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     sandbox_product_routed,
 )
 from products.tasks.backend.temporal.process_task.utils import ai_gateway_env_vars
+
+if TYPE_CHECKING:
+    from pytest_django.fixtures import Settings
+
+    from products.tasks.backend.models import TaskRun
 
 
 class TestResolveSandboxAiProduct:
@@ -442,6 +453,7 @@ class TestProvisioningBoundaries:
 
     def _ctx(self):
         ctx = MagicMock()
+        ctx.run_id = "00000000-0000-4000-8000-000000000007"
         ctx.team_id = 7
         ctx.origin_product = "signals_scout"
         ctx.state = {"ai_stage": "scout:logs"}
@@ -449,7 +461,6 @@ class TestProvisioningBoundaries:
         ctx.sandbox_environment_id = None
         ctx.model = "claude-sonnet-5"
         ctx.task_runtime = "acp"
-        ctx.run_id = "run-1"
         return ctx
 
     def _task(self):
@@ -457,10 +468,52 @@ class TestProvisioningBoundaries:
         task.internal = True
         return task
 
+    @pytest.mark.django_db
+    @pytest.mark.parametrize(
+        "task_runtime,tokens,initializes_spend,incomplete",
+        [
+            ("acp", ("phe_abc",), True, False),
+            ("pi", ("phe_abc",), False, True),
+            ("acp", (None,), False, True),
+            ("acp", ("phe_abc", None, "phe_abc"), True, True),
+            ("acp", (None, "phe_abc"), True, True),
+            ("acp", (RuntimeError("routing failed"), "phe_abc"), True, True),
+        ],
+    )
+    def test_gateway_spend_tracks_routing_across_provisioning_attempts(
+        self,
+        mint_settings: Settings,
+        test_task_run: TaskRun,
+        task_runtime: str,
+        tokens: tuple[str | None | RuntimeError, ...],
+        initializes_spend: bool,
+        incomplete: bool,
+    ) -> None:
+        ctx = self._ctx()
+        ctx.run_id = str(test_task_run.id)
+        ctx.team_id = test_task_run.team_id
+        ctx.task_runtime = task_runtime
+        with patch.object(utils, "mint_scoped_token", side_effect=tokens):
+            for token in tokens:
+                env = utils.run_gateway_env_vars(ctx, self._task())
+                assert env.get("AI_GATEWAY_TOKEN") == (
+                    token if isinstance(token, str) and task_runtime != "pi" else None
+                )
+        test_task_run.refresh_from_db()
+        assert ("token_spend" in test_task_run.state) is initializes_spend
+        assert ("unprocessed_request_ids" in test_task_run.state) is initializes_spend
+        assert bool(test_task_run.state.get("token_spend_incomplete")) is incomplete
+        assert get_task_run_spend(run_id=test_task_run.id, team_id=test_task_run.team_id).token_spend == (
+            None if incomplete else 0
+        )
+
     def test_run_gateway_env_vars_maps_the_full_context(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils
 
-        with patch.object(utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env:
+        with (
+            patch.object(utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"}) as env,
+            patch.object(utils, "record_gateway_routing"),
+        ):
             out = utils.run_gateway_env_vars(self._ctx(), self._task())
         assert out == {"AI_GATEWAY_TOKEN": "phe"}
         env.assert_called_once_with(
@@ -478,7 +531,10 @@ class TestProvisioningBoundaries:
     def test_non_slack_origin_skips_the_prior_run_lookup(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils
 
-        with patch("products.tasks.backend.models.TaskRun.objects") as runs:
+        with (
+            patch("products.tasks.backend.models.TaskRun.objects") as runs,
+            patch.object(utils, "record_gateway_routing"),
+        ):
             utils.run_gateway_env_vars(self._ctx(), self._task())
         runs.filter.assert_not_called()
 
@@ -488,18 +544,29 @@ class TestProvisioningBoundaries:
         ctx = self._ctx()
         ctx.origin_product = "slack"
         ctx.state = {"run_source": "manual"}
-        with patch("products.tasks.backend.models.TaskRun.objects") as runs:
+        with (
+            patch("products.tasks.backend.models.TaskRun.objects") as runs,
+            patch.object(utils, "record_gateway_routing"),
+        ):
             runs.filter.return_value.exists.return_value = True
             with patch.object(utils, "ai_gateway_env_vars", return_value={}) as env:
                 utils.run_gateway_env_vars(ctx, self._task())
         assert env.call_args.kwargs["prior_slack_run"] is True
 
-    def test_subscription_run_does_not_mint_gateway_credentials(self, mint_settings):
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("access_field", ["claude_model_access", "codex_model_access"])
+    def test_subscription_run_does_not_mint_gateway_credentials(
+        self, mint_settings: Settings, test_task_run: TaskRun, access_field: str
+    ) -> None:
         ctx = self._ctx()
-        ctx.claude_model_access = "own-subscription"
+        ctx.run_id = str(test_task_run.id)
+        ctx.team_id = test_task_run.team_id
+        setattr(ctx, access_field, "own-subscription")
         with patch.object(utils, "mint_scoped_token") as mint:
             assert utils.run_gateway_env_vars(ctx, self._task()) == {}
         mint.assert_not_called()
+        test_task_run.refresh_from_db()
+        assert test_task_run.state["token_spend_incomplete"] is True
 
     def test_snapshot_builder_uses_the_shared_derivation(self, mint_settings):
         from products.tasks.backend.temporal.process_task import utils
@@ -538,15 +605,19 @@ class TestProvisioningBoundaries:
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "slack_app"}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch.object(utils, "record_gateway_routing"),
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
             utils.run_gateway_env_vars(self._ctx(), self._task())
-        update.assert_called_once_with("run-1", updates={"ai_gateway_product": "slack_app"})
+        update.assert_called_once_with(
+            "00000000-0000-4000-8000-000000000007", updates={"ai_gateway_product": "slack_app"}
+        )
 
     def test_unpinned_mint_is_not_stamped(self, mint_settings):
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "signals_scout"}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch.object(utils, "record_gateway_routing"),
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
             utils.run_gateway_env_vars(self._ctx(), self._task())
@@ -557,14 +628,29 @@ class TestProvisioningBoundaries:
         ctx.state = {"ai_stage": "scout:logs", "ai_gateway_product": "slack_app"}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value={}),
+            patch.object(utils, "record_gateway_routing"),
             patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
         ):
             utils.run_gateway_env_vars(ctx, self._task())
-        update.assert_called_once_with("run-1", remove_keys=["ai_gateway_product"])
+        update.assert_called_once_with("00000000-0000-4000-8000-000000000007", remove_keys=["ai_gateway_product"])
 
     def test_routing_failure_leaves_the_run_on_the_python_gateway(self, mint_settings):
-        with patch.object(utils, "ai_gateway_env_vars", side_effect=RuntimeError("billing is down")):
+        with (
+            patch.object(utils, "ai_gateway_env_vars", side_effect=RuntimeError("billing is down")),
+            patch.object(utils, "record_gateway_routing"),
+        ):
             assert utils.run_gateway_env_vars(self._ctx(), self._task()) == {}
+
+    @pytest.mark.parametrize("uses_gateway", [False, True])
+    def test_routing_is_not_returned_when_accounting_write_fails(self, uses_gateway: bool) -> None:
+        with (
+            patch.object(
+                utils, "ai_gateway_env_vars", return_value={"AI_GATEWAY_TOKEN": "phe"} if uses_gateway else {}
+            ),
+            patch.object(utils, "record_gateway_routing", side_effect=OperationalError("unavailable")),
+            pytest.raises(OperationalError, match="unavailable"),
+        ):
+            utils.run_gateway_env_vars(self._ctx(), self._task())
 
     def test_a_pinned_token_the_stamp_could_not_record_is_dropped(self, mint_settings):
         env = {
@@ -575,6 +661,7 @@ class TestProvisioningBoundaries:
         }
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch.object(utils, "record_gateway_routing"),
             patch(
                 "products.tasks.backend.models.TaskRun.update_state_atomic",
                 side_effect=RuntimeError("postgres is down"),
@@ -591,6 +678,7 @@ class TestProvisioningBoundaries:
         env = {"AI_GATEWAY_TOKEN": "phe", "AI_GATEWAY_PRODUCT": "signals_scout"}
         with (
             patch.object(utils, "ai_gateway_env_vars", return_value=env),
+            patch.object(utils, "record_gateway_routing"),
             patch(
                 "products.tasks.backend.models.TaskRun.update_state_atomic",
                 side_effect=RuntimeError("postgres is down"),

@@ -4,6 +4,8 @@ The usage reporter (posthog/tasks/usage_report.py) lives in the ``posthog`` modu
 which may only import ``products.tasks`` through the facade (see tach.toml).
 """
 
+from products.tasks.backend.facade.contracts import TaskRunSpend
+from products.tasks.backend.logic.services.gateway_usage import get_task_run_spend, get_task_spend
 from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCardConfigurationError
 from products.tasks.backend.logic.services.sandbox_usage import (
     SandboxComputeUsageByTeam,
@@ -23,6 +25,7 @@ from products.tasks.backend.logic.services.task_usage import (
 
 __all__ = [
     "ComputeRateCardConfigurationError",
+    "TaskRunSpend",
     "SandboxComputeUsageByTeam",
     "SandboxUsageByTeam",
     "TaskUsage",
@@ -34,4 +37,6 @@ __all__ = [
     "get_local_task_token_cost",
     "get_task_sandbox_usage_by_team",
     "get_task_usage",
+    "get_task_run_spend",
+    "get_task_spend",
 ]

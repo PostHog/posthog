@@ -11,6 +11,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_spend
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
 from products.tasks.backend.metrics import observe_prewarmed_unused_if_never_activated, observe_wizard_run_unbound
 from products.tasks.backend.models import Task, TaskRun
@@ -120,6 +121,11 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 
     # Side effects run after commit, outside the row lock (repo convention: no side effects in atomic).
     if input.status in _TERMINAL_STATUSES:
+        try:
+            if task_run.environment == TaskRun.Environment.CLOUD:
+                refresh_task_run_spend(run_id=task_run.id, team_id=task_run.team_id)
+        except Exception:
+            activity.logger.warning(f"Failed to refresh spend for run {task_run.id}", exc_info=True)
         resume_workflow_step_for_run(task_run)
 
     task_run.publish_stream_state_event()

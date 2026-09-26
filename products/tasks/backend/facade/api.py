@@ -101,6 +101,7 @@ from products.tasks.backend.github_repository_access import (
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
+from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_spend
 from products.tasks.backend.logic.services.image_builder import (
     ensure_image_builder_task,
     is_custom_images_enabled,
@@ -516,6 +517,10 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
         "slack_artifact_delivery",
         "slack_chart_delivery",
         "slack_thread_url",
+        "token_spend",
+        "token_spend_incomplete",
+        "compute_spend",
+        "unprocessed_request_ids",
     }
 )
 
@@ -2515,6 +2520,10 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "run_source",
         "pr_base_branch",
         "github_credential_source",
+        "token_spend",
+        "token_spend_incomplete",
+        "compute_spend",
+        "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",
         "repositories",
@@ -3228,6 +3237,12 @@ def update_task_run(
     # (consecutive_failures would double-count). The workflow's status-update activity
     # applies the same guard on its side.
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        try:
+            if run.environment == TaskRun.Environment.CLOUD:
+                refresh_task_run_spend(run_id=run.id, team_id=run.team_id)
+                run.refresh_from_db(fields=["state", "updated_at"])
+        except Exception:
+            logger.warning("task_run_spend_refresh_failed", extra={"run_id": str(run.id)}, exc_info=True)
         handle_loop_run_terminal(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:

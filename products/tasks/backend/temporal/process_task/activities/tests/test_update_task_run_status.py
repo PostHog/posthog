@@ -3,6 +3,8 @@ from datetime import timedelta
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
+
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
@@ -656,28 +658,50 @@ class TestRecordRunTokenUsageMetrics:
 @pytest.mark.requires_secrets
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "origin_product,origin_key,wakes",
+    "origin_product,origin_key,wakes,spend_failure,uses_gateway",
     [
-        (Task.OriginProduct.WORKFLOW, "job:step:1", True),
-        (Task.OriginProduct.USER_CREATED, None, False),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, True),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, True, True),
+        (Task.OriginProduct.WORKFLOW, "job:step:1", True, False, False),
+        (Task.OriginProduct.USER_CREATED, None, False, False, True),
     ],
 )
 def test_terminal_transition_wakes_the_workflow_step_that_started_the_run(
-    activity_environment, test_task_run, origin_product, origin_key, wakes
-):
+    activity_environment: ActivityEnvironment,
+    test_task_run: TaskRun,
+    origin_product: str,
+    origin_key: str | None,
+    wakes: bool,
+    spend_failure: bool,
+    uses_gateway: bool,
+) -> None:
     task = test_task_run.task
     task.origin_product = origin_product
     task.origin_key = origin_key
     task.save(update_fields=["origin_product", "origin_key"])
     test_task_run.output = {"final_message": "done"}
-    test_task_run.save(update_fields=["output"])
+    test_task_run.state = (
+        {"token_spend": {}, "unprocessed_request_ids": []} if uses_gateway else {"token_spend_incomplete": True}
+    )
+    test_task_run.save(update_fields=["output", "state"])
     input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
 
-    with patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as resume:
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+    with (
+        patch("products.tasks.backend.logic.services.workflow_step_resume.emit_workflow_step_resume") as resume,
+        patch("products.tasks.backend.models.posthoganalytics.capture") as capture,
+        patch(
+            "products.tasks.backend.logic.services.gateway_usage._compute_spend_source",
+            side_effect=OperationalError("unavailable") if spend_failure else None,
+            return_value=None,
+        ),
+    ):
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
 
     assert resume.call_count == (2 if wakes else 0)
+    assert sum(call.kwargs.get("event") == "task_run_completed" for call in capture.call_args_list) == 1
+    test_task_run.refresh_from_db()
+    assert ("compute_spend" in test_task_run.state) is not spend_failure
     if wakes:
         assert resume.call_args.kwargs["origin_key"] == "job:step:1"
         assert resume.call_args.kwargs["status"] == "completed"

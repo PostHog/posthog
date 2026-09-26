@@ -32,6 +32,45 @@ describe("PostHog project headers", () => {
   });
 });
 
+describe("task run headers", () => {
+  it("uses task_run_id instead of task_id in record and line formats", () => {
+    const properties = { task_id: "task-1", task_run_id: "run-1" };
+
+    expect(buildPosthogPropertyHeaderRecord(properties)).toMatchObject({
+      "X-PostHog-Task-Run-Id": "run-1",
+    });
+    expect(buildPosthogPropertyHeaderLines(properties)).toContain(
+      "X-PostHog-Task-Run-Id: run-1",
+    );
+    expect(buildPosthogPropertiesHeaderRecord(properties)).toMatchObject({
+      "X-PostHog-Task-Run-Id": "run-1",
+    });
+    expect(buildPosthogPropertiesHeaderLines(properties)).toContain(
+      "X-PostHog-Task-Run-Id: run-1",
+    );
+  });
+
+  it.each([undefined, null, "", false, 0])(
+    "omits a task run header for %s",
+    (taskRunId) => {
+      const properties = { task_id: "task-1", task_run_id: taskRunId };
+
+      expect(buildPosthogPropertyHeaderRecord(properties)).not.toHaveProperty(
+        "X-PostHog-Task-Run-Id",
+      );
+      expect(buildPosthogPropertyHeaderLines(properties)).not.toContain(
+        "X-PostHog-Task-Run-Id",
+      );
+      expect(buildPosthogPropertiesHeaderRecord(properties)).not.toHaveProperty(
+        "X-PostHog-Task-Run-Id",
+      );
+      expect(buildPosthogPropertiesHeaderLines(properties)).not.toContain(
+        "X-PostHog-Task-Run-Id",
+      );
+    },
+  );
+});
+
 describe("buildPosthogPropertyHeaderRecord", () => {
   it("returns each property as an x-posthog-property-<key> entry", () => {
     expect(
