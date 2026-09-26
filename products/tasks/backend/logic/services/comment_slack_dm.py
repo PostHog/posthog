@@ -23,6 +23,7 @@ from posthog.comment.access import task_comment_target_is_accessible
 from posthog.comment.formatting import rich_content_to_slack_payload
 from posthog.dataclasses import frozen
 from posthog.models.comment import Comment
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -98,10 +99,10 @@ def send_comment_slack_dms(
     # the desktop flags get.
     task = (
         Task.objects.filter(team_id=team_id, id=task_id).only("id", "team_id", "title").first()
-        if task_id is not None and comment.scope != "desktop_canvas"
+        if task_id is not None and comment.scope not in CANVAS_COMMENT_SCOPES
         else None
     )
-    if task is None and comment.scope != "desktop_canvas":
+    if task is None and comment.scope not in CANVAS_COMMENT_SCOPES:
         return _skip(comment_id, "task_missing")
     link = _link_target(comment=comment, task=task)
     if link is None:
@@ -142,7 +143,7 @@ def send_comment_slack_dms(
         if not task_comment_target_is_accessible(
             team_id=team_id,
             user_id=user_id,
-            task_id=None if comment.scope == "desktop_canvas" else task_id,
+            task_id=None if comment.scope in CANVAS_COMMENT_SCOPES else task_id,
             scope=comment.scope,
             item_id=comment.item_id,
         ):
@@ -391,7 +392,7 @@ def _link_target(*, comment: Comment, task: Task | None) -> _LinkTarget | None:
     the space the canvas lives in, so a recipient can see the canvas without seeing the task. A task
     link would then name a task they cannot open and leak its title.
     """
-    if comment.scope != "desktop_canvas":
+    if comment.scope not in CANVAS_COMMENT_SCOPES:
         if task is None:
             return None
         return _LinkTarget(title=task.title or "a task", url=_bridge_url(comment=comment, task=task))

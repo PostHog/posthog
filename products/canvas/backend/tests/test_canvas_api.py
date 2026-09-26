@@ -1441,7 +1441,7 @@ class TestCanvasComments(CanvasAPIBaseTest):
     def _comment(self, canvas_id: str, content: str, minute: int, **fields: Any) -> Comment:
         comment = Comment.objects.create(
             team=self.team,
-            scope="desktop_canvas",
+            scope="canvas",
             item_id=canvas_id,
             content=content,
             created_by=self.user,

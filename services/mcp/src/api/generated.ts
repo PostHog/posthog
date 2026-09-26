@@ -107893,7 +107893,7 @@ export namespace Schemas {
      */
     source_comment?: string;
     /**
-     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     * Owning task for task, task_artifact, and canvas comment scopes.
      */
     task_id?: string;
     };

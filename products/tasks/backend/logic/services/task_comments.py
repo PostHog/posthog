@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db.models import Count, Q, QuerySet
 
 from posthog.models import Comment
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.models import TaskArtifact, TaskRun, TaskThreadMessage
@@ -127,14 +128,14 @@ def _comments(team_id: int, task_id: UUID) -> QuerySet[Comment]:
     return _without_emoji(
         Comment.objects.filter(team_id=team_id, deleted=False).filter(
             Q(scope="task", item_id=task_id_string)
-            | Q(scope__in=["task_artifact", "desktop_canvas"], item_context__taskId=task_id_string)
+            | Q(scope__in=["task_artifact", *CANVAS_COMMENT_SCOPES], item_context__taskId=task_id_string)
         )
     )
 
 
 def _canvas_comments(team_id: int, canvas_id: UUID) -> QuerySet[Comment]:
     return _without_emoji(
-        Comment.objects.filter(team_id=team_id, deleted=False, scope="desktop_canvas", item_id=str(canvas_id))
+        Comment.objects.filter(team_id=team_id, deleted=False, scope__in=CANVAS_COMMENT_SCOPES, item_id=str(canvas_id))
     )
 
 
@@ -180,7 +181,7 @@ def _resolved(root: Comment, latest_state: str | None) -> bool:
 
 def _target_names_for_roots(*, team_id: int, task_id: UUID, roots: Sequence[Comment]) -> dict[tuple[str, str], str]:
     artifact_ids = [root.item_id for root in roots if root.scope == "task_artifact" and root.item_id]
-    canvas_ids = [root.item_id for root in roots if root.scope == "desktop_canvas" and root.item_id]
+    canvas_ids = [root.item_id for root in roots if root.scope in CANVAS_COMMENT_SCOPES and root.item_id]
     return {
         **{
             ("artifact", artifact_id): name
@@ -252,7 +253,7 @@ def list_comments(
     comments = _comments(team_id, task_id)
     roots_qs = comments.filter(source_comment_id__isnull=True)
     if artifact_id:
-        roots_qs = roots_qs.filter(scope__in=["task_artifact", "desktop_canvas"], item_id=artifact_id)
+        roots_qs = roots_qs.filter(scope__in=["task_artifact", *CANVAS_COMMENT_SCOPES], item_id=artifact_id)
     return _list_page(
         comments=comments,
         roots_qs=roots_qs,

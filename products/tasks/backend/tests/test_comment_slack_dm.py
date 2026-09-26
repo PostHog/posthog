@@ -225,7 +225,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
             generation_task_id=self.task.id if with_task else None,
         )
         comment = self._comment(
-            scope="desktop_canvas",
+            scope="canvas",
             item_id=str(canvas.id),
             item_context={"anchor": {"kind": "document"}, **({"taskId": str(self.task.id)} if with_task else {})},
         )
@@ -259,7 +259,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
             created_by=self.peer,
             generation_task_id=self.task.id,
         )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
+        comment = self._comment(scope="canvas", item_id=str(canvas.id))
 
         self._record_activity(comment, [self.author.id])
 

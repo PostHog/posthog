@@ -9,13 +9,14 @@ from django.db.models import Q
 import structlog
 
 from posthog.models import Comment
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskCommentActivity, TaskRun
 from products.tasks.backend.visibility import task_visibility_q
 
 logger = structlog.get_logger(__name__)
 
-COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+COMMENT_ACTIVITY_SCOPES = frozenset({"task", "task_artifact", *CANVAS_COMMENT_SCOPES})
 
 
 def _visible_tasks(team_id: int, user_id: int | None):
@@ -88,7 +89,7 @@ def project_comment_activity(
         return
     task_id = comment_task_id(comment)
     task: Task | None = None
-    if comment.scope == "desktop_canvas":
+    if comment.scope in CANVAS_COMMENT_SCOPES:
         if not comment.item_id:
             return
         if task_id is not None:
@@ -126,18 +127,18 @@ def project_comment_activity(
                     )
                 except (ValueError, DjangoValidationError):
                     pass
-            if owner_id is None and comment.scope == "desktop_canvas" and comment.item_id:
+            if owner_id is None and comment.scope in CANVAS_COMMENT_SCOPES and comment.item_id:
                 from products.canvas.backend.comment_access import canvas_owner_id
 
                 owner_id = canvas_owner_id(team_id=team_id, canvas_id=comment.item_id)
-            if comment.scope != "desktop_canvas" and task is not None:
+            if comment.scope not in CANVAS_COMMENT_SCOPES and task is not None:
                 owner_id = owner_id or task.created_by_id
             if owner_id:
                 recipients[owner_id] = TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
 
     recipients.update((user_id, TaskCommentActivity.Kind.MENTION) for user_id in mentioned_user_ids)
     recipients.pop(comment.created_by_id, None)
-    if comment.scope == "desktop_canvas":
+    if comment.scope in CANVAS_COMMENT_SCOPES:
         from products.canvas.backend.comment_access import visible_canvas_user_ids
 
         visible_user_ids = visible_canvas_user_ids(

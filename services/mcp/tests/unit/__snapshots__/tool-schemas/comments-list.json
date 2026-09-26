@@ -40,7 +40,7 @@
             "type": "string"
         },
         "task_id": {
-            "description": "Owning task for task, task_artifact, and desktop_canvas comment scopes.",
+            "description": "Owning task for task, task_artifact, and canvas comment scopes.",
             "type": "string"
         }
     },

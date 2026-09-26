@@ -49,6 +49,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES, canonical_comment_scope
 from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
@@ -10299,8 +10300,11 @@ def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActi
         TaskCommentActivity.objects.for_team(team_id)
         .filter(user_id=user_id, comment__deleted=False)
         .filter(
-            Q(comment__scope="desktop_canvas", comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id))
-            | (~Q(comment__scope="desktop_canvas") & Q(task__in=visible_tasks))
+            Q(
+                comment__scope__in=CANVAS_COMMENT_SCOPES,
+                comment__item_id__in=_visible_canvas_comment_ids(team_id, user_id),
+            )
+            | (~Q(comment__scope__in=CANVAS_COMMENT_SCOPES) & Q(task__in=visible_tasks))
         )
     )
 
@@ -10310,7 +10314,7 @@ def _visible_canvases_by_id(
 ) -> dict[str, Canvas]:
     canvas_ids: list[UUID] = []
     for row in comment_rows:
-        if row.comment.scope != "desktop_canvas":
+        if row.comment.scope not in CANVAS_COMMENT_SCOPES:
             continue
         try:
             canvas_ids.append(UUID(row.comment.item_id))
@@ -10337,7 +10341,7 @@ class _ActivityTaskDetails:
 def _activity_task_details(
     row: TaskActivity | TaskCommentActivity, canvases_by_id: dict[str, Canvas]
 ) -> _ActivityTaskDetails:
-    if isinstance(row, TaskCommentActivity) and row.comment.scope == "desktop_canvas" and row.comment.item_id:
+    if isinstance(row, TaskCommentActivity) and row.comment.scope in CANVAS_COMMENT_SCOPES and row.comment.item_id:
         canvas = canvases_by_id.get(row.comment.item_id)
         if canvas is not None:
             return _ActivityTaskDetails(
@@ -10389,7 +10393,9 @@ def list_task_activity(
     )
     canvases_by_id = _visible_canvases_by_id(team_id, user_id, comment_rows)
     comment_rows = [
-        row for row in comment_rows if row.comment.scope != "desktop_canvas" or row.comment.item_id in canvases_by_id
+        row
+        for row in comment_rows
+        if row.comment.scope not in CANVAS_COMMENT_SCOPES or row.comment.item_id in canvases_by_id
     ]
     activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
     rows: list[TaskActivity | TaskCommentActivity] = sorted(
@@ -10423,7 +10429,9 @@ def list_task_activity(
                 ),
                 latest_message_id=None if isinstance(row, TaskCommentActivity) else row.message_id,
                 latest_comment_id=row.root_comment_id if isinstance(row, TaskCommentActivity) else None,
-                latest_comment_scope=row.comment.scope if isinstance(row, TaskCommentActivity) else None,
+                latest_comment_scope=canonical_comment_scope(row.comment.scope)
+                if isinstance(row, TaskCommentActivity)
+                else None,
                 latest_comment_item_id=row.comment.item_id if isinstance(row, TaskCommentActivity) else None,
                 is_unread=row.read_at is None,
             )
@@ -10712,7 +10720,7 @@ def post_comment_thread_update(*, team_id: int, comment_id: UUID) -> None:
         payload: dict = {
             "comment_id": str(comment.id),
             "root_comment_id": str(comment.source_comment_id or comment.id),
-            "scope": comment.scope,
+            "scope": canonical_comment_scope(comment.scope),
             "item_id": str(comment.item_id) if comment.item_id else None,
             "target_name": _comment_target_name(task, scope=comment.scope, item_id=comment.item_id),
         }

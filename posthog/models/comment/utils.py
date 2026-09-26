@@ -8,13 +8,14 @@ import structlog
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 
 if TYPE_CHECKING:
     from posthog.models.comment import Comment
 
 logger = structlog.get_logger(__name__)
 
-DESKTOP_COMMENT_SCOPES = frozenset({"task", "task_artifact", "desktop_canvas"})
+DESKTOP_COMMENT_SCOPES = frozenset({"task", "task_artifact", *CANVAS_COMMENT_SCOPES})
 
 SCOPE_TO_SOURCE_TYPE: dict[str, str] = {
     "Replay": "replay",
