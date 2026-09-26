@@ -19,6 +19,21 @@ if TYPE_CHECKING:
 T = TypeVar("T", bound=models.Model)
 
 
+def _creation_defaults(
+    team: "Team", model_class: type[models.Model], defaults: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Merge the model's per-team defaults under the caller's static defaults.
+
+    A model that defines a `default_values_for_team(team)` classmethod computes values that depend
+    on the team, such as its organization. Only the team-creation signal applies them. A row that
+    get_or_create_team_extension creates later takes the field defaults, which are the values every
+    reader reports for a missing row, so creating that row does not change what the team does.
+    """
+    default_values_for_team = getattr(model_class, "default_values_for_team", None)
+    model_defaults: dict[str, Any] = default_values_for_team(team) if default_values_for_team is not None else {}
+    return {**model_defaults, **(defaults or {})}
+
+
 def get_or_create_team_extension(
     team: "Team",
     model_class: type[T],
@@ -57,7 +72,8 @@ def register_team_extension_signal(
     Register a post_save signal that auto-creates the extension when a Team is created.
 
     Best-effort: the extension is also created lazily via get_or_create_team_extension
-    if this fails.
+    if this fails. Merges the model's `default_values_for_team(team)` values, which the lazy
+    create does not apply.
 
     Example:
         register_team_extension_signal(TeamMyProductConfig, logger=logger)
@@ -66,7 +82,6 @@ def register_team_extension_signal(
 
     from posthog.models.team.team import Team
 
-    defaults = defaults or {}
     _logger = logger or logging.getLogger(__name__)
     model_name = model_class.__name__
 
@@ -74,7 +89,9 @@ def register_team_extension_signal(
         if not created:
             return
         try:
-            model_class.objects.get_or_create(team=instance, defaults=defaults)  # type: ignore[attr-defined]
+            model_class.objects.get_or_create(  # type: ignore[attr-defined]
+                team=instance, defaults=_creation_defaults(instance, model_class, defaults)
+            )
         except Exception as e:
             _logger.warning(f"Error creating {model_name}: {e}")
 

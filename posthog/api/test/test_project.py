@@ -26,6 +26,7 @@ from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.feature_flags.backend.models.team_feature_flags_config import FlagEvaluationsMode, TeamFeatureFlagsConfig
 
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
@@ -1033,6 +1034,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "flag_evaluations_mode",
             "base_currency",
             "capture_dead_clicks",
             "cookieless_server_hash_mode",
@@ -1045,6 +1047,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertIn(field, data, f"/api/projects/ response is missing parity field '{field}'")
         # project_id on a Project equals its own id (Project ↔ Team is 1:1)
         self.assertEqual(data["project_id"], self.project.id)
+
+    def test_flag_evaluations_mode_is_read_only(self):
+        TeamFeatureFlagsConfig.objects.filter(team=self.team).update(
+            flag_evaluations_mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"flag_evaluations_mode": FlagEvaluationsMode.EVENTS}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["flag_evaluations_mode"], FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self.assertEqual(
+            TeamFeatureFlagsConfig.objects.get(team=self.team).flag_evaluations_mode,
+            FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+        )
 
     def test_retrieve_project_does_not_500_when_broker_unavailable(self):
         # Regression: get_product_intents used to call calculate_product_activation.delay()

@@ -16,6 +16,7 @@ from products.feature_flags.backend.api.staff_team_config import (
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
     MAX_FEATURE_FLAGS_OVERRIDE_CEILING,
+    FlagEvaluationsMode,
     PropertyMatchingVersion,
     TeamFeatureFlagsConfig,
 )
@@ -53,8 +54,14 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         config.minimal_flag_called_events = True
         config.property_matching_version = PropertyMatchingVersion.EXPLICIT
         config.max_feature_flags_override = 5000
+        config.flag_evaluations_mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         config.save(
-            update_fields=["minimal_flag_called_events", "property_matching_version", "max_feature_flags_override"]
+            update_fields=[
+                "minimal_flag_called_events",
+                "property_matching_version",
+                "max_feature_flags_override",
+                "flag_evaluations_mode",
+            ]
         )
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-1", filters={"groups": []})
         FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-2", filters={"groups": []})
@@ -69,6 +76,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 row["property_matching_version"],
                 row["max_feature_flags_override"],
                 row["effective_max_feature_flags"],
+                row["flag_evaluations_mode"],
                 row["feature_flag_count"],
             )
             for row in response.json()["results"]
@@ -80,8 +88,8 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(
             results,
             {
-                self.team.id: (False, 1, None, 2000, 0),
-                other_team.id: (True, 2, 5000, 5000, 2),
+                self.team.id: (False, 1, None, 2000, 0, 0),
+                other_team.id: (True, 2, 5000, 5000, 1, 2),
             },
         )
 
@@ -102,6 +110,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                     "property_matching_version": 1,
                     "max_feature_flags_override": None,
                     "effective_max_feature_flags": 2000,
+                    "flag_evaluations_mode": 0,
                     "feature_flag_count": 0,
                 }
             ],
@@ -137,6 +146,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                 "property_matching_version": 1,
                 "max_feature_flags_override": None,
                 "effective_max_feature_flags": 2000,
+                "flag_evaluations_mode": 0,
                 "feature_flag_count": 0,
             },
         )
@@ -173,6 +183,10 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         # Exercises the get_or_create_team_extension create branch: don't rely on the
         # auto-created row from the team-creation signal.
         TeamFeatureFlagsConfig.objects.filter(team=self.team).delete()
+        sibling = Team.objects.create(organization=self.organization, name="Sibling")
+        TeamFeatureFlagsConfig.objects.filter(team=sibling).update(
+            flag_evaluations_mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
+        )
 
         with (
             patch("posthog.tasks.team_metadata.update_team_metadata_cache_task"),
@@ -185,6 +199,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         config = TeamFeatureFlagsConfig.objects.get(team=self.team)
         self.assertTrue(config.minimal_flag_called_events)
+        self.assertEqual(config.flag_evaluations_mode, FlagEvaluationsMode.EVENTS)
 
     @parameterized.expand(
         [
@@ -252,20 +267,27 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         config.refresh_from_db()
         self.assertIsNone(config.max_feature_flags_override)
 
-    def test_set_does_not_enqueue_cache_tasks_for_an_override_only_write(self):
-        # Nothing outside Django reads max_feature_flags_override (the limit is read straight
-        # from Postgres on flag create), unlike minimal_flag_called_events which /flags and
-        # local-eval SDKs read out of caches. A regression that enqueues the fan-out
-        # unconditionally would silently make this write look cache-dependent when it isn't.
+    @parameterized.expand(
+        [
+            ("max_feature_flags_override", 5000),
+            ("flag_evaluations_mode", FlagEvaluationsMode.READ_FLAG_EVALUATIONS),
+        ]
+    )
+    def test_set_does_not_enqueue_cache_tasks_for_a_postgres_only_setting(self, setting, value):
+        # Nothing reads these settings out of a cache: the flag limit is read straight from Postgres
+        # on flag create, and HogQL and Node ingestion read flag_evaluations_mode straight from
+        # Postgres. minimal_flag_called_events is different, because /flags and local-eval SDKs read
+        # it out of caches. A regression that enqueues the fan-out unconditionally would silently
+        # make these writes look cache-dependent when they aren't.
         with (
             patch("posthog.tasks.team_metadata.update_team_metadata_cache_task") as mock_metadata_task,
             patch("products.feature_flags.backend.tasks.update_team_flags_cache") as mock_flags_task,
         ):
-            response = self.client.post(
-                SET_URL, {"team_id": self.team.id, "max_feature_flags_override": 5000}, format="json"
-            )
+            response = self.client.post(SET_URL, {"team_id": self.team.id, setting: value}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[setting], value)
+        self.assertEqual(getattr(TeamFeatureFlagsConfig.objects.get(team=self.team), setting), value)
         mock_metadata_task.delay.assert_not_called()
         mock_flags_task.delay.assert_not_called()
 
@@ -366,6 +388,11 @@ class TestStaffTeamConfigMutationSerializerBounds(SimpleTestCase):
                 "unknown_matching_version_rejected",
                 {"team_id": 1, "property_matching_version": 3},
                 "property_matching_version",
+            ),
+            (
+                "unknown_flag_evaluations_mode_rejected",
+                {"team_id": 1, "flag_evaluations_mode": 3},
+                "flag_evaluations_mode",
             ),
             (
                 "above_ceiling_rejected",

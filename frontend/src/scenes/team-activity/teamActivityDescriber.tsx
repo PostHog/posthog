@@ -760,6 +760,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
     web_analytics_pre_aggregated_tables_enabled: () => null,
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
+    flag_evaluations_mode: () => null,
     workflows_config: () => null,
     feature_flag_policy_config: () => null,
 }

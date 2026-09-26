@@ -2178,8 +2178,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
         # saved-expressions fetch in the HogQL database build. +1 each for the shared-database
         # kill-switch and flag-cache TTL instance settings, cold-cache here but TTL-cached per
-        # worker in production.
-        with self.assertNumQueries(17):
+        # worker in production. +1 for the team's flag_evaluations mode lookup in the HogQL
+        # database build.
+        with self.assertNumQueries(18):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -2191,8 +2192,9 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
         # 16 as above, plus the include_total counting queries (was 20); the count runs a second
-        # HogQL database build, which pays the saved-expressions fetch again.
-        with self.assertNumQueries(19):
+        # HogQL database build, which pays the saved-expressions fetch again. +2 because each of
+        # the two HogQL database builds looks up the team's flag_evaluations mode.
+        with self.assertNumQueries(21):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 

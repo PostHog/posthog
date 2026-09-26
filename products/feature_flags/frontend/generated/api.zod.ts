@@ -106,6 +106,12 @@ export const FeatureFlagsStaffTeamConfigSetCreateBody = /* @__PURE__ */ zod.obje
         .describe(
             'New per-team flag-count limit (1-20,000). Send null to clear the override so the team falls back to the global default. Omit to leave it unchanged.'
         ),
+    flag_evaluations_mode: zod
+        .union([zod.literal(0), zod.literal(1), zod.literal(2)])
+        .optional()
+        .describe(
+            'New flag_evaluations mode for this team. Omit to leave it unchanged. Environments of one project and projects of one organization are expected to share a mode, so prefer the set_flag_evaluations_mode management command for more than one team. Ingestion ignores 2 until its support for 2 deploys, so 2 acts as 1 until then, and a team already on 2 stops writing $feature_flag_called to events when that support deploys. After that, lowering the mode from 2 leaves a gap in the events table for the time the team spent on mode 2.\n\n\* `0` - Events\n\* `1` - Read flag evaluations\n\* `2` - Flag evaluations only'
+        ),
 })
 
 export const featureFlagsCopyFlagsCreateBodyTargetProjectIdsMax = 50

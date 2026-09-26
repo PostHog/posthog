@@ -63,6 +63,16 @@ The hook connects a `post_save` receiver on `Team` that creates the row when a t
 The receiver logs and ignores errors, and teams created before the registration have no row.
 Django code still reads the row through `get_or_create_team_extension`, and code outside Django still treats a missing row as the field defaults.
 
+### Defaults that depend on the team
+
+A static `defaults` dict cannot read the team.
+When a new row needs a value computed from the team, for example from its organization, define a `default_values_for_team(team)` classmethod on the model.
+It returns a dict of field values.
+The team-creation signal merges it under its static `defaults`.
+`get_or_create_team_extension` does not, so a row it creates later takes the field defaults, which are the values code outside Django reports for a missing row.
+Creating that row therefore never changes what the team does.
+`TeamFeatureFlagsConfig` in `products/feature_flags/backend/models/team_feature_flags_config.py` is the example.
+
 ## Usage
 
 Access the extension via the helper — do not add accessors to the Team model:
