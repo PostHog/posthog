@@ -77304,8 +77304,8 @@ export namespace Schemas {
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
       /**
-         * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
-         * @maxItems 3
+         * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 10 items to replace all contexts.
+         * @maxItems 10
          */
       contexts?: PatchedSubscriptionWriteContextsItem[];
       /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */
@@ -96183,8 +96183,8 @@ export namespace Schemas {
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
       /**
-         * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 3 items to replace all contexts.
-         * @maxItems 3
+         * Complete dashboard and insight context for an AI report. Omit on PATCH to preserve, pass an empty list to clear, or pass up to 10 items to replace all contexts.
+         * @maxItems 10
          */
       contexts?: SubscriptionWriteContextsItem[];
       /** Query plan reuse state for AI prompt subscriptions: frozen, not_frozen, or planner_updated. Null for other subscription types. */

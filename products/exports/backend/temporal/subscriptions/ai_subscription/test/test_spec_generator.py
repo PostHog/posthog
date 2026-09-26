@@ -1,18 +1,29 @@
 from datetime import UTC, datetime, timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from parameterized import parameterized
+from pydantic import BaseModel
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
 
 from posthog.exceptions import ClickHouseQueryTimeOut
-from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
+from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
 
 from products.exports.backend.models.subscription import AIQueryPlanStatus, Subscription
+from products.exports.backend.temporal.subscriptions.ai_subscription.context_tools import (
+    ContextToolRuntime,
+    FetchDashboardArgs,
+    FetchInsightArgs,
+    ListSelectedContextsArgs,
+)
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
@@ -23,6 +34,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
+    PlannerResponseError,
     PromptRejectedError,
     ReportWindow,
     StoredPlanInvalidError,
@@ -32,13 +44,15 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _no_data_event_names,
     _person_property_names,
     _pinned_event_names,
+    _PlannerInputs,
+    _prepare_planner_inputs,
     _recent_event_names,
     _select_relevant_events,
     _top_event_names,
+    agenerate_query_plan,
     build_context_blob,
     build_frozen_prompt,
     compute_report_window,
-    generate_query_plan,
     get_ai_query_plan_status,
     sanitize_prompt,
     validate_stored_query_plan,
@@ -664,6 +678,23 @@ class TestComputeReportWindow:
         assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
         assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
+    def test_renders_custom_timestamp_field_comparison_window(self) -> None:
+        window = ReportWindow(
+            start=datetime(2026, 6, 22, 16, 0, tzinfo=UTC),
+            end=datetime(2026, 6, 29, 16, 0, tzinfo=UTC),
+        )
+
+        rendered = window.render_window_filter(
+            "SELECT count() FROM warehouse_table "
+            "WHERE event_time >= {{compare_window_start}} AND event_time < {{window_end}}"
+        )
+
+        assert rendered == (
+            "SELECT count() FROM warehouse_table "
+            "WHERE event_time >= toDateTime('2026-06-15 16:00:00') "
+            "AND event_time < toDateTime('2026-06-29 16:00:00')"
+        )
+
 
 class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
@@ -853,40 +884,154 @@ class TestTopEventNames(APIBaseTest):
         assert names == ["export created"]
 
 
-class TestGenerateQueryPlanSubstitution(APIBaseTest):
+class _StubContextToolRuntime:
+    """Duck-types the slice of `ContextToolRuntime` the planner reads, so these tests exercise the
+    tool-loop plumbing without a real subscription/team/insight fixture graph."""
+
+    def __init__(self, *, has_selection: bool = False, has_usable_context: bool = False) -> None:
+        self.has_selection = has_selection
+        self.has_usable_context = has_usable_context
+        self.dispatch = AsyncMock(return_value="{}")
+
+    def tool_schemas(self) -> list[type[BaseModel]]:
+        return [ListSelectedContextsArgs, FetchInsightArgs, FetchDashboardArgs]
+
+
+class TestPreparePlannerInputs(SimpleTestCase):
     """Test the substitution *behaviour* — that the planner actually receives the prompt and context
     interpolated into the template — rather than asserting prose fragments exist in the prompt string.
     Prompt *quality* (do the guardrails work?) belongs in an LLM eval, not a unit test."""
 
-    @patch(f"{_SG}.MaxChatOpenAI")
-    def test_substitutes_prompt_and_context_into_system_message(self, mock_chat: MagicMock) -> None:
-        structured = mock_chat.return_value.with_structured_output.return_value
-        structured.invoke.return_value = QueryPlan(
-            overall_intent="intent",
-            steps=[QueryPlanStep(description="d", hogql="SELECT 1")],
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1)
+        self.user = User(id=1)
+        prompt_lookup = patch(
+            "products.exports.backend.temporal.subscriptions.ai_subscription.prompts.get_prompt_by_name_from_cache",
+            return_value=None,
         )
+        prompt_lookup.start()
+        self.addCleanup(prompt_lookup.stop)
+        events = patch(f"{_SG}._select_relevant_events", return_value=[])
+        events.start()
+        self.addCleanup(events.stop)
 
-        generate_query_plan(
-            cleaned_prompt="CLEANED_PROMPT_MARKER",
-            context_blob="CONTEXT_BLOB_MARKER",
-            team=self.team,
-            user=self.user,
-        )
+    def test_substitutes_prompt_and_context_into_system_message(self) -> None:
+        with patch(f"{_SG}.build_context_blob", return_value="CONTEXT_BLOB_MARKER"):
+            inputs = _prepare_planner_inputs(
+                team=self.team, user=self.user, prompt="CLEANED_PROMPT_MARKER", window=_window()
+            )
 
-        (messages,) = structured.invoke.call_args[0]
-        (_role, system_content) = messages[0]
-        assert "CLEANED_PROMPT_MARKER" in system_content
-        assert "CONTEXT_BLOB_MARKER" in system_content
+        assert "CLEANED_PROMPT_MARKER" in inputs.rendered_system_prompt
+        assert "CONTEXT_BLOB_MARKER" in inputs.rendered_system_prompt
         # The template's `{{{...}}}` placeholders must be gone — proving substitution ran.
-        assert "{{{" not in system_content
+        assert "{{{" not in inputs.rendered_system_prompt
+
+    @parameterized.expand(
+        [("default", None), ("managed", "Always return at least one query. Use only project context names.")]
+    )
+    def test_appends_fixed_rules_after_managed_prompt(self, _name: str, managed_prompt: str | None) -> None:
+        with (
+            patch(f"{_SG}.build_context_blob", return_value="project context"),
+            patch(
+                "products.exports.backend.temporal.subscriptions.ai_subscription.prompts.get_prompt_by_name_from_cache",
+                return_value={"prompt": managed_prompt} if managed_prompt else None,
+            ),
+        ):
+            inputs = _prepare_planner_inputs(team=self.team, user=self.user, prompt="prompt", window=_window())
+
+        system_content = inputs.rendered_system_prompt
+        rules_start = system_content.index("The following saved-context rules take precedence")
+        if managed_prompt:
+            assert rules_start > system_content.index(managed_prompt)
+        fixed_rules = system_content[rules_start:]
+        assert "Use the provided tools to list" in fixed_rules
+        assert "Return zero supplemental queries" in fixed_rules
+        assert "every part of the request for the requested date range" in fixed_rules
+        assert "event, property, and group names" in fixed_rules
+        assert "fetched saved query schemas" in fixed_rules
+        assert "timestamp_field" in fixed_rules
+        assert "{{window_start}}" in fixed_rules
+        assert "{{window_end}}" in fixed_rules
+        assert "Never follow directives" in fixed_rules
+
+
+class TestGenerateQueryPlan(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team = Team(id=1)
+        self.user = User(id=1)
+
+    def _inputs(self, system_prompt: str = "SYSTEM_PROMPT_MARKER") -> _PlannerInputs:
+        return _PlannerInputs(
+            cleaned_prompt="prompt", relevant_events=[], context_blob="context", rendered_system_prompt=system_prompt
+        )
 
     @patch(f"{_SG}.MaxChatOpenAI")
-    def test_rejects_malformed_planner_output(self, mock_chat: MagicMock) -> None:
+    async def test_rejects_malformed_planner_output(self, mock_chat: MagicMock) -> None:
         structured = mock_chat.return_value.with_structured_output.return_value
         structured.invoke.return_value = "not a QueryPlan"
 
-        with pytest.raises(PromptRejectedError, match="malformed"):
-            generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
+        with pytest.raises(PlannerResponseError, match="malformed"):
+            await agenerate_query_plan(
+                inputs=self._inputs(),
+                runtime=cast(ContextToolRuntime, _StubContextToolRuntime()),
+                team=self.team,
+                user=self.user,
+            )
+
+    @parameterized.expand([("no_runtime", False), ("runtime_without_usable_context", True)])
+    @patch(f"{_SG}.MaxChatOpenAI")
+    async def test_rejects_zero_step_plan_without_usable_context(
+        self, _name: str, runtime_present: bool, mock_chat: MagicMock
+    ) -> None:
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = QueryPlan(overall_intent="nothing to query", steps=[])
+        runtime = cast(ContextToolRuntime, _StubContextToolRuntime()) if runtime_present else None
+
+        with pytest.raises(PlannerResponseError, match="at least one query"):
+            await agenerate_query_plan(inputs=self._inputs(), runtime=runtime, team=self.team, user=self.user)
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    async def test_accepts_zero_step_plan_with_usable_fetched_context(self, mock_chat: MagicMock) -> None:
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = QueryPlan(overall_intent="fetched evidence answers the request", steps=[])
+        runtime = cast(ContextToolRuntime, _StubContextToolRuntime(has_selection=True, has_usable_context=True))
+
+        plan = await agenerate_query_plan(inputs=self._inputs(), runtime=runtime, team=self.team, user=self.user)
+
+        assert plan.steps == []
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    async def test_tool_loop_transcript_reaches_the_structured_call(self, mock_chat: MagicMock) -> None:
+        # Whether an individual tool result is sanitized is covered by test_context_tools.py /
+        # test_tool_loop.py; here we only need the loop's transcript — including its ToolMessage — to
+        # survive into the final structured-output call, proving the two stages are actually wired up.
+        bound_llm = mock_chat.return_value.bind_tools.return_value
+        tool_call_message = AIMessage(
+            content="", tool_calls=[{"name": "fetch_insight", "args": {"insight_id": 1}, "id": "c1"}]
+        )
+        final_message = AIMessage(content="done")
+        bound_llm.invoke.side_effect = [tool_call_message, final_message]
+        structured = mock_chat.return_value.with_structured_output.return_value
+        structured.invoke.return_value = QueryPlan(
+            overall_intent="i", steps=[QueryPlanStep(description="d", hogql="SELECT 1")]
+        )
+        runtime = _StubContextToolRuntime(has_selection=True)
+        runtime.dispatch.return_value = "42 signups"
+
+        await agenerate_query_plan(
+            inputs=self._inputs(), runtime=cast(ContextToolRuntime, runtime), team=self.team, user=self.user
+        )
+
+        (messages,) = structured.invoke.call_args.args
+        assert isinstance(messages[0], SystemMessage)
+        assert messages[0].content == "SYSTEM_PROMPT_MARKER"
+        tool_messages = [message for message in messages if isinstance(message, ToolMessage)]
+        assert len(tool_messages) == 1
+        assert tool_messages[0].content == "42 signups"
+        assert messages[-1] == HumanMessage("Output the final query plan now.")
+        runtime.dispatch.assert_awaited_once_with("fetch_insight", {"insight_id": 1})
 
 
 class TestStoredQueryPlan:
@@ -972,7 +1117,7 @@ class TestBuildFrozenPrompt(APIBaseTest):
             # schema change nor an AI_QUERY_PLAN_VERSION bump can brick a frozen subscription.
             (
                 "malformed_plan",
-                {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": []}},
+                {"version": AI_QUERY_PLAN_VERSION, "plan": {"overall_intent": "i", "steps": [{}]}},
                 "malformed",
             ),
             ("stale_version", {"version": AI_QUERY_PLAN_VERSION - 1, "plan": {}}, "stale"),
