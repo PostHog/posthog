@@ -9,8 +9,8 @@ surface that offers or validates a selection derives from here:
 - the web composer and settings, through ``products/tasks/frontend/modelCatalog.generated.ts``;
 - the desktop app and its agent, through ``@posthog/shared/model-catalog``.
 
-Both TypeScript projections are emitted by ``products/tasks/scripts/build_model_catalog.py`` and are
-checked for drift by `hogli lint:projections` in CI. After editing this file, run
+Both TypeScript projections are emitted by ``products/tasks/scripts/model_catalog_projection.py`` and are
+checked for drift by `hogli build:projections --check` in CI. After editing this file, run
 `hogli build:projections` and commit the result.
 
 Keep this module free of Django and of anything outside the standard library. The

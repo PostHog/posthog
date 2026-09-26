@@ -485,21 +485,11 @@ build:
     build:schema-latest-versions:
         bin_script: build-schema-latest-versions.py
         description: Extract latest schema versions and generate frontend JSON config
-    build:taxonomy-json:
-        bin_script: build-taxonomy-json.py
-        description: Generate core filter definitions taxonomy JSON for frontend
-    build:object-tags:
-        bin_script: build-object-tags-registry.py
-        description: Generate the agent object-tag kind registry for TypeScript consumers
     build:projections:
-        steps:
-            - build:taxonomy-json
-            - build:object-tags
-            - build:task-model-catalog
-            - build:mcp-oauth-scopes
-        description: 'Regenerate every checked-in projection of a Python module that
-            the OpenAPI flow does not carry (taxonomy, object tags, task model catalog,
-            MCP OAuth scopes). Needs no dev stack'
+        click: hogli_commands.projections:cmd_build_projections
+        description: 'Regenerate the checked-in projections of Python modules that the
+            OpenAPI flow does not carry, as registered in hogli_commands/projections.py.
+            --check verifies without writing, --only NAME picks one. Needs no dev stack'
     build:bot-definitions:
         cmd: python livestream/bot/generate_definitions.py
         description: Generate livestream bot definitions JSON from bot_definitions.py
@@ -543,15 +533,6 @@ build:
     build:openapi-mcp-tools:
         cmd: pnpm --filter=@posthog/mcp run generate-tools
         description: Generate MCP tool handlers from YAML definitions + Orval schemas
-    build:mcp-oauth-scopes:
-        bin_script: build-mcp-oauth-scopes.py
-        description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
-            metadata from posthog/scopes.py
-    build:task-model-catalog:
-        cmd: python products/tasks/scripts/build_model_catalog.py
-        description: Generate the web and desktop views of the task run model catalog
-            (runtime adapter, model, reasoning effort) from
-            products/tasks/backend/model_catalog.py
     build:openapi-cli-agent-scopes:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
@@ -904,14 +885,6 @@ quality:
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
-    lint:projections:
-        steps:
-            - cmd: python bin/build-taxonomy-json.py --check
-            - cmd: python bin/build-object-tags-registry.py --check
-            - cmd: python products/tasks/scripts/build_model_catalog.py --check
-            - cmd: python bin/build-mcp-oauth-scopes.py --check
-        description: Fail when a checked-in projection is out of date with its Python
-            source. Fix with hogli build:projections
     lint:api-ratchet:
         click: hogli_commands.api_ratchet:cmd_lint_api_ratchet
         description: Block new frontend/src/lib/api.ts path methods that a generated client already covers

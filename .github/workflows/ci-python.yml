@@ -123,17 +123,10 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
-                        # A hand-edit to either generated taxonomy output must reach the drift check
+                        # A hand-edit to a generated projection output must reach the drift
+                        # check. Every registered output but the taxonomy JSON is *.generated.*
+                        - '**/*.generated.*'
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
-                        - 'services/mcp/src/lib/trace-property-allowlist.generated.ts'
-                        # Same for the generated object-tag registries
-                        - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
-                        - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
-                        - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
-                        # Same for the task model catalog and the MCP OAuth scopes
-                        - 'products/tasks/frontend/modelCatalog.generated.ts'
-                        - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
-                        - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -323,14 +316,14 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
-            # Every projection generator is Python, so this job needs neither pnpm nor
+            # Every projection renderer is Python, so this job needs neither pnpm nor
             # node_modules. Keep the step after "Install Python dependencies": the taxonomy
-            # and object-tag generators import posthog/__init__.py, which pulls in Django,
+            # and object-tag renderers import posthog/__init__.py, which pulls in Django,
             # so they need the full synced dependency set, not just stdlib.
             - name: Check if the generated projections are up to date
               shell: bash
               run: |
-                  ./bin/hogli lint:projections
+                  ./bin/hogli build:projections --check
 
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.

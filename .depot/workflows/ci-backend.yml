@@ -402,7 +402,6 @@ jobs:
                         - products/tasks/mcp/tools.yaml
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
-                        - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -495,7 +494,6 @@ jobs:
                         - 'packages/personhog-proto/**'
                         - 'posthog/**/*'
                         - bin/build-schema-latest-versions.py
-                        - bin/build-taxonomy-json.py
                         - bin/check_uv_python_compatibility.py
                         - bin/find_python_dependencies.py
                         - pyproject.toml
@@ -587,6 +585,9 @@ jobs:
                         - 'AGENTS.md'
                         - '.semgrep/**'
                         - 'pyproject.toml'
+                        # A generated file in a frontend-only PR still needs a known producer.
+                        - '**/*.generated.*'
+                        - '**/generated/**'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
                       product_yamls:

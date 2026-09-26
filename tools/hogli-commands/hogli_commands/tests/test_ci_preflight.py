@@ -127,7 +127,8 @@ class TestProjectionsDriftCheck:
         "changed",
         [
             "posthog/taxonomy/taxonomy.py",
-            "bin/build-taxonomy-json.py",
+            "products/tasks/scripts/model_catalog_projection.py",
+            "tools/hogli-commands/hogli_commands/projections.py",
             "frontend/src/taxonomy/core-filter-definitions-by-group.json",
             "products/tasks/backend/model_catalog.py",
             "posthog/scopes.py",
@@ -180,7 +181,7 @@ class TestProjectionsDriftCheck:
         assert result.exit_code == 0
         assert "needs python-env" in result.output
         ran = [arg for call in mock_run.call_args_list for arg in call.args[0]]
-        assert "lint:projections" not in ran
+        assert "build:projections" not in ran
 
     @patch("hogli_commands.ci_preflight._emit_telemetry")
     @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
@@ -210,7 +211,7 @@ class TestProjectionsDriftCheck:
         # exit 0, so a drifted push would report pass instead of blocking.
         assert result.exit_code == 1
         dispatched = [call.args[0] for call in mock_run.call_args_list]
-        assert ["hogli", "lint:projections"] in dispatched
+        assert ["hogli", "build:projections", "--check"] in dispatched
 
 
 class TestStalenessRisks:

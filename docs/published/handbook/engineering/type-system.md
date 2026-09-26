@@ -122,10 +122,14 @@ When the frontend or the MCP server needs the values that an API accepts or retu
 
 The field must be on an endpoint that is in the schema. A viewset action marked `@extend_schema(exclude=True)` does not reach the generated types.
 
-A projection script is still the right tool for data rows that no endpoint serves, such as the task model catalog.
-The Python projections run as one group: `hogli build:projections` regenerates them, and `hogli lint:projections` fails CI when one is out of date.
-The `prefer-openapi-codegen` semgrep rule fails a PR that adds a new `*.generated.*` file outside a `generated/` directory.
-Its `paths.exclude` list holds the sanctioned projections. Ask #team-devex before you add one.
+Data rows that no endpoint serves, such as the task model catalog, go through the projection registry instead of a script of their own:
+
+1. Write a renderer module next to the data. Its `render()` function returns the full text of each output, keyed by repo-relative path.
+2. Add an entry to `PROJECTIONS` in `tools/hogli-commands/hogli_commands/projections.py` with the renderer, its inputs and its outputs.
+3. Run `hogli build:projections` and commit the outputs. CI runs `hogli build:projections --check` and fails when one is out of date.
+
+The `test_generated_files_are_registered.py` repo invariant fails a PR that adds a `*.generated.*` file, or a new `generated/` directory, that no registered projection and no known pipeline produces.
+Ask #team-devex before you add a projection.
 
 ### Troubleshooting
 
