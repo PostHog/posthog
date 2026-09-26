@@ -19,6 +19,10 @@ Query overrides that extend before that boundary remain ineligible.
 Calendar alignment does not change the writer query or existing job hashes.
 Run the updated warmer to populate missing daily windows at either end before testing the full display range.
 Existing ready jobs remain reusable if they satisfy the freshness policy, and missing coverage still falls back to live calculation.
+Freshness bands use UTC dates to match the daily job windows, independently of the project timezone.
+The current UTC day has a two-hour TTL, the previous two UTC days have a one-day TTL, and older windows have a 90-day TTL subject to the settling boundary.
+Freshness checks also apply these bands to existing jobs, including jobs stored with a longer expiry.
+These TTLs determine when a job needs renewal; the schedule and background revalidation determine when that renewal completes.
 The allowlist, daily chunk size, and query execution limits are unchanged.
 
 With the existing serve-stale flag, readers may use jobs expired within six hours and enqueue debounced revalidation. Only that task runs reader-initiated inserts; it takes no stale grace. Scheduled writers also require fresh jobs. Classifier expression changes and the explicit dictionary version change the shared job hash, requiring fresh materialization.
