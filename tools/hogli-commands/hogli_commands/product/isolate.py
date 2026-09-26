@@ -307,21 +307,14 @@ def _strip_inline_comment(line: str) -> str:
     If the line cannot be safely parsed, returns the whole line unchanged.
     """
     try:
-        # Use tokenize to identify strings and comments accurately
+        # Use tokenize to identify comments accurately
         tokens = list(tokenize.generate_tokens(io.StringIO(line).readline))
-        code_part = ""
         for tok in tokens:
             if tok.type == tokenize.COMMENT:
-                # Stop processing at comment start
-                break
-            if tok.type in (tokenize.STRING, tokenize.NAME, tokenize.OP, tokenize.NUMBER):
-                code_part += tok.string
-            elif tok.type == tokenize.INDENT or tok.type == tokenize.DEDENT:
-                continue
-            elif tok.type == tokenize.ERRORTOKEN:
-                # If tokenization fails, return the line unchanged
-                return line
-        return code_part.rstrip()
+                # Return the substring before the comment start, preserving whitespace
+                return line[: tok.start[1]].rstrip()
+        # No comment found, return the whole line stripped
+        return line.rstrip()
     except tokenize.TokenError:
         # If tokenization fails, return the line unchanged as a safe fallback
         return line
