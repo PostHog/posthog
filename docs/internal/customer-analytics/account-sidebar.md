@@ -18,7 +18,7 @@ Only the panel that opened the selector renders it. Saving pins updates every mo
 Dragging entries changes their saved display order. The sidebar scrolls independently of
 the main account content on wide account scenes.
 
-At the top of the sidebar, the left action opens event stream settings and the right action edits the account.
+At the top of the sidebar, the left action opens a modal where you add the account to your event stream. If your stream isn't set up or is turned off, the modal links to the event stream settings. The back arrow on the settings page returns to the account. The right action edits the account.
 The account editor includes the name, website domain, billing ID, Slack channel ID, and Salesforce ID.
 It also includes the Stripe ID when the account already has one. The external ID remains read-only.
 Saving refreshes the account title and breadcrumb. A failed save keeps the editor open for retry.

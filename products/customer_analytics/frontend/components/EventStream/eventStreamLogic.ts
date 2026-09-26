@@ -1,11 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import type { IntegrationType } from '~/types'
 
@@ -59,6 +62,7 @@ export interface eventStreamLogicValues {
     memberCount: number
     membershipUpdatingIds: string[]
     selectedIntegration: IntegrationType | null
+    settingsUrl: string
     slackChannelValue: string | undefined
     testMessage: EventStreamTestMessageApi | null
     testMessageDisabledReason: string | undefined
@@ -154,6 +158,7 @@ export interface eventStreamLogicMeta {
         selectedIntegration: (integrations: IntegrationType[], draft: EventStreamDraft) => IntegrationType | null
         slackChannelValue: (draft: EventStreamDraft) => string | undefined
         memberCount: (eventStream: EventStreamApi | null) => number
+        settingsUrl: (location: { pathname: string; search: string }) => string
         testMessageDisabledReason: (eventStream: EventStreamApi | null, hasChanges: boolean) => string | undefined
     }
 }
@@ -230,6 +235,14 @@ export const eventStreamLogic = kea<eventStreamLogicType>([
         ],
     }),
     selectors({
+        settingsUrl: [
+            () => [router.selectors.location],
+            (location: { pathname: string; search: string }): string =>
+                urls.customerAnalyticsConfiguration(
+                    'customer-analytics-event-stream',
+                    removeProjectIdIfPresent(location.pathname) + location.search
+                ),
+        ],
         hasChanges: [
             (s) => [s.draft, s.eventStream],
             (draft: EventStreamDraft, eventStream: EventStreamApi | null): boolean =>

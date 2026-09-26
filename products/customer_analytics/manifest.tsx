@@ -113,8 +113,11 @@ export const manifest: ProductManifest = {
         customerAnalyticsFeatureRequests: (requestId?: string): string =>
             `/customer_analytics/feature-requests${requestId ? `/${requestId}` : ''}`,
         customerAnalyticsJourneys: (): string => '/customer_analytics/journeys',
-        customerAnalyticsConfiguration: (tab?: string): string =>
-            `/customer_analytics/configuration${tab ? `?tab=${tab}` : ''}`,
+        customerAnalyticsConfiguration: (tab?: string, returnTo?: string): string =>
+            combineUrl('/customer_analytics/configuration', {
+                ...(tab ? { tab } : {}),
+                ...(returnTo ? { returnTo } : {}),
+            }).url,
         customerJourneyBuilder: (): string => '/customer_analytics/journeys/new',
         customerJourneyTemplates: (): string => '/customer_analytics/journeys/templates',
         customerJourneyEdit: (id: string): string => `/customer_analytics/journeys/${id}/edit`,

@@ -4,18 +4,18 @@ import { IconLive, IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 
 import type { AccountApi } from '../../generated/api.schemas'
 import { AccountEditModal } from './AccountEditModal'
+import { AccountEventStreamModal } from './AccountEventStreamModal'
 import { AccountPinnedPropertiesPanel } from './components/AccountPinnedPropertiesPanel'
 import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 
 export function AccountSidebar({ account }: { account: AccountApi }): JSX.Element {
     const { tagsSaving } = useValues(customerAnalyticsAccountSceneLogic)
-    const { updateTags, openAccountEditor } = useActions(customerAnalyticsAccountSceneLogic)
+    const { updateTags, openAccountEditor, openEventStreamModal } = useActions(customerAnalyticsAccountSceneLogic)
     const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
     const { loadTagsIfNeeded } = useActions(tagsModel)
 
@@ -32,7 +32,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
                     tooltip="Set up event stream"
                     aria-label="Set up event stream"
                     data-attr="account-sidebar-event-stream"
-                    to={urls.customerAnalyticsConfiguration('customer-analytics-event-stream')}
+                    onClick={openEventStreamModal}
                 />
                 <LemonButton
                     type="secondary"
@@ -59,6 +59,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
             <LemonDivider className="my-0" />
             <AccountPinnedPropertiesPanel accountId={account.id} />
             <AccountEditModal />
+            <AccountEventStreamModal />
         </aside>
     )
 }

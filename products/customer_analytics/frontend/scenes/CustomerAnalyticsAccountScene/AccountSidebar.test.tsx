@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { projectLogic } from 'scenes/projectLogic'
@@ -39,14 +40,16 @@ describe('AccountSidebar', () => {
         resumeKeaLoadersErrors()
     })
 
-    it('shows event stream setup before account editing', async () => {
+    it('opens event stream setup and account editing from the sidebar actions', async () => {
         initKeaTests()
+        router.actions.push(urls.customerAnalyticsAccount(account.id))
         useMocks({
             get: {
                 '/api/projects/:project_id/accounts/:account_id/': account,
                 '/api/projects/:project_id/user_customer_analytics_config/@me/': { pinned_properties: [] },
                 '/api/projects/:project_id/custom_property_definitions/': { count: 0, results: [] },
                 '/api/projects/:project_id/account_relationship_definitions/': { count: 0, results: [] },
+                '/api/projects/:project_id/event_streams/': [],
             },
             post: {
                 '/api/projects/:project_id/accounts/:account_id/presence/': [],
@@ -73,10 +76,21 @@ describe('AccountSidebar', () => {
             '[data-attr="account-sidebar-event-stream"], [data-attr="account-sidebar-edit"]'
         )
         expect(actions).toHaveLength(2)
-        expect(actions[0]).toHaveAttribute(
+        expect(actions[0]).not.toHaveAttribute('href')
+        fireEvent.click(actions[0])
+        expect(await screen.findByText("You haven't set up your event stream yet.", { exact: false })).toBeVisible()
+        expect(screen.getByText('Include in my event stream')).toBeVisible()
+        expect(screen.queryByText('Events to stream')).not.toBeInTheDocument()
+        expect(document.querySelectorAll('[data-attr="account-event-stream-setup"]')[0]).toHaveAttribute(
             'href',
-            expect.stringContaining(urls.customerAnalyticsConfiguration('customer-analytics-event-stream'))
+            expect.stringContaining(
+                urls.customerAnalyticsConfiguration(
+                    'customer-analytics-event-stream',
+                    urls.customerAnalyticsAccount(account.id)
+                )
+            )
         )
+        fireEvent.click(screen.getByLabelText('close'))
         expect(actions[1]).toHaveAttribute('aria-label', 'Edit account')
         fireEvent.click(actions[1])
         expect(screen.getByDisplayValue(account.name)).toBeVisible()
