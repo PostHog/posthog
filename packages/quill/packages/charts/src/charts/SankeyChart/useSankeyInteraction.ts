@@ -167,7 +167,9 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
                 }
                 if (hitToHoverIndex(current, hit) !== tapDownHoverIndexRef.current) {
                     showHit(hit, cursor)
-                    return
+                    if (showTooltip) {
+                        return
+                    }
                 }
             }
             if (!hit) {
@@ -180,7 +182,7 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
                 onLinkClick?.(resolved.link)
             }
         },
-        [layoutRef, hoverIndexRef, clearTooltip, showHit, onNodeClick, onLinkClick]
+        [layoutRef, hoverIndexRef, clearTooltip, showHit, showTooltip, onNodeClick, onLinkClick]
     )
 
     const handlers = useMemo(
