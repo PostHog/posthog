@@ -118,13 +118,20 @@ _NOTIFICATION_OUTCOME_KINDS: dict[NotificationAction, AlertEventKind] = {
 }
 
 
-def _evaluation_key(window_end: datetime) -> str:
-    """Names the window a check answered for.
+def _evaluation_key(check: PlatformAlertCheckInput, window_end: datetime, *, now: datetime) -> str:
+    """Names the scheduled check, and the window it answered for.
+
+    The slot is in the key because `resolve_alert_date_to` clamps the window end to the ingestion
+    checkpoint. Two consecutive scheduled checks reach the same window end whenever the checkpoint
+    has not moved, and a key built from the window alone would make them one evaluation to any
+    reader deduplicating on it.
 
     Scoped to the alert by the row's own columns rather than by the string, so the key keeps one
-    shape across sources and a retry recomputes it from the batch cutoff.
+    shape across sources. Both parts are read before anything is written, so a retry recomputes
+    the same key.
     """
-    return f"window:{window_end.isoformat()}"
+    slot = (check.next_check_at or now).replace(second=0, microsecond=0)
+    return f"slot:{slot.isoformat()}|window:{window_end.isoformat()}"
 
 
 def _cohort_key(check: PlatformAlertCheckInput, checkpoint: datetime | None, now: datetime) -> tuple:
@@ -283,7 +290,7 @@ def _delivery(
     recorded = _recorded(
         check,
         outcome=outcome,
-        evaluation_key=_evaluation_key(window_end),
+        evaluation_key=_evaluation_key(check, window_end, now=window_end),
         kind=_NOTIFICATION_OUTCOME_KINDS[outcome.notification],
         notified=outcome.update_last_notified_at,
         now=now,
@@ -365,7 +372,7 @@ def _held(
     recorded = _recorded(
         check,
         outcome=outcome,
-        evaluation_key=_evaluation_key(now),
+        evaluation_key=_evaluation_key(check, now, now=now),
         # The notification is NONE here only because the check machine never ran.
         kind=AlertEventKind.BROKEN,
         notified=False,
