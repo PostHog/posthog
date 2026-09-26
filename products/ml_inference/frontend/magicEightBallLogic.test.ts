@@ -1,3 +1,4 @@
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { MAX_OPTIONS_PER_QUESTION } from './decisionPlaygroundLogic'
@@ -18,6 +19,43 @@ describe('magicEightBallLogic', () => {
 
         expect(request.state).toBe('Will the new onboarding lift activation?')
         expect(Object.keys(request.questions)).toEqual([ANSWER_QUESTION_ID])
+    })
+
+    it('hides the previous answer when the question changes', async () => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/ml_inference/decisions/decide/': () => [
+                    200,
+                    {
+                        model: 'jevk5',
+                        answers: {
+                            [ANSWER_QUESTION_ID]: {
+                                type: 'choice',
+                                probability: null,
+                                choice: 'Yes',
+                                score: null,
+                                confidence: 0.9,
+                                probabilities: null,
+                            },
+                        },
+                        input_tokens: 10,
+                        latency_ms: 5,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        const logic = magicEightBallLogic()
+        logic.mount()
+        logic.actions.setQuestion('Will it ship?')
+
+        await logic.asyncActions.ask()
+        expect(logic.values.answer).toBe('Yes')
+        expect(logic.values.confidence).toBe(0.9)
+
+        logic.actions.setQuestion('Will it ship on time?')
+        expect(logic.values.answer).toBeNull()
+        expect(logic.values.confidence).toBeNull()
     })
 
     describe('motion permission', () => {
