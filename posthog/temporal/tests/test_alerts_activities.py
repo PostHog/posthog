@@ -80,6 +80,7 @@ from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
+    LLMDetectorOutOfCreditsError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.facade.contracts import AlertDelivery
@@ -1120,11 +1121,43 @@ class TestEvaluateAlert:
         else:
             mock_notify.assert_not_called()
 
+    async def test_exhausted_ai_credits_record_an_error_and_keep_the_alert_on(
+        self, alert_with_user: AlertConfiguration
+    ) -> None:
+        await sync_to_async(AlertConfiguration.objects.filter(id=alert_with_user.id).update)(
+            detector_config={"type": "llm"}
+        )
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=LLMDetectorOutOfCreditsError("Your organization has used all its AI credits."),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.temporal.alerts.activities.record_ai_detector_check_outcome") as mock_outcome,
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(
+                evaluate_alert,
+                EvaluateAlertActivityInputs(
+                    alert_id=str(alert_with_user.id), uses_llm_detector=True, team_id=alert_with_user.team_id
+                ),
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        mock_capture.assert_not_called()
+        mock_outcome.assert_called_once_with("out_of_credits")
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error == {
+            "code": "llm_detector_out_of_credits",
+            "message": "Your organization has used all its AI credits.",
+        }
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+
     @pytest.mark.parametrize("error_type", [AlertExtractionError, LLMDetectorMisconfiguredError])
     async def test_evaluate_auto_disables_and_skips_error_tracking_on_configuration_error(
         self, alert_with_user, error_type
     ) -> None:
-
         with (
             patch(
                 "posthog.temporal.alerts.activities.check_alert_for_insight",

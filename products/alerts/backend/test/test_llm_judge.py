@@ -19,6 +19,7 @@ from posthog.models.user import User
 from products.alerts.backend.judge import (
     JudgeAttribution,
     LLMDetectorMisconfiguredError,
+    LLMDetectorOutOfCreditsError,
     LLMDetectorUnavailableError,
     SeriesContext,
     SeriesJudgment,
@@ -54,6 +55,12 @@ def _fake_user() -> Any:
 @pytest.fixture(autouse=True)
 def _in_the_rollout() -> Iterator[None]:
     with patch("products.alerts.backend.llm_detector_limits.posthoganalytics.feature_enabled", return_value=True):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _within_ai_credit_budget() -> Iterator[None]:
+    with patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=False):
         yield
 
 
@@ -281,6 +288,27 @@ class TestLLMJudgeFailureIsLoud:
             LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=_attribution())
 
         flag.assert_called_once_with("alerts-llm-detector", "user-1", groups={"organization": "org-1"})
+
+    def test_call_is_refused_when_the_organization_is_out_of_ai_credits(self) -> None:
+        attribution = _attribution()
+        with (
+            _mocked_model(_verdict()) as invoke,
+            patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", return_value=True) as over_budget,
+            pytest.raises(LLMDetectorOutOfCreditsError, match="used all its AI credits"),
+        ):
+            LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=attribution)
+
+        over_budget.assert_called_once_with(attribution.team.api_token)
+        invoke.assert_not_called()
+
+    def test_a_failed_credit_budget_lookup_still_calls_the_model(self) -> None:
+        with (
+            _mocked_model(_verdict()) as invoke,
+            patch("ee.billing.quota_limiting.is_team_over_ai_credit_budget", side_effect=ConnectionError("redis")),
+        ):
+            LLMSeriesJudge({"type": "llm"}).judge_latest(SERIES, series=_series(), attribution=_attribution())
+
+        invoke.assert_called_once()
 
     def test_rationale_is_bounded_before_it_reaches_the_breach_text(self) -> None:
         judgment = _judge(LLMSeriesJudge({"type": "llm"}), _verdict(rationale="x" * 5000))

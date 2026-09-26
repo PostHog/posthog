@@ -5,7 +5,7 @@ from prometheus_client import Counter, Gauge
 
 from posthog.metrics import pushed_metrics_registry
 
-AiDetectorCheckOutcome = Literal["evaluated", "unavailable", "misconfigured"]
+AiDetectorCheckOutcome = Literal["evaluated", "unavailable", "misconfigured", "out_of_credits"]
 
 # Nothing else separates an AI detector check that reached a verdict from one whose provider
 # was out of reach: both land as an errored check, and only the worker logs say which.
