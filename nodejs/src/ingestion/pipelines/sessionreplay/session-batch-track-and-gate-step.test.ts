@@ -1,3 +1,4 @@
+import { logger } from '~/common/utils/logger'
 import { PipelineResult, isDropResult, isOkResult } from '~/ingestion/framework/results'
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
@@ -119,6 +120,27 @@ describe('createTrackAndGateStep', () => {
 
         expect(mockSessionFilter.isBlocked).toHaveBeenCalledTimes(1)
         expect(isDropResult(results[0]) && results[0].reason).toBe('session_blocked')
+    })
+
+    it('logs a blocked session once per session, not once per message, and warns on every drop', async () => {
+        mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
+        mockSessionFilter.isBlocked.mockImplementation(blockAll(true))
+        const infoSpy = jest.spyOn(logger, 'info').mockImplementation(() => undefined as never)
+
+        // Three messages of one blocked session: the log names the lost recording once, while each
+        // message still drops carrying the warning the debouncer collapses per team.
+        const results = await createStep()([element(1, 'a'), element(1, 'a'), element(1, 'a')])
+
+        const dropLogs = infoSpy.mock.calls.filter((call) => call[1] === 'session_replay_session_dropped_before_record')
+        expect(dropLogs).toHaveLength(1)
+        expect(dropLogs[0][2]).toMatchObject({ sessionId: 'a', teamId: 1, reason: 'session_blocked' })
+        expect(results).toHaveLength(3)
+        for (const result of results) {
+            expect(isDropResult(result) && result.reason).toBe('session_blocked')
+            expect(isDropResult(result) && result.warnings).toEqual([
+                { type: 'replay_session_rate_limited', details: { sessionId: 'a' }, key: '1' },
+            ])
+        }
     })
 
     it('runs each Redis bootstrap once per batch and fans the flags to every message of a session', async () => {
