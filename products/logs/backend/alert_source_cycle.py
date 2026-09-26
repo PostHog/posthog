@@ -290,7 +290,9 @@ def _delivery(
         value=value,
         error_message=outcome.error_message,
         query_duration_ms=query_duration_ms,
-        muted_notification=outcome.muted_notification.value,
+        muted_notification=(
+            "" if outcome.muted_notification == NotificationAction.NONE else outcome.muted_notification.value
+        ),
         disable=outcome.disable,
     )
     if outcome.notification == NotificationAction.NONE:
@@ -351,7 +353,14 @@ def _failed(check: PlatformAlertCheckInput, error: Exception, *, now: datetime, 
     )
 
 
-def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip: SkipReason, now: datetime) -> Decision:
+def _held(
+    check: PlatformAlertCheckInput,
+    outcome: ControlPlaneOutcome,
+    *,
+    skip: SkipReason,
+    now: datetime,
+    error_message: str | None = None,
+) -> Decision:
     """A control-plane transition the check machine cannot express. The outcome advances the schedule."""
     recorded = _recorded(
         check,
@@ -361,6 +370,7 @@ def _held(check: PlatformAlertCheckInput, outcome: ControlPlaneOutcome, *, skip:
         kind=AlertEventKind.BROKEN,
         notified=False,
         now=now,
+        error_message=error_message,
     )
     _record_check_metrics(
         check, new_state=outcome.new_state.value, notification=NotificationAction.NONE, skip=skip, now=now
@@ -458,6 +468,7 @@ def _triage(checks: Sequence[PlatformAlertCheckInput], *, now: datetime, tz_name
                     apply_broken_config(_snapshot(check, ())),
                     skip=SkipReason.BROKEN_CONFIG,
                     now=now,
+                    error_message=broken_reason,
                 )
             )
             continue
