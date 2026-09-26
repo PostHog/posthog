@@ -906,6 +906,9 @@ const searchIntentPersonPropertiesMock = mswDecorator({
     },
 })
 
+// The empty state also carries the list class, so the "All" tab stories wait for a real result row instead.
+const SEARCH_INTENT_ALL_TAB_FIRST_ROW = '[data-attr="prop-filter-suggested_filters-0"]'
+
 const SEARCH_INTENT_GROUP_TYPES = [
     TaxonomicFilterGroupType.SuggestedFilters,
     TaxonomicFilterGroupType.EventProperties,
@@ -969,7 +972,7 @@ export const SearchIntentControlKeepsOrder: Story = {
     decorators: [searchIntentPersonPropertiesMock],
     parameters: {
         featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'control' },
-        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+        testOptions: { waitForSelector: SEARCH_INTENT_ALL_TAB_FIRST_ROW },
     },
 }
 
@@ -980,6 +983,6 @@ export const SearchIntentPromotesGroup: Story = {
     decorators: [searchIntentPersonPropertiesMock],
     parameters: {
         featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'promote' },
-        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+        testOptions: { waitForSelector: SEARCH_INTENT_ALL_TAB_FIRST_ROW },
     },
 }
