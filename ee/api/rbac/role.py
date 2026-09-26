@@ -137,7 +137,8 @@ class RoleSerializer(serializers.ModelSerializer):
 class RoleViewSet(RestrictedMemberVisibilityMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "organization"
     serializer_class = RoleSerializer
-    queryset = Role.objects.prefetch_related(role_memberships_prefetch())
+    # id breaks created_at ties, so limit/offset pages can't skip or repeat a role.
+    queryset = Role.objects.prefetch_related(role_memberships_prefetch()).order_by("created_at", "id")
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
 
     def get_serializer_context(self) -> dict:
