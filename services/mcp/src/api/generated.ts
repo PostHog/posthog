@@ -9823,6 +9823,11 @@ export namespace Schemas {
       Number37: 37,
     } as const;
 
+    /**
+     * Warnings attached to the query response that produced an insight's results.
+     */
+    export type _InsightResultWarnings = (DataWarehouseSyncWarning | AccessControlFilterWarning)[];
+
     export interface TileFilters {
       breakdown_filter?: BreakdownFilter | null;
       date_from?: string | null;
@@ -9963,6 +9968,8 @@ export namespace Schemas {
       readonly resolved_date_range: InsightResolvedDateRange;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -25192,7 +25199,7 @@ export namespace Schemas {
     }
 
     /**
-     * InsightSerializer restricted to identifiers + result only.
+     * InsightSerializer restricted to identifiers, the result, and the warnings about that result.
      */
     export interface InsightResult {
       readonly id: number;
@@ -25202,6 +25209,8 @@ export namespace Schemas {
       /** @nullable */
       readonly derived_name: string | null;
       readonly result: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings: _InsightResultWarnings | null;
     }
 
     /**
@@ -74214,6 +74223,8 @@ export namespace Schemas {
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
       /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
       readonly query_scan?: unknown;
+      /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
+      readonly warnings?: _InsightResultWarnings | null;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
