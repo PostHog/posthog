@@ -10,9 +10,9 @@ import type {
   Query,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { BedrockGatewayVariant } from "@posthog/agent-contracts";
+import type { EffortLevel } from "@posthog/agent-contracts/domain-types";
 import type { PostHogProductId } from "@posthog/harness/extensions/posthog-mcp-policy";
-import type { BedrockGatewayVariant } from "@posthog/shared";
-import type { EffortLevel } from "@posthog/shared/domain-types";
 import type { SteerDeclineCause } from "../../acp-extensions";
 import type { AgentMode } from "../../types";
 import type { Pushable } from "../../utils/streams";

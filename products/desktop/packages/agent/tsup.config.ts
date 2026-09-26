@@ -133,7 +133,7 @@ const sharedOptions = {
   outDir: "dist",
   target: "node20",
   noExternal: [
-    "@posthog/shared",
+    "@posthog/agent-contracts",
     "@posthog/git",
     "@posthog/enricher",
     "@posthog/harness",
@@ -166,7 +166,7 @@ export default defineConfig([
     outDir: "dist",
     target: "es2022",
     platform: "browser",
-    external: ["@earendil-works/pi-ai", "@posthog/shared", "zod"],
+    external: ["@earendil-works/pi-ai", "@posthog/agent-contracts", "zod"],
   },
   {
     entry: [

@@ -301,7 +301,7 @@ DIFF_CHECKS: list[DiffCheck] = [
             *BUILD_TRIGGERS["build:object-tags"],
             "bin/build-object-tags-registry.py",
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
-            "products/desktop/packages/shared/src/objectTagKinds.generated.ts",
+            "products/desktop/packages/agent-contracts/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
         ],
         verify=["hogli", "build:object-tags", "--check"],

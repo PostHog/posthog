@@ -5,7 +5,7 @@ import type {
 import type {
   AgentToolCallContentBlock,
   AgentToolCallLocation,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 import type { PiToolTranslator } from "../toolTranslator";
 
 export const grepTranslator: PiToolTranslator = ({

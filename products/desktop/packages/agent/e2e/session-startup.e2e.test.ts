@@ -12,7 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ClientSideConnection, ndJsonStream } from "@agentclientprotocol/sdk";
-import { DEFAULT_GATEWAY_MODEL } from "@posthog/shared";
+import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent-contracts";
 import { expect, it, vi } from "vitest";
 import { createAcpConnection } from "../src/adapters/acp-connection";
 import { withTimeout } from "../src/utils/common";

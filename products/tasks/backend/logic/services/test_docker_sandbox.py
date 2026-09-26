@@ -256,7 +256,7 @@ class TestDockerSandboxUnit:
         (tmp_path / "patches").mkdir()
         (tmp_path / "scripts").mkdir()
         (tmp_path / "scripts" / "rimraf.mjs").touch()
-        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+        for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
             package_path = tmp_path / "packages" / package_name
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()
@@ -273,7 +273,7 @@ class TestDockerSandboxUnit:
         (monorepo_path / "patches").mkdir()
         (monorepo_path / "scripts").mkdir()
         (monorepo_path / "scripts" / "rimraf.mjs").touch()
-        for package_name in ("agent", "harness", "shared", "git", "enricher"):
+        for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
             package_path = monorepo_path / "packages" / package_name
             package_path.mkdir(parents=True)
             (package_path / "package.json").touch()

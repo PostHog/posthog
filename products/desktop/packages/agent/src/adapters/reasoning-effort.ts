@@ -2,8 +2,8 @@ import {
   type Adapter,
   type CapabilityNotch,
   getCapabilityLadder,
-} from "@posthog/shared";
-import type { EffortLevel } from "@posthog/shared/domain-types";
+} from "@posthog/agent-contracts";
+import type { EffortLevel } from "@posthog/agent-contracts/domain-types";
 import {
   getContextWindowOptions as getClaudeContextWindowOptions,
   getEffortOptions as getClaudeEffortOptions,

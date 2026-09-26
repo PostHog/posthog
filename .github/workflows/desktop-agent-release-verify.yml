@@ -12,7 +12,7 @@ on:
             - 'products/desktop/packages/enricher/**'
             - 'products/desktop/packages/git/**'
             - 'products/desktop/packages/harness/**'
-            - 'products/desktop/packages/shared/**'
+            - 'products/desktop/packages/agent-contracts/**'
             - '.github/actions/desktop-build-agent-release/**'
             - '.github/workflows/desktop-agent-release.yml'
             - '.github/workflows/desktop-agent-release-verify.yml'

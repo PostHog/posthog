@@ -1,7 +1,7 @@
 import {
   DEFAULT_OPTION_META_KEY,
   isRestrictedModelOption,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 import { describe, expect, it } from "vitest";
 import {
   buildCodexModes,

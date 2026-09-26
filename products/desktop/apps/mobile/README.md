@@ -61,7 +61,7 @@ src/features/
 
 Mobile and desktop use the same cloud-task architecture. New work must preserve these ownership rules:
 
-- `@posthog/shared` owns runtime contracts and Zod schemas.
+- `@posthog/agent-contracts` owns runtime contracts and Zod schemas; `@posthog/shared` re-exports them for desktop code.
 - `@posthog/api-client` owns authenticated PostHog HTTPS transport and its request/response types.
 - `@posthog/core` owns cloud-task orchestration and headless presentation decisions, including sessions, queues, permissions, models, repositories, and inbox rules.
 - `apps/mobile` owns Expo lifecycle, React Native rendering, gestures, sheets, notifications, audio, secure storage, and small persisted view-state stores.

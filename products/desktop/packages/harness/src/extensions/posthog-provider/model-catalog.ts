@@ -3,8 +3,14 @@ import {
   type ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
 import type { ModelInfo } from "@earendil-works/pi-coding-agent";
-import { type CloudRegion, formatGatewayModelName } from "@posthog/shared";
-import { isOfferedModel, labelForModel } from "@posthog/shared/model-catalog";
+import {
+  type CloudRegion,
+  formatGatewayModelName,
+} from "@posthog/agent-contracts";
+import {
+  isOfferedModel,
+  labelForModel,
+} from "@posthog/agent-contracts/model-catalog";
 import {
   fetchPosthogGatewayModels,
   type GatewayModel,

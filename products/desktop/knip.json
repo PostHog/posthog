@@ -48,6 +48,11 @@
       "includeEntryExports": false,
       "entry": ["src/**/*.bench.ts"]
     },
+    "packages/agent-contracts": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["src/**/*.ts"],
+      "includeEntryExports": false
+    },
     "packages/api-client": {
       "entry": ["src/**/*.test.ts"],
       "project": ["src/**/*.{ts,tsx}"],

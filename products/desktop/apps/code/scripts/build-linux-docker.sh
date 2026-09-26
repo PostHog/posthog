@@ -88,7 +88,7 @@ COPYFILE_DISABLE=1 tar -cf - \
       pnpm install --frozen-lockfile
       pnpm --filter @posthog/electron-trpc build
       pnpm --filter @posthog/platform build
-      pnpm --filter @posthog/shared build
+      pnpm --filter @posthog/shared... build
       pnpm --filter @posthog/git build
       pnpm --filter @posthog/enricher build
       pnpm --filter @posthog/agent build

@@ -1,8 +1,8 @@
 import {
   type GatewayModel,
   normalizeGatewayModelsResponse,
-} from "@posthog/shared";
-import { buildPosthogProjectHeaderRecord } from "@posthog/shared/posthog-property-headers";
+} from "@posthog/agent-contracts";
+import { buildPosthogProjectHeaderRecord } from "@posthog/agent-contracts/posthog-property-headers";
 
 export {
   adapterForModelId,
@@ -29,7 +29,7 @@ export {
   isOfferedModel,
   isOpenAIModel,
   pickAllowedModel,
-} from "@posthog/shared";
+} from "@posthog/agent-contracts";
 
 export interface FetchGatewayModelsOptions {
   gatewayUrl: string;

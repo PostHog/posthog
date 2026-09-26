@@ -1,6 +1,9 @@
 import { isIP } from "node:net";
 import { defineTool } from "@earendil-works/pi-coding-agent";
-import { isPrivateIpv4Octets, isPrivateIpv6Literal } from "@posthog/shared";
+import {
+  isPrivateIpv4Octets,
+  isPrivateIpv6Literal,
+} from "@posthog/agent-contracts";
 import { LRUCache } from "lru-cache";
 import TurndownService from "turndown";
 import { Type } from "typebox";
@@ -41,7 +44,7 @@ function ipv4Octets(hostname: string): number[] | undefined {
  * That would require enforcing the check at connection time, not URL-parse
  * time — out of scope here, but worth remembering as a residual gap. The
  * IPv4-range and IPv6-literal kernels are shared with the other private-host
- * classifiers via `@posthog/shared`.
+ * classifiers via `@posthog/agent-contracts`.
  */
 function isBlockedHost(rawHostname: string): boolean {
   // `URL#hostname` keeps IPv6 literals bracketed ("[::1]"); `net.isIP`/our
