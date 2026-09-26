@@ -15,10 +15,12 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source
 from posthog.cdp.filters import RUNTIME_CONTRACT
 from posthog.cdp.flag_gated_templates import gated_template_enabled
 from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -378,14 +380,110 @@ class TestHogFlowAPI(APIBaseTest):
             == "Your beta access starts today"
         )
 
-    def test_list_filter_by_created_by_uuid(self):
-        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
-        HogFlow.objects.create(team=self.team, name="Mine", created_by=self.user)
-        HogFlow.objects.create(team=self.team, name="Theirs", created_by=other_user)
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{name}", endpoint, query, expected)
+            for endpoint in ("hog_flows", "hog_flows/summaries")
+            for name, query, expected in [
+                ("status_single_value", "status=active", {"Welcome", "Legacy"}),
+                ("status_multi_value", "status=active,draft", {"Welcome", "Digest", "Legacy"}),
+                ("exclude_status", "exclude_status=archived", {"Welcome", "Digest", "Legacy"}),
+                ("status_include_and_exclude", "status=active,draft&exclude_status=draft", {"Welcome", "Legacy"}),
+                ("created_by_single_value", "created_by=OTHER", {"Digest"}),
+                ("created_by_multi_value", "created_by=ME,OTHER", {"Welcome", "Digest", "Legacy"}),
+                ("exclude_created_by_keeps_rows_without_creator", "exclude_created_by=ME", {"Digest", "Sync", "Blank"}),
+                ("trigger_type_follows_trigger_action", "trigger_type=event,schedule", {"Welcome", "Digest"}),
+                ("trigger_type_falls_back_to_trigger_column", "trigger_type=batch", {"Legacy"}),
+                (
+                    "exclude_trigger_type_keeps_rows_without_trigger",
+                    "exclude_trigger_type=webhook",
+                    {"Welcome", "Digest", "Legacy", "Blank"},
+                ),
+                ("channel_email", "channel=email", {"Welcome"}),
+                ("channel_slack_or_webhook", "channel=slack,webhook", {"Digest", "Sync"}),
+                (
+                    "exclude_channel_keeps_rows_without_channel",
+                    "exclude_channel=email,push",
+                    {"Digest", "Sync", "Blank"},
+                ),
+                ("exclude_type_keeps_rows_without_steps", "exclude_type=messaging", {"Sync", "Blank"}),
+                ("params_are_and", "status=active&channel=push", {"Legacy"}),
+                ("type_unchanged", "type=automation", {"Sync", "Blank"}),
+                ("trigger_json_unchanged", 'trigger={"type": "batch"}', {"Legacy"}),
+                ("search_unchanged", "search=digest", {"Digest"}),
+            ]
+        ]
+    )
+    def test_list_filters(self, _name, endpoint, query, expected_names):
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?created_by={other_user.uuid}")
+        def trigger(trigger_type: str) -> dict[str, Any]:
+            return {"id": "trigger_node", "type": "trigger", "config": {"type": trigger_type}}
+
+        def step(action_type: str, template_id: str) -> dict[str, Any]:
+            return {"id": action_type, "type": action_type, "config": {"template_id": template_id}}
+
+        HogFlow.objects.create(
+            team=self.team,
+            name="Welcome",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            actions=[trigger("event"), step("function_email", "template-email")],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Digest",
+            status=HogFlow.State.DRAFT,
+            created_by=other_user,
+            actions=[trigger("schedule"), step("function_sms", "template-twilio"), step("function", "template-slack")],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Sync",
+            status=HogFlow.State.ARCHIVED,
+            trigger={"type": "event"},
+            actions=[trigger("webhook"), step("function", "template-webhook")],
+        )
+        HogFlow.objects.create(
+            team=self.team,
+            name="Legacy",
+            status=HogFlow.State.ACTIVE,
+            created_by=self.user,
+            trigger={"type": "batch"},
+            actions=[step("function_push", "template-firebase-push")],
+        )
+
+        HogFlow.objects.create(team=self.team, name="Blank", status=HogFlow.State.ARCHIVED, actions=[])
+
+        query = query.replace("ME", str(self.user.uuid)).replace("OTHER", str(other_user.uuid))
+        with patch("products.workflows.backend.api.hog_flow_list.fetch_app_metric_totals_by_source", return_value={}):
+            response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/?{query}")
         assert response.status_code == 200, response.json()
-        assert {flow["name"] for flow in response.json()["results"]} == {"Theirs"}
+        assert {flow["name"] for flow in response.json()["results"]} == expected_names
+
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{param}", endpoint, param, value)
+            for endpoint in ("hog_flows", "hog_flows/summaries")
+            for param, value in [
+                ("status", "paused"),
+                ("exclude_status", "active,paused"),
+                ("exclude_type", "campaign"),
+                ("trigger_type", "cron"),
+                ("exclude_trigger_type", ",,"),
+                ("channel", "fax"),
+                ("exclude_channel", "email,fax"),
+                ("created_by", "not-a-uuid"),
+                ("exclude_created_by", "not-a-uuid"),
+                ("created_by", ","),
+                ("exclude_created_by", ",,"),
+            ]
+        ]
+    )
+    def test_list_filters_reject_unknown_values(self, _name, endpoint, param, value):
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/?{param}={value}")
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == param
 
     @parameterized.expand(
         [
@@ -538,7 +636,15 @@ class TestHogFlowAPI(APIBaseTest):
         result = mcp_response.json()["results"][0]
         assert "actions" not in result
         assert "edges" not in result
+        assert "draft" not in result
         assert secret not in mcp_response.content.decode()
+        assert {key: result[key] for key in ("type", "trigger_type", "has_draft", "channels", "email_steps")} == {
+            "type": "automation",
+            "trigger_type": "event",
+            "has_draft": False,
+            "channels": ["webhook"],
+            "email_steps": [],
+        }
 
         # The web app / raw API still get the full graph they rely on (e.g. client-side duplication) —
         # and it does carry the secret, proving the MCP omission above is the summary serializer at
@@ -5273,6 +5379,17 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         self._seed("00000000-0000-0000-0000-000000000000", failed=9)
         rows = self._global().json()
         assert {r["workflow_id"] for r in rows} == {str(self.flow_a.id)}
+
+    def test_totals_by_source_can_be_limited_to_some_workflows(self):
+        self._seed(self.flow_a.id, failed=2)
+        self._seed(self.flow_b.id, failed=5)
+
+        with patch("posthog.api.app_metrics2.sync_execute", wraps=sync_execute) as execute:
+            totals = fetch_app_metric_totals_by_source(
+                team_id=self.team.pk, app_source="hog_flow", app_source_ids=[str(self.flow_b.id)], max_execution_time=5
+            )
+        assert totals == {str(self.flow_b.id): {"failed": 5}}
+        assert execute.call_args.kwargs["settings"] == {"max_execution_time": 5}
 
     def test_personal_api_key_hog_flow_read_only_allowed(self):
         # Aggregate counts carry no person data, so hog_flow:read alone is sufficient (no person:read).

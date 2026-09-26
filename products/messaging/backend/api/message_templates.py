@@ -1,7 +1,9 @@
+from collections.abc import Iterable
 from copy import deepcopy
-from typing import Any
+from typing import Any, Protocol, cast
 
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 
 import structlog
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -19,6 +21,12 @@ from posthog.cdp.validation import build_html_wrap_design
 
 from products.messaging.backend.api.design_operations import apply_design_operations
 from products.messaging.backend.api.design_validation import validate_design
+from products.messaging.backend.email_senders import (
+    EmailSenderPrefetchListSerializer,
+    ListRowPagination,
+    email_senders_from_context,
+    resolve_email_sender,
+)
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
@@ -280,6 +288,55 @@ class DesignPatchSerializer(serializers.Serializer):
     )
 
 
+class _SummaryTemplate(Protocol):
+    email_subject: str | None
+    email_from: Any
+
+
+class MessageTemplateListRowListSerializer(EmailSenderPrefetchListSerializer):
+    def sender_from_values(self, row: MessageTemplate) -> Iterable[Any]:
+        return [cast(_SummaryTemplate, row).email_from]
+
+
+class MessageTemplateListRowSerializer(MessageTemplateSerializer):
+    content = None
+    message_category = None
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    subject = serializers.SerializerMethodField(
+        help_text="Email subject line as written, Liquid tags included. Empty when the template has none."
+    )
+    from_addresses = serializers.SerializerMethodField(
+        help_text=(
+            "Every address the template sends from: its override address, else the address of each sender "
+            "integration it names. Empty for most templates, which leave the sender to the workflow step."
+        )
+    )
+
+    class Meta(MessageTemplateSerializer.Meta):
+        list_serializer_class = MessageTemplateListRowListSerializer
+        fields = [
+            "id",
+            "name",
+            "description",
+            "type",
+            "subject",
+            "from_addresses",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField())
+    def get_subject(self, instance: MessageTemplate) -> str:
+        return cast(_SummaryTemplate, instance).email_subject or ""
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_from_addresses(self, instance: MessageTemplate) -> list[str]:
+        from_value = cast(_SummaryTemplate, instance).email_from
+        return list(resolve_email_sender(from_value, email_senders_from_context(self.context)).addresses)
+
+
 class MessageTemplatesViewSet(
     TeamAndOrgViewSetMixin,
     ForbidDestroyModel,
@@ -290,6 +347,7 @@ class MessageTemplatesViewSet(
     # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get
     # hog_flow:write checked instead of being rejected as an action with no declared scope.
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
+    scope_object_read_actions = ["list", "retrieve", "summaries"]
 
     serializer_class = MessageTemplateSerializer
     queryset = MessageTemplate.objects.all()
@@ -303,6 +361,28 @@ class MessageTemplatesViewSet(
             .select_related("created_by")
             .order_by("-created_at")
         )
+
+    @extend_schema(
+        operation_id="messaging_templates_summaries_list",
+        summary="List email template summaries",
+        description=(
+            "Slim email template rows for loading the whole library at once: name, subject and sender. "
+            "Never returns the template content, html or design."
+        ),
+        responses={200: MessageTemplateListRowSerializer(many=True)},
+    )
+    @action(detail=False, methods=["GET"], url_path="summaries", pagination_class=ListRowPagination)
+    def summaries(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        email = KeyTransform("email", "content")
+        queryset = (
+            self.get_queryset()
+            .order_by("-created_at", "-id")
+            .defer("content")
+            .annotate(email_subject=KeyTextTransform("subject", email), email_from=KeyTransform("from", email))
+        )
+        page = self.paginate_queryset(queryset)
+        serializer = MessageTemplateListRowSerializer(page, many=True, context=self.get_serializer_context())
+        return self.get_paginated_response(serializer.data)
 
     @extend_schema(request=DesignPatchSerializer, responses={200: MessageTemplateSerializer})
     @action(detail=True, methods=["PATCH"])
