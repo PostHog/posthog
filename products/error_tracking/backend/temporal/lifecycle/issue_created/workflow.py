@@ -1,5 +1,6 @@
 import json
 import asyncio
+import dataclasses
 from datetime import timedelta
 
 from temporalio import common, workflow
@@ -14,25 +15,27 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
     IssueCreatedWorkflowInputs,
     IssueCreatedWorkflowResult,
     IssueEmbeddingPreparationResult,
+    IssueSeverityInferenceResult,
+)
+from products.error_tracking.backend.temporal.lifecycle.policies import (
+    ACTIVITY_RETRY_POLICY,
+    ACTIVITY_START_TO_CLOSE_TIMEOUT,
+    ALERT_DISPATCH_PATCH,
+    ALERT_DISPATCH_RETRY_POLICY,
+    ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT,
 )
 
 WORKFLOW_NAME = "error-tracking-issue-created"
 
-ACTIVITY_RETRY_POLICY = common.RetryPolicy(
-    initial_interval=timedelta(seconds=1),
-    maximum_interval=timedelta(seconds=15),
-    maximum_attempts=10,
+SEVERITY_INFERENCE_PATCH = "error-tracking-severity-inference-activity"
+SEVERITY_INFERENCE_RETRY_POLICY = common.RetryPolicy(
+    initial_interval=timedelta(seconds=2),
+    maximum_interval=timedelta(seconds=30),
+    maximum_attempts=3,
 )
-ACTIVITY_START_TO_CLOSE_TIMEOUT = timedelta(minutes=5)
-ALERT_DISPATCH_PATCH = "error-tracking-alert-dispatch-activity"
-# Unlimited attempts inside the window: the start is cheap and idempotent, and only a
-# Temporal outage longer than this loses the alert.
-ALERT_DISPATCH_RETRY_POLICY = common.RetryPolicy(
-    initial_interval=timedelta(seconds=5),
-    maximum_interval=timedelta(minutes=1),
-    maximum_attempts=0,
-)
-ALERT_DISPATCH_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(hours=1)
+SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT = timedelta(seconds=35)
+# Alerts wait for inference, so a model outage must not hold them past this bound, retries included.
+SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT = timedelta(seconds=45)
 EMBEDDING_ACTIVITY_RETRY_POLICY = common.RetryPolicy(
     initial_interval=timedelta(seconds=1),
     maximum_interval=timedelta(seconds=15),
@@ -107,6 +110,9 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             if merge_result.merged_count > 0:
                 return IssueCreatedWorkflowResult(merged=True)
 
+        # Runs before the alert and the side effects so that they carry the inferred severity.
+        inputs = await self._with_inferred_severity(inputs)
+
         # Patched: executions in flight when this activity shipped replay the old sequence.
         # Dispatch runs alongside the other side effects and is always awaited, so a
         # failure on either side never suppresses the other. Its open-ended retry covers
@@ -144,3 +150,23 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
             notified=True,
             embedding_skipped_reason=preparation.skipped_reason,
         )
+
+    async def _with_inferred_severity(self, inputs: IssueCreatedWorkflowInputs) -> IssueCreatedWorkflowInputs:
+        # Patched: executions in flight when this activity shipped replay the old sequence.
+        if not inputs.severity_is_overridable() or not workflow.patched(SEVERITY_INFERENCE_PATCH):
+            return inputs
+        try:
+            result = await workflow.execute_activity(
+                "infer_issue_created_severity_activity",
+                inputs,
+                result_type=IssueSeverityInferenceResult,
+                schedule_to_close_timeout=SEVERITY_INFERENCE_SCHEDULE_TO_CLOSE_TIMEOUT,
+                start_to_close_timeout=SEVERITY_INFERENCE_START_TO_CLOSE_TIMEOUT,
+                retry_policy=SEVERITY_INFERENCE_RETRY_POLICY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Severity inference failed; keeping the ingestion severity")
+            return inputs
+        if not result.resolved or result.stored_severity == inputs.issue.severity:
+            return inputs
+        return dataclasses.replace(inputs, issue=dataclasses.replace(inputs.issue, severity=result.stored_severity))

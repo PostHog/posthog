@@ -16,6 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 
+from products.error_tracking.backend.logic.severity_inference import build_severity_state
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
@@ -26,17 +27,29 @@ from products.error_tracking.backend.temporal.lifecycle.event_properties import 
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
     generate_issue_created_embedding_activity,
+    infer_issue_created_severity_activity,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.types import (
     EMBEDDING_SERVICE_UNAVAILABLE_ERROR_TYPE,
+    SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE,
     GeneratedIssueEmbedding,
     IssueCreatedSnapshot,
     IssueCreatedWorkflowInputs,
     IssueCreatedWorkflowResult,
     IssueEmbeddingPreparationResult,
+    IssueSeverityInferenceResult,
+    SeverityInferenceSkipReason,
+    SeveritySource,
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_created.workflow import ErrorTrackingIssueCreatedWorkflow
 from products.error_tracking.backend.temporal.lifecycle.rendering import decode_token_prefix, render_stacktrace
+from products.ml_inference.backend.facade.contracts import (
+    ChoiceAnswer,
+    DecisionGatewayError,
+    DecisionGatewayUnreachableError,
+    DecisionResult,
+    DecisionsDisabledError,
+)
 
 
 def _inputs(fingerprint: str) -> IssueCreatedWorkflowInputs:
@@ -75,6 +88,29 @@ def test_decode_token_prefix_does_not_emit_replacement_characters() -> None:
 
     assert encoding.decode(tokens[:2]) == "hello �"
     assert decode_token_prefix(encoding, tokens, max_tokens=2) == "hello"
+
+
+@pytest.mark.parametrize(
+    "properties,expected",
+    [
+        (
+            {
+                "$exception_list": [{"type": "TypeError", "mechanism": {"handled": False}}],
+                "$exception_handled": True,
+                "$exception_level": "error",
+                "$current_url": "https://app.example.com/checkout/pay?token=secret#step-2",
+                "$lib": "web",
+            },
+            "TypeError: boom\nHandled by the application: no\nLevel: error\nPage: app.example.com/checkout/pay\nSDK: web",
+        ),
+        (
+            {"$exception_list": [{"type": "TypeError"}], "$exception_handled": False, "$current_url": "not a url"},
+            "TypeError: boom",
+        ),
+    ],
+)
+def test_severity_state(properties: dict[str, object], expected: str) -> None:
+    assert build_severity_state("TypeError: boom\n", properties) == expected
 
 
 def test_stacktrace_rendering_matches_cymbal_embedding_content() -> None:
@@ -160,6 +196,92 @@ def test_embedding_failure_classification_and_capture(
     assert capture_exception.called is expect_captured
 
 
+def _decision(choice: str) -> DecisionResult:
+    return DecisionResult(
+        model="severity-model",
+        answers={"severity": ChoiceAnswer(choice=choice, confidence=0.9, probabilities={choice: 0.9})},
+        input_tokens=10,
+    )
+
+
+@pytest.mark.parametrize(
+    "enabled,decide_outcome,expected_result,expected_error_type",
+    [
+        (
+            False,
+            _decision("critical"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DISABLED),
+            None,
+        ),
+        (
+            True,
+            _decision("critical"),
+            IssueSeverityInferenceResult(resolved=True, stored_severity="critical"),
+            None,
+        ),
+        (
+            True,
+            _decision("catastrophic"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.UNEXPECTED_ANSWER),
+            None,
+        ),
+        (
+            True,
+            DecisionsDisabledError(1),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.DECISIONS_UNAVAILABLE),
+            None,
+        ),
+        (
+            True,
+            DecisionGatewayError(422, "bad request"),
+            IssueSeverityInferenceResult(skipped_reason=SeverityInferenceSkipReason.GATEWAY_REJECTED),
+            None,
+        ),
+        (True, DecisionGatewayError(429, "rate limited"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, DecisionGatewayError(503, "unavailable"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+        (True, DecisionGatewayUnreachableError("timeout"), None, SEVERITY_INFERENCE_UNAVAILABLE_ERROR_TYPE),
+    ],
+)
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.posthoganalytics.capture_exception")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.apply_inferred_severity")
+@patch("products.error_tracking.backend.logic.severity_inference.ml_inference.decide")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.fetch_event_properties")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.Team.objects.select_related")
+@patch("products.error_tracking.backend.temporal.lifecycle.issue_created.activities.severity_inference_enabled")
+def test_severity_inference_outcomes(
+    severity_inference_enabled: MagicMock,
+    select_related: MagicMock,
+    fetch_event_properties: MagicMock,
+    decide: MagicMock,
+    apply_inferred_severity: MagicMock,
+    capture_exception: MagicMock,
+    enabled: bool,
+    decide_outcome: DecisionResult | Exception,
+    expected_result: IssueSeverityInferenceResult | None,
+    expected_error_type: str | None,
+) -> None:
+    severity_inference_enabled.return_value = enabled
+    select_related.return_value.get.return_value.organization.is_ai_data_processing_approved = True
+    fetch_event_properties.return_value = {"$exception_list": [{"type": "TypeError", "value": "boom"}]}
+    if isinstance(decide_outcome, Exception):
+        decide.side_effect = decide_outcome
+    else:
+        decide.return_value = decide_outcome
+    apply_inferred_severity.side_effect = lambda *args, inferred, **kwargs: SimpleNamespace(
+        stored_severity=inferred, applied=True
+    )
+    inputs = dataclasses.replace(_inputs("fingerprint"), severity_source=SeveritySource.HEURISTIC)
+
+    if expected_error_type is None:
+        assert infer_issue_created_severity_activity(inputs) == expected_result
+    else:
+        with pytest.raises(ApplicationError) as error:
+            infer_issue_created_severity_activity(inputs)
+        assert error.value.type == expected_error_type
+        assert not error.value.non_retryable
+    capture_exception.assert_not_called()
+
+
 @override_settings(ERROR_TRACKING_EVENT_PROPERTIES_REDIS_URL="redis://event-properties")
 @patch("products.error_tracking.backend.temporal.lifecycle.event_properties.execute_hogql_query")
 @patch("products.error_tracking.backend.temporal.lifecycle.event_properties.get_client")
@@ -197,8 +319,10 @@ def test_falls_back_to_clickhouse_when_valkey_payload_expired(
 async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     alert_issue_ids: list[str] = []
     event_issue_ids: list[str] = []
+    event_severities: dict[str, str | None] = {}
     signal_issue_ids: list[str] = []
     signal_attempts: dict[str, int] = {}
+    inferred_issue_ids: list[str] = []
 
     @activity.defn(name="generate_issue_created_embedding_activity")
     async def generate(inputs: IssueCreatedWorkflowInputs) -> IssueEmbeddingPreparationResult:
@@ -231,6 +355,17 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
         return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint == "merged"))
 
+    @activity.defn(name="infer_issue_created_severity_activity")
+    async def infer_severity(inputs: IssueCreatedWorkflowInputs) -> IssueSeverityInferenceResult:
+        inferred_issue_ids.append(inputs.issue_id)
+        if inputs.fingerprint == "inference-unavailable":
+            raise ApplicationError("model unavailable", non_retryable=True)
+        if inputs.fingerprint == "severity-changed":
+            return IssueSeverityInferenceResult(
+                resolved=True, stored_severity="low", skipped_reason=SeverityInferenceSkipReason.SEVERITY_CHANGED
+            )
+        return IssueSeverityInferenceResult(resolved=True, stored_severity="critical")
+
     @activity.defn(name="dispatch_issue_created_alert_activity")
     async def dispatch_alert(inputs: IssueCreatedWorkflowInputs) -> None:
         alert_issue_ids.append(inputs.issue_id)
@@ -238,6 +373,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     @activity.defn(name="emit_issue_created_internal_event_activity")
     async def emit_event(inputs: IssueCreatedWorkflowInputs) -> None:
         event_issue_ids.append(inputs.issue_id)
+        event_severities[inputs.issue_id] = inputs.issue.severity
 
     @activity.defn(name="emit_issue_created_signal_activity")
     async def emit_signal(inputs: IssueCreatedWorkflowInputs) -> None:
@@ -252,12 +388,32 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueCreatedWorkflow],
-            activities=[generate, persist, merge, dispatch_alert, emit_event, emit_signal],
+            activities=[generate, persist, merge, infer_severity, dispatch_alert, emit_event, emit_signal],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             merged_inputs = _inputs("merged")
             unmerged_inputs = _inputs("unmerged")
             embedding_unavailable_inputs = _inputs("embedding-unavailable")
+            heuristic_inputs = dataclasses.replace(_inputs("heuristic"), severity_source=SeveritySource.HEURISTIC)
+            rule_inputs = dataclasses.replace(_inputs("rule"), severity_source=SeveritySource.RULE)
+            inference_unavailable_inputs = dataclasses.replace(
+                _inputs("inference-unavailable"), severity_source=SeveritySource.HEURISTIC
+            )
+            severity_changed_inputs = dataclasses.replace(
+                _inputs("severity-changed"), severity_source=SeveritySource.HEURISTIC
+            )
+            for severity_inputs in (
+                heuristic_inputs,
+                rule_inputs,
+                inference_unavailable_inputs,
+                severity_changed_inputs,
+            ):
+                await environment.client.execute_workflow(
+                    ErrorTrackingIssueCreatedWorkflow.run,
+                    severity_inputs,
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
             merged_result = await environment.client.execute_workflow(
                 ErrorTrackingIssueCreatedWorkflow.run,
                 merged_inputs,
@@ -283,10 +439,23 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         notified=True,
         embedding_skipped_reason="embedding_service_unavailable",
     )
-    assert alert_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
-    assert event_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
-    assert signal_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
-    assert signal_attempts == {
-        unmerged_inputs.issue_id: 2,
-        embedding_unavailable_inputs.issue_id: 2,
-    }
+    severity_issue_ids = [
+        heuristic_inputs.issue_id,
+        rule_inputs.issue_id,
+        inference_unavailable_inputs.issue_id,
+        severity_changed_inputs.issue_id,
+    ]
+    notified_issue_ids = [*severity_issue_ids, unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
+    assert alert_issue_ids == notified_issue_ids
+    assert event_issue_ids == notified_issue_ids
+    assert signal_issue_ids == notified_issue_ids
+    assert signal_attempts == dict.fromkeys(notified_issue_ids, 2)
+    assert inferred_issue_ids == [
+        heuristic_inputs.issue_id,
+        inference_unavailable_inputs.issue_id,
+        severity_changed_inputs.issue_id,
+    ]
+    assert event_severities[heuristic_inputs.issue_id] == "critical"
+    assert event_severities[rule_inputs.issue_id] == "high"
+    assert event_severities[inference_unavailable_inputs.issue_id] == "high"
+    assert event_severities[severity_changed_inputs.issue_id] == "low"
