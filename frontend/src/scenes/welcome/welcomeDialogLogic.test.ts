@@ -64,10 +64,9 @@ describe('welcomeDialogLogic', () => {
     let logic: ReturnType<typeof welcomeDialogLogic.build>
 
     beforeEach(() => {
-        // The dialog persists dismissal in localStorage and "looked around" in sessionStorage —
-        // clear both so a prior test doesn't carry over and suppress the dialog.
+        // The dialog keeps both of its suppression markers in localStorage, so clear it or a prior
+        // test carries over and suppresses the dialog.
         window.localStorage.clear()
-        window.sessionStorage.clear()
         ;(posthog.capture as jest.Mock).mockClear()
         useMocks({
             get: {
@@ -117,6 +116,52 @@ describe('welcomeDialogLogic', () => {
 
         expect(logic.values.shouldShowDialog).toBe(false)
         await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
+    })
+
+    it('does not reopen after the dialog has been shown once, without any dismissal', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess'])
+        expect(logic.values.shouldShowDialog).toBe(true)
+
+        // A second tab, or the same tab after a reload, starts from empty reducers, so only what
+        // the first showing wrote to localStorage can hold the dialog back.
+        logic.unmount()
+        logic = welcomeDialogLogic()
+        logic.mount()
+
+        expect(logic.values.shouldShowDialog).toBe(false)
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadWelcomeData'])
+    })
+
+    it('keeps the dialog on screen when another tab records the introduction during the load', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+        // The dialog is on screen with its loading state, so the content has not arrived yet.
+        await expectLogic(logic).toDispatchActions(['loadWelcomeData']).toNotHaveDispatchedActions(['markShown'])
+        expect(logic.values.shouldShowDialog).toBe(true)
+
+        window.localStorage.setItem(`posthog_welcome_seen:${INVITED_USER.uuid}:${INVITED_USER.organization?.id}`, '1')
+        logic.actions.acknowledgeStorageChange()
+
+        expect(logic.values.shouldShowDialog).toBe(true)
+    })
+
+    it('drops a welcome load that a later one superseded', async () => {
+        userLogic.actions.loadUserSuccess(INVITED_USER)
+        logic = welcomeDialogLogic()
+        logic.mount()
+        // An organization switch starts a second load while the first is still in flight. Both
+        // payloads carry an organization name, so both would otherwise report a dialog.
+        logic.actions.loadWelcomeData()
+
+        await expectLogic(logic).toDispatchActions(['loadWelcomeDataSuccess']).toFinishAllListeners()
+
+        expect(
+            (posthog.capture as jest.Mock).mock.calls.filter(([name]) => name === 'welcome_screen_shown')
+        ).toHaveLength(1)
     })
 
     it('persists dismissal to localStorage so the dialog does not reopen', async () => {
@@ -177,5 +222,12 @@ describe('welcomeDialogLogic', () => {
         // Title must follow the user's current org even before the refetch lands.
         expect(logic.values.organizationName).toBe('Beta Corp')
         await expectLogic(logic).toDispatchActions(['resetForOrgChange', 'loadWelcomeData'])
+
+        // The switch keeps the dialog on screen, so another tab introducing the new org must not
+        // take it away. `shouldShowDialog` never flips here, so only the org-change listener can
+        // carry the guard across.
+        window.localStorage.setItem(`posthog_welcome_seen:${INVITED_USER.uuid}:${orgB.id}`, '1')
+        logic.actions.acknowledgeStorageChange()
+        expect(logic.values.shouldShowDialog).toBe(true)
     })
 })
