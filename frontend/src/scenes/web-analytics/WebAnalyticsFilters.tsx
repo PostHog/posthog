@@ -176,6 +176,7 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         rawWebAnalyticsFilters,
         isPathCleaningEnabled,
         compareFilter,
+        shouldFilterTestAccounts,
     } = useValues(webAnalyticsLogic)
     const {
         setDates,
@@ -195,6 +196,7 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
                 properties: rawWebAnalyticsFilters,
                 doPathCleaning: isPathCleaningEnabled,
                 compareFilter,
+                filterTestAccounts: shouldFilterTestAccounts,
             }),
             label: 'Current filters',
         },
@@ -215,6 +217,9 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         }
         if (toolOutput.compareFilter !== undefined) {
             setCompareFilter(toolOutput.compareFilter)
+        }
+        if (toolOutput.filterTestAccounts !== undefined && toolOutput.filterTestAccounts !== null) {
+            setShouldFilterTestAccounts(!!toolOutput.filterTestAccounts)
         }
     }
 
@@ -261,6 +266,7 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
                 properties: rawWebAnalyticsFilters,
                 doPathCleaning: isPathCleaningEnabled,
                 compareFilter: compareFilter,
+                filterTestAccounts: shouldFilterTestAccounts,
             },
         },
         contextDescription: {

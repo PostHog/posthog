@@ -59,6 +59,7 @@ from .prompts import (
     FILTER_FIELDS_TAXONOMY_PROMPT,
     PATH_CLEANING_PROMPT,
     PRODUCT_DESCRIPTION_PROMPT,
+    TEST_ACCOUNTS_PROMPT,
     USER_FILTER_OPTIONS_PROMPT,
 )
 
@@ -174,6 +175,7 @@ class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgent
             f"<person_properties>\n{format_properties_xml(enrich_props_with_descriptions('person', person_properties))}\n</person_properties>",
             PATH_CLEANING_PROMPT,
             COMPARE_FILTER_PROMPT,
+            TEST_ACCOUNTS_PROMPT,
             DATE_FIELDS_PROMPT,
             *super()._get_default_system_prompts(),
         ]
@@ -230,6 +232,7 @@ class FilterWebAnalyticsTool(MaxTool):
       * When the user asks to search for web analytics or traffic data
         - "search for" synonyms: "find", "look up", "show me", and similar
       * When the user asks to enable/disable path cleaning or comparison
+      * When the user asks to exclude their own traffic, internal users, or test accounts
     """
     context_prompt_template: str = "Current web analytics filters are: {current_filters}"
     args_schema: type[BaseModel] = FilterWebAnalyticsArgs
