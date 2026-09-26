@@ -116874,15 +116874,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type TasksRunsPreviewRetrieveParams = {
-    /**
-     * Exposed port to open. Omit to open the dev stack preview.
-     * @minimum 1
-     * @maximum 65535
-     */
-    port?: number;
-    };
-
     export type TasksRunsSessionLogsRetrieveParams = {
     /**
      * Only return events after this ISO8601 timestamp

@@ -116,7 +116,7 @@ export function TaskPreviewPanel({
     openPreviewTab(taskId, { runId, port, label }, "split");
   };
   const openInBrowser = () => {
-    if (!url) return;
+    if (!url || !local) return;
     track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED_IN_BROWSER);
     openExternalUrl(url);
   };
@@ -222,17 +222,19 @@ export function TaskPreviewPanel({
                 <ArrowClockwise size={14} />
               </Button>
             </Tooltip>
-            <Tooltip content="Open in browser" side="bottom">
-              <Button
-                size="icon-sm"
-                aria-label="Open in browser"
-                data-attr="task-preview-open-in-browser"
-                disabled={!url}
-                onClick={openInBrowser}
-              >
-                <ArrowSquareOut size={14} />
-              </Button>
-            </Tooltip>
+            {local && (
+              <Tooltip content="Open in browser" side="bottom">
+                <Button
+                  size="icon-sm"
+                  aria-label="Open in browser"
+                  data-attr="task-preview-open-in-browser"
+                  disabled={!url}
+                  onClick={openInBrowser}
+                >
+                  <ArrowSquareOut size={14} />
+                </Button>
+              </Tooltip>
+            )}
           </>
         }
       >

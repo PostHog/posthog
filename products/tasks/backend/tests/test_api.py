@@ -17011,49 +17011,54 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
         )
         return sandbox
 
-    @parameterized.expand(
-        [
-            ("dev_stack", "", DEV_STACK_PREVIEW_PORT, ["/_health", "/@vite/client"]),
-            ("exposed_port", "?port=3000", 3000, ["http://127.0.0.1:3000/"]),
-        ]
-    )
-    def test_preview_redirects_with_a_freshly_minted_token(self, name, query, expected_port, probe_fragments):
+    def test_preview_redirects_to_the_dev_stack_with_a_freshly_minted_token(self):
         task = self.create_task()
-        run = self._create_run(task, self._ready_state() if name == "dev_stack" else self._exposed_state())
+        run = self._create_run(task, self._ready_state())
         sandbox = self._running_sandbox()
 
         with self._patch_sandbox_class(sandbox):
-            response = self.client.get(f"{self._preview_url(task, run)}{query}")
+            response = self.client.get(self._preview_url(task, run))
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
-        for fragment in probe_fragments:
+        for fragment in ["/_health", "/@vite/client"]:
             self.assertIn(fragment, sandbox.execute.call_args.args[0])
         self.assertEqual(response["Location"], "https://preview-abc.modal.host/?_modal_connect_token=connect-token-xyz")
         self.assertEqual(response.content, b"")
         sandbox.create_preview_connect_credentials.assert_called_once_with(
-            port=expected_port, user_metadata={"user_id": self.user.id, "team_id": self.team.id}
+            port=DEV_STACK_PREVIEW_PORT, user_metadata={"user_id": self.user.id, "team_id": self.team.id}
         )
 
     @parameterized.expand(
         [
-            ("never_exposed", {"sandbox_id": "sandbox-1"}, "?port=3000"),
-            ("exposed_on_an_earlier_sandbox", {"sandbox_id": "sandbox-1", "exposed_ports": []}, "?port=3000"),
-            ("another_port_exposed", {"sandbox_id": "sandbox-1", "exposed_ports": []}, "?port=5173"),
+            ("never_exposed", {"sandbox_id": "sandbox-1"}, "session", 3000),
+            ("exposed_on_an_earlier_sandbox", {"sandbox_id": "sandbox-1", "exposed_ports": []}, "session", 3000),
+            ("another_port_exposed", {"sandbox_id": "sandbox-1", "exposed_ports": []}, "session", 5173),
+            ("exposed_port_through_the_browser_redirect", {}, "redirect", 3000),
         ]
     )
-    def test_preview_of_a_port_the_sandbox_did_not_expose_never_reaches_the_sandbox(self, name, state, query):
+    def test_preview_of_a_port_the_sandbox_did_not_expose_never_reaches_the_sandbox(self, name, state, via, port):
         task = self.create_task()
         if name == "exposed_on_an_earlier_sandbox":
             state = self._exposed_state(sandbox_id="sandbox-0")
-        elif name == "another_port_exposed":
+        elif name in ("another_port_exposed", "exposed_port_through_the_browser_redirect"):
             state = self._exposed_state(port=3000)
         run = self._create_run(task, state)
 
         with patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class:
-            response = self.client.get(f"{self._preview_url(task, run)}{query}")
+            if via == "redirect":
+                response = self.client.get(f"{self._preview_url(task, run)}?port={port}")
+            else:
+                response = self.client.post(
+                    f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/preview_session/",
+                    {"port": port},
+                    format="json",
+                )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("ready yet", response.content.decode())
+        if via == "redirect":
+            self.assertIn("ready yet", response.content.decode())
+        else:
+            self.assertEqual(response.json(), {"outcome": "not_ready", "url": None})
         mock_get_sandbox_class.assert_not_called()
 
     @parameterized.expand(

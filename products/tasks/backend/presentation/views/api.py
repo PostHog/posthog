@@ -190,7 +190,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunPeersResponseSerializer,
     TaskRunPostHogReferencesRequestSerializer,
     TaskRunPostHogReferencesResponseSerializer,
-    TaskRunPreviewQuerySerializer,
     TaskRunPreviewSessionRequestSerializer,
     TaskRunPreviewSessionResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -2730,21 +2729,19 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Open a preview for a task run",
         description=(
-            "Redirects to an HTTP app running inside this run's sandbox: the PostHog dev stack by "
-            "default, or the exposed port given in `port`. A fresh sandbox access token is minted on "
-            "every request and carried only in the redirect target, so it is never persisted. When the "
-            "run has no such preview, or its sandbox has stopped, this renders a short HTML page instead."
+            "Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox "
+            "access token is minted on every request and carried only in the redirect target, so it is "
+            "never persisted. Ports that the agent exposes open only in PostHog Desktop, through "
+            "`preview_session`. When the run has no dev stack preview, or its sandbox has stopped, this "
+            "renders a short HTML page instead."
         ),
-        parameters=[TaskRunPreviewQuerySerializer],
     )
     @action(detail=True, methods=["get"], url_path="preview", required_scopes=["task:write"])
     def preview(self, request, pk=None, **kwargs):
         self._refuse_read_only_impersonation(request)
-        query = TaskRunPreviewQuerySerializer(data=request.query_params)
-        query.is_valid(raise_exception=True)
         task_id = self._ensure_task_accessible()
         redirect = tasks_facade.resolve_task_run_preview_redirect(
-            pk, task_id, self.team_id, user_id=cast(User, request.user).id, port=query.validated_data.get("port")
+            pk, task_id, self.team_id, user_id=cast(User, request.user).id
         )
         if redirect is None:
             raise NotFound()

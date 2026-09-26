@@ -155,7 +155,6 @@ import type {
     TasksMeConfigListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
-    TasksRunsPreviewRetrieveParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsStreamRetrieveParams,
     TasksRunsStreamTokenRetrieveParams,
@@ -2227,39 +2226,21 @@ export const tasksRunsPeersMessageCreate = async (
     )
 }
 
-export const getTasksRunsPreviewRetrieveUrl = (
-    projectId: string,
-    taskId: string,
-    id: string,
-    params?: TasksRunsPreviewRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/?${stringifiedParams}`
-        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
+export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
 }
 
 /**
- * Redirects to an HTTP app running inside this run's sandbox: the PostHog dev stack by default, or the exposed port given in `port`. A fresh sandbox access token is minted on every request and carried only in the redirect target, so it is never persisted. When the run has no such preview, or its sandbox has stopped, this renders a short HTML page instead.
+ * Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox access token is minted on every request and carried only in the redirect target, so it is never persisted. Ports that the agent exposes open only in PostHog Desktop, through `preview_session`. When the run has no dev stack preview, or its sandbox has stopped, this renders a short HTML page instead.
  * @summary Open a preview for a task run
  */
 export const tasksRunsPreviewRetrieve = async (
     projectId: string,
     taskId: string,
     id: string,
-    params?: TasksRunsPreviewRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getTasksRunsPreviewRetrieveUrl(projectId, taskId, id, params), {
+    return apiMutator<void>(getTasksRunsPreviewRetrieveUrl(projectId, taskId, id), {
         ...options,
         method: 'GET',
     })

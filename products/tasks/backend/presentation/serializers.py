@@ -1262,15 +1262,6 @@ class TaskRunExposePortRequestSerializer(serializers.Serializer):
         return value
 
 
-class TaskRunPreviewQuerySerializer(serializers.Serializer):
-    port = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=tasks_facade.EXPOSED_PORT_MAX,
-        help_text="Exposed port to open. Omit to open the dev stack preview.",
-    )
-
-
 class TaskRunPreviewSessionRequestSerializer(serializers.Serializer):
     port = serializers.IntegerField(
         required=False,

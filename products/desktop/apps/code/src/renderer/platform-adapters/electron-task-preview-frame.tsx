@@ -14,6 +14,7 @@ import {
   sanitizeTaskPreviewGuestMessage,
   type TaskPreviewHostMessage,
 } from "../../shared/task-preview-message";
+import { trpcClient } from "../trpc/client";
 
 type CapturedImage = {
   isEmpty: () => boolean;
@@ -113,7 +114,7 @@ export function ElectronTaskPreviewFrame({
     ) as TaskPreviewWebviewElement;
     webview.className = "size-full";
     webview.setAttribute("partition", TASK_PREVIEW_PARTITION);
-    webview.setAttribute("src", url);
+    let cancelled = false;
 
     const onReady = () => {
       readyRef.current = true;
@@ -158,10 +159,22 @@ export function ElectronTaskPreviewFrame({
     webview.addEventListener("did-fail-load", onFailed);
     webview.addEventListener("render-process-gone", onGone);
     webview.addEventListener("ipc-message", onIpcMessage);
-    mount.appendChild(webview);
-    webviewRef.current = webview;
+    void trpcClient.taskPreview.authorize
+      .mutate({ url })
+      .catch(() => null)
+      .then((authorizedUrl) => {
+        if (cancelled) return;
+        if (!authorizedUrl) {
+          callbacksRef.current.onLoadFailed();
+          return;
+        }
+        webview.setAttribute("src", authorizedUrl);
+        mount.appendChild(webview);
+        webviewRef.current = webview;
+      });
 
     return () => {
+      cancelled = true;
       webview.removeEventListener("dom-ready", onReady);
       webview.removeEventListener("did-fail-load", onFailed);
       webview.removeEventListener("render-process-gone", onGone);

@@ -60,6 +60,7 @@ import { devRouter } from "./routers/dev";
 import { discordPresenceRouter } from "./routers/discord-presence";
 import { encryptionRouter } from "./routers/encryption";
 import { missionControlRouter } from "./routers/mission-control";
+import { taskPreviewRouter } from "./routers/task-preview";
 import { workspaceServerRouter } from "./routers/workspace-server";
 import { router } from "./trpc";
 
@@ -113,6 +114,7 @@ export const trpcRouter = router({
   provisioning: provisioningRouter,
   sleep: sleepRouter,
   suspension: suspensionRouter,
+  taskPreview: taskPreviewRouter,
   secureStore: secureStoreRouter,
   claudeSubscriptionToken: claudeSubscriptionTokenRouter,
   shell: shellRouter,

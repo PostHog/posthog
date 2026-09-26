@@ -5,10 +5,12 @@ const previewSession = vi.hoisted(() => ({
   setPermissionCheckHandler: vi.fn(),
   setPermissionRequestHandler: vi.fn(),
   on: vi.fn(),
+  webRequest: { onBeforeRequest: vi.fn() },
 }));
 
 vi.mock("electron", () => ({
   session: { fromPartition: vi.fn(() => previewSession) },
+  webContents: { fromId: vi.fn() },
 }));
 vi.mock("../external-links", () => ({ openExternalIfSafe: vi.fn() }));
 vi.mock("../utils/logger", () => ({
@@ -22,6 +24,10 @@ import {
   TASK_PREVIEW_PARTITION,
 } from "../../shared/constants";
 import { setupGuestWebviews } from "./electron-guest-webviews";
+import {
+  authorizeTaskPreview,
+  isBlockedPreviewRequest,
+} from "./electron-task-preview";
 
 type Handler = (...args: never[]) => void;
 
@@ -61,9 +67,15 @@ describe("guest webviews", () => {
   it.each([
     {
       name: "a sandbox preview",
-      src: "https://abc-123.modal.host/?_modal_connect_token=t",
+      src: "https://abc-123.modal.host/",
       partition: TASK_PREVIEW_PARTITION,
       allowed: true,
+    },
+    {
+      name: "a sandbox preview with its token in the URL",
+      src: "https://abc-123.modal.host/?_modal_connect_token=t",
+      partition: TASK_PREVIEW_PARTITION,
+      allowed: false,
     },
     {
       name: "a sandbox preview in another partition",
@@ -152,6 +164,10 @@ describe("guest webviews", () => {
     } as unknown as WebContents;
 
     setup().get("did-attach-webview")?.({} as never, guest as never);
+    guestHandlers.get("did-start-navigation")?.({
+      url: "https://abc-123.modal.host/",
+      isMainFrame: true,
+    } as never);
 
     const stayInPreview = vi.fn();
     guestHandlers.get("will-navigate")?.(
@@ -170,11 +186,102 @@ describe("guest webviews", () => {
       "https://accounts.example.com/login",
     );
 
+    const otherSandbox = vi.fn();
+    guestHandlers.get("will-navigate")?.(
+      { preventDefault: otherSandbox } as never,
+      "https://other-456.modal.host/" as never,
+    );
+    expect(otherSandbox).toHaveBeenCalledOnce();
+
+    const crossOriginRedirect = vi.fn();
+    guestHandlers.get("will-redirect")?.(
+      { preventDefault: crossOriginRedirect, isMainFrame: true } as never,
+      "http://localhost:8000/admin" as never,
+    );
+    expect(crossOriginRedirect).toHaveBeenCalledOnce();
+
     expect(windowOpenHandler?.({ url: "https://docs.example.com" })).toEqual({
       action: "deny",
     });
     const checkPermission =
       previewSession.setPermissionCheckHandler.mock.calls[0][0];
     expect(checkPermission()).toBe(false);
+  });
+
+  it.each([
+    ["localhost", "https://a.modal.host/", "http://localhost:8000/", true],
+    [
+      "a loopback address",
+      "https://a.modal.host/",
+      "http://127.0.0.1:5432/",
+      true,
+    ],
+    ["an IPv6 loopback", "https://a.modal.host/", "http://[::1]:3000/", true],
+    ["a home router", "https://a.modal.host/", "http://192.168.1.1/", true],
+    ["a private network", "https://a.modal.host/", "ws://10.0.0.5:9000/", true],
+    [
+      "cloud metadata",
+      "https://a.modal.host/",
+      "http://169.254.169.254/",
+      true,
+    ],
+    ["a file", "https://a.modal.host/", "file:///etc/passwd", true],
+    [
+      "a public site",
+      "https://a.modal.host/",
+      "https://cdn.example.com/a.js",
+      false,
+    ],
+    [
+      "its own sandbox",
+      "https://a.modal.host/",
+      "wss://a.modal.host/hmr",
+      false,
+    ],
+    [
+      "a local preview's own server",
+      "http://localhost:5173/",
+      "http://localhost:5173/src/main.tsx",
+      false,
+    ],
+  ])(
+    "blocks a request from a preview to %s only when unsafe",
+    (_name, pageUrl, requestUrl, blocked) => {
+      expect(isBlockedPreviewRequest(pageUrl, requestUrl)).toBe(blocked);
+    },
+  );
+
+  it("moves the sandbox token into an http-only cookie", async () => {
+    const cookies = { set: vi.fn(async () => undefined) };
+
+    await expect(
+      authorizeTaskPreview(
+        "https://abc-123.modal.host/?_modal_connect_token=secret",
+        cookies,
+      ),
+    ).resolves.toBe("https://abc-123.modal.host/");
+    expect(cookies.set).toHaveBeenCalledWith({
+      url: "https://abc-123.modal.host",
+      name: "_modal_connect_token",
+      value: "secret",
+      path: "/",
+      secure: true,
+      httpOnly: true,
+      sameSite: "strict",
+    });
+
+    await expect(
+      authorizeTaskPreview(
+        "https://evil.example.com/?_modal_connect_token=secret",
+        cookies,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      authorizeTaskPreview(
+        "http://localhost:3000/?_modal_connect_token=secret",
+        cookies,
+      ),
+    ).resolves.toBeNull();
+    expect(cookies.set).toHaveBeenCalledOnce();
   });
 });
