@@ -373,6 +373,14 @@
             "label": "AI evaluation numeric result minimum",
             "type": "Numeric"
         },
+        "$ai_evaluation_probability": {
+            "description": "The probability of a true verdict for a boolean evaluation.",
+            "examples": [
+                0.9
+            ],
+            "label": "AI evaluation probability",
+            "type": "Numeric"
+        },
         "$ai_evaluation_provider": {
             "description": "The LLM provider used as the judge (e.g., openai, anthropic, gemini).",
             "examples": [
@@ -5234,6 +5242,14 @@
         "$ai_evaluation_numeric_result_min": {
             "description": "The configured minimum score for an online evaluation.",
             "label": "AI evaluation numeric result minimum",
+            "type": "Numeric"
+        },
+        "$ai_evaluation_probability": {
+            "description": "The probability of a true verdict for a boolean evaluation.",
+            "examples": [
+                0.9
+            ],
+            "label": "AI evaluation probability",
             "type": "Numeric"
         },
         "$ai_evaluation_provider": {
