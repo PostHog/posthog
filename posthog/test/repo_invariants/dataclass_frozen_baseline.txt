@@ -120,7 +120,6 @@
 1 products/data_warehouse/backend/logic/webhook_consumer/config.py
 1 products/demo/backend/logic/products/hedgebox/matrix.py
 1 products/error_tracking/backend/hogql_queries/error_tracking_issue_correlation_query_runner.py
-1 products/error_tracking/backend/logic/symbol_sets.py
 1 products/error_tracking/backend/temporal/weekly_digest/test/test_weekly_digest_temporal.py
 1 products/experiments/backend/hogql_queries/metric_source.py
 1 products/experiments/backend/running_time_calculator.py

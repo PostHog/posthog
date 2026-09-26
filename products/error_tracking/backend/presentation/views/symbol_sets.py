@@ -38,6 +38,17 @@ class ErrorTrackingSymbolSetUploadSerializer(serializers.Serializer):
         default=None,
         help_text="Optional hash of the symbol set content, used to skip unchanged uploads.",
     )
+    content_length = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        min_value=0,
+        help_text=(
+            "Optional byte count of the content about to be uploaded. When given, the upload "
+            "response also carries a presigned PUT signed for exactly this length, which "
+            "S3-compatible stores without presigned POST support (such as Cloudflare R2) accept."
+        ),
+    )
 
 
 class ErrorTrackingSymbolSetFinishUploadSerializer(serializers.Serializer):
@@ -123,6 +134,14 @@ class ErrorTrackingSymbolSetBulkStartUploadEntrySerializer(serializers.Serialize
     fallback_presigned_url = ErrorTrackingSymbolSetPresignedPostSerializer(
         required=False,
         help_text="Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint.",
+    )
+    presigned_put_url = serializers.URLField(
+        required=False,
+        help_text="Presigned PUT for the upload, present only when the request declared `content_length`. Send the raw bytes with a matching `Content-Length` header. Prefer this over `presigned_url`: presigned POST is an AWS extension that some S3-compatible stores reject.",
+    )
+    fallback_presigned_put_url = serializers.URLField(
+        required=False,
+        help_text="Presigned PUT against the standard S3 endpoint, present only when the primary PUT uses transfer acceleration.",
     )
 
 

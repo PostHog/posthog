@@ -1,11 +1,13 @@
 import re
 import uuid
+from urllib.parse import unquote
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import requests
 from boto3 import resource
 from botocore.client import Config
 from botocore.exceptions import ClientError
@@ -24,6 +26,7 @@ from posthog.storage.object_storage import (
     UnavailableStorage,
     copy_objects,
     get_presigned_post,
+    get_presigned_put,
     get_presigned_url,
     health_check,
     is_usable_endpoint,
@@ -111,6 +114,40 @@ class TestStorage(APIBaseTest):
                 r"^http://localhost:\d+/posthog",
                 presigned_url["url"],
             )
+
+    def test_can_upload_through_a_presigned_put_url(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_can_generate_presigned_put_url/{uuid.uuid4()}"
+
+            presigned_url = get_presigned_put(file_name)
+            assert presigned_url is not None
+            # A PUT addresses the object itself, where a POST addresses the bucket root.
+            assert re.match(rf"^http://localhost:\d+/posthog/{re.escape(file_name)}\?", presigned_url)
+
+            response = requests.put(presigned_url, data=b"my content")
+
+            assert response.status_code == 200, response.text
+            assert read(file_name) == "my content"
+
+    def test_presigned_put_url_rejects_a_body_of_another_length(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_presigned_put_signs_length/{uuid.uuid4()}"
+            content = b"my content"
+
+            presigned_url = get_presigned_put(file_name, content_length=len(content))
+            assert presigned_url is not None
+            # A signed `content-length` is the only size condition a presigned PUT can carry, and
+            # it replaces the `content-length-range` a POST policy holds.
+            signed_headers = re.search(r"X-Amz-SignedHeaders=([^&]+)", presigned_url)
+            assert signed_headers is not None
+            assert "content-length" in unquote(signed_headers.group(1)).split(";")
+
+            oversized = requests.put(presigned_url, data=content + b" and more")
+
+            assert oversized.status_code >= 400
+            assert read(file_name, missing_ok=True) is None
+            assert requests.put(presigned_url, data=content).status_code == 200
+            assert read(file_name) == "my content"
 
     def test_can_list_objects_with_prefix(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
