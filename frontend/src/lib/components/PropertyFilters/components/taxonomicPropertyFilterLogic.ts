@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isValidPropertyFilter, newBehavioralFilter } from 'lib/components/PropertyFilters/utils'
 import {
     createDefaultPropertyFilter,
     isAnyPropertyfilter,
@@ -196,6 +196,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     type: PropertyFilterType.Event,
                 }
                 props.setFilter(props.filterIndex, filter)
+                actions.closeDropdown()
+                return
+            }
+
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.BehavioralEvents && propertyKey) {
+                props.setFilter(props.filterIndex, newBehavioralFilter(String(propertyKey), 'events'))
                 actions.closeDropdown()
                 return
             }

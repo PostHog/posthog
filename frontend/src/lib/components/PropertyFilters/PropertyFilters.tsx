@@ -83,9 +83,6 @@ export interface PropertyFiltersProps {
     propertyKeyEditable?: boolean
     singleLine?: boolean
     showRemoveButton?: boolean
-    /** Rendered after the last row. Receives a callback that appends to this filter's own bound
-     * logic, so the caller doesn't have to rebuild the list from possibly-stale props. */
-    addFilterSuffix?: ((addFilter: (property: AnyPropertyFilter) => void) => JSX.Element) | null
     addFilterDivider?: boolean
     framedRows?: boolean
     renderControls?: (controls: {
@@ -139,7 +136,6 @@ export function PropertyFilters({
     propertyKeyEditable,
     singleLine,
     showRemoveButton = true,
-    addFilterSuffix,
     addFilterDivider = false,
     framedRows = false,
     renderControls,
@@ -257,11 +253,6 @@ export function PropertyFilters({
                     errorMessage={errorMessages && errorMessages[index]}
                     openOnInsert={allowOpenOnInsert && (openOnInsert || openValueEditor)}
                     disabledReason={disabledReason}
-                    suffix={
-                        showNewFilterRow && index === displayedFilters.length - 1 && addFilterSuffix
-                            ? addFilterSuffix((property) => setFilter(filters.length, property))
-                            : null
-                    }
                 />
             </React.Fragment>
         )
