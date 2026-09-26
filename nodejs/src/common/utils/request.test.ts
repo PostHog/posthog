@@ -57,6 +57,52 @@ afterAll(async () => {
     await new Promise<void>((resolve, reject) => testServer.close((err) => (err ? reject(err) : resolve())))
 })
 
+async function withIsolatedProxy(
+    handleProxySocket: (socket: net.Socket) => void,
+    run: (fresh: typeof import('./request')) => Promise<void>
+): Promise<void> {
+    const proxySockets = new Set<net.Socket>()
+    const proxy = net.createServer((socket) => {
+        proxySockets.add(socket)
+        handleProxySocket(socket)
+    })
+    await new Promise<void>((resolve) => proxy.listen(0, '127.0.0.1', resolve))
+    const originalNodeEnv = process.env.NODE_ENV
+    process.env.NODE_ENV = 'test'
+    process.env.HTTPS_PROXY = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`
+    process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS = '200'
+    try {
+        await jest.isolateModulesAsync(async () => {
+            // request.ts reads the proxy URL and the timeouts once, at module load.
+            const fresh: typeof import('./request') = require('./request')
+            try {
+                await run(fresh)
+            } finally {
+                await fresh.closeSharedAgents(100)
+            }
+        })
+    } finally {
+        delete process.env.HTTPS_PROXY
+        delete process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS
+        process.env.NODE_ENV = originalNodeEnv
+        proxySockets.forEach((socket) => socket.destroy())
+        proxy.close()
+    }
+}
+
+function tunnelToTarget(socket: net.Socket): void {
+    socket.once('data', (connectRequest) => {
+        const [host, port] = connectRequest.toString().split(' ')[1].split(':')
+        const upstream = net.connect(Number(port), host, () => {
+            socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+            upstream.pipe(socket)
+            socket.pipe(upstream)
+        })
+        upstream.on('error', () => socket.destroy())
+        socket.on('error', () => upstream.destroy())
+    })
+}
+
 describe('fetch', () => {
     beforeEach(() => {
         jest.setTimeout(1000)
@@ -157,24 +203,14 @@ describe('fetch', () => {
         }, 10000)
 
         it.each([
-            ['HTTP/1.1', false],
-            ['HTTP/2', true],
+            ['the HTTP/1.1 dispatcher', false],
+            ['the HTTP/2 dispatcher', true],
         ])(
-            'fails a %s request at the connect timeout when the proxy never answers the CONNECT',
-            async (_protocol, allowH2) => {
-                const proxySockets = new Set<net.Socket>()
-                const silentProxy = net.createServer((socket) => {
-                    proxySockets.add(socket)
-                    socket.on('data', () => undefined)
-                })
-                await new Promise<void>((resolve) => silentProxy.listen(0, '127.0.0.1', resolve))
-                const originalNodeEnv = process.env.NODE_ENV
-                process.env.NODE_ENV = 'test'
-                process.env.HTTPS_PROXY = `http://127.0.0.1:${(silentProxy.address() as AddressInfo).port}`
-                process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS = '200'
-                try {
-                    await jest.isolateModulesAsync(async () => {
-                        const fresh = require('./request')
+            'fails a request through %s at the connect timeout when the proxy never answers the CONNECT',
+            async (_dispatcher, allowH2) => {
+                await withIsolatedProxy(
+                    (socket) => socket.on('data', () => undefined),
+                    async (fresh) => {
                         let guard: NodeJS.Timeout | undefined
                         const outcome = await Promise.race([
                             fresh
@@ -188,16 +224,42 @@ describe('fetch', () => {
                             }),
                         ])
                         clearTimeout(guard)
-                        await fresh.closeSharedAgents(100)
 
                         expect(outcome).toBe('UND_ERR_HEADERS_TIMEOUT')
+                    }
+                )
+            },
+            10000
+        )
+
+        it.each([
+            ['the HTTP/1.1 dispatcher', false],
+            ['the HTTP/2 dispatcher', true],
+        ])(
+            'keeps the request timeout through %s for a response that comes after the connect timeout',
+            async (_dispatcher, allowH2) => {
+                const slowOrigin = http.createServer((_request, response) => {
+                    setTimeout(() => {
+                        response.writeHead(200, { 'content-type': 'image/png' })
+                        response.end('image')
+                    }, 1500)
+                })
+                await new Promise<void>((resolve) => slowOrigin.listen(0, '127.0.0.1', resolve))
+                const originPort = (slowOrigin.address() as AddressInfo).port
+                try {
+                    await withIsolatedProxy(tunnelToTarget, async (fresh) => {
+                        const response = await fresh.fetchStreamed(`http://127.0.0.1:${originPort}/a.png`, {
+                            timeoutMs: 5000,
+                            allowH2,
+                        })
+                        const { bytes } = await response.read(1024)
+
+                        expect(response.status).toBe(200)
+                        expect(bytes.toString()).toBe('image')
                     })
                 } finally {
-                    delete process.env.HTTPS_PROXY
-                    delete process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS
-                    process.env.NODE_ENV = originalNodeEnv
-                    proxySockets.forEach((socket) => socket.destroy())
-                    silentProxy.close()
+                    slowOrigin.closeAllConnections()
+                    slowOrigin.close()
                 }
             },
             10000
