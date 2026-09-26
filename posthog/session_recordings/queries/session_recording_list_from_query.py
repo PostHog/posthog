@@ -769,6 +769,13 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             and not self._query.comment_text
         )
 
+    def _include_expired(self) -> bool:
+        return (
+            self._include_expired_for_session_ids
+            and isinstance(self._query.session_ids, list)
+            and len(self._query.session_ids) > 0
+        )
+
     def _session_scope_predicates(self) -> list[ast.Expr]:
         """The predicates that pick which replay rows are in scope: the pinned session ids and the date bound.
 
@@ -788,14 +795,16 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             )
 
         if self._bypass_date_window():
-            # bound at the longest retention period (5y) to keep partition pruning
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["s", "min_first_timestamp"]),
-                    right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
+            # Expired recordings can be older than the longest retention period, so deletion takes no lower bound.
+            if not self._include_expired():
+                # bound at the longest retention period (5y) to keep partition pruning
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.GtEq,
+                        left=ast.Field(chain=["s", "min_first_timestamp"]),
+                        right=ast.Constant(value=datetime.now(UTC) - relativedelta(years=5)),
+                    )
                 )
-            )
         else:
             query_date_from = self.query_date_range.date_from()
             if query_date_from:
@@ -823,12 +832,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
     def _having_predicates(self) -> ast.Expr | None:
         exprs: list[ast.Expr] = []
 
-        include_expired = (
-            self._include_expired_for_session_ids
-            and isinstance(self._query.session_ids, list)
-            and len(self._query.session_ids) > 0
-        )
-        if not include_expired:
+        if not self._include_expired():
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,

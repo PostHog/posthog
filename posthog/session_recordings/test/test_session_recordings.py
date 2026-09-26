@@ -1981,6 +1981,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 120,
                 "Recordings past their 90 day retention expiry must still be found and shredded",
             ),
+            (
+                "recordings_older_than_longest_retention_period",
+                "5y",
+                6 * 365,
+                "Expired recordings older than five years must still be found and shredded",
+            ),
         ]
     )
     @patch(
