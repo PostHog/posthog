@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -7,10 +8,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.models.scoping import team_scope
 
-from products.alerts.backend.facade.contracts import SourceBatchEvaluation
-from products.alerts.backend.facade.platform_alerts import record_outcomes
+from products.alerts.backend.facade.contracts import SourceBatchEvaluation, SourceKind
+from products.alerts.backend.facade.platform_alerts import due_checks, record_outcomes
 from products.alerts.backend.facade.temporal import SOURCE_EVALUATION_TIMEOUT
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 from products.logs.backend.alert_check_query import BatchedBucketedResult, BucketedCount
@@ -47,17 +50,23 @@ class TestLogsAlertEvaluation(APIBaseTest):
         with team_scope(self.team.id):
             return PlatformAlertConfiguration.objects.create(**defaults)
 
-    def _run(self, *configurations: PlatformAlertConfiguration):
+    def _run(self, *configurations: PlatformAlertConfiguration, query_error: Exception | None = None):
         breaching = {str(c.id): [BucketedCount(timestamp=self.cutoff, count=500)] for c in configurations}
         with (
             patch(f"{_MODULE}.fetch_live_logs_checkpoint", return_value=None),
             patch(f"{_MODULE}.BatchedAlertCheckQuery") as query,
         ):
-            query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
-                per_alert=breaching, query_duration_ms=1
-            )
+            if query_error is not None:
+                query.return_value.execute_rolling_checks.side_effect = query_error
+            else:
+                query.return_value.execute_rolling_checks.return_value = BatchedBucketedResult(
+                    per_alert=breaching, query_duration_ms=1
+                )
             slot = (configurations[0].next_check_at or self.cutoff).replace(second=0, microsecond=0).isoformat()
             return evaluate_logs_batch(self.team.id, slot, self.cutoff), query
+
+    def _slot(self) -> str:
+        return (self.cutoff - timedelta(minutes=1)).isoformat()
 
     def _record(self, evaluation: SourceBatchEvaluation) -> None:
         """The write the platform's own activity runs after the evaluation returns.
@@ -65,7 +74,7 @@ class TestLogsAlertEvaluation(APIBaseTest):
         Deliberately outside `team_scope`: that activity has no ambient scope, and these models
         are fail-closed, so a write here through a bare manager raises.
         """
-        record_outcomes(self.team.id, evaluation.outcomes, self.cutoff, team_timezone=self.team.timezone)
+        record_outcomes(self.team.id, evaluation.outcomes, self.cutoff)
 
     def test_a_breaching_configuration_fires_and_records_its_own_state(self) -> None:
         configuration = self._configuration()
@@ -117,6 +126,87 @@ class TestLogsAlertEvaluation(APIBaseTest):
                 id__in=[c.id for c in configurations], next_check_at__lte=self.cutoff
             ).count()
         assert still_due == 1
+
+    def test_a_check_inside_quiet_hours_runs_and_holds_its_announcement(self) -> None:
+        configuration = self._configuration(
+            schedule_restriction={"blocked_windows": [{"start": "09:00", "end": "12:00"}]}
+        )
+
+        evaluation, query = self._run(configuration)
+        self._record(evaluation)
+
+        query.assert_called_once()
+        assert evaluation.previews == ()
+        with team_scope(self.team.id):
+            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
+            configuration.refresh_from_db()
+        # An incident wholly inside the window must still leave a trace, and must not move the cooldown.
+        assert alert.state == PlatformAlert.State.FIRING
+        assert alert.last_notified_at is None
+        # Parked at the end of the window would leave the alert unevaluated until noon.
+        assert configuration.next_check_at is not None
+        assert self.cutoff < configuration.next_check_at < datetime(2026, 9, 16, 11, tzinfo=UTC)
+
+    def test_a_broken_filter_config_stops_being_discovered(self) -> None:
+        configuration = self._configuration(source_config={"filterGroup": {"type": "nonsense"}})
+
+        evaluation, query = self._run(configuration)
+        self._record(evaluation)
+
+        query.assert_not_called()
+        with team_scope(self.team.id):
+            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
+        assert alert.state == PlatformAlert.State.BROKEN
+        assert due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff + timedelta(hours=1)) == ()
+
+    @parameterized.expand(
+        [
+            ("a_transient_error_holds_the_counter", ValueError("cluster busy"), 4, "not_firing"),
+            ("an_invalid_query_escalates", ExposedHogQLError("unknown field"), 5, "broken"),
+        ]
+    )
+    def test_a_failed_query_advances_the_schedule_instead_of_leaving_the_check_due(
+        self, _name: str, error: Exception, expected_failures: int, expected_state: str
+    ) -> None:
+        configuration = self._configuration(consecutive_failures=4)
+
+        evaluation, _ = self._run(configuration, query_error=error)
+        self._record(evaluation)
+
+        assert [o.consecutive_failures for o in evaluation.outcomes] == [expected_failures]
+        with team_scope(self.team.id):
+            alert = PlatformAlert.objects.get(configuration=configuration, grouping_key="")
+            configuration.refresh_from_db()
+        assert alert.state == expected_state
+        assert configuration.next_check_at is not None
+        assert configuration.next_check_at > self.cutoff
+
+    def test_a_failure_the_batch_cannot_record_leaves_the_whole_batch_due(self) -> None:
+        configuration = self._configuration(consecutive_failures=4)
+
+        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=RuntimeError("destinations unreachable")):
+            with pytest.raises(RuntimeError):
+                self._run(configuration, query_error=ExposedHogQLError("unknown field"))
+
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+        assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
+
+    def test_a_destination_lookup_failure_is_not_the_checks_own_failure(self) -> None:
+        configuration = self._configuration()
+
+        # The second answer is what a retry inside the evaluation would reach. Reaching it means
+        # a lookup failure was recorded as a failed check, after a query that succeeded.
+        with patch(f"{_MODULE}.list_active_alert_destinations", side_effect=[RuntimeError("unreachable"), []]):
+            with pytest.raises(RuntimeError):
+                self._run(configuration)
+
+        with team_scope(self.team.id):
+            configuration.refresh_from_db()
+            assert not PlatformAlert.objects.filter(configuration=configuration).exists()
+        assert configuration.consecutive_failures == 0
+        assert configuration.next_check_at == self.cutoff - timedelta(minutes=1)
 
     def test_the_logs_product_rows_are_never_written(self) -> None:
         legacy = LogsAlertConfiguration.objects.create(
