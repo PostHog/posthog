@@ -4,7 +4,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { formatReportMetricValue, reportMetricChartType, reportMetricRowParts } from '../../utils/reportMetrics'
+import { reportMetricChartType, reportMetricRowParts } from '../../utils/reportMetrics'
 import { ReportCardSparkline } from './ReportCardSparkline'
 
 export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): ReportMetricApi | null {
@@ -12,8 +12,9 @@ export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): Repor
         return null
     }
 
-    const hasSnapshot = (metric: ReportMetricApi): boolean =>
-        metric.value !== null && Number.isFinite(metric.value) && formatReportMetricValue(metric, metric.value) !== null
+    // Judged with the same formatter the row draws with, so a caller that gates on this selector
+    // never reserves space for a figure the row then declines to print.
+    const hasSnapshot = (metric: ReportMetricApi): boolean => reportMetricRowParts(metric, metric.value) !== null
 
     return (
         metrics.find((metric) => metric.kind === 'affected_users' && hasSnapshot(metric)) ??
@@ -29,11 +30,10 @@ export function selectReportCardImpactMetric(metrics?: ReportMetricApi[]): Repor
  * The two columns are fixed so figures and strips line up down a list of rows. The strip column keeps
  * its width on a row with no series, so a figure never slides left out of the column.
  */
-export function ReportCardImpactMetric({ metrics }: { metrics?: ReportMetricApi[] }): JSX.Element | null {
-    const metric = selectReportCardImpactMetric(metrics)
-    const parts = metric ? reportMetricRowParts(metric, metric.value) : null
+export function ReportCardImpactMetric({ metric }: { metric: ReportMetricApi }): JSX.Element | null {
+    const parts = reportMetricRowParts(metric, metric.value)
 
-    if (!metric || !parts) {
+    if (!parts) {
         return null
     }
 
