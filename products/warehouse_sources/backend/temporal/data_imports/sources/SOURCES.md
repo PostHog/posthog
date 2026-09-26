@@ -232,6 +232,7 @@ the row lists both.
 | deel                             | HTTP                        | requests                                                        | ✅                          |
 | deepgram                         | HTTP                        | requests                                                        | ✅                          |
 | deepsource                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| demodesk                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | deno_deploy                      | HTTP                        | requests                                                        | ✅                          |
 | depot                            | HTTP (Connect RPC)          | requests                                                        | ✅                          |
 | descope                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -984,7 +985,6 @@ doesn't conflict with concurrent PRs.
 - dayforce
 - db2
 - deelflows
-- demodesk
 - deno_deploy
 - deputy
 - develocity
