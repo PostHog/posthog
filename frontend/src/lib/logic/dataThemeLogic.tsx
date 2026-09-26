@@ -2,7 +2,9 @@ import { MakeLogicType, actions, afterMount, connect, kea, path, props, reducers
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { DataColorTheme, DataColorToken, FALLBACK_DATA_COLOR_THEME } from 'lib/colors'
+import { DataColorTheme, DataColorToken, FALLBACK_DATA_COLOR_THEME, getBrandDataColors } from 'lib/colors'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DataColorThemeModel } from '~/types'
@@ -33,6 +35,7 @@ export type DataThemeLogicProps = {
 export interface dataThemeLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     defaultTheme: DataColorThemeModel | null
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     getAvailableColorTokens: (themeId: number | string | null | undefined) => DataColorToken[] | null
     getColorFromToken: (themeId: number | string | null | undefined, colorToken: string) => string | null
     getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
@@ -74,7 +77,8 @@ export interface dataThemeLogicMeta {
         ) => DataColorThemeModel | null
         getTheme: (
             themes: DataColorThemeModel[] | null,
-            defaultTheme: DataColorThemeModel | null
+            defaultTheme: DataColorThemeModel | null,
+            featureFlags: FeatureFlagsSet
         ) => (themeId: number | string | null | undefined) => DataColorTheme | null
         getColorFromToken: (
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
@@ -95,7 +99,7 @@ export type dataThemeLogicType = MakeLogicType<
 export const dataThemeLogic = kea<dataThemeLogicType>([
     props({} as DataThemeLogicProps),
     path(['scenes', 'dataThemeLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeam']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] })),
     actions({ setThemes: (themes) => ({ themes }) }),
     loaders(({ props }) => ({
         themes: [
@@ -141,8 +145,12 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
             },
         ],
         getTheme: [
-            (s) => [s.themes, s.defaultTheme],
-            (themes: DataColorThemeModel[] | null, defaultTheme: DataColorThemeModel | null) =>
+            (s) => [s.themes, s.defaultTheme, s.featureFlags],
+            (
+                themes: DataColorThemeModel[] | null,
+                defaultTheme: DataColorThemeModel | null,
+                featureFlags: FeatureFlagsSet
+            ) =>
                 (themeId: string | number | null | undefined): DataColorTheme | null => {
                     let customTheme
 
@@ -150,15 +158,13 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                         customTheme = themes.find((theme) => theme.id === themeId)
                     }
 
-                    if (customTheme) {
-                        return customTheme.colors.reduce((theme, color, index) => {
-                            theme[`preset-${index + 1}`] = color
-                            return theme
-                        }, {} as DataColorTheme)
-                    }
-
-                    if (defaultTheme) {
-                        return defaultTheme.colors.reduce((theme, color, index) => {
+                    const themeModel = customTheme || defaultTheme
+                    if (themeModel) {
+                        const colors =
+                            (themeModel.is_global &&
+                                getBrandDataColors(featureFlags[FEATURE_FLAGS.BRAND_DATA_COLORS])) ||
+                            themeModel.colors
+                        return colors.reduce((theme, color, index) => {
                             theme[`preset-${index + 1}`] = color
                             return theme
                         }, {} as DataColorTheme)
