@@ -286,7 +286,11 @@ def _validate_detector_params(config: dict) -> None:
             max_val = MAX_PROMPT_POINTS
         val = _as_number(config.get(param))
         if val is not None and (val < min_val or val > max_val):
-            raise ValidationError(f"{label} must be between {min_val} and {max_val}.")
+            message = f"{label} must be between {min_val} and {max_val}."
+            if param == "threshold":
+                # Agents often send a z-score such as 3.5 here, so say which scale the field uses.
+                message += " It is an anomaly probability, not a z-score. For example, use 0.95."
+            raise ValidationError(message)
 
     preprocessing = config.get("preprocessing")
     if preprocessing and isinstance(preprocessing, dict):
