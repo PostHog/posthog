@@ -42,37 +42,44 @@ describe('BusinessKnowledgeTabs', () => {
         )
     })
 
-    it('does not show the Magic 8 ball outside the US cloud', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
-            [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true,
-        })
-        preflightLogic.actions.loadPreflightSuccess({ region: Region.EU } as PreflightStatus)
-        render(<BusinessKnowledgeTabs activeTab="sources" />)
-        expect(screen.queryByText('Magic 8 ball')).not.toBeInTheDocument()
-    })
-
-    it('does not show the Magic 8 ball without AI processing approval', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
-            [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true,
-        })
-        organizationLogic.actions.loadCurrentOrganizationSuccess({
-            ...MOCK_DEFAULT_ORGANIZATION,
-            is_ai_data_processing_approved: false,
-        })
-        render(<BusinessKnowledgeTabs activeTab="sources" />)
-        expect(screen.queryByText('Magic 8 ball')).not.toBeInTheDocument()
-    })
-
-    it('does not show the Magic 8 ball without decision enrollment', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true })
-        render(<BusinessKnowledgeTabs activeTab="sources" />)
-        expect(screen.queryByText('Magic 8 ball')).not.toBeInTheDocument()
-    })
-
-    it('does not show the Magic 8 ball when its rollout flag is off', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+    it.each<{
+        name: string
+        flags: Record<string, boolean>
+        setupOrg?: () => void
+        setupPreflight?: () => void
+    }>([
+        {
+            name: 'outside the US cloud',
+            flags: {
+                [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
+                [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true,
+            },
+            setupPreflight: () => preflightLogic.actions.loadPreflightSuccess({ region: Region.EU } as PreflightStatus),
+        },
+        {
+            name: 'without AI processing approval',
+            flags: {
+                [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
+                [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true,
+            },
+            setupOrg: () =>
+                organizationLogic.actions.loadCurrentOrganizationSuccess({
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: false,
+                }),
+        },
+        {
+            name: 'without decision enrollment',
+            flags: { [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true },
+        },
+        {
+            name: 'when its rollout flag is off',
+            flags: { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true },
+        },
+    ])('does not show the Magic 8 ball $name', ({ flags, setupOrg, setupPreflight }) => {
+        featureFlagLogic.actions.setFeatureFlags([], flags)
+        setupOrg?.()
+        setupPreflight?.()
         render(<BusinessKnowledgeTabs activeTab="sources" />)
         expect(screen.queryByText('Magic 8 ball')).not.toBeInTheDocument()
     })
