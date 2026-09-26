@@ -5,6 +5,7 @@ from posthog.schema import DetectorType
 
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
+from posthog.tasks.alerts.detectors.statistical.scoring import deviation_to_probability
 
 
 @register_detector(DetectorType.MAD)
@@ -18,8 +19,9 @@ class MADDetector(BaseDetector):
     More robust than z-score because it uses median instead of mean,
     making it resistant to outliers skewing the baseline.
 
-    Scores are normalized to [0, 1] probabilities using pyod's
-    predict_proba (erf-based conversion).
+    Scores grade how extreme the modified z-score is, on a scale the training
+    window cannot move. See ``scoring.deviation_to_probability``. pyod's
+    predict_proba is deliberately unused: it rescales against the window.
 
     Config:
         threshold: float - Anomaly probability threshold (default: 0.95)
@@ -54,9 +56,11 @@ class MADDetector(BaseDetector):
         clf = MAD()
         clf.fit(window_data.reshape(-1, 1))
 
-        # Get normalized probability score via pyod's erf-based conversion
+        # decision_function's modified z-score is already in sigma units, which is the
+        # scale deviation_to_probability expects.
         test_point = np.array([[current_value]])
-        prob = float(clf.predict_proba(test_point)[0, 1])
+        modified_zscore = float(clf.decision_function(test_point)[0])
+        prob = deviation_to_probability(modified_zscore, len(window_data))
         is_anomaly = prob > threshold
 
         return DetectionResult(
@@ -68,7 +72,7 @@ class MADDetector(BaseDetector):
                 "median": float(clf.median_),
                 "median_abs_deviation": float(clf.median_diff_),
                 "value": float(current_value),
-                "raw_score": float(clf.decision_function(test_point)[0]),
+                "raw_score": modified_zscore,
             },
         )
 
@@ -101,7 +105,8 @@ class MADDetector(BaseDetector):
             clf.fit(window_data.reshape(-1, 1))
 
             test_point = np.array([[current_val]])
-            prob = float(clf.predict_proba(test_point)[0, 1])
+            modified_zscore = float(clf.decision_function(test_point)[0])
+            prob = deviation_to_probability(modified_zscore, len(window_data))
             scores.append(prob)
 
             if prob > threshold:
