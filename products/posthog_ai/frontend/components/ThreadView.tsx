@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -160,6 +160,15 @@ export function ThreadView({
         !showConnectionStatus &&
         !pendingPermissionRequest &&
         displayItems.at(-1)?.type !== 'activity_group'
+    // The virtualizer unmounts the footer row when the reader scrolls far from it, so the start of the current
+    // wait lives here and not in the indicator. A new wait starts each time the thinking line shows again (a
+    // running tool or streaming text hides it) and when this view binds another stream.
+    const { key: streamLogicKey } = useMountedLogic(runStreamLogic)
+    const thinkingWaitKey = showThinking ? String(streamLogicKey) : null
+    const [thinkingWait, setThinkingWait] = useState(() => ({ key: thinkingWaitKey, startedAt: Date.now() }))
+    if (thinkingWait.key !== thinkingWaitKey) {
+        setThinkingWait({ key: thinkingWaitKey, startedAt: Date.now() })
+    }
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
@@ -173,6 +182,7 @@ export function ThreadView({
                     <ThreadFooter
                         showThinking={showThinking}
                         thinkingPhase={thinkingPhase}
+                        thinkingStartedAt={thinkingWait.startedAt}
                         pullRequestUrl={pullRequestUrl}
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
@@ -184,6 +194,7 @@ export function ThreadView({
         [
             showThinking,
             thinkingPhase,
+            thinkingWait.startedAt,
             pullRequestUrl,
             branch,
             showContextUsageFooter,
@@ -304,6 +315,7 @@ const ThreadHeader = memo(function ThreadHeader({
 const ThreadFooter = memo(function ThreadFooter({
     showThinking,
     thinkingPhase,
+    thinkingStartedAt,
     pullRequestUrl,
     prBranch,
     showContextUsage,
@@ -312,6 +324,7 @@ const ThreadFooter = memo(function ThreadFooter({
 }: {
     showThinking: boolean
     thinkingPhase: 'thinking' | 'provisioning'
+    thinkingStartedAt: number
     pullRequestUrl?: string
     prBranch?: string
     showContextUsage?: boolean
@@ -333,6 +346,7 @@ const ThreadFooter = memo(function ThreadFooter({
                 <ThinkingIndicator
                     progress={thinkingPhase === 'provisioning' ? null : currentProgress}
                     phase={thinkingPhase}
+                    startedAt={thinkingStartedAt}
                 />
             )}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
@@ -353,14 +367,13 @@ const THINKING_ELAPSED_MIN_SECONDS = 10
 function ThinkingIndicator({
     progress,
     phase,
+    startedAt,
 }: {
     progress: string | null
     phase: 'thinking' | 'provisioning'
+    startedAt: number
 }): JSX.Element {
     const [fallbackMessage, setFallbackMessage] = useState(() => getRandomThinkingMessage())
-    // The indicator mounts when the thread goes quiet (a running tool or streaming text hides it), so its
-    // mount time is when the current wait started.
-    const [startedAt] = useState(Date.now)
     const [now, setNow] = useState(Date.now)
     const { isVisible } = usePageVisibility()
 
