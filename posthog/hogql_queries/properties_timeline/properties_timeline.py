@@ -1,7 +1,7 @@
 import json
 import datetime
 from datetime import timedelta
-from typing import Any, TypedDict, TypeVar, Union, cast
+from typing import Any, Optional, TypedDict, TypeVar, Union, cast
 from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
@@ -22,6 +22,7 @@ from posthog.models.group.group import Group
 from posthog.models.person.person import Person
 from posthog.models.property.util import extract_tables_and_properties
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
 
@@ -144,7 +145,11 @@ class PropertiesTimeline:
         )
 
     def run(
-        self, filter: PropertiesTimelineFilter, team: Team, actor: Union[Person, Group]
+        self,
+        filter: PropertiesTimelineFilter,
+        team: Team,
+        actor: Union[Person, Group],
+        user: Optional[User] = None,
     ) -> PropertiesTimelineResult:
         if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
             # A single-point range is widened by one interval so the window actually spans some events.
@@ -211,6 +216,7 @@ class PropertiesTimeline:
         response = execute_hogql_query(
             query,
             team=team,
+            user=user,
             query_type="properties_timeline",
             modifiers=HogQLQueryModifiers(
                 personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS

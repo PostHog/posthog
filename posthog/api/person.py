@@ -1620,7 +1620,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    @action(methods=["GET"], detail=True)
+    @action(methods=["GET"], detail=True, required_scopes=["person:read"])
     def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
@@ -1628,7 +1628,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person = self.get_object()
         filter = PropertiesTimelineFilter(request=request, team=self.team)
 
-        properties_timeline = PropertiesTimeline().run(filter, self.team, person)
+        properties_timeline = PropertiesTimeline().run(filter, self.team, person, user=cast(User, request.user))
 
         return response.Response(data=properties_timeline)
 
