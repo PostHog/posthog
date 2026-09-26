@@ -67,6 +67,7 @@ class UnlayerDesignField(serializers.JSONField):
 class EmailTemplateSerializer(serializers.Serializer):
     subject = serializers.CharField(
         required=False,
+        allow_blank=True,
         help_text="Email subject line. Supports Liquid templating. Required for email-type templates.",
     )
     text = serializers.CharField(
@@ -86,6 +87,12 @@ class EmailTemplateSerializer(serializers.Serializer):
         "truth. The server renders the sent email from it, and it opens as editable blocks in the editor. "
         "Full schema in the designing-email-templates skill.",
     )
+
+    def to_internal_value(self, data: Any) -> Any:
+        # The visual editor sends null for fields it has no value for, e.g. the design of a plain-text email.
+        if isinstance(data, dict):
+            data = {key: value for key, value in data.items() if value is not None}
+        return super().to_internal_value(data)
 
 
 class MessageTemplateContentSerializer(serializers.Serializer):
