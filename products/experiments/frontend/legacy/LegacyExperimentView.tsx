@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -20,6 +21,7 @@ import {
     ReleaseConditionsTable,
 } from 'scenes/experiments/ExperimentView/ReleaseConditionsTable'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     ExperimentFunnelsQuery,
@@ -27,7 +29,7 @@ import {
     ExperimentTrendsQueryResponse,
     ExperimentFunnelsQueryResponse,
 } from '~/queries/schema/schema-general'
-import { Experiment } from '~/types'
+import { Experiment, SidePanelTab } from '~/types'
 
 import {
     LegacyExperimentHeader,
@@ -159,6 +161,7 @@ export function LegacyExperimentView(): JSX.Element {
     const { activeTabKey } = useValues(experimentSceneLogic)
     const { setActiveTabKey } = useActions(experimentSceneLogic)
     const showDeprecationNotice = useFeatureFlag('EXPERIMENTS_LEGACY_DEPRECATION_NOTICE')
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     // Props for legacy logic - uses experiment data from parent experimentLogic
     const legacyLogicProps = {
@@ -201,10 +204,22 @@ export function LegacyExperimentView(): JSX.Element {
                         <ExperimentWarningBanner />
 
                         {showDeprecationNotice && (
-                            <LemonBanner type="error" className="mb-4">
-                                Legacy experiments will be deprecated on October 15, 2026. Take a screenshot of these
-                                results if you need them after that date. Legacy experiments can be migrated to the new
-                                engine, and PostHog AI can do this for you. Contact support if you have questions.
+                            <LemonBanner
+                                type="error"
+                                className="mb-4"
+                                action={{
+                                    children: 'Migrate with PostHog AI',
+                                    icon: <IconSparkles />,
+                                    onClick: () =>
+                                        openSidePanel(
+                                            SidePanelTab.Max,
+                                            `!Migrate experiment "${experiment.name}" (id ${experiment.id}) to the new experiment engine`
+                                        ),
+                                    'data-attr': 'legacy-experiment-migrate-with-ai',
+                                }}
+                            >
+                                Results for legacy experiments will no longer be available after October 15, 2026.
+                                Migrate this experiment to the new engine to keep them.
                             </LemonBanner>
                         )}
 
