@@ -47,10 +47,11 @@ When a feature flag request is processed, the Rust service increments Redis coun
 
 The service stores counts in Redis hashes using time-bucketed fields:
 
-| Request Type     | Team Key                                      | SDK Key                                                      |
-| ---------------- | --------------------------------------------- | ------------------------------------------------------------ |
-| `/decide`        | `posthog:decide_requests:{team_id}`           | `posthog:decide_requests:sdk:{team_id}:{sdk_name}`           |
-| Local evaluation | `posthog:local_evaluation_requests:{team_id}` | `posthog:local_evaluation_requests:sdk:{team_id}:{sdk_name}` |
+| Request Type           | Team Key                                                   | SDK Key                                                                   |
+| ---------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `/decide`              | `posthog:decide_requests:{team_id}`                        | `posthog:decide_requests:sdk:{team_id}:{sdk_name}`                        |
+| Local evaluation (200) | `posthog:local_evaluation_requests:{team_id}`              | `posthog:local_evaluation_requests:sdk:{team_id}:{sdk_name}`              |
+| Local evaluation (304) | `posthog:local_evaluation_not_modified_requests:{team_id}` | `posthog:local_evaluation_not_modified_requests:sdk:{team_id}:{sdk_name}` |
 
 ### Time bucketing
 
@@ -93,7 +94,15 @@ Rust's `/flags/definitions` endpoint enforces billing quotas. When a team exceed
 }
 ```
 
-The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag comparison and cache fetch. If the quota is exceeded, all requests (including conditional ones) return HTTP 402 — no 304 is issued while a team is over quota. Requests that pass the quota check but result in a 304 (ETag match) are not counted toward billing usage, matching Django's behavior.
+The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag comparison and cache fetch. If the quota is exceeded, all requests (including conditional ones) return HTTP 402 — no 304 is issued while a team is over quota.
+
+### Conditional requests (ETag)
+
+A request that passes the quota check and results in a 304 (ETag match) is counted on the separate `local_evaluation_not_modified_requests` counter. The usage report bills these at 1 unit each, the same as a `/decide` request, instead of the 10 units a full local evaluation response costs.
+
+304 billing rolls out per team through `FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_TEAMS` (a team ID list, `all`, or empty for off, the default). A team outside the list gets its 304s for free, as before.
+
+A 304 for definitions that hold only survey or product tour flags is not billed, the same as a 200. The service memoizes per team and ETag whether the definitions hold a billable flag, so it reads the payload once per pod per ETag rather than on every poll. The memo is sized by `DEFINITIONS_BILLABLE_CACHE_CAPACITY` and an entry lives for `DEFINITIONS_BILLABLE_CACHE_TTL_SECONDS` (default one hour), which bounds how long a wrong answer can last. Only a payload served from Redis decides, because an S3 copy can lag the ETag by a version. A payload that came from S3, failed to read, or took longer than 500 ms leaves that poll unbilled, and the miss is remembered for 30 seconds so a degraded payload tier is not hammered by every poll. These unbilled polls show as `flags_flag_definitions_not_modified_billing_total{outcome="unknown"}`, which is why the 304 billing counter can run below the ETag hit counter.
 
 ### SDK tracking
 
@@ -185,10 +194,11 @@ The aggregation task emits events to PostHog's internal analytics instance.
 
 ### Event types
 
-| Event Name               | Description                                    |
-| ------------------------ | ---------------------------------------------- |
-| `decide usage`           | Counts from `/decide` endpoint requests        |
-| `local evaluation usage` | Counts from local evaluation endpoint requests |
+| Event Name                            | Description                                             |
+| ------------------------------------- | ------------------------------------------------------- |
+| `decide usage`                        | Counts from `/decide` endpoint requests                 |
+| `local evaluation usage`              | Counts from local evaluation requests answered with 200 |
+| `local evaluation not modified usage` | Counts from local evaluation requests answered with 304 |
 
 ### Event properties
 
@@ -229,16 +239,17 @@ The usage report task queries ClickHouse for aggregated billing data.
 
 ### Billable calculation
 
-Local evaluation requests are weighted 10x compared to decide requests:
+Local evaluation requests that return full flag definitions are weighted 10x compared to decide requests. Local evaluation requests answered with 304 are weighted like decide requests:
 
 ```python
 billable_feature_flag_requests_count_in_period = (
     decide_requests_count_in_period
     + (local_evaluation_requests_count_in_period * 10)
+    + local_evaluation_not_modified_requests_count_in_period
 )
 ```
 
-This reflects the higher resource cost of local evaluation requests, which return full flag definitions rather than just evaluation results.
+This reflects the higher resource cost of full local evaluation responses, which return full flag definitions rather than just evaluation results.
 
 ### Token validation
 
@@ -257,6 +268,7 @@ AND has([%(validity_token)s], replaceRegexpAll(JSONExtractRaw(properties, 'token
 | Distributed lock                 | Prevent concurrent processing of the same team's data                              |
 | Redis pipelining                 | Minimize network round-trips for better performance                                |
 | 10x local evaluation weight      | Local evaluation returns full flag definitions, requiring more server resources    |
+| 1x weight for 304 responses      | A 304 serves no definitions payload, so it costs the same as a `/decide` request   |
 | Selective billing                | Survey and product tour flags are internal features, not customer-billable         |
 | SDK breakdown for analytics only | Billing charges per request regardless of SDK; breakdown is for internal analytics |
 

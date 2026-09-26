@@ -37,6 +37,8 @@ where
 pub enum FlagRequestType {
     Decide,
     FlagDefinitions,
+    /// A `/flags/definitions` poll answered with 304, billed at the `/flags` rate.
+    FlagDefinitionsNotModified,
 }
 
 impl FlagRequestType {
@@ -44,6 +46,7 @@ impl FlagRequestType {
         match self {
             FlagRequestType::Decide => "decide",
             FlagRequestType::FlagDefinitions => "flag_definitions",
+            FlagRequestType::FlagDefinitionsNotModified => "flag_definitions_not_modified",
         }
     }
 }

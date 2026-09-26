@@ -26,6 +26,7 @@ from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
+    billable_feature_flag_requests,
     combine_posthog_code_credits,
     convert_team_usage_rows_to_dict,
     get_self_driving_credits_used_in_period_for_org,
@@ -1166,6 +1167,15 @@ def update_all_orgs_billing_quotas(
                 FlagRequestType.LOCAL_EVALUATION,
             )
         ),
+        "teams_with_local_evaluation_not_modified_requests_count": convert_team_usage_rows_to_dict(
+            _timed_query(
+                "local_evaluation_not_modified_requests",
+                get_teams_with_feature_flag_requests_count_in_period,
+                period.start,
+                period.end,
+                FlagRequestType.LOCAL_EVALUATION_NOT_MODIFIED,
+            )
+        ),
         "teams_with_api_queries_read_bytes": convert_team_usage_rows_to_dict(api_queries_usage["read_bytes"]),
         "teams_with_cdp_trigger_events_metrics": convert_team_usage_rows_to_dict(
             _timed_query("cdp_invocations", get_teams_with_cdp_billable_invocations_in_period, period.start, period.end)
@@ -1258,14 +1268,18 @@ def update_all_orgs_billing_quotas(
     for team in teams:
         decide_requests = all_data["teams_with_decide_requests_count"].get(team.id, 0)
         local_evaluation_requests = all_data["teams_with_local_evaluation_requests_count"].get(team.id, 0)
+        local_evaluation_not_modified_requests = all_data[
+            "teams_with_local_evaluation_not_modified_requests_count"
+        ].get(team.id, 0)
 
         team_report = UsageCounters(
             events=all_data["teams_with_event_count_in_period"].get(team.id, 0),
             exceptions=all_data["teams_with_exceptions_captured_in_period"].get(team.id, 0),
             recordings=all_data["teams_with_recording_count_in_period"].get(team.id, 0),
             rows_synced=all_data["teams_with_rows_synced_in_period"].get(team.id, 0),
-            feature_flag_requests=decide_requests
-            + (local_evaluation_requests * 10),  # Same weighting as in _get_team_report
+            feature_flag_requests=billable_feature_flag_requests(
+                decide_requests, local_evaluation_requests, local_evaluation_not_modified_requests
+            ),
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
