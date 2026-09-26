@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import cast
+from uuid import UUID
 
 from posthog.hogql.escape_sql import escape_hogql_string
 
@@ -187,6 +188,16 @@ def get_page_info(data: dict[str, object], limit: int, offset: int) -> tuple[boo
 
 def pick_fields(record: dict[str, object], fields: list[str]) -> dict[str, object]:
     return {field: record[field] for field in fields if field in record}
+
+
+def has_usable_issue_id(issue: dict[str, object]) -> bool:
+    # Events with no fingerprint state and no `$exception_issue_id` collapse into a row with
+    # no issue identity. Such a row cannot be opened, so it is dropped from the compact list.
+    try:
+        UUID(str(issue.get("id")))
+    except ValueError:
+        return False
+    return True
 
 
 def to_number(value: object) -> float | None:
