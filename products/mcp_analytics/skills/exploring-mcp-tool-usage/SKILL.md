@@ -22,8 +22,9 @@ skill — that answers what they choose.
 When the question asks for an MCP failure rate or percentage, call `posthog:metric-list` before any typed tool or SQL recipe and look for `mcp_tool_call_fail_pct`. Run an approved, non-drifted match with `posthog:data-catalog-metric-run` for the canonical headline. If the user also asks which tool or harness drives failures, answer the headline first, then use the per-tool workflows below for a noncanonical breakdown. If no governed metric matches, say so and label the derived rate noncanonical.
 
 Every per-tool tool here takes a
-`toolName` (the effective tool name — resolved server-side, so pass the name the
-agent actually invokes) plus a `dateRange`, and runs the same query runner the tool-detail UI uses. So
+`toolName` (the effective tool name, resolved server-side: pass the `tool`
+value that `posthog:query-mcp-tools` returns, not a wrapper name like `exec`)
+plus a `dateRange`, and runs the same query runner the tool-detail UI uses. So
 results match the UI, and you never hand-write the HogQL.
 
 ## Suggested questions
