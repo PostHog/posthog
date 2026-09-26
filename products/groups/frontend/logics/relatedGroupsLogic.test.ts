@@ -21,9 +21,11 @@ describe('relatedGroupsLogic', () => {
 
     it('does not show an error toast when the request fails after unmount', async () => {
         let failRequest: () => void = () => {}
+        let requestSignal: AbortSignal | undefined
         jest.spyOn(api, 'get').mockImplementation(
             (_url, options) =>
                 new Promise((_resolve, reject) => {
+                    requestSignal = options?.signal
                     options?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
                     failRequest = () => reject({ status: 500, detail: 'Query exceeded the memory limit' })
                 })
@@ -35,6 +37,7 @@ describe('relatedGroupsLogic', () => {
         failRequest()
         await new Promise((resolve) => setTimeout(resolve, 0))
 
+        expect(requestSignal?.aborted).toBe(true)
         expect(lemonToast.error).not.toHaveBeenCalled()
     })
 })
