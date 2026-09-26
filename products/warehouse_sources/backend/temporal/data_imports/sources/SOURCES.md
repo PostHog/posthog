@@ -71,6 +71,7 @@ the row lists both.
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
+| anvil                            | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | apify_dataset                    | HTTP                        | requests                                                        | ✅                          |
 | apitally                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | apollo                           | HTTP                        | requests                                                        | ✅                          |
@@ -853,7 +854,6 @@ doesn't conflict with concurrent PRs.
 - amplemarket
 - anodot_cost
 - anomalo
-- anvil
 - apaleo
 - appcues
 - appdirect
