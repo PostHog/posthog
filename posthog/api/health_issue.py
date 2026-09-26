@@ -474,7 +474,7 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
 
         return queryset
 
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["health_issue:write"])
     def resolve(self, request: Request, **kwargs) -> Response:
         issue = self.get_object()
         try:
