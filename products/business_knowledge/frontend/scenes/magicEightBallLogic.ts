@@ -5,6 +5,7 @@ import { EightBallAnswerApi, askEightBall } from '../api'
 
 // Long enough for one full shake, so a fast answer still gets its moment.
 export const MIN_SHAKE_MS = 1200
+const ANSWER_TIMEOUT_MS = 35_000
 
 function wait(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
@@ -65,7 +66,10 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
             null as EightBallAnswerApi | null,
             {
                 ask: async () => {
-                    const [result] = await Promise.all([askEightBall(values.question.trim()), wait(MIN_SHAKE_MS)])
+                    const [result] = await Promise.all([
+                        askEightBall(values.question.trim(), AbortSignal.timeout(ANSWER_TIMEOUT_MS)),
+                        wait(MIN_SHAKE_MS),
+                    ])
                     return result
                 },
             },

@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -81,6 +82,7 @@ export function MagicEightBallScene(): JSX.Element {
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { featureFlagsTimedOut } = useValues(appLogic)
     const { preflight } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
     }
@@ -96,6 +98,12 @@ export function MagicEightBallScene(): JSX.Element {
         ) : (
             <Spinner className="text-3xl mx-auto my-8" />
         )
+    }
+    if (!currentOrganization) {
+        return <Spinner className="text-3xl mx-auto my-8" />
+    }
+    if (currentOrganization.is_ai_data_processing_approved !== true) {
+        return <NotFound object="Magic 8 ball" caption="AI data processing is not approved for this organization." />
     }
     return <MagicEightBall />
 }
@@ -161,7 +169,7 @@ function MagicEightBall(): JSX.Element {
                     disabled={!!askDisabledReason}
                     data-attr="magic-eight-ball"
                 >
-                    <div className="MagicEightBall__window" aria-live="polite">
+                    <div className="MagicEightBall__window">
                         {resultLoading ? null : reveal ? (
                             <div className="MagicEightBall__triangle">
                                 <span>{reveal}</span>

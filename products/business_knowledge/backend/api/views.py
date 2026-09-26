@@ -10,7 +10,7 @@ from django.db.models import QuerySet
 import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
@@ -23,7 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 from posthog.models.user import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
 from products.ml_inference.backend.facade.contracts import (
@@ -84,6 +84,16 @@ class _DecisionUnavailableError(exceptions.APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = "The magic 8 ball is cloudy right now. Try again in a moment."
     default_code = "decision_unavailable"
+
+
+class _EightBallBurstRateThrottle(AIBurstRateThrottle):
+    scope = "business_knowledge_eight_ball_burst"
+    action_name = "business knowledge eight ball burst rate limited"
+
+
+class _EightBallSustainedRateThrottle(AISustainedRateThrottle):
+    scope = "business_knowledge_eight_ball_sustained"
+    action_name = "business knowledge eight ball sustained rate limited"
 
 
 class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -611,12 +621,20 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         results = results[:limit]
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
 
-    @extend_schema(request=EightBallQuestionSerializer, responses={200: EightBallAnswerSerializer})
+    @extend_schema(
+        request=EightBallQuestionSerializer,
+        responses={
+            200: EightBallAnswerSerializer,
+            404: OpenApiResponse(description="The decision model is not enabled for this project."),
+            503: OpenApiResponse(description="The decision service is unavailable."),
+        },
+    )
     @action(
         detail=False,
         methods=["post"],
         url_path="eight_ball",
         pagination_class=None,
+        throttle_classes=[_EightBallBurstRateThrottle, _EightBallSustainedRateThrottle],
     )
     def eight_ball(self, request: Request, **kwargs) -> Response:
         """Answer a product question like a magic 8 ball, from this project's business knowledge."""

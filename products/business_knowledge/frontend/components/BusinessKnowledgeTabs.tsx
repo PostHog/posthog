@@ -4,6 +4,7 @@ import { LemonTabs } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -14,8 +15,10 @@ export type BusinessKnowledgeTab = 'sources' | 'magic-eight-ball' | 'settings'
 export function BusinessKnowledgeTabs({ activeTab }: { activeTab: BusinessKnowledgeTab }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const decisionsAvailable =
         !!featureFlags[FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL] &&
+        currentOrganization?.is_ai_data_processing_approved === true &&
         (!!preflight?.is_debug ||
             (preflight?.region === Region.US && !!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS]))
 

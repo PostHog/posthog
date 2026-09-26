@@ -131,6 +131,6 @@ export async function refreshSource(id: string): Promise<KnowledgeSourceApi> {
     return await businessKnowledgeSourcesRefreshCreate(String(getCurrentTeamId()), id)
 }
 
-export async function askEightBall(question: string): Promise<EightBallAnswerApi> {
-    return await businessKnowledgeDocumentsEightBallCreate(String(getCurrentTeamId()), { question })
+export async function askEightBall(question: string, signal?: AbortSignal): Promise<EightBallAnswerApi> {
+    return await businessKnowledgeDocumentsEightBallCreate(String(getCurrentTeamId()), { question }, { signal })
 }

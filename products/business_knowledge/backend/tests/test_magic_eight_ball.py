@@ -247,3 +247,17 @@ class TestEightBallAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         decide.assert_not_called()
+
+    def test_session_requests_are_rate_limited(self, _embed, _ff) -> None:
+        with (
+            patch("products.business_knowledge.backend.api.views._EightBallBurstRateThrottle.rate", "2/minute"),
+            patch("products.business_knowledge.backend.api.views.magic_eight_ball.ask") as ask,
+        ):
+            first = self.client.post(self.url, {"question": "Will it ship?"}, format="json")
+            second = self.client.post(self.url, {"question": "Will it ship?"}, format="json")
+            third = self.client.post(self.url, {"question": "Will it ship?"}, format="json")
+
+        assert first.status_code == status.HTTP_200_OK
+        assert second.status_code == status.HTTP_200_OK
+        assert third.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert ask.call_count == 2
