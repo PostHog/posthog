@@ -351,6 +351,7 @@ class QueryRun:
             "execution_mode": self.execution_mode.value,
             "query_type": self.query_type,
             "cache_key": self.cache_key,
+            "request_trigger": self.trigger,
         }
 
 
@@ -2852,6 +2853,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # validation is a failed run that published nothing.
             response = CachedResponse(**fresh_response_dict)
 
+            stored = False
             if cacheable:
                 with self.timings.measure("cache_write"):
                     stored = cache_manager.store_result(
@@ -2878,6 +2880,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_executed_props = {
                 **query_run.event_properties(),
                 "cache_hit": False,
+                "last_refresh": last_refresh.isoformat(),
+                "cache_write_success": stored,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
                 "calculation_trigger": query_run.trigger,
                 "response_time_ms": query_run.elapsed_ms(),

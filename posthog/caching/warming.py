@@ -196,6 +196,8 @@ def schedule_warming_for_teams_task():
                 event="cache warming - insights to cache",
                 properties={
                     "count": len(insight_tuples),
+                    "standalone_count": sum(dashboard_id is None for _, dashboard_id in insight_tuples),
+                    "dashboard_count": sum(dashboard_id is not None for _, dashboard_id in insight_tuples),
                     "team_id": team.id,
                     "organization_id": team.organization_id,
                     "shared_only": shared_only,
