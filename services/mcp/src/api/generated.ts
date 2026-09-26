@@ -46437,10 +46437,10 @@ export namespace Schemas {
       resource_id: string;
       /** Id of the change request that was opened. */
       change_request_id: string;
-      /** The change request that was opened, serialized in full. */
-      change_request: unknown;
-      /** Who can approve the change request. */
-      required_approvers: unknown;
+      /** The change request that was opened, serialized in full. Present only when the caller can read approvals (the `approvals:read` scope for API keys). */
+      change_request?: unknown;
+      /** Who can approve the change request. Present only when the caller can read approvals (the `approvals:read` scope for API keys). */
+      required_approvers?: unknown;
     }
 
     export type FeatureFlagActionConflict = FlagActionError | FlagApprovalConflict;

@@ -381,11 +381,7 @@ export const getExperimentsUpdateUrl = (projectId: string, id: number) => {
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsUpdate = async (
     projectId: string,
@@ -528,11 +524,7 @@ export const getExperimentsCreateExposureCohortForExperimentCreateUrl = (project
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsCreateExposureCohortForExperimentCreate = async (
     projectId: string,
@@ -553,11 +545,7 @@ export const getExperimentsDuplicateCreateUrl = (projectId: string, id: number) 
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsDuplicateCreate = async (
     projectId: string,
@@ -771,11 +759,7 @@ export const getExperimentsMetricsRecalculationRetrieveUrl = (
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsMetricsRecalculationRetrieve = async (
     projectId: string,
@@ -797,11 +781,7 @@ export const getExperimentsMetricsRecalculationLatestRetrieveUrl = (projectId: s
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsMetricsRecalculationLatestRetrieve = async (
     projectId: string,
@@ -878,11 +858,7 @@ export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, 
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsRecalculateTimeseriesCreate = async (
     projectId: string,
@@ -1075,11 +1051,7 @@ export const getExperimentsTimeseriesResultsRetrieveUrl = (
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsTimeseriesResultsRetrieve = async (
     projectId: string,
@@ -1374,11 +1346,7 @@ export const getExperimentsStatsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.
- *
- * Intercepts ApprovalRequired (409) and PolicyConflict (400) raised by the @approval_gate
- * decorator on serializer methods and converts them into the same responses the viewset path
- * produces (see decorators._result_to_response), so both paths share one contract.
+ * Create, read and update experiments.
  */
 export const experimentsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getExperimentsStatsRetrieveUrl(projectId), {
