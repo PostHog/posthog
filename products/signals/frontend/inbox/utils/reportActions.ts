@@ -31,6 +31,15 @@ export function canResolveReport(report: SignalReport): boolean {
     )
 }
 
+/**
+ * Should an archived report offer Restore? The server refuses two cases. A refunded report's PR can
+ * never be billed again. A merged report's signals and work log moved to the report it was merged
+ * into, so restoring it would put an empty duplicate back in the inbox.
+ */
+export function canRestoreReport(report: SignalReport): boolean {
+    return report.status === SignalReportStatus.SUPPRESSED && !report.refund && report.dismissal_reason !== 'merged'
+}
+
 /** The backend closes an open implementation PR on resolve; surfaces use this to say so. */
 export function hasOpenImplementationPr(report: SignalReport): boolean {
     return hasActiveReportPullRequest(report)

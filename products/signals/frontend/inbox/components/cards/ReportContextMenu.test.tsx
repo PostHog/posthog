@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useMocks } from '~/mocks/jest'
@@ -48,14 +50,28 @@ function menuRowText(): (string | null)[] {
 
 describe('ReportContextMenu', () => {
     let stateRequests: { reportId: string; body: Record<string, unknown> }[]
+    let mergeRequests: { survivorId: string; body: Record<string, unknown> }[]
 
     beforeEach(() => {
         stateRequests = []
+        mergeRequests = []
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/signals/reports/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [makeReport(), makeReport({ id: 'report-2', title: 'Report two' })],
+                },
             },
             post: {
+                '/api/projects/:team_id/signals/reports/:report_id/merge/': async ({ request, params }) => {
+                    mergeRequests.push({
+                        survivorId: params.report_id as string,
+                        body: (await request.json()) as Record<string, unknown>,
+                    })
+                    return [200, { report: makeReport({ id: params.report_id as string }), sources: [] }]
+                },
                 '/api/projects/:team_id/signals/reports/:report_id/state/': async ({ request, params }) => {
                     stateRequests.push({
                         reportId: params.report_id as string,
@@ -69,7 +85,11 @@ describe('ReportContextMenu', () => {
     })
 
     // The menu content renders in a portal, so cleanup keeps one case's rows out of the next.
-    afterEach(cleanup)
+    afterEach(async () => {
+        screen.queryAllByLabelText('close').forEach((button) => fireEvent.click(button))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        cleanup()
+    })
 
     // The menu must mirror the detail pane's eligibility rules; a drifted guard silently offers a
     // dead-end action (a 409 transition, a duplicate PR) or hides a legitimate one. Every menu
@@ -120,6 +140,10 @@ describe('ReportContextMenu', () => {
                 // The menu only checks refund presence, so the row's other fields don't matter here.
                 refund: { id: 'refund-1' } as unknown as SignalReport['refund'],
             }),
+        },
+        {
+            name: 'a report merged into another one',
+            report: makeReport({ status: SignalReportStatus.SUPPRESSED, dismissal_reason: 'merged' }),
         },
     ])('renders no menu for $name', ({ report }) => {
         openMenu(report)
@@ -197,5 +221,58 @@ describe('ReportContextMenu', () => {
 
         expect(await screen.findByText(dialog)).toBeInTheDocument()
         expect(stateRequests).toEqual([])
+    })
+
+    describe('with report merge enabled', () => {
+        beforeEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MERGE], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_MERGE]: true,
+            })
+        })
+
+        // The API refuses an in-progress source, or one with more signals than a merge can move, with a
+        // 409, so the menu must not offer that dead end.
+        it.each([
+            { name: 'a ready report', overrides: { status: SignalReportStatus.READY }, offersMerge: true },
+            {
+                name: 'an in-progress report',
+                overrides: { status: SignalReportStatus.IN_PROGRESS },
+                offersMerge: false,
+            },
+            { name: 'a report past the signal cap', overrides: { signal_count: 5001 }, offersMerge: false },
+        ])('$name offers merge under Dismiss: $offersMerge', async ({ overrides, offersMerge }) => {
+            openMenu(makeReport(overrides))
+
+            expect(menuRowText()).not.toContain('Merge into…')
+            fireEvent.click(screen.getByText('Dismiss'))
+            await screen.findByText('Other')
+            expect(menuRowText().includes('Merge into…')).toBe(offersMerge)
+        })
+
+        // The URL names the survivor and the body names the source. A swapped pair archives the report
+        // the person picked to keep, and nothing can undo a merge. Enter in the picker only picks a
+        // result: if it reached the dialog form, the form would submit the survivor from its last
+        // render, which after a second search is the report the person replaced.
+        it.each(['submenu', 'dismiss dialog'])('merges from the %s into the picked report', async (entry) => {
+            openMenu(makeReport())
+
+            fireEvent.click(screen.getByText('Dismiss'))
+            if (entry === 'dismiss dialog') {
+                fireEvent.click(await screen.findByLabelText('Dismiss and write a note'))
+                const mergeButton = await screen.findByText('Merge into…')
+                fireEvent.keyDown(mergeButton, { key: 'Enter' })
+            }
+            fireEvent.click(await screen.findByText('Merge into…'))
+            expect(stateRequests).toEqual([])
+            const picker = await screen.findByPlaceholderText('Search reports by title')
+            await waitFor(() => expect(screen.queryByText('Dismiss & teach the agent')).not.toBeInTheDocument())
+            fireEvent.click(picker)
+            fireEvent.click(await screen.findByText('Report two'))
+            fireEvent.keyDown(picker, { key: 'Enter' })
+            fireEvent.click(screen.getByText('Merge report'))
+
+            await waitFor(() => expect(screen.queryByText('Merge report')).not.toBeInTheDocument())
+            expect(mergeRequests).toEqual([{ survivorId: 'report-2', body: { source_report_ids: ['report-1'] } }])
+        })
     })
 })
