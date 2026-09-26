@@ -80,7 +80,6 @@ from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
-from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import multisort
 
 from products.actions.backend.models.action import Action
@@ -905,9 +904,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
 
-        self.modifiers.sessionPropertyPreAggregation = (
-            self._has_session_breakdown() and self._team_flag_session_property_pre_aggregation()
-        )
+        self.modifiers.sessionPropertyPreAggregation = self._has_session_breakdown()
 
     def _has_session_breakdown(self) -> bool:
         filter = self.query.breakdownFilter
@@ -916,22 +913,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         if filter.breakdown_type == "session":
             return True
         return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
-
-    def _team_flag_session_property_pre_aggregation(self) -> bool:
-        return feature_enabled_or_false(
-            "trends-session-property-pre-aggregation",
-            str(self.team.uuid),
-            groups={
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.id),
-            },
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
 
     def setup_series(self) -> list[SeriesWithExtras]:
         cohort_breakdown_expands = (
