@@ -77,9 +77,9 @@ pub struct ValidatedPinnedRun {
     pub warnings: Vec<PinnedWarning>,
 }
 
-/// A run proven `seeding` with an established boundary, ready for pinned-payload validation. The
-/// `trigger`/`boundary_at_ms` are already typed and present — the store performs the sole
-/// `Option`→value narrowing before building this.
+/// A run proven `seeding` or `trailing` with an established boundary, ready for pinned-payload
+/// validation. The `trigger`/`boundary_at_ms` are already typed and present — the store performs
+/// the sole `Option`→value narrowing before building this.
 #[derive(Debug)]
 pub struct PinnedRunSnapshot {
     pub run_id: RunId,
@@ -396,12 +396,7 @@ impl PinnedRun {
                 pinned_team_id: self.team_id.0,
             });
         }
-        Ok(SeedDomain::new(
-            spec.day,
-            self.boundary,
-            self.tz,
-            spec.s_chunk,
-        )?)
+        Ok(SeedDomain::new(spec.day, self.tz, spec.s_chunk)?)
     }
 }
 

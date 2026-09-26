@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldOauthAccountSelectConfig,
@@ -88,6 +89,7 @@ FieldType = Union[
     SourceFieldSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldOauthAccountSelectConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldSSHTunnelConfig,
 ]
