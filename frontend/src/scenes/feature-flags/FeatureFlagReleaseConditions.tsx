@@ -24,7 +24,6 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dateFilterToText, dateStringToComponents } from 'lib/utils/dateFilters'
 import { clamp } from 'lib/utils/numbers'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
@@ -50,6 +49,7 @@ import { FractionalRolloutWarning } from 'products/feature_flags/frontend/Fracti
 
 import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { BlastRadiusErrorMessage } from './BlastRadiusErrorMessage'
+import { BlastRadiusSkeleton } from './BlastRadiusSkeleton'
 import { EARLY_ACCESS_GROUP_TARGETING_DISABLED_REASON, MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -477,8 +477,8 @@ export function FeatureFlagReleaseConditions({
                                     }
                                     if (affected === undefined || affected < 0 || total === undefined) {
                                         return (
-                                            <div className="basis-full flex items-center mt-1">
-                                                <Spinner />
+                                            <div className="basis-full mt-1 text-secondary">
+                                                <BlastRadiusSkeleton targetName={pluralName} />
                                             </div>
                                         )
                                     }
