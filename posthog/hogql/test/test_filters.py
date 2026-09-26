@@ -632,6 +632,15 @@ class TestFilters(BaseTest):
         ):
             replace_filters(select, HogQLFilters(filterTestAccounts=True), self.team)
 
+    def test_replace_filters_persons_test_accounts_unparseable_hogql_raises_parse_error(self):
+        self.team.test_account_filters = [{"key": "properties.plan match 'free'", "type": "hogql"}]
+        self.team.save()
+
+        select = self._parse_select("SELECT id FROM persons where {filters}")
+
+        with self.assertRaisesMessage(QueryError, "Invalid HogQL property filter: properties.plan match 'free'"):
+            replace_filters(select, HogQLFilters(filterTestAccounts=True), self.team)
+
     def test_replace_filters_events_joined_with_persons_keep_event_scope(self):
         with time_machine.travel("2020-02-15T13:37:42Z", tick=False):
             select = replace_filters(

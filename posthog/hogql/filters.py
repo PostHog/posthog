@@ -27,7 +27,7 @@ from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
 from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
 from posthog.hogql.database.schema.spans import TraceSpansTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import InvalidPropertyFilterError, QueryError
 from posthog.hogql.property import bound_property_to_expr, property_to_expr
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
@@ -324,6 +324,10 @@ class ReplaceFilters(CloningVisitor):
                     if persons_only:
                         try:
                             exprs.append(property_to_expr(prop, self.team, scope="person"))
+                        except InvalidPropertyFilterError:
+                            # A parse failure applies to every scope, so the message below, which
+                            # asks for a person property filter, would misdescribe it.
+                            raise
                         except (QueryError, NotImplementedError) as error:
                             raise self._persons_test_account_filter_error(prop) from error
                     else:
