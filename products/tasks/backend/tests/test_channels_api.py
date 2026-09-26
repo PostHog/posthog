@@ -987,9 +987,8 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         # The author wasn't mentioned, so their own feed stays empty.
         self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_thread_message_notifies_creator_and_mentions_only(self, mock_delay, _flag):
+    def test_thread_message_notifies_creator_and_mentions_only(self, mock_delay):
         mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
         unmentioned = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
         self.organization.members.add(mentioned, unmentioned)
@@ -1014,9 +1013,8 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(mock_enqueue.call_count, 2)
 
     @patch("products.tasks.backend.facade.api.TaskActivity.record", side_effect=RuntimeError("db is down"))
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_mention_activity_failure_does_not_discard_push_recipients(self, mock_delay, _flag, _record):
+    def test_mention_activity_failure_does_not_discard_push_recipients(self, mock_delay, _record):
         mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
         self.organization.members.add(mentioned)
 
@@ -1057,9 +1055,8 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         response = self.peer_client.get(self._mentions_url(), {"since": "not-a-date"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_mention_on_invisible_task_is_hidden(self, mock_delay, _flag):
+    def test_mention_on_invisible_task_is_hidden(self, mock_delay):
         private_task = Task.objects.create(
             team=self.team,
             created_by=self.author,

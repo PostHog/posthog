@@ -54,9 +54,8 @@ class TestPushDispatcher(TestCase):
             ("turn_completed", notify_task_run_turn_completed, "finished"),
         ]
     )
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_notify_enqueues_push(self, _name, notify_fn, expected_body_fragment, mock_delay, _flag):
+    def test_notify_enqueues_push(self, _name, notify_fn, expected_body_fragment, mock_delay):
         with self.captureOnCommitCallbacks(execute=True):
             notify_fn(self.task_run)
         mock_delay.assert_called_once()
@@ -70,30 +69,8 @@ class TestPushDispatcher(TestCase):
         # No presence rows in this test's setUp, so nothing to suppress.
         self.assertEqual(suppressed, [])
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_feature_flag_off_skips_dispatch(self, mock_delay, _flag):
-        labels = {"kind": "completed", "outcome": "flag_disabled"}
-        before = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_outcomes_total", labels) or 0.0
-        with self.captureOnCommitCallbacks(execute=True):
-            notify_task_run_completed(self.task_run)
-        mock_delay.assert_not_called()
-        after = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_outcomes_total", labels) or 0.0
-        self.assertEqual(after, before + 1)
-
-    @patch(
-        "products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled",
-        side_effect=RuntimeError("flag service down"),
-    )
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_flag_error_fails_closed(self, mock_delay, _flag):
-        with self.captureOnCommitCallbacks(execute=True):
-            notify_task_run_completed(self.task_run)
-        mock_delay.assert_not_called()
-
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
-    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_cooldown_collapses_duplicates(self, mock_delay, _flag):
+    def test_cooldown_collapses_duplicates(self, mock_delay):
         labels = {"kind": "completed", "outcome": "cooldown_deduped"}
         before = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_outcomes_total", labels) or 0.0
         with self.captureOnCommitCallbacks(execute=True):
@@ -104,9 +81,8 @@ class TestPushDispatcher(TestCase):
         after = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_outcomes_total", labels) or 0.0
         self.assertEqual(after, before + 2)
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_cooldown_is_per_kind(self, mock_delay, _flag):
+    def test_cooldown_is_per_kind(self, mock_delay):
         # Different push kinds on the same run shouldn't share a cooldown key.
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_run_completed(self.task_run)
@@ -114,9 +90,8 @@ class TestPushDispatcher(TestCase):
             notify_task_run_turn_completed(self.task_run)
         self.assertEqual(mock_delay.call_count, 3)
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_handoff_cooldown_distinguishes_announcements(self, mock_delay, _flag):
+    def test_handoff_cooldown_distinguishes_announcements(self, mock_delay):
         announcement_id = uuid4()
         with self.captureOnCommitCallbacks(execute=True):
             notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=announcement_id)
@@ -124,9 +99,8 @@ class TestPushDispatcher(TestCase):
             notify_task_handoff(self.task, recipient=self.user, actor=self.user, message_id=uuid4())
         self.assertEqual(mock_delay.call_count, 2)
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_recipient_without_team_access_is_skipped(self, mock_delay, _flag):
+    def test_recipient_without_team_access_is_skipped(self, mock_delay):
         """A user who has been removed from the task's organization must not receive
         pushes carrying that task's title — losing access should mean losing notifications."""
         outsider = User.objects.create_user(email="outsider@example.com", first_name="Out", password="x")
@@ -143,9 +117,8 @@ class TestPushDispatcher(TestCase):
             notify_task_run_completed(outsider_run)
         mock_delay.assert_not_called()
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_anonymous_task_is_noop(self, mock_delay, _flag):
+    def test_anonymous_task_is_noop(self, mock_delay):
         anonymous_task = Task.objects.create(
             team=self.team,
             title="Anon",
@@ -160,7 +133,7 @@ class TestPushDispatcher(TestCase):
 
     @patch("products.tasks.backend.push_dispatcher._enqueue_inner", side_effect=RuntimeError("redis is down"))
     def test_enqueue_swallows_unexpected_errors(self, _mock_inner):
-        """The dispatcher MUST NOT raise. Any DB / Redis / flag-service hiccup
+        """The dispatcher MUST NOT raise. Any DB / Redis hiccup
         must be swallowed so it can't fail the task lifecycle activity that
         triggered the push."""
         # The bare except in _enqueue should catch the RuntimeError. If it
