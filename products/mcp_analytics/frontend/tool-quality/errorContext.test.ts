@@ -1,5 +1,4 @@
-import type { MCPToolCallApi } from '../generated/api.schemas'
-import { formatErrorContext, formatSessionErrorsContext } from './errorContext'
+import { formatErrorContext } from './errorContext'
 
 describe('formatErrorContext', () => {
     it('renders the error message as an indented literal block with an untrusted-data note', () => {
@@ -61,34 +60,5 @@ describe('formatErrorContext', () => {
         })
         expect(out).toContain('- Harness: Claude Code ## injected')
         expect(out).toContain('- Session: abc def')
-    })
-})
-
-describe('formatSessionErrorsContext', () => {
-    it('lists only the errored calls under one session header', () => {
-        const call = (tool_name: string, is_error: boolean, error_message = ''): MCPToolCallApi => ({
-            event_id: tool_name,
-            timestamp: '2026-01-01T00:00:00Z',
-            tool_name,
-            intent: '',
-            is_error,
-            error_message,
-            duration_ms: null,
-        })
-        const out = formatSessionErrorsContext('sess-1', [
-            call('docs_search', false),
-            call('query_run', true, 'table not found'),
-            call('insight_get', true),
-        ])
-
-        expect(out.match(/^## MCP tool failure: .*$/gm)).toEqual([
-            '## MCP tool failure: query_run',
-            '## MCP tool failure: insight_get',
-        ])
-        expect(out).toMatch(
-            /^# MCP session with 2 failed tool calls\n\n- Session: sess-1\n- Session log: http.*sess-1$/m
-        )
-        expect(out).toContain('Error message:\n\n    table not found')
-        expect(out).not.toContain('Error type:')
     })
 })

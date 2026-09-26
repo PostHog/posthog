@@ -1,11 +1,9 @@
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import type { MCPToolCallApi } from '../generated/api.schemas'
-
 export interface MCPErrorContext {
     toolName: string
-    errorType?: string
+    errorType: string
     errorStatus?: string
     errorMessage?: string
     timestamp?: string
@@ -13,8 +11,6 @@ export interface MCPErrorContext {
     intent?: string
     sessionId?: string
 }
-
-export type MCPBucketedErrorContext = MCPErrorContext & { errorType: string }
 
 export function mcpSessionUrl(sessionId: string): string {
     return `${urls.mcpAnalyticsSessions()}?search=${encodeURIComponent(sessionId)}`
@@ -44,12 +40,9 @@ function inlineValue(value: string): string {
  * copy button and the create-task flow so both surfaces carry identical context.
  */
 export function formatErrorContext(ctx: MCPErrorContext): string {
-    const lines = [`## MCP tool failure: ${inlineValue(ctx.toolName)}`, '']
-    if (ctx.errorType) {
-        const errorType = inlineValue(ctx.errorType)
-        const bucket = ctx.errorStatus ? `${errorType} (HTTP ${inlineValue(ctx.errorStatus)})` : errorType
-        lines.push(`- Error type: ${bucket}`)
-    }
+    const errorType = inlineValue(ctx.errorType)
+    const bucket = ctx.errorStatus ? `${errorType} (HTTP ${inlineValue(ctx.errorStatus)})` : errorType
+    const lines = [`## MCP tool failure: ${inlineValue(ctx.toolName)}`, '', `- Error type: ${bucket}`]
     if (ctx.timestamp) {
         lines.push(`- When: ${inlineValue(ctx.timestamp)}`)
     }
@@ -76,24 +69,4 @@ export function formatErrorContext(ctx: MCPErrorContext): string {
         lines.push(`Session log: ${absoluteUrl(mcpSessionUrl(ctx.sessionId))}`)
     }
     return lines.join('\n')
-}
-
-/** Every errored call in one session as a single paste-ready block, one failure section per call. */
-export function formatSessionErrorsContext(sessionId: string, calls: MCPToolCallApi[]): string {
-    const failures = calls.filter((call) => call.is_error)
-    const header = [
-        `# MCP session with ${failures.length} failed tool ${failures.length === 1 ? 'call' : 'calls'}`,
-        '',
-        `- Session: ${inlineValue(sessionId)}`,
-        `- Session log: ${absoluteUrl(mcpSessionUrl(sessionId))}`,
-    ].join('\n')
-    const sections = failures.map((call) =>
-        formatErrorContext({
-            toolName: call.tool_name,
-            errorMessage: call.error_message || undefined,
-            timestamp: call.timestamp,
-            intent: call.intent || undefined,
-        })
-    )
-    return [header, ...sections].join('\n\n')
 }

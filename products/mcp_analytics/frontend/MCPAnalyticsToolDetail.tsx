@@ -56,7 +56,7 @@ import {
 } from './mcpAnalyticsToolDetailLogic'
 import { mcpToolQualityUrlWithDates } from './mcpAnalyticsToolQualityLogic'
 import { CreateFixTaskButton } from './tool-quality/CreateFixTaskButton'
-import { type MCPBucketedErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
+import { type MCPErrorContext, formatErrorContext, mcpSessionUrl } from './tool-quality/errorContext'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -766,7 +766,7 @@ function FailureOccurrencesModal({ toolName }: { toolName: string }): JSX.Elemen
     )
     const { selectFailure } = useActions(mcpAnalyticsToolDetailLogic({ toolName }))
 
-    const occurrenceContext = (o: MCPToolFailureOccurrenceItem): MCPBucketedErrorContext => ({
+    const occurrenceContext = (o: MCPToolFailureOccurrenceItem): MCPErrorContext => ({
         toolName,
         errorType: selectedFailure?.error_type ?? '',
         errorStatus: o.error_status || selectedFailure?.error_status || undefined,

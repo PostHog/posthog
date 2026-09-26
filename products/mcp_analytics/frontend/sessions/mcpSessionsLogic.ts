@@ -3,11 +3,10 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 
 import {
     mcpAnalyticsSessionsGenerateIntent,
@@ -21,7 +20,6 @@ import {
     parseUrlBoolean,
     sharedFilterParams,
 } from '../mcpAnalyticsFiltersLogic'
-import { formatSessionErrorsContext } from '../tool-quality/errorContext'
 
 export interface MCPSessionsFilters {
     search: string
@@ -80,13 +78,6 @@ export interface SessionToolCalls {
     filters: MCPSharedQueryFilters | null
     calls: MCPToolCallApi[]
     hasNext: boolean
-}
-
-const ERRORED_CALL_FILTER: AnyPropertyFilter = {
-    key: '$mcp_is_error',
-    value: ['true'],
-    operator: PropertyOperator.Exact,
-    type: PropertyFilterType.Event,
 }
 
 const EMPTY_TOOL_CALLS: SessionToolCalls = { sessionId: null, filters: null, calls: [], hasNext: false }
@@ -156,9 +147,6 @@ export interface mcpSessionsLogicActions {
     setPropertyFilters: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
     } // mcpAnalyticsFiltersLogic
-    copySessionErrors: () => {
-        value: true
-    }
     generateIntent: (sessionId: string) => string
     generateIntentFailure: (
         error: string,
@@ -334,7 +322,6 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
         setHasNext: (hasNext: boolean) => ({ hasNext }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
-        copySessionErrors: true,
     }),
     loaders(({ values, actions, cache }) => ({
         sessions: [
@@ -630,36 +617,6 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 if (sessionId) {
                     actions.loadToolCalls(sessionId)
                 }
-            },
-            // The detail panel pages its calls, so fetch every errored call rather than copy a partial list.
-            copySessionErrors: async () => {
-                const session = values.selectedSession
-                if (!session || !values.currentProjectId) {
-                    return
-                }
-                const errorsOnly: MCPSharedQueryFilters = {
-                    ...values.sharedQueryFilters,
-                    properties: [...values.sharedQueryFilters.properties, ERRORED_CALL_FILTER],
-                }
-                const calls: MCPToolCallApi[] = []
-                let hasNext = true
-                try {
-                    while (hasNext) {
-                        const page = await fetchToolCallsPage(
-                            values.currentProjectId,
-                            session.session_id,
-                            session.session_start,
-                            calls.length,
-                            errorsOnly
-                        )
-                        calls.push(...page.calls)
-                        hasNext = page.hasNext && page.calls.length > 0
-                    }
-                } catch {
-                    lemonToast.error("Could not load this session's errors. Please try again.")
-                    return
-                }
-                await copyToClipboard(formatSessionErrorsContext(session.session_id, calls), 'session errors')
             },
             generateIntentFailure: () => {
                 lemonToast.error('Could not generate the session intent. Please try again.')

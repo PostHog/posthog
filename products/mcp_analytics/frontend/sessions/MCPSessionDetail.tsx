@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconClock, IconCopy, IconSparkles, IconUser, IconWarning } from '@posthog/icons'
+import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { Button, Spinner } from '@posthog/quill-primitives'
 
@@ -27,7 +27,7 @@ function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactN
 export function MCPSessionDetail(): JSX.Element {
     const { selectedSession, selectedSessionToolCalls, selectedSessionIntent, isSelectedSessionGenerating } =
         useValues(mcpSessionsLogic)
-    const { copySessionErrors, generateIntent, loadMoreToolCalls, loadToolCalls } = useActions(mcpSessionsLogic)
+    const { generateIntent, loadMoreToolCalls, loadToolCalls } = useActions(mcpSessionsLogic)
 
     if (!selectedSession) {
         return (
@@ -121,18 +121,6 @@ export function MCPSessionDetail(): JSX.Element {
                                     </CopyToClipboardInline>
                                 </span>
                             </Tooltip>
-                            {selectedSession.error_calls > 0 ? (
-                                <LemonButton
-                                    size="xsmall"
-                                    type="secondary"
-                                    icon={<IconCopy />}
-                                    tooltip="Copy this session's errors as context for a coding agent"
-                                    onClick={() => copySessionErrors()}
-                                    data-attr="mcp-session-copy-errors"
-                                >
-                                    Copy errors for agent
-                                </LemonButton>
-                            ) : null}
                         </>
                     )}
                 </div>
