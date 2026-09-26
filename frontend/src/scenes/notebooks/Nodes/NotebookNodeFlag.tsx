@@ -6,6 +6,8 @@ import { IconFlag, IconRocket } from '@posthog/icons'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
+import { isV1FeatureFlagConfig } from 'scenes/feature-flags/featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from 'scenes/feature-flags/FeatureFlagConfigReadonlyNotice'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
@@ -123,7 +125,11 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
             <BindLogic logic={featureFlagLogic} props={{ id }}>
                 {expanded ? (
                     <div className="p-2">
-                        <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        {isV1FeatureFlagConfig(featureFlag.filters) ? (
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        ) : (
+                            <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
+                        )}
                     </div>
                 ) : null}
             </BindLogic>

@@ -27,7 +27,7 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { pluralize } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { toParams } from 'lib/utils/url'
 import { PendingApprovalsBanner } from 'scenes/approvals/PendingApprovalsBanner'
@@ -50,8 +50,8 @@ import {
     ActivityScope,
     AnyPropertyFilter,
     BaseMathType,
+    FeatureFlagConfig,
     FeatureFlagEvaluationRuntime,
-    FeatureFlagFilters,
     FeatureFlagType,
 } from '~/types'
 
@@ -62,6 +62,12 @@ import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
 import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openBulkArchiveFlagsDialog, openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
+import {
+    featureFlagConfigFormat,
+    featureFlagConfigFormatLabel,
+    isRulesV2FeatureFlagConfig,
+    isV1FeatureFlagConfig,
+} from './featureFlagConfigFormat'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
@@ -158,6 +164,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
+    const configFormat = featureFlagConfigFormat(featureFlag.filters)
+    const isV1Config = configFormat === 'v1'
 
     const tryInInsightsUrl = (featureFlag: FeatureFlagType): string => {
         const query: InsightVizNode = {
@@ -201,7 +209,7 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             Copy key
                         </LemonButton>
 
-                        {featureFlag.id && (
+                        {featureFlag.id && isV1Config && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -221,25 +229,29 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                             </AccessControlAction>
                         )}
 
-                        <LemonButton
-                            to={urls.featureFlagNew({ sourceId: featureFlag.id })}
-                            data-attr="feature-flag-duplicate"
-                            fullWidth
-                        >
-                            Duplicate
-                        </LemonButton>
+                        {isV1Config && (
+                            <LemonButton
+                                to={urls.featureFlagNew({ sourceId: featureFlag.id })}
+                                data-attr="feature-flag-duplicate"
+                                fullWidth
+                            >
+                                Duplicate
+                            </LemonButton>
+                        )}
 
                         <LemonButton to={tryInInsightsUrl(featureFlag)} data-attr="usage" fullWidth targetBlank>
                             Try out in Insights
                         </LemonButton>
 
-                        <LemonButton
-                            onClick={() => setIsQuickSurveyModalOpen(true)}
-                            data-attr="create-survey"
-                            fullWidth
-                        >
-                            Create survey
-                        </LemonButton>
+                        {isV1Config && (
+                            <LemonButton
+                                onClick={() => setIsQuickSurveyModalOpen(true)}
+                                data-attr="create-survey"
+                                fullWidth
+                            >
+                                Create survey
+                            </LemonButton>
+                        )}
 
                         <LemonDivider />
 
@@ -261,7 +273,9 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                         ? 'Updating…'
                                         : featureFlag.archived
                                           ? 'Unarchive this flag before enabling it.'
-                                          : undefined
+                                          : configFormat === 'unsupported'
+                                            ? 'This flag is stored in a configuration version this page cannot change.'
+                                            : undefined
                                 }
                             >
                                 {featureFlag.active ? 'Disable' : 'Enable'}
@@ -293,14 +307,20 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                     }}
                                     fullWidth
                                     loading={isUpdating}
-                                    disabledReason={isUpdating ? 'Updating…' : undefined}
+                                    disabledReason={
+                                        isUpdating
+                                            ? 'Updating…'
+                                            : !isV1Config
+                                              ? 'Archiving is not available for this flag yet.'
+                                              : undefined
+                                    }
                                 >
                                     {featureFlag.archived ? 'Unarchive' : 'Archive'}
                                 </LemonButton>
                             </AccessControlAction>
                         )}
 
-                        {featureFlag.id && (
+                        {featureFlag.id && isV1Config && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.FeatureFlag}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -431,6 +451,13 @@ export function OverviewTab({
             title: 'Type',
             width: 120,
             render: function RenderType(_, featureFlag: FeatureFlagType) {
+                if (!isV1FeatureFlagConfig(featureFlag.filters)) {
+                    return (
+                        <LemonTag type="highlight" className="whitespace-nowrap" data-attr="feature-flag-config-format">
+                            {featureFlagConfigFormatLabel(featureFlag.filters)}
+                        </LemonTag>
+                    )
+                }
                 const labels: string[] = []
                 if (flagMatchesType(featureFlag, 'remote_config')) {
                     labels.push('Remote config')
@@ -621,9 +648,11 @@ export function OverviewTab({
                     isRowSelectable: (flag: FeatureFlagType) =>
                         flag.id === null
                             ? false
-                            : flag.can_edit
-                              ? true
-                              : { disabledReason: "You don't have permission to edit this feature flag." },
+                            : !isV1FeatureFlagConfig(flag.filters)
+                              ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
+                              : flag.can_edit
+                                ? true
+                                : { disabledReason: "You don't have permission to edit this feature flag." },
                     rowAriaLabel: (flag: FeatureFlagType) => `Select feature flag ${flag.key}`,
                     headerAriaLabel: 'Select all feature flags on this page',
                     noun: ['flag', 'flags'],
@@ -877,20 +906,25 @@ export function FeatureFlags(): JSX.Element {
 }
 
 export function groupFilters(
-    filters: FeatureFlagFilters,
+    filters: FeatureFlagConfig,
     stringOnly?: true,
     aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 ): string
 export function groupFilters(
-    filters: FeatureFlagFilters,
+    filters: FeatureFlagConfig,
     stringOnly?: false,
     aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 ): JSX.Element | string
 export function groupFilters(
-    filters: FeatureFlagFilters,
+    filters: FeatureFlagConfig,
     stringOnly?: boolean,
     aggregationLabel?: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 ): JSX.Element | string {
+    if (!isV1FeatureFlagConfig(filters)) {
+        return isRulesV2FeatureFlagConfig(filters)
+            ? `${capitalizeFirstLetter(filters.return_type)} · ${pluralize(filters.rules.length, 'rule')}`
+            : 'Unsupported configuration'
+    }
     const aggregationTargetName =
         aggregationLabel && filters.aggregation_group_type_index != null
             ? aggregationLabel(filters.aggregation_group_type_index).plural

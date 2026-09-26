@@ -8,8 +8,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
+    FeatureFlagFilters,
     FeatureFlagGroupType,
-    FeatureFlagType,
     FlagPropertyFilter,
     MultivariateFlagOptions,
     PropertyFilterType,
@@ -31,7 +31,7 @@ jest.mock('uuid', () => ({
 function generateFeatureFlagFilters(
     groups: FeatureFlagGroupType[],
     multivariate?: MultivariateFlagOptions
-): FeatureFlagType['filters'] {
+): FeatureFlagFilters {
     return { groups, multivariate: multivariate ?? null, payloads: {} }
 }
 
@@ -1458,7 +1458,7 @@ describe('the feature flag release conditions logic', () => {
     })
 
     describe('distinct_id display names', () => {
-        function distinctIdFilters(value: string | string[]): FeatureFlagType['filters'] {
+        function distinctIdFilters(value: string | string[]): FeatureFlagFilters {
             return generateFeatureFlagFilters([
                 {
                     properties: [
@@ -1918,5 +1918,26 @@ describe('the feature flag release conditions logic', () => {
 
             expect(logic.values.filters.groups[0].rollout_percentage).toEqual(25)
         })
+    })
+})
+
+describe('a document in another config version', () => {
+    it('does not throw and shows no condition sets', () => {
+        const logic = featureFlagReleaseConditionsLogic({
+            id: 'rules-v2',
+            readOnly: true,
+            filters: {
+                version: 2,
+                return_type: 'boolean',
+                default_value: false,
+                rules: [],
+            } as unknown as FeatureFlagFilters,
+        })
+        logic.mount()
+
+        expect(logic.values.filterGroups).toEqual([])
+        expect(logic.values.properties).toEqual([])
+
+        logic.unmount()
     })
 })

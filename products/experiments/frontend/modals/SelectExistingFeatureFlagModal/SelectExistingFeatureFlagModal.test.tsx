@@ -14,6 +14,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
 } from '~/types'
 
 import { SelectExistingFeatureFlagModal } from './SelectExistingFeatureFlagModal'
@@ -24,7 +25,7 @@ describe('SelectExistingFeatureFlagModal', () => {
     const mockOnSelect = jest.fn()
     let logic: ReturnType<typeof selectExistingFeatureFlagModalLogic.build>
 
-    const baseFeatureFlag: FeatureFlagType = {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test-flag',
         name: 'Test Flag',

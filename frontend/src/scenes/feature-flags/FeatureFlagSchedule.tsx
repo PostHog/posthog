@@ -40,7 +40,7 @@ import { urls } from 'scenes/urls'
 
 import { groupsModel, Noun } from '~/models/groupsModel'
 import {
-    FeatureFlagType,
+    FeatureFlagWithV1Config,
     MultivariateFlagVariant,
     RecurrenceInterval,
     ScheduledChangeOperationType,
@@ -69,7 +69,7 @@ export const DAYJS_FORMAT = 'MMMM DD, YYYY h:mm A'
 type AggregationLabel = (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
 
 function getScheduledVariantsPayloads(
-    featureFlag: FeatureFlagType,
+    featureFlag: FeatureFlagWithV1Config,
     schedulePayload: { variants?: MultivariateFlagVariant[]; payloads?: Record<string, any>; filters?: any }
 ): { variants: MultivariateFlagVariant[]; payloads: Record<string, any> } {
     const currentVariants = featureFlag.filters.multivariate?.variants || []
@@ -413,7 +413,7 @@ function ScheduleCard({
 
 export default function FeatureFlagSchedule(): JSX.Element {
     const {
-        featureFlag,
+        featureFlag: loadedFeatureFlag,
         scheduledChangesLoading,
         scheduledChangeOperation,
         scheduleDateMarker,
@@ -437,6 +437,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
         scheduleFormState,
         scheduleFormCollapsible,
     } = useValues(featureFlagLogic)
+    // The Schedule tab is not offered for another config version (availableTabs), so the document is v1.
+    const featureFlag = loadedFeatureFlag as FeatureFlagWithV1Config
     const {
         deleteScheduledChange,
         setScheduleDateMarker,

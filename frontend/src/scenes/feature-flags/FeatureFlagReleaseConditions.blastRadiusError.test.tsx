@@ -5,7 +5,7 @@ import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagGroupType, FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
+import { FeatureFlagFilters, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { FeatureFlagReleaseConditions } from './FeatureFlagReleaseConditions'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -15,7 +15,7 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
-function buildFilters(): FeatureFlagType['filters'] {
+function buildFilters(): FeatureFlagFilters {
     const group: FeatureFlagGroupType = {
         properties: [
             {
