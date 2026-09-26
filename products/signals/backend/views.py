@@ -37,6 +37,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
+from prometheus_client import Counter
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.authentication import SessionAuthentication
@@ -158,6 +159,7 @@ from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr
 from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    GitHubRepositoryUnreachableErrorSerializer,
     PullRequestChecksPermissionErrorSerializer,
     PullRequestChecksResponseSerializer,
     PullRequestCiStatusesResponseSerializer,
@@ -221,6 +223,13 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+PR_GITHUB_NOT_FOUND = Counter(
+    "signals_pr_github_not_found",
+    "Inbox report PR reads (checks, comments, diff) that returned 404, by endpoint and reason.",
+    ["endpoint", "reason"],
+)
+GITHUB_REPOSITORY_UNREACHABLE_CODE = "github_repository_unreachable"
 
 # `available_reviewers` returns every eligible org member in a single unpaginated payload.
 # Org membership is tiny in practice, so even the biggest
@@ -318,6 +327,23 @@ class EmitSignalSerializer(serializers.Serializer):
     description = serializers.CharField()
     weight = serializers.FloatField(default=0.5, min_value=0.0, max_value=1.0)
     extra = serializers.DictField(required=False, default=dict)
+
+
+def _github_repository_unreachable_response(team_id: int, repository: str, endpoint: str) -> Response:
+    PR_GITHUB_NOT_FOUND.labels(endpoint=endpoint, reason="repository_unreachable").inc()
+    return Response(
+        GitHubRepositoryUnreachableErrorSerializer(
+            {
+                "code": GITHUB_REPOSITORY_UNREACHABLE_CODE,
+                "error": (
+                    f"GitHub can't reach '{repository}' through this project's GitHub integration. "
+                    "A project admin must give the integration access to this repository."
+                ),
+                "remediation_url": f"/project/{team_id}/settings/project-integrations",
+            }
+        ).data,
+        status=status.HTTP_404_NOT_FOUND,
+    )
 
 
 # Simple debug view, to make testing out the flow easier. Disabled in production.
@@ -4013,6 +4039,7 @@ class SignalReportViewSet(
         failure to 502 — an upstream hiccup never 500s the endpoint."""
         reference = self._resolve_report_pr_reference(report)
         if reference is None:
+            PR_GITHUB_NOT_FOUND.labels(endpoint=noun, reason="no_pull_request").inc()
             return Response(
                 {"error": "This report has no implementation pull request."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -4023,7 +4050,7 @@ class SignalReportViewSet(
         if isinstance(cached_result, dict) and key in cached_result:
             return Response({key: cached_result[key]})
 
-        github, repository, pr_number, error = self._github_for_report_pr(report, reference=reference)
+        github, repository, pr_number, error = self._github_for_report_pr(report, reference=reference, endpoint=noun)
         if error is not None:
             return error
         assert github is not None  # `error is None` guarantees a resolved integration
@@ -4075,6 +4102,7 @@ class SignalReportViewSet(
         report: SignalReport,
         *,
         reference: tuple[str, int] | None = None,
+        endpoint: str = "review_comments",
     ) -> tuple[GitHubIntegration | None, str, int, Response | None]:
         """Resolve the report's implementation PR and the GitHub integration that can read it.
 
@@ -4085,6 +4113,7 @@ class SignalReportViewSet(
         """
         reference = reference or self._resolve_report_pr_reference(report)
         if reference is None:
+            PR_GITHUB_NOT_FOUND.labels(endpoint=endpoint, reason="no_pull_request").inc()
             return (
                 None,
                 "",
@@ -4119,10 +4148,7 @@ class SignalReportViewSet(
                 None,
                 repository,
                 pr_number,
-                Response(
-                    {"error": f"No GitHub integration can access '{repository}'."},
-                    status=status.HTTP_404_NOT_FOUND,
-                ),
+                _github_repository_unreachable_response(self.team.id, repository, endpoint),
             )
         return github, repository, pr_number, None
 
@@ -5093,10 +5119,7 @@ class SignalReportArtefactViewSet(
         except GitHubRateLimitError as e:
             return github_rate_limited_response(e)
         if github is None:
-            return Response(
-                {"error": f"No GitHub integration can access '{repository}'."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+            return _github_repository_unreachable_response(self.team.id, str(repository), "diff")
         try:
             pull_request = _pull_request_ref_for_commit(artefact, str(repository), str(branch), github)
         except GitHubRateLimitError as e:
