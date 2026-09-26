@@ -530,6 +530,31 @@ describe('inboxTaskKickoffLogic', () => {
             }
         )
 
+        it.each([
+            ['action-capable', makeReport({ status: SignalReportStatus.READY })],
+            ['answer-only', makeReport({ status: SignalReportStatus.RESOLVED })],
+            ['unknown', null],
+        ])('offers consent-first feedback saving for an %s report', (_label, report) => {
+            const prompt = buildDiscussReportPrompt(report, url, 'This behavior is intentional.')
+            expect(prompt).toContain(
+                'The opening question has a separate, best-effort scout-note forwarding path. Only offer to save new feedback learned after the opening turn; do not offer to save the opening question again.'
+            )
+            expect(prompt).toContain('a correction, a preference, context the report missed, or a fact you verified')
+            expect(prompt).toContain(
+                'When both destinations are available and the chat token has signal_scout:write and llm_skill:write, present both choices and let the user select a destination before confirming the text.'
+            )
+            expect(prompt).toContain('scout-notes-create')
+            expect(prompt).toContain('inbox-report-artefacts-create')
+            expect(prompt).toContain('Confirm the proposed text and destination with the user before writing')
+            expect(prompt).toContain('wait for their agreement')
+            expect(prompt).toContain("verify the author's exact `skill_name`")
+            expect(prompt).toContain('instead of a fleet-wide note')
+            expect(prompt).toContain('If a scout note is unavailable or refused')
+            expect(prompt).toContain('asking again before changing the destination')
+            expect(prompt).toContain('Skip the offer for pure Q&A or when nothing durable emerges')
+            expect(prompt).toContain('Saving feedback does not resolve or suppress the report')
+        })
+
         // Only judged, still-active reports may drive actions: pre-judgment statuses carry unjudged
         // pipeline content, suppressed/failed reports carry the content the judge rejected, and a
         // resolved report's persisted action suggestions would redo already-completed work.
