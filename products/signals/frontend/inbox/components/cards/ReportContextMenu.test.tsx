@@ -85,7 +85,11 @@ describe('ReportContextMenu', () => {
     })
 
     // The menu content renders in a portal, so cleanup keeps one case's rows out of the next.
-    afterEach(cleanup)
+    afterEach(async () => {
+        screen.queryAllByLabelText('close').forEach((button) => fireEvent.click(button))
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+        cleanup()
+    })
 
     // The menu must mirror the detail pane's eligibility rules; a drifted guard silently offers a
     // dead-end action (a 409 transition, a duplicate PR) or hides a legitimate one. Every menu
@@ -236,9 +240,12 @@ describe('ReportContextMenu', () => {
                 offersMerge: false,
             },
             { name: 'a report past the signal cap', overrides: { signal_count: 5001 }, offersMerge: false },
-        ])('$name offers merge: $offersMerge', ({ overrides, offersMerge }) => {
+        ])('$name offers merge under Dismiss: $offersMerge', async ({ overrides, offersMerge }) => {
             openMenu(makeReport(overrides))
 
+            expect(menuRowText()).not.toContain('Merge into…')
+            fireEvent.click(screen.getByText('Dismiss'))
+            await screen.findByText('Other')
             expect(menuRowText().includes('Merge into…')).toBe(offersMerge)
         })
 
@@ -246,11 +253,19 @@ describe('ReportContextMenu', () => {
         // the person picked to keep, and nothing can undo a merge. Enter in the picker only picks a
         // result: if it reached the dialog form, the form would submit the survivor from its last
         // render, which after a second search is the report the person replaced.
-        it('merges the row into the picked report', async () => {
+        it.each(['submenu', 'dismiss dialog'])('merges from the %s into the picked report', async (entry) => {
             openMenu(makeReport())
 
-            fireEvent.click(screen.getByText('Merge into…'))
+            fireEvent.click(screen.getByText('Dismiss'))
+            if (entry === 'dismiss dialog') {
+                fireEvent.click(await screen.findByLabelText('Dismiss and write a note'))
+                const mergeButton = await screen.findByText('Merge into…')
+                fireEvent.keyDown(mergeButton, { key: 'Enter' })
+            }
+            fireEvent.click(await screen.findByText('Merge into…'))
+            expect(stateRequests).toEqual([])
             const picker = await screen.findByPlaceholderText('Search reports by title')
+            await waitFor(() => expect(screen.queryByText('Dismiss & teach the agent')).not.toBeInTheDocument())
             fireEvent.click(picker)
             fireEvent.click(await screen.findByText('Report two'))
             fireEvent.keyDown(picker, { key: 'Enter' })

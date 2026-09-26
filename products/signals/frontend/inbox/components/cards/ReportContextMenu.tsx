@@ -196,7 +196,13 @@ function ReportContextMenuItems({
 
     const openDismissDialog = (initialReason?: DismissalReasonValue): void => {
         onOpenDialog()
-        openDismissReportDialog({ reportTitle, hasOpenPr, initialReason, onConfirm: dismissWith })
+        openDismissReportDialog({
+            reportTitle,
+            hasOpenPr,
+            initialReason,
+            onConfirm: dismissWith,
+            onMerge: canMerge ? onMergeClick : undefined,
+        })
     }
 
     const openResolveDialog = (initialReason?: ResolveReasonValue): void => {
@@ -364,23 +370,26 @@ function ReportContextMenuItems({
                             onPick={pickDismissReason}
                             onPickWithNote={openDismissDialog}
                         />
+                        {canMerge && (
+                            <>
+                                <ContextMenuSeparator />
+                                <ContextMenuItem asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        onClick={() => {
+                                            onOpenDialog()
+                                            onMergeClick()
+                                        }}
+                                        data-attr="inbox-report-context-menu-merge"
+                                    >
+                                        <IconListTreeConnected />
+                                        Merge into…
+                                    </ButtonPrimitive>
+                                </ContextMenuItem>
+                            </>
+                        )}
                     </ContextMenuSubContent>
                 </ContextMenuSub>
-                {canMerge && (
-                    <ContextMenuItem asChild>
-                        <ButtonPrimitive
-                            menuItem
-                            onClick={() => {
-                                onOpenDialog()
-                                onMergeClick()
-                            }}
-                            data-attr="inbox-report-context-menu-merge"
-                        >
-                            <IconListTreeConnected />
-                            Merge into…
-                        </ButtonPrimitive>
-                    </ContextMenuItem>
-                )}
                 <ContextMenuSub>
                     <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-reviewers">
                         <ButtonPrimitive menuItem>
