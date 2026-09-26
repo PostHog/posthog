@@ -2903,18 +2903,10 @@ describe('runStreamLogic', () => {
                 task_summary: null,
                 artifacts: [],
                 state: { resume_from_run_id: 'run-1' },
-                runtime_adapter: null,
-                model: null,
-                reasoning_effort: null,
-                log_url: null,
-                created_at: '2026-01-01T00:00:00Z',
-                updated_at: '2026-01-01T00:00:00Z',
-                completed_at: null,
             } satisfies TaskRunDetailDTOApi
             const firstTurn = [
                 notification('_posthog/run_started', { runId: 'run-1' }),
                 notification('_posthog/user_message', { content: 'First question' }),
-                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Earlier answer' } }),
                 notification('_posthog/turn_complete', {}),
             ]
             jest.mocked(tasksRunsRetrieve).mockResolvedValue(run)
@@ -2937,7 +2929,6 @@ describe('runStreamLogic', () => {
                 ...firstTurn,
                 notification('_posthog/user_message', { content: 'Follow-up' }),
                 wireEcho,
-                sessionUpdate({ sessionUpdate: 'agent_message', content: { text: 'Later answer' } }),
                 notification('_posthog/turn_complete', {}),
                 notification('_posthog/run_started', { runId: 'run-2' }),
                 notification('_posthog/user_message', { content: 'Next question' }),

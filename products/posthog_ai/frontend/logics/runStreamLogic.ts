@@ -1278,12 +1278,10 @@ function retainedFramesWithoutOptimisticEchoes(retained: StoredEntry[]): StoredL
 }
 
 /**
- * A persisted turn replaces its local echo whichever run of the resume chain it belongs to, because
- * a follow-up sent to a live run persists under that run while its echo waits for the successor
- * run's bootstrap. The dedupe below keeps that from eating a repeat: a turn already covered by a
- * retained frame is one the thread showed before this fetch, so an identical later send is its own.
- * `unconfirmedEcho` is the one echo no persisted copy covers yet. It is matched by identity rather
- * than by text, so earlier echoes of the same words still pair off with the copies they belong to.
+ * A follow-up persists under the run it was sent to, not the successor that bootstraps next, so a
+ * persisted turn cancels its local echo whichever run of the chain it belongs to. `unconfirmedEcho`
+ * is the one echo no persisted copy covers yet, matched by identity because the same words can
+ * arrive several times.
  */
 export function reconcileRunLog(
     history: StoredLogEntry[],
@@ -3413,25 +3411,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
             })
             const history = normalizeHistory(entries, session.runId, values.isBootstrapResumeRun)
-            let retained = values.log.entries
-            let unconfirmedEcho: StoredEntry | undefined
-            if (cache.retainedMessage) {
-                const optimisticIndex = retained.findLastIndex(
-                    ({ entry }) =>
-                        entry.notification.method === '_client/human_message' &&
-                        entry.notification.params?.content === cache.retainedMessage
-                )
-                const persisted = history.some(
+            const echo = cache.retainedMessage
+                ? values.log.entries.findLast(
+                      ({ entry }) =>
+                          entry.notification.method === '_client/human_message' &&
+                          entry.notification.params?.content === cache.retainedMessage
+                  )
+                : undefined
+            const echoPersisted =
+                !!echo &&
+                history.some(
                     (entry) =>
                         entry.source_run_id === session.runId && persistedHumanText(entry) === cache.retainedMessage
                 )
-                if (persisted) {
-                    retained = retained.filter((_, index) => index !== optimisticIndex)
-                } else if (optimisticIndex >= 0) {
-                    unconfirmedEcho = retained[optimisticIndex]
-                }
-            }
-            const log = reconcileRunLog(history, retained, session.buffer, unconfirmedEcho)
+            const retained = echoPersisted ? values.log.entries.filter((stored) => stored !== echo) : values.log.entries
+            const log = reconcileRunLog(history, retained, session.buffer, echoPersisted ? undefined : echo)
             const bufferedEntries = new Set(session.buffer)
             const bufferedIds = new Set(session.buffer.flatMap((entry) => (entry.event_id ? [entry.event_id] : [])))
             // Rebuild state without publishing a partial transcript or repeating live reactions.
