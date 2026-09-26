@@ -1725,6 +1725,13 @@ export interface eventUsageLogicActions {
     reportExperimentUpdated: (experiment: Experiment) => {
         experiment: Experiment
     }
+    reportExperimentVariantPreviewOpened: (
+        experimentId: ExperimentIdType,
+        variant: string
+    ) => {
+        experimentId: ExperimentIdType
+        variant: string
+    }
     reportExperimentVariantScreenshotUploaded: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     }
@@ -3014,6 +3021,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             newCohort,
         }),
         reportExperimentInsightLoadFailed: true,
+        reportExperimentVariantPreviewOpened: (experimentId: ExperimentIdType, variant: string) => ({
+            experimentId,
+            variant,
+        }),
         reportExperimentVariantScreenshotUploaded: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => ({ experimentId }),
         reportExperimentReleaseConditionsViewed: (experimentId: ExperimentIdType) => ({ experimentId }),
@@ -4208,6 +4219,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentInsightLoadFailed: () => {
             posthog.capture('experiment load insight failed')
+        },
+        reportExperimentVariantPreviewOpened: ({ experimentId, variant }) => {
+            posthog.capture('experiment variant preview opened', {
+                experiment_id: experimentId,
+                variant,
+            })
         },
         reportExperimentVariantScreenshotUploaded: ({ experimentId }) => {
             posthog.capture('experiment variant screenshot uploaded', {

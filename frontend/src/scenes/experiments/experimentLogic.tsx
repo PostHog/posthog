@@ -728,6 +728,13 @@ export interface experimentLogicActions {
         experimentId: ExperimentIdType
         metric: ExperimentMetricUnion
     } // eventUsageLogic
+    reportExperimentVariantPreviewOpened: (
+        experimentId: ExperimentIdType,
+        variant: string
+    ) => {
+        experimentId: ExperimentIdType
+        variant: string
+    } // eventUsageLogic
     reportExperimentVariantScreenshotUploaded: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     } // eventUsageLogic
@@ -1404,6 +1411,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentViewed',
 
                 'reportExperimentExposureCohortCreated',
+                'reportExperimentVariantPreviewOpened',
                 'reportExperimentVariantScreenshotUploaded',
                 'reportExperimentResultsLoadingTimeout',
                 'reportExperimentReleaseConditionsViewed',
