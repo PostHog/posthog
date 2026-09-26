@@ -3011,15 +3011,15 @@ Note: The reference exposes roughly 140 list endpoints across ATS, attendance, c
 
 ## Fastly — **thin**
 
-Today (7): `current_user`, `service_acls`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
+Today (11): `acl_entries`, `billing_usage_metrics`, `current_user`, `dictionary_items`, `invoices`, `service_acls`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
 
 Diffed against: <https://www.fastly.com/documentation/reference/api/>
 
 - [ ] `metrics-stats/historical-stats (/stats, /stats/service/{id})` — per-service historical traffic, cache hit ratio, bandwidth and errors - Fastly's headline metric and the main reason to warehouse this data (high)
-- [ ] `account/billing-usage-metrics` — usage and spend per product and service over time (high)
-- [ ] `dictionaries/dictionary-item` — lookup table - the actual key/value rows inside the service_dictionaries we already sync (high)
-- [ ] `acls/acl-entry` — lookup table - the IP entries inside the service_acls we already sync (high)
-- [ ] `account/invoices` — billed amounts per period for cost reporting (high)
+- [x] `account/billing-usage-metrics` — usage and spend per product and service over time (high)
+- [x] `dictionaries/dictionary-item` — lookup table - the actual key/value rows inside the service_dictionaries we already sync (high)
+- [x] `acls/acl-entry` — lookup table - the IP entries inside the service_acls we already sync (high)
+- [x] `account/invoices` — billed amounts per period for cost reporting (high)
 - [ ] `metrics-stats/origin-inspector` — origin-level latency, status and byte breakdowns (medium)
 - [ ] `metrics-stats/domain-inspector` — per-domain request and error breakdowns, the natural dimension for service_domains (medium)
 - [ ] `account/events` — account audit event log - who changed what and when (medium)
@@ -3027,7 +3027,7 @@ Diffed against: <https://www.fastly.com/documentation/reference/api/>
 - [ ] `account/service-authorization` — user-to-service permission membership table (medium)
 - [ ] `utils/pops` — lookup resolving POP/datacenter codes that appear in stats and inspector breakdowns (medium)
 
-Note: Current coverage is almost entirely service configuration objects; none of the metrics-stats or account/billing families are exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
+Note: Coverage is service configuration objects plus the account/billing family; none of the metrics-stats family is exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
 
 ## Featurebase — **thin**
 
