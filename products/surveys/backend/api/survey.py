@@ -68,6 +68,7 @@ from products.access_control.backend.presentation.access_control import (
 )
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -2263,7 +2264,15 @@ class SurveyFilterSet(FilterSet):
         ],
     ),
 )
-class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(
+    # Converts the ApprovalRequired raised by FeatureFlagSerializer, when a gated internal
+    # targeting flag write needs approval, into a 409 carrying the pending change_request_id
+    # rather than a 500.
+    ApprovalHandlingMixin,
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    viewsets.ModelViewSet,
+):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
