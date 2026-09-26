@@ -449,8 +449,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
                 "name": "Signup conversion",
             }
         ]
-        # UI display order puts the saved primary metric first
-        experiment.primary_metrics_ordered_uuids = ["saved-primary-uuid", "inline-primary-uuid"]
+        # UI display order puts the saved primary metric first. The inline metric is left out on
+        # purpose: the ordering is a display hint, and an unlisted metric is still summarized, last.
+        experiment.primary_metrics_ordered_uuids = ["saved-primary-uuid"]
         await experiment.asave(update_fields=["metrics", "metrics_secondary", "primary_metrics_ordered_uuids"])
 
         # Add 1 saved primary + 1 saved secondary
