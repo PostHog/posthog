@@ -6,7 +6,7 @@ import { CAPTURE_TIMESTAMP_HEADER } from '~/ingestion/pipelines/sessionreplay/ml
 import { ML_IMAGE_SCRUB_OUTPUT, MlImageScrubOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RefDedupCache } from '~/ingestion/pipelines/sessionreplay/shared/ref-dedup-cache'
 
-import { MlKeyBatchController } from './keys/batch-controller'
+import { MlSessionKeys } from './keys/key-store'
 import { mlKafkaRecord, mlWireVersion, validateImageOwner } from './keys/transport'
 import { MlMirrorMetrics } from './metrics'
 import { CollectedImage } from './parse-and-anonymize-step'
@@ -35,27 +35,23 @@ export function createProduceCollectedImagesStep<
         headers?: { session_id: string }
         collectedImages?: CollectedImage[]
         message: { timestamp?: number }
+        mlKeys?: MlSessionKeys
     },
 >(
     outputs: IngestionOutputs<MlImageScrubOutput>,
-    producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX,
-    keyManager?: MlKeyBatchController
+    producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX
 ): ProcessingStep<T, T> {
     const producedRefs = new RefDedupCache('image_scrub_producer', producedRefCacheMax)
 
     return function produceCollectedImagesStep(input) {
         const sessionId = input.headers?.session_id
-        const key =
-            sessionId && usesRawSessionIdentifiers(sessionId) && input.team
-                ? keyManager?.keys(input.team.teamId, sessionId)?.session
-                : undefined
+        const key = sessionId && usesRawSessionIdentifiers(sessionId) ? input.mlKeys?.session : undefined
         const images = input.collectedImages
         if (!images?.length) {
             return Promise.resolve(ok(input))
         }
 
-        const cacheRef = (ref: string): string => (key ? `${key.identity.sessionId}:${ref}` : ref)
-        const fresh = images.filter((image) => !producedRefs.has(cacheRef(image.ref)))
+        const fresh = images.filter((image) => !producedRefs.has(image.ref))
         MlMirrorMetrics.incrementMlImagesCollected('deduped', images.length - fresh.length)
         if (fresh.length === 0) {
             return Promise.resolve(ok({ ...input, collectedImages: undefined }))
@@ -63,7 +59,7 @@ export function createProduceCollectedImagesStep<
 
         let bytes = 0
         for (const image of fresh) {
-            producedRefs.add(cacheRef(image.ref))
+            producedRefs.add(image.ref)
             bytes += image.bytes.length
         }
         MlMirrorMetrics.incrementMlImagesCollected('queued', fresh.length)
@@ -77,7 +73,7 @@ export function createProduceCollectedImagesStep<
         // whole packed FFI buffer (up to 32 MB per source message), and queueMessages copies the
         // slices synchronously — a closure holding `fresh` would pin the full packed buffer per
         // in-flight produce, unbounded by the producer queue's byte accounting.
-        const refs = fresh.map((image) => cacheRef(image.ref))
+        const refs = fresh.map((image) => image.ref)
         const produce = outputs
             .queueMessages(
                 ML_IMAGE_SCRUB_OUTPUT,

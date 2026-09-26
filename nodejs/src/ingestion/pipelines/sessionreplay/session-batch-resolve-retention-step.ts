@@ -7,7 +7,7 @@ import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-m
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionReplayHeaders } from './pipeline-types'
-import { SessionBatchContext } from './session-batch-context'
+import { RetentionLookupContext } from './session-batch-context'
 import { SessionBatchMetrics } from './sessions/metrics'
 
 /**
@@ -26,7 +26,7 @@ import { SessionBatchMetrics } from './sessions/metrics'
  * stage picks it up (see {@link runSessionReplayPipeline}).
  */
 export function createResolveRetentionStep<
-    T extends { team: TeamForReplay; headers: SessionReplayHeaders } & SessionBatchContext,
+    T extends { team: TeamForReplay; headers: SessionReplayHeaders } & RetentionLookupContext,
 >(retentionService: RetentionService): ChunkProcessingStep<T, T & { retentionPeriod: RetentionPeriod }> {
     return async function resolveRetentionStep(values) {
         // Reuse retention already resolved for sessions still in the current (unflushed) recorder,

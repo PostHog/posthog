@@ -368,8 +368,10 @@ const dashboardInsightsRun = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_insights/`,
             query: {
                 filters_override: params.filters_override,
+                max_result_chars: params.max_result_chars,
                 output_format: params.output_format,
                 refresh: params.refresh,
+                tile_ids: params.tile_ids,
                 variables_override: params.variables_override,
             },
         })
@@ -503,6 +505,42 @@ const dashboardTileCopy = (): ToolBase<
         const result = await context.api.request<Schemas.Dashboard>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/copy_tile/`,
+            body,
+        })
+        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
+    },
+})
+
+const DashboardTransferTileSchema = () => {
+    const DashboardsMoveTilePartialUpdateBody = orvalSchemas.DashboardsMoveTilePartialUpdateBody()
+    const DashboardsMoveTilePartialUpdateParams = orvalSchemas.DashboardsMoveTilePartialUpdateParams()
+    return DashboardsMoveTilePartialUpdateParams.omit({ project_id: true })
+        .extend(DashboardsMoveTilePartialUpdateBody.shape)
+        .extend({
+            id: z.preprocess(castStringToInt, DashboardsMoveTilePartialUpdateParams.shape['id']),
+            tile: DashboardsMoveTilePartialUpdateBody.shape['tile'].nonoptional(),
+            to_dashboard: DashboardsMoveTilePartialUpdateBody.shape['to_dashboard'].nonoptional(),
+        })
+}
+
+const dashboardTransferTile = (): ToolBase<
+    ReturnType<typeof DashboardTransferTileSchema>,
+    WithPostHogUrl<Schemas.Dashboard>
+> => ({
+    name: 'dashboard-transfer-tile',
+    schema: DashboardTransferTileSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardTransferTileSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.to_dashboard !== undefined) {
+            body['to_dashboard'] = params.to_dashboard
+        }
+        if (params.tile !== undefined) {
+            body['tile'] = params.tile
+        }
+        const result = await context.api.request<Schemas.Dashboard>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/move_tile/`,
             body,
         })
         return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
@@ -834,38 +872,6 @@ const dashboardsGetAll = (): ToolBase<
     },
 })
 
-const DashboardsMoveTilePartialUpdateSchema = () => {
-    const DashboardsMoveTilePartialUpdateBody = orvalSchemas.DashboardsMoveTilePartialUpdateBody()
-    const DashboardsMoveTilePartialUpdateParams = orvalSchemas.DashboardsMoveTilePartialUpdateParams()
-    return DashboardsMoveTilePartialUpdateParams.omit({ project_id: true })
-        .extend(DashboardsMoveTilePartialUpdateBody.shape)
-        .extend({ id: z.preprocess(castStringToInt, DashboardsMoveTilePartialUpdateParams.shape['id']) })
-}
-
-const dashboardsMoveTilePartialUpdate = (): ToolBase<
-    ReturnType<typeof DashboardsMoveTilePartialUpdateSchema>,
-    WithPostHogUrl<Schemas.Dashboard>
-> => ({
-    name: 'dashboards-move-tile-partial-update',
-    schema: DashboardsMoveTilePartialUpdateSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardsMoveTilePartialUpdateSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.to_dashboard !== undefined) {
-            body['to_dashboard'] = params.to_dashboard
-        }
-        if (params.tile !== undefined) {
-            body['tile'] = params.tile
-        }
-        const result = await context.api.request<Schemas.Dashboard>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/move_tile/`,
-            body,
-        })
-        return await withPostHogUrl(context, result, `/dashboard/${result.id}`)
-    },
-})
-
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-create': dashboardCreate,
     'dashboard-create-tile': dashboardCreateTile,
@@ -877,6 +883,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-templates-list': dashboardTemplatesList,
     'dashboard-templates-retrieve': dashboardTemplatesRetrieve,
     'dashboard-tile-copy': dashboardTileCopy,
+    'dashboard-transfer-tile': dashboardTransferTile,
     'dashboard-update': dashboardUpdate,
     'dashboard-update-text-tile': dashboardUpdateTextTile,
     'dashboard-widget-catalog-list': dashboardWidgetCatalogList,
@@ -884,5 +891,4 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'dashboard-widgets-batch-update': dashboardWidgetsBatchUpdate,
     'dashboard-widgets-run': dashboardWidgetsRun,
     'dashboards-get-all': dashboardsGetAll,
-    'dashboards-move-tile-partial-update': dashboardsMoveTilePartialUpdate,
 }

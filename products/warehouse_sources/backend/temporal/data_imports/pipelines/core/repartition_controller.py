@@ -9,7 +9,7 @@ schema. The next run's pre-extraction activity performs the rewrite (see `repart
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.utils import timezone
@@ -72,6 +72,15 @@ REPARTITION_COOLDOWN_SECONDS = 24 * 60 * 60
 # permanently-failing table doesn't re-attempt the rewrite on every sync forever.
 MAX_REPARTITION_ATTEMPTS = 3
 
+# Reasons `select_repartition_target` gives that describe the table instead of a defect: its data
+# carries no key to partition on, or its scheme is already as fine as that scheme goes. The
+# controller decided correctly in each case and nobody can act on the result, so these are counted
+# on DELTA_REPARTITION_SKIP_TOTAL and reported on `warehouse_repartition_skipped` but never sent to
+# error tracking. Every other reason means the schema row disagrees with itself (numerical mode with
+# no `partition_size`) or the selector saw a state the caller should have filtered out first
+# (`no_partitions`, `within_budget`), which is a bug in us, so it still alerts.
+EXPECTED_SKIP_REASONS = frozenset({"unpartitionable_no_keys", "datetime_at_finest_tier", "numerical_cannot_shrink"})
+
 
 def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000))
@@ -111,6 +120,45 @@ def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
     return is_schema_flag_enabled(schema, WAREHOUSE_REPARTITION_HOLD_FLAG)
+
+
+def repartition_import_hold_reason(
+    schema: ExternalDataSchema, logger: FilteringBoundLogger
+) -> Literal["swap_staged", "rewrite_converging"] | None:
+    """Why an in-flight repartition holds this schema's import, or None when it does not.
+
+    Two situations hold the import. A staged swap holds it unconditionally, because the table's
+    on-disk partition layout is mid-change and merging across that is data corruption, not staleness.
+    A converging rewrite holds it only when the schema opted in and its checkpoint is fresh enough to
+    be worth waiting for; the flag is checked second so a schema without it never pays for the
+    evaluation, and a flag lookup that throws leaves the import running — pausing a customer's
+    ingestion is the more expensive way to be wrong.
+
+    Side-effect free, because the scheduled full refresh defers on the same answer. The two must not
+    drift: a refresh run skips the repartition activity, so a refresh that proceeds while the import
+    is held never wipes the table.
+    """
+    swap = schema.repartition_swap
+    if swap and swap.get("state") == "ready":
+        # The rewrite may already have re-bucketed the data in S3 while the schema row still holds the
+        # old settings. The merge computes each row's `_ph_partition_key` from those settings and
+        # scopes its predicate to `target._ph_partition_key = '<partition>'`, so under that mismatch
+        # nothing matches and every fetched row inserts instead of upserting — the whole incremental
+        # lookback window duplicated, with the job still reporting Completed. The repartition activity
+        # runs ahead of the import on every sync and resolves the marker, so waiting costs one run's
+        # freshness. Not behind the hold rollout flag: that flag trades freshness for a rewrite that
+        # can finish, and this trades it for not corrupting the table.
+        return "swap_staged"
+
+    if not schema.repartition_holds_import:
+        return None
+    try:
+        if not is_repartition_hold_enabled(schema):
+            return None
+    except Exception:
+        logger.warning("Could not evaluate the repartition hold flag; importing", exc_info=True)
+        return None
+    return "rewrite_converging"
 
 
 def base_event_props(schema: ExternalDataSchema, source: ExternalDataSource, job_id: str | None) -> dict[str, Any]:
@@ -377,7 +425,7 @@ async def maybe_flag_for_repartition(
         # below). Refuse when that result would fall under the floor: partition size cannot be what is
         # killing a table whose partitions are already that small, and without this guard oom_history
         # drives the scheme finer tier by tier until it bottoms out (e.g. datetime at hour) and then
-        # emits a skipped event plus an exception on every cooldown expiry forever.
+        # re-measures and re-emits the skip on every cooldown expiry forever.
         split_budget = budget if over_budget else max(1, max_bytes // 2)
         floor = min_splittable_partition_bytes()
         if not over_budget and split_budget < floor:
@@ -492,10 +540,11 @@ async def maybe_flag_for_repartition(
                 partition_format=schema.partition_format,
                 partition_count=len(partition_bytes),
             )
-            capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
+            if reason not in EXPECTED_SKIP_REASONS:
+                capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
             # Engage the cooldown even though no rewrite happened: the trigger (over budget or repeated
             # OOMs) is still true next sync and the table's scheme can't go finer, so without this we
-            # re-measure, re-emit the skip event, and re-alert on every 5-minute sync forever. The
+            # re-measure and re-emit the skip event on every 5-minute sync forever. The
             # cooldown re-evaluates at most daily; a real change to the table clears it via a later
             # successful repartition.
             await asyncio.to_thread(schema.stamp_last_repartition_at)

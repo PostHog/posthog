@@ -1,4 +1,6 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
+
+import time_machine
 
 from django.test import SimpleTestCase
 
@@ -91,7 +93,6 @@ class TestReportMetric(SimpleTestCase):
         for source_patch, error in (
             ({"breakdownFilter": {"breakdown": "$browser"}}, "must not use a breakdown"),
             ({"compareFilter": {"compare": True}}, "must not use compare mode"),
-            ({"trendsFilter": {"display": "Metric"}}, "Metric display must disable metricShowChange"),
         ):
             with self.subTest(source_patch=source_patch):
                 content = _affected_users_metric().model_dump(mode="json")
@@ -111,6 +112,15 @@ class TestReportMetric(SimpleTestCase):
                 content["query"]["source"]["compareFilter"] = {"compare": False}
                 content["query"]["source"]["trendsFilter"] = trends_filter
                 assert ReportMetric.model_validate(content).query is not None
+
+    def test_live_query_switches_off_the_metric_display_change_pill(self) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content["query"]["source"]["trendsFilter"] = {"display": "Metric"}
+
+        metric = ReportMetric.model_validate(content)
+
+        assert metric.query is not None
+        assert metric.query["source"]["trendsFilter"] == {"display": "Metric", "metricShowChange": False}
 
     def test_live_query_rejects_a_sampling_factor_outside_the_valid_range(self) -> None:
         for sampling_factor in (0, -0.5, 1.5, "0.5"):
@@ -262,7 +272,7 @@ class TestReportMetric(SimpleTestCase):
                 content = _affected_users_metric().model_dump(mode="json")
                 content["query"]["source"]["dateRange"]["date_from"] = date_from
 
-                with self.assertRaisesRegex(ValidationError, "relative time window|must not exceed"):
+                with self.assertRaisesRegex(ValidationError, "relative window|must not exceed"):
                     ReportMetric.model_validate(content)
 
         for date_from in ("-8784h", "-366d", "-52w", "-12m", "-1y"):
@@ -435,14 +445,36 @@ class TestReportMetric(SimpleTestCase):
         with self.assertRaisesRegex(ValidationError, "must include a timezone"):
             ReportMetric.model_validate(content)
 
-    def test_rejects_a_future_snapshot_timestamp(self) -> None:
-        # An author-supplied future time would make every refresh look older than the snapshot and
-        # freeze the stale value, so a time past now plus the clock-skew allowance is rejected.
-        content = _affected_users_metric().model_dump(mode="json")
-        content["value_at"] = (datetime.now(UTC) + timedelta(days=1)).isoformat()
+    @time_machine.travel("2026-09-17T18:50:00Z", tick=False)
+    def test_keeps_a_local_snapshot_timestamp_that_names_the_current_instant(self) -> None:
+        # An author writes the snapshot time in their own zone, where the date can already be
+        # tomorrow or still yesterday. Each of these is the frozen instant, not a future one.
+        for value_at in ("2026-09-18T00:20:00+05:30", "2026-09-17T11:50:00-07:00", "2026-09-17T18:50:00Z"):
+            with self.subTest(value_at=value_at):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["value_at"] = value_at
 
-        with self.assertRaisesRegex(ValidationError, "must not be in the future"):
-            ReportMetric.model_validate(content)
+                metric = ReportMetric.model_validate(content)
+
+                assert metric.value == 17
+                assert metric.value_at == datetime(2026, 9, 17, 18, 50, tzinfo=UTC)
+
+    @time_machine.travel("2026-09-17T18:50:00Z", tick=False)
+    def test_drops_a_snapshot_still_measured_in_the_future(self) -> None:
+        # A time past now plus the clock-skew allowance would make every refresh look older than
+        # the snapshot and freeze the stale value. The metric and its live query still stand, so
+        # the report publishes instead of failing on an optional fallback.
+        for value_at in ("2026-09-18T06:20:00+05:30", "2027-09-17T18:50:00Z"):
+            with self.subTest(value_at=value_at):
+                content = _affected_users_metric().model_dump(mode="json")
+                content["value_at"] = value_at
+                content["series"] = [3, 0, 5]
+
+                metric = ReportMetric.model_validate(content)
+
+                assert metric.value is None
+                assert metric.value_at is None
+                assert metric.series is None
 
     def test_requires_a_live_query_for_every_metric(self) -> None:
         with self.assertRaisesRegex(ValidationError, "Field required"):

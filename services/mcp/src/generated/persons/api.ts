@@ -33,6 +33,12 @@ export const PersonsListQueryParams = () => zod.object({
     distinct_id: zod.string().optional().describe('Filter list by distinct id.'),
     email: zod.string().optional().describe('Filter persons by email (exact match)'),
     format: zod.enum(['csv', 'json']).optional(),
+    include_matched_fields: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Tag each search result with `matched_fields`, the searched fields the term was found in. A complete email address that exactly matches a distinct ID then returns that person first, followed by every person whose email or name property contains the address.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     properties: zod
@@ -213,6 +219,8 @@ export const PersonsUpdatePropertyCreateBody = () => zod.object({
 
 /**
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
+ *
+ * Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
  */
 export const PersonsBulkDeleteCreateParams = () => zod.object({
     project_id: zod

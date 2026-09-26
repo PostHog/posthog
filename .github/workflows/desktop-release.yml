@@ -16,6 +16,7 @@ env:
 
 jobs:
     prepare-release:
+        environment: desktop-release
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         permissions:
@@ -51,6 +52,7 @@ jobs:
                   fi
 
     publish-macos:
+        environment: desktop-release
         needs: [prepare-release]
         strategy:
             fail-fast: false
@@ -313,6 +315,7 @@ jobs:
                   retention-days: 1
 
     publish-windows:
+        environment: desktop-release
         needs: [prepare-release]
         runs-on: depot-windows-2022-4
         timeout-minutes: 90
@@ -499,6 +502,7 @@ jobs:
                   retention-days: 1
 
     publish-linux:
+        environment: desktop-release
         needs: [prepare-release]
         strategy:
             fail-fast: false
@@ -678,6 +682,7 @@ jobs:
                   retention-days: 1
 
     finalize-release:
+        environment: desktop-release
         needs: [publish-macos, publish-windows, publish-linux]
         # Publish only when every platform built successfully. Without an `if:` override
         # the default `needs` gate skips this job (leaving the GitHub release a draft) if

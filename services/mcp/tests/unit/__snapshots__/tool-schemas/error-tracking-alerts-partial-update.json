@@ -41,6 +41,9 @@
                     },
                     "type": "array"
                 },
+                "bytecode_contract": {
+                    "type": "string"
+                },
                 "data_warehouse": {
                     "items": {
                         "additionalProperties": {},
@@ -114,6 +117,9 @@
                     "bytecode": {
                         "items": {},
                         "type": "array"
+                    },
+                    "bytecode_contract": {
+                        "type": "string"
                     },
                     "order": {
                         "type": "number"
@@ -235,6 +241,9 @@
                                         },
                                         "type": "array"
                                     },
+                                    "bytecode_contract": {
+                                        "type": "string"
+                                    },
                                     "data_warehouse": {
                                         "items": {
                                             "additionalProperties": {},
@@ -289,6 +298,9 @@
                                         "bytecode": {
                                             "items": {},
                                             "type": "array"
+                                        },
+                                        "bytecode_contract": {
+                                            "type": "string"
                                         },
                                         "order": {
                                             "type": "number"

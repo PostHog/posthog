@@ -59,7 +59,7 @@ TEST_TIME = dt.datetime(2025, 4, 24, 1, 0, 0, tzinfo=dt.UTC)
 
 @pytest.fixture
 def batch_export(team):
-    destination = BatchExportDestination.objects.create(type="S3", config={})
+    destination = BatchExportDestination.objects.create(type="AwsS3", config={})
     batch_export = BatchExport.objects.create(
         name="billing-limit-test-export", team=team, destination=destination, interval="hour"
     )

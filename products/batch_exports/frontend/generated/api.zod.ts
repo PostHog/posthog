@@ -41,7 +41,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -118,6 +118,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 type: zod.enum(['AzureBlob']),
                             })
@@ -225,6 +231,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -280,6 +292,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -427,8 +445,10 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -573,6 +593,7 @@ export const batchExportsRunsCancelCreateBodyBytesExportedMax = 2147483647
 
 export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
     .object({
+        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         status: zod
             .enum([
                 'Cancelled',
@@ -606,7 +627,6 @@ export const BatchExportsRunsCancelCreateBody = /* @__PURE__ */ zod
             .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
         latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
         data_interval_start: zod.iso.datetime({ offset: true }).nullish().describe('The start of the data interval.'),
-        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
         finished_at: zod.iso
             .datetime({ offset: true })
@@ -649,6 +669,7 @@ export const batchExportsRunsRetryCreateBodyBytesExportedMax = 2147483647
 
 export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
     .object({
+        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         status: zod
             .enum([
                 'Cancelled',
@@ -682,7 +703,6 @@ export const BatchExportsRunsRetryCreateBody = /* @__PURE__ */ zod
             .describe('The number of records that failed downstream processing (e.g. hog function execution errors).'),
         latest_error: zod.string().nullish().describe('The latest error that occurred during this run.'),
         data_interval_start: zod.iso.datetime({ offset: true }).nullish().describe('The start of the data interval.'),
-        data_interval_end: zod.iso.datetime({ offset: true }).describe('The end of the data interval.'),
         cursor: zod.string().nullish().describe('An opaque cursor that may be used to resume.'),
         finished_at: zod.iso
             .datetime({ offset: true })
@@ -737,7 +757,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -814,6 +834,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 type: zod.enum(['AzureBlob']),
                             })
@@ -921,6 +947,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -976,6 +1008,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -1123,8 +1161,10 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -1186,7 +1226,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql')
             .optional()
             .describe(
-                'Which data model to export (events, persons, sessions).\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
+                'Which data model to export: events, persons, sessions, or hogql. The hogql model exports the results of hogql_query.\n\n\* `events` - Events\n\* `persons` - Persons\n\* `sessions` - Sessions\n\* `hogql` - Hogql'
             ),
         destination: zod
             .union([
@@ -1263,6 +1303,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 type: zod.enum(['AzureBlob']),
                             })
@@ -1372,6 +1418,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -1427,6 +1479,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -1578,8 +1636,10 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
         paused: zod.boolean().optional().describe('Whether the batch export is paused.'),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod
             .unknown()
             .optional()
@@ -1735,6 +1795,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -1813,6 +1879,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -1858,6 +1930,12 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -2011,8 +2089,10 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -2166,6 +2246,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -2252,6 +2338,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -2299,6 +2391,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -2456,8 +2554,10 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -2612,6 +2712,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -2692,6 +2798,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -2737,6 +2849,12 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -2890,8 +3008,10 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -3047,6 +3167,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 type: zod.enum(['AzureBlob']),
                             })
                             .describe(
@@ -3135,6 +3261,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
                                     ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
+                                    ),
                                 encryption: zod
                                     .string()
                                     .nullish()
@@ -3182,6 +3314,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                     .nullish()
                                     .describe(
                                         'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                legacy_parquet_extension: zod
+                                    .boolean()
+                                    .optional()
+                                    .describe(
+                                        "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension."
                                     ),
                                 use_virtual_style_addressing: zod
                                     .boolean()
@@ -3345,8 +3483,10 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
             .describe("Time after which any Batch Export runs won't be triggered."),
         hogql_query: zod
             .string()
-            .optional()
-            .describe('Optional HogQL SELECT defining a custom model schema. Only recommended in advanced use cases.'),
+            .nullish()
+            .describe(
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+            ),
         filters: zod.unknown().optional(),
         timezone: zod
             .union([zod.string(), zod.null()])
@@ -3542,7 +3682,19 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
             hogql_query: zod
                 .string()
                 .describe(
-                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                    'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                ),
+            data_interval_start: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.'
+                ),
+            data_interval_end: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe(
+                    'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
                 ),
         })
         .describe('Typed configuration for the hogql model.'),
@@ -3596,13 +3748,20 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
             .string()
             .optional()
             .describe(
-                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
             ),
         data_interval_start: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('Start of the data interval to export'),
-        data_interval_end: zod.iso.datetime({ offset: true }).optional().describe('End of the data interval to export'),
+            .describe(
+                'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.'
+            ),
+        data_interval_end: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
+            ),
     })
     .describe('Request shape for a FileDownload batch export on demand.')
 
@@ -3618,7 +3777,19 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
         hogql_query: zod
             .string()
             .describe(
-                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+            ),
+        data_interval_start: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days.'
+            ),
+        data_interval_end: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                'End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query.'
             ),
     })
     .describe('Request shape for counting the rows a file download batch export would produce.')

@@ -37,6 +37,8 @@ from products.data_warehouse.backend.logic.data_load.service import (
     get_sync_schedule,
     is_cdc_extraction_schedule_paused,
     pause_external_data_schedule,
+    sync_cdc_extraction_schedule,
+    trigger_cdc_extraction_schedule,
     unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -459,6 +461,25 @@ def test_bulk_sync_cdc_reraises_non_not_found_rpc_errors():
     assert create_mock.call_count == 0
 
 
+# --- sync_cdc_extraction_schedule (per-source upsert) ---
+
+
+@pytest.mark.parametrize("source_type", ["MySQL", "UnsupportedDB"])
+def test_sync_cdc_refuses_a_schedule_for_a_source_type_without_cdc(source_type: str) -> None:
+    source = MagicMock(id=uuid.uuid4(), source_type=source_type)
+
+    with (
+        patch(f"{SERVICE}.sync_connect") as connect_mock,
+        patch(f"{SERVICE}.delete_external_data_schedule") as delete_mock,
+    ):
+        sync_cdc_extraction_schedule(source, create=True)
+
+    # Creating it would fire an extraction run that can never read a change stream, once per
+    # interval for as long as the source lives.
+    connect_mock.assert_not_called()
+    delete_mock.assert_called_once_with(_get_cdc_extraction_schedule_id(str(source.id)))
+
+
 # --- bulk_update_external_data_job_schedules (update-only; missing => skipped) ---
 
 
@@ -557,3 +578,29 @@ def test_a_unpause_reraises_other_rpc_errors():
         pytest.raises(RPCError),
     ):
         async_to_sync(a_unpause_external_data_schedule)("some-schedule-id")
+
+
+@pytest.mark.parametrize(
+    "trigger_error, started",
+    [(None, True), (_not_found(), False)],
+)
+def test_triggering_capture_reports_a_schedule_that_is_gone(trigger_error: RPCError | None, started: bool) -> None:
+    # The caller recreates the schedule, because building one reads the source row.
+    source_id = str(uuid.uuid4())
+
+    with (
+        patch(f"{SERVICE}.sync_connect", return_value=MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule", side_effect=trigger_error) as trigger,
+    ):
+        assert trigger_cdc_extraction_schedule(source_id) is started
+
+    assert trigger.call_args.kwargs["schedule_id"] == _get_cdc_extraction_schedule_id(source_id)
+
+
+def test_triggering_capture_raises_any_other_temporal_error() -> None:
+    with (
+        patch(f"{SERVICE}.sync_connect", return_value=MagicMock()),
+        patch(f"{SERVICE}.trigger_schedule", side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        pytest.raises(RPCError),
+    ):
+        trigger_cdc_extraction_schedule(str(uuid.uuid4()))

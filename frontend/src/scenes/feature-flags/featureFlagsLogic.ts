@@ -461,6 +461,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     // then filter this page against filters it was never requested under.
                     const params = values.paramsFromFilters
                     const filters = values.filters
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsList() from 'products/feature_flags/frontend/generated/api' instead.
                     const response = await api.get(
                         `api/projects/${values.currentProjectId}/feature_flags/?${toParams(params)}`
                     )
@@ -476,6 +477,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 },
                 updateFeatureFlag: async ({ id, payload }: { id: number; payload: Partial<FeatureFlagType> }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
                             payload
@@ -511,6 +513,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                     via?: FeatureFlagArchivedSource
                 }) => {
                     try {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsPartialUpdate() from 'products/feature_flags/frontend/generated/api' instead.
                         const response = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${id}`,
                             archived ? { archived: true, active: false } : { archived: false }

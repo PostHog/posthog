@@ -27,7 +27,12 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
+from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.auto_start import (
+    RequestedImplementation,
+    maybe_autostart_from_report_artefacts,
+    start_requested_implementation,
+)
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SIGNALS_AT_RUN_INCREMENT, SignalReport, SignalTeamConfig
 from products.signals.backend.quota import (
@@ -143,6 +148,10 @@ class ReportDecision:
     charts: list[dict[str, Any]] | None = None
     # Resolved metric payload with the same preserve/replace/clear semantics as charts.
     metrics: list[dict[str, Any]] | None = None
+    # Check specs the research run's verification turn authored, and the research task they are
+    # attributed to. Empty for the no-repo branch, which does no research.
+    checks: list[dict[str, Any]] = field(default_factory=list)
+    research_task_id: str | None = None
     # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
     # `None` for the no-repo branch, which does no research and so never asks.
     charts_enabled: bool | None = None
@@ -448,6 +457,8 @@ class SignalReportSummaryWorkflow:
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
                     metrics=agentic_result.metrics,
+                    checks=agentic_result.checks or [],
+                    research_task_id=agentic_result.research_task_id,
                     charts_enabled=agentic_result.charts_enabled,
                     pending_reason="agent_requested",
                 )
@@ -509,6 +520,8 @@ class SignalReportSummaryWorkflow:
                     source_products=source_products,
                     charts=decision.charts,
                     metrics=decision.metrics,
+                    checks=decision.checks,
+                    checks_task_id=decision.research_task_id,
                     suggested_prompts=decision.suggested_prompts,
                     charts_enabled=decision.charts_enabled,
                 ),
@@ -570,7 +583,13 @@ class SignalReportSummaryWorkflow:
                                 return True
                         await workflow.execute_activity(
                             maybe_autostart_implementation_activity,
-                            MaybeAutostartImplementationInput(team_id=inputs.team_id, report_id=inputs.report_id),
+                            MaybeAutostartImplementationInput(
+                                team_id=inputs.team_id,
+                                report_id=inputs.report_id,
+                                requested_user_id=inputs.requested_implementation_user_id,
+                                requested_task_id=inputs.requested_implementation_task_id,
+                                requested_after_run_count=inputs.requested_after_run_count,
+                            ),
                             start_to_close_timeout=timedelta(minutes=5),
                             retry_policy=RetryPolicy(maximum_attempts=3),
                         )
@@ -809,12 +828,49 @@ class MarkReportReadyInput:
     charts: list[dict[str, Any]] | None = None
     # Typed impact metrics written atomically with the prose and chart set.
     metrics: list[dict[str, Any]] | None = None
+    # Check specs the research run's verification turn authored, written as rows in the same
+    # transaction as the metrics they reference. Empty or `None` writes none, which is also what an
+    # older workflow history that predates the field replays as.
+    checks: list[dict[str, Any]] | None = None
+    # Task the check rows are attributed to: the research sandbox that authored the specs.
+    checks_task_id: str | None = None
     # Suggested prompts to write alongside title/summary, same three states and same replay-safe
     # default. The research pipeline passes `[]`: it doesn't author prompts yet, and the ones a
     # scout wrote were written against the summary this transition is replacing.
     suggested_prompts: list[str] | None = None
     # The chart rollout state the research run saw, for the completion event. Not persisted.
     charts_enabled: bool | None = None
+
+
+def _write_research_checks(report: SignalReport, input: MarkReportReadyInput) -> None:
+    """Persist the research run's check specs on the report it just made ready.
+
+    Best-effort as a whole: the report's prose is what this transition exists to write, so a spec
+    the pipeline cannot store is dropped with a log rather than failing the transition and leaving
+    the report stuck in progress.
+    """
+    if not input.checks:
+        return
+    # Function-local: the authoring module reaches the alerts facade through the check executor,
+    # which has no business on this module's import path.
+    from products.signals.backend.report_check_authoring import create_checks_from_specs  # noqa: PLC0415
+    from products.signals.backend.report_checks import CheckSpec  # noqa: PLC0415
+
+    specs: list[CheckSpec] = []
+    for raw in input.checks:
+        try:
+            specs.append(CheckSpec.model_validate(raw))
+        except Exception:
+            logger.warning("signals report check spec did not validate", report_id=str(report.id))
+    create_checks_from_specs(
+        report=report,
+        specs=specs,
+        attribution=(
+            ArtefactAttribution.from_task(input.checks_task_id)
+            if input.checks_task_id
+            else ArtefactAttribution.system()
+        ),
+    )
 
 
 @temporalio.activity.defn
@@ -862,6 +918,14 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
                 report.save(update_fields=candidate_fields)
+            else:
+                # Only a pass that settles writes its checks. A pass about to be re-researched is
+                # an intermediate one, and its checks would describe prose the next pass replaces.
+                # After the metrics write and inside the same transaction, because a
+                # `metric_threshold` check resolves the query off the metric set this transition
+                # just stored: written earlier it would name a metric the report does not have yet,
+                # and written later it could survive a rollback that took the metric with it.
+                _write_research_checks(report, input)
             return _ReportTransition(
                 run_count=report.run_count,
                 chart_count=len(report.charts or []),
@@ -960,6 +1024,9 @@ async def report_is_candidate_activity(input: ReportIsCandidateInput) -> bool:
 class MaybeAutostartImplementationInput:
     team_id: int
     report_id: str
+    requested_user_id: int | None = None
+    requested_task_id: str | None = None
+    requested_after_run_count: int | None = None
 
 
 @temporalio.activity.defn
@@ -970,10 +1037,23 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
 
     Runs at the workflow's settle point (report READY, no pending signals) rather than per research
     run, so the implementation task is scoped to the report's final summary — not whichever research
-    pass finished first. Idempotent: `maybe_autostart_from_report_artefacts` no-ops if an
-    implementation task already exists for the report.
+    pass finished first. Normal auto-start skips an existing implementation task. An explicit
+    requested rerun can start another run on that task after the new research pass.
     """
-    await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
+    if input.requested_user_id is not None:
+        if input.requested_after_run_count is None:
+            raise ValueError("A requested implementation needs the report's prior run count")
+        await database_sync_to_async(start_requested_implementation, thread_sensitive=False)(
+            RequestedImplementation(
+                team_id=input.team_id,
+                report_id=input.report_id,
+                user_id=input.requested_user_id,
+                task_id=input.requested_task_id,
+                after_run_count=input.requested_after_run_count,
+            )
+        )
+    else:
+        await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
 
 
 @dataclass

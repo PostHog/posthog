@@ -11,7 +11,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlparse, urlunparse
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.db import OperationalError
@@ -32,6 +32,7 @@ from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
 from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
+from posthog.constants import AvailableFeature
 from posthog.helpers.oauth_pending_connection import (
     PENDING_OAUTH_CONNECTION_COOKIE,
     PENDING_OAUTH_CONNECTION_MAX_AGE_SECONDS,
@@ -46,10 +47,18 @@ from posthog.models.oauth import (
     revoke_application_sessions,
     revoke_oauth_session,
 )
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.scopes import get_oauth_scopes_supported
+from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.security.backend.facade.enums import Surface as SecuritySurface
+
+# A cut-off `scope` parameter only reads as truncated once enough real scopes come through
+# before the fragment, so a fixture standing in for one has to be that long.
+TRUNCATED_SCOPE_REQUEST = " ".join([*sorted(ALL_SCOPES)[:MIN_SCOPES_BEFORE_TRUNCATION], "can"])
 
 
 def jwks_entry_to_public_key(key_data: dict):
@@ -268,6 +277,56 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("truncated", TRUNCATED_SCOPE_REQUEST, ["canvas:read", "insight:read", "notebook:read"], True),
+            ("complete", "insight:read canvas:read", ["canvas:read", "insight:read"], False),
+            ("short_request_with_a_fragment_tail", "insight:read can", ["insight:read"], False),
+            (
+                "every_resource_token_unknown",
+                "...(full scope list)...",
+                ["canvas:read", "insight:read", "notebook:read"],
+                True,
+            ),
+            ("identity_scope_only", "openid", ["openid"], False),
+        ]
+    )
+    @patch("posthog.api.oauth.views.render_template")
+    def test_authorize_resolves_scopes_for_the_consent_screen(
+        self, _name, requested_scope, expected_resource_scopes, expected_was_defaulted, mock_render
+    ):
+        mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
+        self.confidential_application.scopes = ["insight:read", "canvas:read", "notebook:read"]
+        self.confidential_application.save()
+
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote(requested_scope)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        template_context = mock_render.call_args.kwargs["context"]
+        self.assertEqual(
+            template_context["oauth_scope_resolution"],
+            {
+                "scopes": sorted(set(expected_resource_scopes) | ALWAYS_ALLOWED_SCOPES)
+                if expected_was_defaulted
+                else expected_resource_scopes,
+                "was_defaulted": expected_was_defaulted,
+            },
+        )
+
+    def test_authorize_bootstraps_the_resolved_scopes_into_the_app_context(self):
+        self.confidential_application.scopes = ["insight:read", "canvas:read"]
+        self.confidential_application.save()
+
+        response = self.client.get(f"{self.base_authorization_url}&scope={quote(TRUNCATED_SCOPE_REQUEST)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # The serialized bootstrap, not the view's own template context: `_build_template_context`
+        # forwards only an allowlist of caller-provided keys, and a key it omits never reaches the
+        # frontend.
+        resolution = json.loads(response.context["posthog_app_context"])["oauth_scope_resolution"]
+        self.assertEqual(resolution["scopes"], sorted({"insight:read", "canvas:read"} | ALWAYS_ALLOWED_SCOPES))
+        self.assertTrue(resolution["was_defaulted"])
+
     @patch("posthog.api.oauth.views.render_template")
     def test_authorize_omits_mcp_consent_for_untrusted_resource(self, mock_render):
         mock_render.return_value = HttpResponse(status=status.HTTP_200_OK)
@@ -278,6 +337,33 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         template_context = mock_render.call_args.kwargs["context"]
         self.assertNotIn("oauth_mcp_consent", template_context)
+
+    def test_authorize_reports_whether_access_controls_apply(self):
+        def applies() -> bool:
+            response = self.client.get(self.base_authorization_url)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return json.loads(response.context["posthog_app_context"])["oauth_consent_access_controls_apply"]
+
+        access_control_feature = [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}]
+        self.assertFalse(applies())
+
+        self.organization.available_product_features = access_control_feature
+        self.organization.save()
+        # The feature alone changes nothing a person can reach; a rule does.
+        self.assertFalse(applies())
+
+        AccessControl.objects.create(team=self.team, resource="feature_flag", access_level="viewer")
+        self.assertTrue(applies())
+
+        # The grant can reach any organization the user belongs to, not only the current one.
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.assertFalse(applies())
+        other_org, _, other_team = Organization.objects.bootstrap(self.user, name="Other Organization")
+        other_org.available_product_features = access_control_feature
+        other_org.save()
+        AccessControl.objects.create(team=other_team, resource="insight", access_level="none")
+        self.assertTrue(applies())
 
     def test_first_party_app_auto_approves_with_org_scoped_grant(self):
         first_party_app = OAuthApplication.objects.create(
@@ -453,6 +539,58 @@ class TestOAuthAPI(APIBaseTest):
         expiration_minutes = expiration_seconds / 60
         expected_expiration = timezone.now() + timedelta(minutes=expiration_minutes)
         self.assertEqual(grant.expires, expected_expiration)
+
+    @parameterized.expand(
+        [
+            ("organization_without_a_selection", OAuthApplicationAccessLevel.ORGANIZATION.value),
+            ("team_without_a_selection", OAuthApplicationAccessLevel.TEAM.value),
+        ]
+    )
+    def test_authorize_post_denial_ignores_the_scoping_controls(self, _name, access_level):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "allow": False,
+                "access_level": access_level,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["redirect_to"], "https://example.com/callback?error=access_denied")
+
+    def test_authorize_post_denial_accepts_a_blank_scope(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "allow": False, "scope": ""},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["redirect_to"], "https://example.com/callback?error=access_denied")
+
+    def test_authorize_post_grant_still_rejects_a_blank_scope(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {**self.base_authorization_post_body, "scope": ""},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scope", response.json())
+
+    def test_authorize_post_grant_still_requires_a_scoped_organization(self):
+        response = self.client.post(
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "access_level": OAuthApplicationAccessLevel.ORGANIZATION.value,
+                "scoped_organizations": [],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("scoped_organizations", response.json())
 
     def test_authorize_post_denied_authorization(self):
         response = self.client.post(
@@ -3362,6 +3500,27 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(mock_blocked.call_args.kwargs["surface"], "oauth_authorize")
         self.assertEqual(mock_blocked.call_args.kwargs["email"], self.user.email)
 
+    @patch("posthog.api.oauth.views.security_shadow_check")
+    def test_authorize_records_a_shadow_access_check_for_the_gateway_scope(self, shadow: MagicMock) -> None:
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
+
+        shadow.assert_called_once()
+        subject, surface = shadow.call_args.args
+        self.assertEqual(surface, SecuritySurface.AI_GATEWAY)
+        self.assertEqual(subject.user_uuid, str(self.user.uuid))
+        self.assertEqual(shadow.call_args.kwargs, {"call_site": "oauth_authorize"})
+
+    @patch("posthog.api.oauth.views.security_shadow_check", side_effect=RuntimeError("boom"))
+    def test_authorize_grants_the_gateway_scope_when_the_shadow_check_raises(self, shadow: MagicMock) -> None:
+        app = self._create_first_party_app_with_ceiling("insight:read", "llm_gateway:read")
+
+        grant = self._first_party_authorize_grant(app, "insight:read llm_gateway:read")
+
+        self.assertIn("llm_gateway:read", grant.scope.split())
+        shadow.assert_called_once()
+
     def test_authorize_wildcard_narrowed_to_seeded_ceiling(self):
         # A `*` request against a seeded ceiling is narrowed to the resolved ceiling
         # rather than rejected. First-party apps skip consent, so the grant is the
@@ -4131,9 +4290,11 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
-    def test_self_introspection_succeeds_without_introspection_scope(self):
-        """A token can introspect itself without requiring the introspection scope."""
+    @parameterized.expand([True, False])
+    def test_self_introspection_succeeds_without_introspection_scope(self, impersonated: bool) -> None:
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+        access_token.impersonated_by = self.user if impersonated else None
+        access_token.save(update_fields=["impersonated_by"])
 
         response = self.post(
             "/oauth/introspect/",
@@ -4145,6 +4306,7 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
+        self.assertEqual(data["is_impersonated"], impersonated)
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
@@ -4400,6 +4562,8 @@ class TestOAuthAPI(APIBaseTest):
         # Verify the refresh token was never revoked
         db_refresh_token = OAuthRefreshToken.objects.get(token=original_refresh_token)
         self.assertIsNone(db_refresh_token.revoked)
+        assert db_refresh_token.access_token is not None
+        self.assertEqual(db_refresh_token.access_token.token, original_access_token)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_refresh_does_not_invalidate_previously_issued_access_tokens(self):
@@ -4568,11 +4732,9 @@ class TestOAuthAPI(APIBaseTest):
             "swept when their refresh token is revoked",
         )
 
+    @parameterized.expand([("refresh_token",), ("access_token",)])
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
-    def test_dcr_refresh_token_revoke_from_other_client_does_not_sweep_session(self):
-        # RFC 7009 §2.1: the server verifies the token was issued to the requesting
-        # client. A different dynamic client presenting app A's refresh token must not
-        # trigger the (user, application) session sweep for app A.
+    def test_dcr_token_revoke_from_other_client_leaves_session_untouched(self, presented_token_type):
         self.public_application.is_dcr_client = True
         self.public_application.save()
 
@@ -4616,6 +4778,7 @@ class TestOAuthAPI(APIBaseTest):
             },
         )
         refresh_token = token_response.json()["refresh_token"]
+        unlinked_access_token = token_response.json()["access_token"]
 
         refresh_response = self.post(
             "/oauth/token/",
@@ -4625,22 +4788,23 @@ class TestOAuthAPI(APIBaseTest):
                 "client_id": self.public_application.client_id,
             },
         )
-        refresh_issued_access_token = refresh_response.json()["access_token"]
-        self.assertTrue(OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists())
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        linked_access_token = refresh_response.json()["access_token"]
+        presented_token = refresh_token if presented_token_type == "refresh_token" else linked_access_token
 
         revoke_response = self.post(
             "/oauth/revoke/",
             {
-                "token": refresh_token,
+                "token": presented_token,
                 "client_id": other_dynamic_application.client_id,
             },
         )
         self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
 
-        self.assertTrue(
-            OAuthAccessToken.objects.filter(token=refresh_issued_access_token).exists(),
-            "a dynamic client presenting another app's refresh token must not sweep "
-            "that app's (user, application) access-token family",
+        self.assertIsNone(OAuthRefreshToken.objects.get(token=refresh_token).revoked)
+        self.assertEqual(
+            set(OAuthAccessToken.objects.filter(application=self.public_application).values_list("token", flat=True)),
+            {unlinked_access_token, linked_access_token},
         )
 
     @time_machine.travel("2026-01-01 00:00:00", tick=False)

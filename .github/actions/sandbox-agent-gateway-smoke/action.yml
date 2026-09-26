@@ -1,0 +1,127 @@
+name: 'Sandbox agent gateway smoke'
+description: >-
+    Run one Claude turn and one Codex turn with the agent installed in a sandbox image,
+    through the production Go ai-gateway on the agent's default models and efforts.
+inputs:
+    image:
+        description: 'Sandbox base image to smoke'
+        required: true
+    mint-key:
+        description: 'Go ai-gateway credential that mints the scoped agent_smoke token'
+        required: true
+    registry-token:
+        description: 'Token that can pull the image from ghcr.io'
+        required: true
+    agent-version:
+        description: 'The @posthog/agent version the image must contain'
+        required: false
+        default: ''
+    gateway-url:
+        description: 'Go ai-gateway base URL'
+        required: false
+        default: 'https://ai-gateway.us.posthog.com'
+outputs:
+    result:
+        description: >-
+            pass, broken (the release fails on the gateway), inconclusive (the provider
+            failed twice), infra (the smoke could not run), or unavailable (the image has
+            no agent-smoke bin).
+        value: ${{ steps.smoke.outputs.result }}
+    summary-file:
+        description: 'Markdown table with one row per runtime'
+        value: ${{ steps.smoke.outputs.summary-file }}
+runs:
+    using: composite
+    steps:
+        - id: smoke
+          shell: bash
+          env:
+              IMAGE: ${{ inputs.image }}
+              AGENT_VERSION: ${{ inputs.agent-version }}
+              MINT_KEY: ${{ inputs.mint-key }}
+              REGISTRY_TOKEN: ${{ inputs.registry-token }}
+              AI_GATEWAY_URL: ${{ inputs.gateway-url }}
+              AI_GATEWAY_PRODUCT: agent_smoke
+              AI_GATEWAY_PRODUCTS: agent_smoke
+          run: |
+              set -uo pipefail
+              summary="$RUNNER_TEMP/gateway-smoke.md"
+              echo "summary-file=$summary" >> "$GITHUB_OUTPUT"
+              finish() {
+                echo "result=$1" >> "$GITHUB_OUTPUT"
+                cat "$summary" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              }
+              printf '### Gateway smoke on `%s`\n\n' "$IMAGE" > "$summary"
+
+              if ! echo "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin >/dev/null \
+                || ! timeout 600 docker pull -q "$IMAGE" >/dev/null; then
+                echo "Could not pull the image." >> "$summary"
+                finish infra
+              fi
+              docker run --rm "$IMAGE" test -x /scripts/node_modules/.bin/agent-smoke
+              probe=$?
+              if [ "$probe" = 1 ]; then
+                echo "The image's @posthog/agent has no \`agent-smoke\` bin, so the gateway smoke did not run." >> "$summary"
+                finish unavailable
+              elif [ "$probe" != 0 ]; then
+                echo "Could not run the image." >> "$summary"
+                finish infra
+              fi
+              if [ -n "$AGENT_VERSION" ]; then
+                installed=$(docker run --rm "$IMAGE" node -p "require('/scripts/node_modules/@posthog/agent/package.json').version")
+                if [ "$installed" != "$AGENT_VERSION" ]; then
+                  echo "The image has @posthog/agent ${installed:-unknown}, not ${AGENT_VERSION}." >> "$summary"
+                  finish infra
+                fi
+              fi
+              if [ -z "$MINT_KEY" ]; then
+                echo "No gateway mint key is configured." >> "$summary"
+                finish infra
+              fi
+
+              AI_GATEWAY_TOKEN=$(curl -sS --fail-with-body --retry 2 --max-time 30 -X POST "${AI_GATEWAY_URL%/}/v1/tokens" \
+                -H "Authorization: Bearer $MINT_KEY" -H 'Content-Type: application/json' \
+                -d '{"cap_usd":"10","ttl_seconds":1800,"product":"agent_smoke"}' | jq -r '.token // empty')
+              if [ -z "$AI_GATEWAY_TOKEN" ]; then
+                echo "The gateway did not mint an agent_smoke token." >> "$summary"
+                finish infra
+              fi
+              echo "::add-mask::$AI_GATEWAY_TOKEN"
+              export AI_GATEWAY_TOKEN
+
+              echo '| Runtime | Model | Result | Detail |' >> "$summary"
+              echo '| --- | --- | --- | --- |' >> "$summary"
+              overall=pass
+              for runtime in claude codex; do
+                for attempt in 1 2; do
+                  timeout 300 docker run --rm \
+                    -e AI_GATEWAY_URL -e AI_GATEWAY_TOKEN -e AI_GATEWAY_PRODUCT -e AI_GATEWAY_PRODUCTS \
+                    "$IMAGE" /scripts/node_modules/.bin/agent-smoke --runtime "$runtime" --timeout 240 \
+                    > "$RUNNER_TEMP/smoke-$runtime.out" 2> "$RUNNER_TEMP/smoke-$runtime.log"
+                  status=$?
+                  line=$(tail -n 1 "$RUNNER_TEMP/smoke-$runtime.out")
+                  result=$(jq -r '.result // empty' <<< "$line" 2>/dev/null || true)
+                  case "$result" in
+                    pass) [ "$status" = 0 ] || result=infra ;;
+                    broken | inconclusive | infra) ;;
+                    *) result=infra ;;
+                  esac
+                  echo "$runtime attempt $attempt: $line"
+                  if [ "$result" != inconclusive ]; then break; fi
+                done
+                if [ "$result" != pass ]; then
+                  echo "::group::$runtime agent log"
+                  tail -n 200 "$RUNNER_TEMP/smoke-$runtime.log"
+                  echo "::endgroup::"
+                fi
+                model=$(jq -r '.model // "?"' <<< "$line" 2>/dev/null || echo '?')
+                detail=$(jq -r '.error // .reply // ""' <<< "$line" 2>/dev/null | tr '\n|' '  ' | cut -c1-300)
+                echo "| $runtime | \`$model\` | $result | $detail |" >> "$summary"
+                case "$result:$overall" in
+                  broken:*) overall=broken ;;
+                  infra:pass | infra:inconclusive) overall=infra ;;
+                  inconclusive:pass) overall=inconclusive ;;
+                esac
+              done
+              finish "$overall"

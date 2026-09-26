@@ -22,9 +22,10 @@ import {
     signalsScoutRunsTokenCosts,
 } from 'products/signals/frontend/generated/api'
 import type { ScoutCostsApi, SignalScoutConfigApi, UserBasicApi } from 'products/signals/frontend/generated/api.schemas'
+import { llmSkillsNamePublishCommunityCreate } from 'products/skills/frontend/generated/api'
 
 import { SignalScoutRunSummary } from '../types'
-import { scoutFleetLogic } from './scoutFleetLogic'
+import { ScoutRosterSort, scoutFleetLogic } from './scoutFleetLogic'
 
 jest.mock('posthog-js')
 jest.mock('products/signals/frontend/generated/api', () => ({
@@ -38,6 +39,10 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutRunsCosts: jest.fn(),
     signalsScoutRunsRecentPerScout: jest.fn(),
     signalsScoutRunsTokenCosts: jest.fn(),
+}))
+jest.mock('products/skills/frontend/generated/api', () => ({
+    llmSkillsNameArchiveCreate: jest.fn(),
+    llmSkillsNamePublishCommunityCreate: jest.fn(),
 }))
 
 const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.MockedFunction<
@@ -53,6 +58,9 @@ const mockSignalsScoutRunsTokenCosts = signalsScoutRunsTokenCosts as jest.Mocked
     typeof signalsScoutRunsTokenCosts
 >
 const mockSignalsScoutRunsCosts = signalsScoutRunsCosts as jest.MockedFunction<typeof signalsScoutRunsCosts>
+const mockPublishCommunity = llmSkillsNamePublishCommunityCreate as jest.MockedFunction<
+    typeof llmSkillsNamePublishCommunityCreate
+>
 
 const BASE_CONFIG: SignalScoutConfigApi = {
     id: 'config-1',
@@ -64,6 +72,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     enabled: true,
     status: 'active',
     pause_reason: null,
+    deprecation: null,
     emit: true,
     run_interval_minutes: 1440,
     run_cron_schedule: null,
@@ -74,12 +83,14 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     last_run_at: null,
     consecutive_failure_count: 0,
     status_changed_at: null,
+    status_changed_by: null,
     auto_pause_exempt: false,
     network_access: 'trusted',
     model: null,
     source_product: null,
     source_id: null,
     created_at: '2026-07-22T00:00:00Z',
+    updated_at: '2026-07-22T00:00:00Z',
 }
 
 const OWNER: UserBasicApi = {
@@ -137,6 +148,11 @@ describe('scoutFleetLogic', () => {
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
         mockSignalsScoutRunsTokenCosts.mockReset().mockResolvedValue({ costs: [], available: true })
         mockSignalsScoutRunsCosts.mockReset().mockResolvedValue({ window_days: 7, scouts: [], available: true })
+        mockPublishCommunity.mockReset().mockResolvedValue({
+            pr_url: 'https://github.com/PostHog/community-skills/pull/1',
+            pr_number: 1,
+            branch: 'community-skill/signals-scout-errors',
+        })
         logic = scoutFleetLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -183,6 +199,25 @@ describe('scoutFleetLogic', () => {
         )
         expect(logic.values.scoutConfigs?.[0]).toEqual(finalConfig)
         expect(logic.values.updatingScoutIds).toEqual([])
+    })
+
+    it('publishes a scout against its canonical project and preserves its tags', async () => {
+        const config = { ...BASE_CONFIG, scout_origin: 'custom' as const, tags: ['errors'] }
+        logic.actions.loadScoutConfigsSuccess([config])
+
+        const reviewedSkill = { expected_skill_id: 'skill-1', expected_version: 3, expected_category: 'scout' }
+        logic.actions.publishScoutToCommunity(config.id, reviewedSkill)
+        await expectLogic(logic).toDispatchActions(['publishScoutToCommunityFinished'])
+
+        expect(mockPublishCommunity).toHaveBeenCalledWith(
+            String(teamLogic.values.currentProjectId),
+            config.skill_name,
+            expect.objectContaining({
+                ...reviewedSkill,
+                tags: ['errors'],
+                scout_config: expect.objectContaining({ tags: ['errors'] }),
+            })
+        )
     })
 
     // The roster is the only consumer of the tag filter, so assert through the rows it renders.
@@ -358,6 +393,54 @@ describe('scoutFleetLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    const RECENCY_FLEET: SignalScoutConfigApi[] = [
+        {
+            ...BASE_CONFIG,
+            id: 'alpha',
+            skill_name: 'signals-scout-alpha',
+            created_at: '2026-01-01T00:00:00Z',
+            updated_at: '2026-08-20T00:00:00Z',
+            last_run_at: '2026-08-01T00:00:00Z',
+        },
+        {
+            ...BASE_CONFIG,
+            id: 'zulu',
+            skill_name: 'signals-scout-zulu',
+            created_at: '2026-08-10T00:00:00Z',
+            updated_at: '2026-08-11T00:00:00Z',
+            last_run_at: '2026-08-25T00:00:00Z',
+        },
+        {
+            ...BASE_CONFIG,
+            id: 'mike',
+            skill_name: 'signals-scout-mike',
+            created_at: '2026-05-05T00:00:00Z',
+            updated_at: '2026-08-30T00:00:00Z',
+            last_run_at: null,
+        },
+        {
+            ...BASE_CONFIG,
+            id: 'bravo',
+            skill_name: 'signals-scout-bravo',
+            created_at: '2026-08-10T00:00:00Z',
+            updated_at: '2026-01-02T00:00:00Z',
+            last_run_at: '2026-08-25T00:00:00Z',
+        },
+    ]
+
+    it.each<[ScoutRosterSort, string[]]>([
+        ['name', ['alpha', 'bravo', 'mike', 'zulu']],
+        ['created', ['bravo', 'zulu', 'mike', 'alpha']],
+        ['updated', ['mike', 'alpha', 'zulu', 'bravo']],
+        ['last_run', ['bravo', 'zulu', 'alpha', 'mike']],
+    ])('orders the roster by %s', (sort, expected) => {
+        logic.actions.loadScoutConfigsSuccess(RECENCY_FLEET)
+
+        logic.actions.setScoutRosterSort(sort)
+
+        expect(rosterConfigIds()).toEqual(expected)
     })
 
     it('keeps configs unresolved until the current team is available', async () => {

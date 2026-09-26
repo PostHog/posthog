@@ -21,6 +21,7 @@ import type { SideEffectKind } from './types.js'
 const ACP_NOTIFICATION_TYPE = 'notification'
 const TURN_COMPLETE_METHOD = '_posthog/turn_complete'
 const STOP_REASON_END_TURN = 'end_turn'
+const IDLE_RESUME_STOP_REASON = 'idle_resume'
 const ACP_METHOD_SESSION_UPDATE = 'session/update'
 const AGENT_COMMAND_DISPATCHED_METHOD = '_posthog/agent_command_dispatched'
 const ACP_GENERATION_UPDATES = new Set([
@@ -91,6 +92,26 @@ export function isPiTurnError(event: Record<string, unknown>): boolean {
     return piTurnCompleted !== null && piTurnCompleted['stopReason'] === PI_STOP_REASON_ERROR
 }
 
+export function isIdleResumeTurnComplete(event: Record<string, unknown>): boolean {
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return false
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null) {
+        return false
+    }
+    const notif = notification as Record<string, unknown>
+    if (notif['method'] !== TURN_COMPLETE_METHOD) {
+        return false
+    }
+    const params = notif['params']
+    return (
+        typeof params === 'object' &&
+        params !== null &&
+        (params as Record<string, unknown>)['stopReason'] === IDLE_RESUME_STOP_REASON
+    )
+}
+
 // isSessionUpdate mirrors event_ingest.py:_is_session_update exactly.
 export function isSessionUpdate(event: Record<string, unknown>): boolean {
     if (event['type'] !== ACP_NOTIFICATION_TYPE) {
@@ -142,7 +163,7 @@ export function isAgentGenerationEvent(event: Record<string, unknown>): boolean 
 
 const CALLBACK_TIMEOUT_MS = 10_000
 const RETRY_DELAY_MS = 1000
-const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed'])
+const RETRYABLE_KINDS: ReadonlySet<SideEffectKind> = new Set(['awaiting_input', 'turn_failed', 'budget_steer'])
 
 function fetchErrorCode(err: unknown): string | undefined {
     if (!(err instanceof Error)) {
@@ -188,8 +209,13 @@ function fireCallback(
     teamId: number,
     originalToken: string,
     config: Config,
-    releaseClaim?: () => Promise<void>
+    options: {
+        releaseClaim?: () => Promise<void>
+        turnCompleted?: boolean
+        budgetSteer?: { sequence: number; timestamp?: string; params: Record<string, unknown> }
+    } = {}
 ): void {
+    const { releaseClaim, turnCompleted, budgetSteer } = options
     if (!config.djangoCallbackBaseUrl) {
         // Dev environment without AGENT_PROXY_DJANGO_CALLBACK_URL — skip silently.
         void releaseMilestoneClaim(releaseClaim, runId, kind)
@@ -197,7 +223,27 @@ function fireCallback(
     }
 
     const url = `${config.djangoCallbackBaseUrl}/internal/tasks/runs/${runId}/agent-proxy-callback/`
-    const body = JSON.stringify({ kind, agent_active: agentActive, task_id: taskId, team_id: teamId })
+    const body = JSON.stringify({
+        ...(budgetSteer
+            ? {
+                  sequence: budgetSteer.sequence,
+                  timestamp: budgetSteer.timestamp,
+                  stage: budgetSteer.params['stage'],
+                  mode: budgetSteer.params['mode'],
+                  delivered: budgetSteer.params['delivered'],
+                  spent_usd: budgetSteer.params['spent_usd'],
+                  cap_usd: budgetSteer.params['cap_usd'],
+                  threshold_spent_usd: budgetSteer.params['threshold_spent_usd'],
+                  threshold_at: budgetSteer.params['threshold_at'],
+                  delivered_at: budgetSteer.params['delivered_at'],
+              }
+            : {}),
+        kind,
+        agent_active: agentActive,
+        task_id: taskId,
+        team_id: teamId,
+        turn_completed: turnCompleted,
+    })
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -228,6 +274,9 @@ function fireCallback(
                 'dispatched' in payload &&
                 payload.dispatched === true
             if (!dispatched) {
+                if (kind === 'budget_steer') {
+                    logger.warn('side_effect:budget_steer_not_captured', { run: runId })
+                }
                 await releaseMilestoneClaim(releaseClaim, runId, kind)
             }
         })
@@ -236,6 +285,35 @@ function fireCallback(
             logger.error('side_effect:failed', { run: runId, kind, error: message, code: fetchErrorCode(err) })
             await releaseMilestoneClaim(releaseClaim, runId, kind)
         })
+}
+
+export function captureBudgetSteerIfNeeded(
+    runId: string,
+    sequence: number,
+    event: Record<string, unknown>,
+    taskId: string,
+    teamId: number,
+    originalToken: string,
+    config: Config
+): void {
+    if (event['type'] !== ACP_NOTIFICATION_TYPE) {
+        return
+    }
+    const notification = event['notification']
+    if (typeof notification !== 'object' || notification === null || Array.isArray(notification)) {
+        return
+    }
+    const { method, params } = notification as Record<string, unknown>
+    if (method !== '_posthog/budget_steer' || typeof params !== 'object' || params === null || Array.isArray(params)) {
+        return
+    }
+    fireCallback(runId, 'budget_steer', false, taskId, teamId, originalToken, config, {
+        budgetSteer: {
+            sequence,
+            ...(typeof event['timestamp'] === 'string' ? { timestamp: event['timestamp'] } : {}),
+            params: params as Record<string, unknown>,
+        },
+    })
 }
 
 async function releaseMilestoneClaim(
@@ -278,13 +356,13 @@ export async function heartbeatWorkflowIfNeeded(
     config: Config
 ): Promise<void> {
     if (isAgentCommandDispatched(event) && (await redisStream.claimFirstAgentCommand())) {
-        fireCallback(runId, 'command_dispatched', false, taskId, teamId, originalToken, config, () =>
-            redisStream.releaseFirstAgentCommand()
-        )
+        fireCallback(runId, 'command_dispatched', false, taskId, teamId, originalToken, config, {
+            releaseClaim: () => redisStream.releaseFirstAgentCommand(),
+        })
     } else if (isAgentGenerationEvent(event) && (await redisStream.claimFirstAgentActivity())) {
-        fireCallback(runId, 'agent_activity', true, taskId, teamId, originalToken, config, () =>
-            redisStream.releaseFirstAgentActivity()
-        )
+        fireCallback(runId, 'agent_activity', true, taskId, teamId, originalToken, config, {
+            releaseClaim: () => redisStream.releaseFirstAgentActivity(),
+        })
     }
 
     if (isTurnComplete(event)) {
@@ -296,7 +374,9 @@ export async function heartbeatWorkflowIfNeeded(
         } else {
             // Let Django decide whether the run is interactive; it will only
             // dispatch the push notification for interactive mode runs.
-            fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config)
+            fireCallback(runId, 'awaiting_input', false, taskId, teamId, originalToken, config, {
+                turnCompleted: !isIdleResumeTurnComplete(event),
+            })
         }
         return
     }

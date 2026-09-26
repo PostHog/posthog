@@ -56,7 +56,7 @@ jobs:
     # Job to decide if we should run nodejs services ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         name: Determine need to run Node.js checks
         permissions:
@@ -129,6 +129,12 @@ jobs:
                         - 'posthog/management/commands/setup_test_environment.py'
                         - 'posthog/migrations/**'
                         - 'posthog/plugins/**'
+                        # Django reads this to decide which filter globals it accepts, and the only
+                        # check that it still matches the runtime type is a jest test.
+                        - 'posthog/cdp/filter_globals.json'
+                        # The tables that file is generated from. A standard-library change
+                        # must run the parity test that shows the file went stale.
+                        - 'common/hogvm/typescript/src/**'
                         # Compose files only, no Dockerfile glob: these jobs run the suites from
                         # source via pnpm and the compose stack's only build contexts are rust/,
                         # so no app image is built here. Dockerfile.node is gated separately in
@@ -150,6 +156,9 @@ jobs:
                       # Anything here invalidates jest's view of the module graph, or changes
                       # the native addons every suite links, so no narrowed run can be trusted.
                       node_full:
+                        # readFileSync, so jest cannot reach the parity test through --findRelatedTests.
+                        - 'posthog/cdp/filter_globals.json'
+                        - 'common/hogvm/typescript/src/**'
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
@@ -458,7 +467,6 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: dev_tools,dynamodb
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   bin/ci-wait-for-docker launch --down
@@ -776,7 +784,6 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: dev_tools
-                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   bin/ci-wait-for-docker launch --down
@@ -954,7 +961,7 @@ jobs:
     report-test-speed:
         name: Node.js test-speed report
         needs: [tests]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 10
         continue-on-error: true
         permissions:
@@ -981,7 +988,9 @@ jobs:
               shell: bash
               run: |
                   available=false
-                  if [[ -f .github/scripts/report_test_timings.py && -f bin/report-jest-timings && -d tools/owners ]] && grep -q -- '--timings' .github/scripts/report_test_timings.py; then
+                  # The owners resolver is a path dep of the reporter. A head ref from before the
+                  # move to packages/owners-yaml still carries it at tools/owners, so both count.
+                  if [[ -f .github/scripts/report_test_timings.py && -f bin/report-jest-timings && ( -d packages/owners-yaml || -d tools/owners ) ]] && grep -q -- '--timings' .github/scripts/report_test_timings.py; then
                     available=true
                   fi
                   if [[ "$available" != "true" ]]; then
@@ -1019,7 +1028,7 @@ jobs:
     capture-nodejs-selection:
         name: Capture Node.js jest selection
         needs: [changes, tests]
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         # Nothing to report on a PR that never ran the suite. Forks and Dependabot never
         # have the secret.
@@ -1055,7 +1064,7 @@ jobs:
         # report-test-speed is deliberately not in needs: it is visible but non-gating.
         needs: [changes, tests, rust_ingestion_e2e, build, lint]
         name: Node.js Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: ${{ !cancelled() }}
         steps:

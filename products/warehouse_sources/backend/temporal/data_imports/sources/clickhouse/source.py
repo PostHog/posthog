@@ -85,18 +85,27 @@ _REDIRECTED = (
     "ClickHouse HTTP interface directly rather than at a proxy or load balancer in front of it."
 )
 
+# Matches the wording the other database sources use for a rejected login, so the same
+# problem reads the same way across Postgres, MySQL and ClickHouse.
+_INVALID_CREDENTIALS = (
+    "The database rejected the username or password. Check the user and password for this source and try again."
+)
+
+_HOST_NOT_RESOLVED = "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog."
+
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
 ClickHouseErrors: dict[str, str] = {
-    "authentication failed": "Invalid user or password",
-    "code: 516": "Invalid user or password",  # AUTHENTICATION_FAILED
+    "authentication failed": _INVALID_CREDENTIALS,
+    "code: 516": _INVALID_CREDENTIALS,  # AUTHENTICATION_FAILED
     "code: 81": "Database does not exist. Check the database name is correct.",  # UNKNOWN_DATABASE
-    "code: 60": "Table does not exist",  # UNKNOWN_TABLE
-    "code: 192": "Permission denied on the requested database or table",  # UNKNOWN_USER
-    "code: 497": "Permission denied on the requested database or table",  # ACCESS_DENIED
-    "nodename nor servname provided": "Could not resolve the ClickHouse host",
-    "name or service not known": "Could not resolve the ClickHouse host",
-    "connection refused": "Could not connect to ClickHouse on the given host/port",
+    "code: 60": "Table does not exist. Check the table still exists in your ClickHouse database.",  # UNKNOWN_TABLE
+    "code: 192": _INVALID_CREDENTIALS,  # UNKNOWN_USER
+    "code: 497": "Your ClickHouse user doesn't have permission to read this database. Grant the user SELECT on the database, then try again.",  # ACCESS_DENIED
+    # Same wording as the MySQL source, so a wrong host or port reads the same across databases.
+    "nodename nor servname provided": _HOST_NOT_RESOLVED,
+    "name or service not known": _HOST_NOT_RESOLVED,
+    "connection refused": "Could not connect to the host on the port given. Check the host and port are correct and the ClickHouse server is accepting connections.",
     "connection timed out": "Connection to ClickHouse timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     # Must stay above the generic "ssl" entry, which would otherwise match first and send the
     # user to the wrong toggle. Verification runs against the configured ClickHouse host even
@@ -108,25 +117,25 @@ ClickHouseErrors: dict[str, str] = {
     # The host answered but isn't serving the ClickHouse HTTP interface on this
     # host/port (wrong port, a proxy, or a native-protocol port). Same wording
     # as the sync-time non-retryable handling.
-    "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
-    # clickhouse-connect's `_error_handler` only produces this wording ("returned response
-    # code" rather than "received ClickHouse error code") when the response carries no
+    "received http status 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    # clickhouse-connect's `_error_handler` only produces this wording ("received HTTP status
+    # N" rather than "Received ClickHouse exception, code: N") when the response carries no
     # `X-ClickHouse-Exception-Code` header — a genuine ClickHouse query error always sets
     # that header, so a bare 400 means something in front of ClickHouse (a proxy, WAF, or
     # tunnel) rejected the request before it reached the server. Same cause as 404, different
     # status code some proxies use instead.
-    "returned response code 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+    "received http status 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
     # `_get_client` raises this when the host answers 2xx with a body that isn't a
     # ClickHouse response (a proxy/LB page, or a different service on the host/port).
     "did not return a valid clickhouse response": NOT_A_CLICKHOUSE_HTTP_RESPONSE,
-    "returned response code 301": _REDIRECTED,
-    "returned response code 302": _REDIRECTED,
-    "returned response code 307": _REDIRECTED,
-    "returned response code 308": _REDIRECTED,
-    "returned response code 429": _TEMPORARILY_UNAVAILABLE,
-    "returned response code 502": _TEMPORARILY_UNAVAILABLE,
-    "returned response code 503": _TEMPORARILY_UNAVAILABLE,
-    "returned response code 504": _TEMPORARILY_UNAVAILABLE,
+    "received http status 301": _REDIRECTED,
+    "received http status 302": _REDIRECTED,
+    "received http status 307": _REDIRECTED,
+    "received http status 308": _REDIRECTED,
+    "received http status 429": _TEMPORARILY_UNAVAILABLE,
+    "received http status 502": _TEMPORARILY_UNAVAILABLE,
+    "received http status 503": _TEMPORARILY_UNAVAILABLE,
+    "received http status 504": _TEMPORARILY_UNAVAILABLE,
 }
 
 
@@ -284,19 +293,19 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "certificate verify failed": None,
             "SSL: WRONG_VERSION_NUMBER": None,
             # clickhouse-connect's HTTP driver got a 404 back while opening the
-            # connection ("HTTPDriver for <url> returned response code 404").
+            # connection ("HTTP driver received HTTP status 404 (for url <url>)").
             # The host responded but isn't serving the ClickHouse HTTP interface
             # on that path — typically a tunnel/proxy pointing at the wrong
             # service or an offline endpoint. A real ClickHouse server never
             # answers queries with 404, so retrying can't recover. We match only
             # 404, not transient gateway codes (502/503/504), which stay retryable.
-            "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
-            # Same cause as the 404 above: clickhouse-connect only wraps a response as "returned
-            # response code N" (rather than "received ClickHouse error code N") when it carries no
+            "received HTTP status 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # Same cause as the 404 above: clickhouse-connect only wraps a response as "received
+            # HTTP status N" (rather than "Received ClickHouse exception, code: N") when it carries no
             # `X-ClickHouse-Exception-Code` header, which a genuine ClickHouse query error always
             # sets. A bare 400 means a proxy, WAF, or tunnel in front of ClickHouse rejected the
             # request before it reached the server, so retrying replays the identical failure.
-            "returned response code 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            "received HTTP status 400": "We reached your ClickHouse host but it returned a 400, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
             # `_get_client` wraps the driver's construction-time probe failure ("too many
             # values to unpack") into this message when the host answers 2xx with a body that
             # isn't a ClickHouse response. The endpoint isn't serving the ClickHouse HTTP
@@ -319,6 +328,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # something we can change our side, so retrying just re-loads an
             # already disk-pressured server.
             "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
+            # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own `max_result_bytes`/
+            # `max_result_rows` limit rejected our extraction query because the table
+            # (or incremental window) is larger than that limit allows. Like Code: 241
+            # and Code: 243 this is a capacity/config limit on the customer's database,
+            # not something we can change our side, so retrying just replays the same
+            # oversized query against the same limit. We match the ClickHouse error-code
+            # name rather than "Code: 396" because some ClickHouse-compatible endpoints
+            # (e.g. Tinybird) wrap this error without the usual "Code: NNN. DB::Exception:"
+            # native wording.
+            "TOO_MANY_ROWS_OR_BYTES": "Your ClickHouse server's result size limit was exceeded while reading this table. Raise the max_result_bytes/max_result_rows limit for the user PostHog connects with, sync fewer columns, or switch this table to an incremental sync so each run reads a smaller window, then resume.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
@@ -333,6 +352,16 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # replays the identical failure, so stop and tell the customer to fix the schema.
             # We match the stable suffix, not the volatile `<database>.<table>` prefix.
             "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
+            # UNKNOWN_IDENTIFIER (code 47): a column our extraction query references no longer
+            # resolves against the table at query time, even though `system.columns` listed it at
+            # discovery time — typically a View whose underlying table had a column renamed or
+            # dropped after the View was created (ClickHouse doesn't keep a View's column list in
+            # sync with the tables it selects from). The query reissues the same column list on
+            # every attempt, so it fails identically forever. We match the numeric code, like the
+            # other `Code: NNN` entries above, rather than the `(UNKNOWN_IDENTIFIER)` name suffix —
+            # that suffix comes from the server's own exception text, but the code itself is the
+            # more fundamental, guaranteed-present signal.
+            "Code: 47": "A column referenced during sync no longer exists in your ClickHouse table (UNKNOWN_IDENTIFIER). This usually means a column was renamed or dropped in the underlying table or view — refresh this table's schema, deselect the missing column, or update the incremental field or row filter that references it, then resync.",
             # UNKNOWN_TYPE (code 50) raised while ClickHouse streams our extraction
             # query as Arrow: a selected column has a type ClickHouse can't serialize
             # to Arrow (e.g. an `AggregateFunction(...)` state column on an aggregating
@@ -355,10 +384,10 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "EOF occurred in violation of protocol",
             "Connection reset by peer",
             "Connection aborted",
-            "returned response code 429",
-            "returned response code 502",
-            "returned response code 503",
-            "returned response code 504",
+            "received HTTP status 429",
+            "received HTTP status 502",
+            "received HTTP status 503",
+            "received HTTP status 504",
             # urllib3 raises this when the source drops the connection mid-transfer while
             # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
             # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time

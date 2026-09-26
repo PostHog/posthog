@@ -125,6 +125,7 @@ export const preflightLogic = kea<preflightLogicType>([
             null as PreflightStatus | null,
             {
                 loadPreflight: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
                     const response = await api.get<PreflightStatus>('_preflight/')
                     return response
                 },

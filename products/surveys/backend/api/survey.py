@@ -2682,6 +2682,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         return Response(status.HTTP_200_OK)
 
+    # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=True, url_path="archived-response-uuids", required_scopes=["survey:read"])
     def archived_response_uuids(self, request: request.Request, **kwargs) -> Response:
         """
@@ -3770,7 +3771,6 @@ def public_survey_page(request: HttpRequest, survey_id: str) -> HttpResponse:
 
     # Build project config
     project_config = {
-        "api_host": request.build_absolute_uri("/").rstrip("/"),
         "token": survey.team.api_token,
     }
 

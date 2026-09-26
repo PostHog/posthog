@@ -27,6 +27,7 @@ from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
 from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 
 logger = structlog.get_logger(__name__)
@@ -98,7 +99,7 @@ class ErrorTrackingSimilarIssuesQueryRunner(
             limit=self.query.limit if self.query.limit else None,
             offset=self.query.offset,
         )
-        ## Validate query
+        self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
 
     def _calculate(self):
         res: tuple[list[SimilarFingerprint], HogQLQueryResponse] = self.get_similar_fingerprints()
@@ -126,15 +127,15 @@ class ErrorTrackingSimilarIssuesQueryRunner(
                     fingerprints.fingerprint, issues.id, issues.name, issues.team_id, issues.description, issues.status
                     FROM (
                         SELECT DISTINCT ON (fingerprint)
-                            fingerprint, issue_id, version, first_seen
+                            fingerprint, issue_id, version
                         FROM posthog_errortrackingissuefingerprintv2
-                        WHERE fingerprint = ANY(%s)
+                        WHERE team_id = %s AND fingerprint = ANY(%s)
                         ORDER BY fingerprint, version DESC
                     ) AS fingerprints
                     INNER JOIN posthog_errortrackingissue as issues ON issues.id = fingerprints.issue_id
                     WHERE issues.team_id = %s
                 """,
-                [fingerprint_strs, self.team.id],
+                [self.team.id, fingerprint_strs, self.team.id],
             )
             similar_issues_by_id = {}
             for row in cursor.fetchall():

@@ -2,7 +2,8 @@
 //!
 //! No module here reaches into PostgreSQL, ClickHouse, or Kafka. The internal
 //! dependency order is strictly downward:
-//! `ids` ← {`condition`, `window`} ← `chunk` ← {`plan`, `pinned`, `aggregate`} ← `person`,
+//! `ids` ← {`condition`, `window`} ← `chunk` ← {`plan`, `pinned`, `aggregate`} ←
+//! {`person_relevance`, `person_analysis`} ← `person`,
 //! except that `chunk` reaches back into `person` for the `PersonRange` vocabulary its spec
 //! carries. The seed wire contract (`SeedTile`/`PersonSeed` and the ids that ride them) lives in
 //! `cohort_core::seed` — shared with the processor — and is re-exported here.
@@ -18,6 +19,8 @@ pub mod ids;
 pub mod ledger;
 pub mod partition;
 pub mod person;
+pub mod person_analysis;
+pub mod person_relevance;
 pub mod pinned;
 pub mod plan;
 pub mod projection;
@@ -57,13 +60,16 @@ pub use ledger::{MarkerFold, MarkerLedger, SettledVerdict};
 pub use partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 pub use person::{
     person_chunk_sentinel_day, tile_ranges, EvaluatedConditions, PersonChunkSpec,
-    PersonChunkSpecError, PersonEvaluator, PersonPinnedSnapshot, PersonPlanError, PersonRange,
-    PersonRangeError, PersonRowOutcome, PersonRowSkip, PersonRunValidation, PersonSeedContext,
-    PinnedPersonRun, ValidatedPinnedPersonRun, MAX_PERSON_CHUNKS,
+    PersonChunkSpecError, PersonEmissionPolicy, PersonEvaluator, PersonPinnedSnapshot,
+    PersonPlanError, PersonRange, PersonRangeError, PersonRowOutcome, PersonRowSkip,
+    PersonRunValidation, PersonSeedContext, PinnedPersonRun, ValidatedPinnedPersonRun,
+    MAX_PERSON_CHUNKS,
 };
+pub use person_analysis::{AlwaysEvaluateReason, PersonAnalysisCensus};
 pub use pinned::{
     PinnedDropReason, PinnedError, PinnedParticipation, PinnedParticipationState, PinnedRun,
-    PinnedRunSnapshot, PinnedWarning, TriggerKind, UnknownTriggerKind, ValidatedPinnedRun,
+    PinnedRunSnapshot, PinnedWarning, TriggerKind, UncoveredCohort, UncoveredParticipations,
+    UncoveredReason, UnknownTriggerKind, ValidatedPinnedRun,
 };
 pub use plan::{bands_for_day, conditions_active_on, plan_days, ActiveConditions};
 pub use projection::{BlobSource, ChunkProjection, ColumnPlan, ProjectedKeys, ScalarColumn};

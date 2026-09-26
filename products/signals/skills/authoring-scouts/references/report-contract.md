@@ -12,6 +12,30 @@ The channel is granted via the skill's frontmatter `allowed_tools` — **every s
 > like every `scout-*` tool, **both report tools require the current `run_id`** (the run
 > you're executing in) on every call — omitting it fails validation.
 
+## Contents
+
+- [Author vs. edit](#author-vs-edit)
+- [`emit_report` — author a full report](#emit_report--author-a-full-report)
+  - [Measuring impact](#measuring-impact)
+    - [Choosing the kind](#choosing-the-kind)
+    - [Keeping the query live and bounded](#keeping-the-query-live-and-bounded)
+    - [Keeping semantics separate from formatting](#keeping-semantics-separate-from-formatting)
+    - [Titling and captioning](#titling-and-captioning)
+    - [Snapshots are optional cached fallbacks, not estimates](#snapshots-are-optional-cached-fallbacks-not-estimates)
+    - [A reader may see the tile without its data](#a-reader-may-see-the-tile-without-its-data)
+    - [Caps, and what an edit does](#caps-and-what-an-edit-does)
+  - [Attaching charts](#attaching-charts)
+  - [Suggesting follow-up prompts](#suggesting-follow-up-prompts)
+  - [Opening a draft PR (autostart)](#opening-a-draft-pr-autostart)
+- [Choosing `suggested_reviewers` — how a report gets assigned to a human](#choosing-suggested_reviewers--how-a-report-gets-assigned-to-a-human)
+- [`edit_report` — update an existing report](#edit_report--update-an-existing-report)
+  - [Replacing the report's pull request](#replacing-the-reports-pull-request)
+  - [Re-confirming a report you already filed](#re-confirming-a-report-you-already-filed)
+- [Finding "the report I made last time"](#finding-the-report-i-made-last-time)
+- [Dedup: the retry is covered, the near-duplicate is not](#dedup-the-retry-is-covered-the-near-duplicate-is-not)
+- [The pipeline may rewrite what you authored (accepted)](#the-pipeline-may-rewrite-what-you-authored-accepted)
+- [Granting the tools](#granting-the-tools)
+
 ## Author vs. edit
 
 | You have…                                                                                                       | Use                                                                                                             |
@@ -327,12 +351,34 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
       "display": "ActionsBar",
       "chartSettings": { "xAxis": { "column": "exception_type" }, "yAxis": [{ "column": "people" }] }
     }
+  },
+  {
+    "chart_id": "exceptions-by-type-daily",
+    "title": "Exceptions per day, by type",
+    "query": {
+      "kind": "DataVisualizationNode",
+      "source": {
+        "kind": "HogQLQuery",
+        "query": "SELECT toDate(timestamp) AS day, exception_type, count() AS occurrences FROM ... GROUP BY day, exception_type ORDER BY day"
+      },
+      "display": "ActionsLineGraph",
+      "chartSettings": {
+        "xAxis": { "column": "day" },
+        "yAxis": [{ "column": "occurrences" }],
+        "seriesBreakdownColumn": "exception_type",
+        "showLegend": true
+      }
+    }
   }
 ]
 ```
 
 **A graph from SQL needs its axes named.** Setting `display` without `chartSettings` draws an empty box; `chartSettings.xAxis.column` and `chartSettings.yAxis[].column` say which columns of the result are which.
 Omit `display` altogether and the node renders the result table, which reads better than a chart for a handful of rows.
+
+**A graph from SQL needs one row per x-axis value.** The x axis is built from the result rows in the order they arrive, so a query that also groups by a second dimension puts several rows at the same x position and the line zigzags instead of trending.
+Either aggregate the query down to one row per x value, or name the second dimension in `chartSettings.seriesBreakdownColumn`, which pivots those rows into one series per value of that column.
+For a time series per segment, an `InsightVizNode` wrapping a `TrendsQuery` with a `breakdownFilter` is usually cleaner than SQL.
 
 **Only the node's `kind` and its serialized size are checked on write.** A well-formed node of an allowed kind carrying a broken query is stored without complaint, then fails to draw when a reader opens the report, and nothing reports that back to the scout.
 So a scout should attach a query it has already run in the same session, or point at an insight that already exists via `SavedInsightNode`, rather than composing a node from memory.
@@ -352,7 +398,7 @@ A reference inside a code span, a table cell, or a heading has no room to draw �
 Only `InsightVizNode` and `SavedInsightNode` charts render there, at most three per report with referenced charts first; a `DataVisualizationNode` chart shows only in the inbox.
 "Signups fell 60% over the week" survives that; "the chart below shows the drop" leaves a Slack reader with nothing.
 
-**Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then.
+**Pin the window** to absolute dates wherever the node supports it, so a reader opening the report days later sees the data you wrote about rather than whatever a relative range resolves to then. This holds for charts alone. A metric and a follow-up check measure the period before each run, so each one needs a relative `dateRange.date_from` and an empty `date_to`. An absolute window is refused there.
 
 **`charts` on an edit is the report's whole set, not an addition.**
 It replaces what the report had, the way `summary` replaces the summary — so send every chart you want kept, and re-send an id under a newer window to refresh that chart.
@@ -438,10 +484,21 @@ Otherwise resolve a `github_login`, cheapest source first:
    Reuse that reviewer for the same area — the safest general recipe, available to every scout.
 3. **CODEOWNERS / git** (only if the scout has a repo checkout).
    `.github/CODEOWNERS` for the owning path, or the last `git log` author for the file.
-   Neither usually hands you a usable login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email — both must be resolved to an **individual** GitHub login before you write the reviewer (a team slug or an email won't match any user).
-4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner.
-   It returns this project's members, each with `user_uuid`, email, name, and a resolved `github_login`. Pass `search=` to narrow the result. Match the owner and route with `user_uuid`.
+   Neither hands you a reviewer directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log` gives a name + email. A reviewer is always an individual, so resolve either to people with `scout-members-list` before you write it.
+4. **`scout-members-list`** — the in-run roster lookup, for the cold-start case where the cheaper paths above don't resolve an owner, and the way a team slug becomes reviewers.
+   It returns this project's members, each with `user_uuid`, email, name, a resolved `github_login`, and the `teams` they're on. Pass `search=` to narrow by name or email. Match the owner and route with `user_uuid`.
    The org-scoped `org-members-list` / `org-member-get-github-login` tools are **not available in a scout run** — a scoped-team token can't reach the org-nested endpoint, so don't build a scout's reviewer recipe around them.
+
+**Resolving a team slug to reviewers.** Call `scout-members-list` with `team=<slug>` (bare slug, no `@your-org/` prefix, case-insensitive). It returns the members of that team with its maintainers first, so:
+
+- Take the **first 1 to 3** rows and route them. Three is the cap `suggested_reviewers` enforces anyway, and past the maintainers the order carries no ownership signal, so a longer list dilutes rather than widens.
+- Prefer **one** reviewer when a maintainer is clearly the owner of the area. Add the next one or two only when the work spans the team.
+- Route each with `user_uuid`, the same as any other reviewer.
+
+Two things the roster can't tell you, which change what you should do rather than what you should report:
+
+- **A slug with no rows means "not synced here", not "no such team".** The GitHub `teams` and `team_members` schemas are off by default and need the organization Members permission, so coverage is partial on most projects. The tool returns an error saying which case it hit. Fall back to matching the owner by name or email, and don't write a report claiming the team doesn't exist.
+- **The roster is a snapshot, so it can lag the live team.** Someone who joined or left since the last sync is wrong here. Treat a surprising result as stale data, and cross-check against a recent author or an inbox precedent before routing on it alone.
 
 **If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report still surfaces for a human to grab.
 **Never guess a handle**: a wrong login mis-assigns the report (or silently fails to assign), which is worse than leaving it open.

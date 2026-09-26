@@ -28,12 +28,20 @@ SUGGEST_THRESHOLD = 0.5
 
 DRAFT_VERDICTS = ("answerable", "blocked_on_customer", "blocked_on_knowledge", "out_of_scope")
 VALIDATE_BLOCKERS = ("none", "customer_info", "knowledge", "contradiction")
-RERANK_TOP_K = 5
+RERANK_TOP_K = 8
+# Marks a chunk the team never wrote: a past ticket resolution the learning run kept. Both the
+# retrieved-chunk list and the always-on block use it, so the model reads one vocabulary.
+LEARNED_CHUNK_LABEL = "[learned from support]"
+LEARNED_CHUNK_NOTE = (
+    f"Learned chunks ({LEARNED_CHUNK_LABEL}) reflect how the team resolved a past ticket. Treat them as team practice."
+)
 # Ticket types whose replies may ever be published to the (untrusted) ticket author.
 # diagnostic/account_billing draw on project data and must stay private regardless of settings.
 PUBLISHABLE_TICKET_TYPES = {"how_to"}
 RETRIEVE_LIMIT = 15
 DRAFT_POLL_SECONDS = 900
+# The draft activity returns a blocked draft on its last attempt instead of raising.
+DRAFT_ACTIVITY_MAX_ATTEMPTS = 2
 WIDEN_RADIUS = 3
 
 # Temporal records every activity input/output in workflow history (per-payload limit ~2 MiB,

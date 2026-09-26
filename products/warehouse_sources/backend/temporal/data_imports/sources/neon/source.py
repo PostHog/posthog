@@ -2,30 +2,15 @@ from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
     PostgresSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-_SourceField = (
-    SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldOauthAccountSelectConfig
-    | SourceFieldFileUploadConfig
-    | SourceFieldSSHTunnelConfig
-)
 
 _NEON_POOLED_HOST_CDC_ERROR = (
     "This is Neon's pooled endpoint, which doesn't support logical replication. For CDC, use the "
@@ -60,7 +45,7 @@ class NeonSource(PostgresSource):
         return ExternalDataSourceType.NEON
 
     @staticmethod
-    def _adjust_field(field: _SourceField) -> _SourceField:
+    def _adjust_field(field: FieldType) -> FieldType:
         if isinstance(field, SourceFieldInputConfig):
             if field.name == "connection_string":
                 return field.model_copy(

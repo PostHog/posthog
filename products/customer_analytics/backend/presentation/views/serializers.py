@@ -47,10 +47,12 @@ from products.customer_analytics.backend.facade.constants import (
     SLACK_SUMMARY_CADENCE_CHOICES,
 )
 from products.customer_analytics.backend.facade.contracts import (
+    TASK_DIGEST_SEND_TIME_FORMAT,
     AccountAssignment,
     AccountChannelSummaryView,
     AccountNotebookView,
     AccountNoteView,
+    AccountPresence,
     AccountPresenceViewer,
     AccountRelationship,
     AccountRelationshipDefinition,
@@ -79,7 +81,11 @@ from products.customer_analytics.backend.facade.contracts import (
     MeetingParticipantView,
     MeetingView,
 )
-from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, AccountRelationshipSource
+from products.customer_analytics.backend.facade.enums import (
+    AccountPropertyPinKind,
+    AccountRelationshipSource,
+    TaskDigestCadence,
+)
 
 
 class AccountTrackRuleFieldSerializer(serializers.Serializer):
@@ -1086,6 +1092,23 @@ class AccountPresenceViewerSerializer(DataclassSerializer):
         fields = ["user_id", "display_name"]
 
 
+class AccountPresenceListRequestSerializer(serializers.Serializer):
+    account_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        max_length=100,
+        help_text="Up to 100 account IDs to read presence for.",
+    )
+
+
+class AccountPresenceSerializer(DataclassSerializer):
+    account_id = serializers.UUIDField(read_only=True, help_text="Customer analytics account ID.")
+    viewers = AccountPresenceViewerSerializer(many=True, read_only=True, help_text="People viewing this account.")
+
+    class Meta:
+        dataclass = AccountPresence
+        fields = ["account_id", "viewers"]
+
+
 class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
     """Slim organization-member representation for Customer analytics account rows."""
 
@@ -2075,11 +2098,43 @@ class PinnedAccountPropertySerializer(serializers.Serializer):
     )
 
 
+class TaskDigestPreferencesSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(help_text="Whether the task digest email is sent to this user.")
+    send_time = serializers.TimeField(
+        format=TASK_DIGEST_SEND_TIME_FORMAT,
+        input_formats=[TASK_DIGEST_SEND_TIME_FORMAT],
+        help_text="Time of day to send the digest, as HH:MM in the project timezone.",
+    )
+    cadence = serializers.ChoiceField(
+        choices=TaskDigestCadence.choices,
+        help_text="How often the digest is sent.",
+    )
+
+
+class TaskDigestPreferencesUpdateSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField(required=False, help_text="Whether the task digest email is sent to this user.")
+    send_time = serializers.TimeField(
+        required=False,
+        format=TASK_DIGEST_SEND_TIME_FORMAT,
+        input_formats=[TASK_DIGEST_SEND_TIME_FORMAT],
+        help_text="Time of day to send the digest, as HH:MM in the project timezone.",
+    )
+    cadence = serializers.ChoiceField(
+        required=False,
+        choices=TaskDigestCadence.choices,
+        help_text="How often the digest is sent.",
+    )
+
+
 class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
     pinned_properties = PinnedAccountPropertySerializer(
         many=True,
         read_only=True,
         help_text="Account properties pinned in sidebar display order.",
+    )
+    task_digest = TaskDigestPreferencesSerializer(
+        read_only=True,
+        help_text="Task digest email preferences. Disabled until the user turns the digest on.",
     )
 
 
@@ -2089,6 +2144,10 @@ class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
         allow_empty=True,
         required=False,
         help_text="Complete ordered list of account properties to pin. Omit to keep the current pins; pass an empty list to clear them.",
+    )
+    task_digest = TaskDigestPreferencesUpdateSerializer(
+        required=False,
+        help_text="Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.",
     )
 
 

@@ -355,17 +355,58 @@ class TestWorkspaceFanOut:
         with pytest.raises(requests.HTTPError):
             _run(mock_session, route, "controls", _FakeManager())
 
+    @parameterized.expand(
+        [
+            ("risks", "risks", "/risk-registers", "/risk-registers/5/risks", "riskRegisterId"),
+            ("assigned_policies", "user_assigned_policies", "/users", "/users/5/assigned-policies", "userId"),
+        ]
+    )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_risks_fan_out_over_risk_registers(self, mock_session: mock.MagicMock) -> None:
+    def test_children_of_other_parents_inject_their_own_parent_column(
+        self,
+        _name: str,
+        endpoint: str,
+        parent_path: str,
+        child_path: str,
+        parent_column: str,
+        mock_session: mock.MagicMock,
+    ) -> None:
         def route(url: str, params: dict[str, Any]) -> Response:
-            if url.endswith("/risk-registers"):
+            if url.endswith(parent_path):
                 return _resp({"data": [{"id": 5}], "pagination": {"cursor": None}})
-            if url.endswith("/risk-registers/5/risks"):
-                return _resp({"data": [{"id": 1, "riskId": "RISK-001"}], "pagination": {"cursor": None}})
+            if url.endswith(child_path):
+                return _resp({"data": [{"id": 1}], "pagination": {"cursor": None}})
             raise AssertionError(f"unexpected url {url}")
 
-        rows, _ = _run(mock_session, route, "risks", _FakeManager())
-        assert rows == [{"id": 1, "riskId": "RISK-001", "riskRegisterId": 5}]
+        rows, _ = _run(mock_session, route, endpoint, _FakeManager())
+        assert rows == [{"id": 1, parent_column: 5}]
+
+
+class TestMonitoringTestFailureFanOut:
+    """Failures hang two fan-out levels deep: workspaces -> monitoring tests -> failures."""
+
+    def _route(self, url: str, params: dict[str, Any]) -> Response:
+        if url.endswith("/workspaces"):
+            return _resp({"data": [{"id": 10}], "pagination": {"cursor": None}})
+        if url.endswith("/workspaces/10/monitoring-tests"):
+            return _resp({"data": [{"id": 501, "testId": 77}], "pagination": {"cursor": None}})
+        if url.endswith("/workspaces/10/monitoring-tests/77/failures"):
+            return _resp({"data": [{"id": "bucket-1", "status": "OPEN"}], "pagination": {"cursor": None}})
+        raise AssertionError(f"unexpected url {url}")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_request_binds_test_id_and_keeps_excluded_findings(self, mock_session: mock.MagicMock) -> None:
+        rows, calls = _run(mock_session, self._route, "monitoring_test_failures", _FakeManager())
+        # Drata documents the monitoring test's `id` as internal and rejects it on this path; only
+        # `testId` resolves, so binding the wrong field would 404 every test.
+        assert calls[-1]["url"] == f"{US_BASE_URL}/workspaces/10/monitoring-tests/77/failures"
+        # Without includeExclusions a finding vanishes when someone dismisses it, instead of
+        # staying put with status EXCLUDED. Tags arrive only when expanded.
+        assert calls[-1]["params"]["includeExclusions"] == "true"
+        assert calls[-1]["params"]["expand[]"] == "tags"
+        # Both ancestor ids ride along so ["workspaceId", "monitoringTestId", "id"] stays unique:
+        # `id` is only the provider's resource id, and one resource fails many tests.
+        assert rows == [{"id": "bucket-1", "status": "OPEN", "monitoringTestId": 501, "workspaceId": 10}]
 
 
 class TestErrorHandling:
@@ -493,7 +534,16 @@ class TestDrataSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == DRATA_ENDPOINTS[endpoint].primary_keys
 
-    @parameterized.expand([("controls",), ("monitoring_tests",), ("evidence_library",), ("frameworks",)])
+    @parameterized.expand(
+        [
+            ("controls",),
+            ("monitoring_tests",),
+            ("evidence_library",),
+            ("frameworks",),
+            ("framework_requirements",),
+            ("tasks",),
+        ]
+    )
     def test_workspace_children_use_composite_primary_key(self, endpoint: str) -> None:
         # Child ids aren't documented as unique beyond their workspace; a bare ["id"] key would
         # multi-match on merge and duplicate rows across workspaces.
@@ -510,3 +560,9 @@ class TestDrataSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS if e != "events"])
     def test_full_refresh_endpoints_declare_asc(self, endpoint: str) -> None:
         assert self._response(endpoint).sort_mode == "asc"
+
+    def test_monitoring_test_failures_are_not_partitioned(self) -> None:
+        # Failure rows carry no timestamp, so partitioning would key on a column that never lands.
+        response = self._response("monitoring_test_failures")
+        assert response.partition_mode is None
+        assert response.partition_keys is None

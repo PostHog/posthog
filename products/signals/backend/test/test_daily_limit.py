@@ -7,6 +7,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.models import Team
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.signals.backend.daily_limit import DailyReportLimitGate, daily_report_limit_gate
 from products.signals.backend.models import SignalReport, SignalTeamConfig
@@ -17,8 +18,7 @@ DAILY_LIMIT_MODULE = "products.signals.backend.daily_limit"
 class TestDailyReportLimitGate(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # A SignalTeamConfig is auto-created for every team via register_team_extension_signal.
-        self.config = SignalTeamConfig.objects.get(team=self.team)
+        self.config = get_or_create_team_extension(self.team, SignalTeamConfig)
 
     def _set_limit(self, limit: int | None) -> None:
         self.config.max_reports_per_day = limit
@@ -103,6 +103,7 @@ class TestFirstVisibleStamp(BaseTest):
         [
             ("ready", SignalReport.Status.READY, None),
             ("pending_input", SignalReport.Status.PENDING_INPUT, "needs a repository"),
+            ("failed", SignalReport.Status.FAILED, "boom"),
         ]
     )
     def test_first_visible_transition_stamps(self, _name, target, error):
@@ -140,7 +141,6 @@ class TestFirstVisibleStamp(BaseTest):
                 SignalReport.Status.IN_PROGRESS,
                 {"signals_at_run_increment": 3},
             ),
-            ("fail", SignalReport.Status.IN_PROGRESS, SignalReport.Status.FAILED, {"error": "boom"}),
             (
                 "reset",
                 SignalReport.Status.IN_PROGRESS,

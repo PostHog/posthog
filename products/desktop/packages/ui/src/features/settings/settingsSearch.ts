@@ -7,6 +7,7 @@ export interface SettingsSearchEntry {
   category: SettingsCategory;
   label: string;
   keywords?: string[];
+  requiresBackupFiles?: boolean;
 }
 
 // Hand-curated index of the settings each page holds. When a page gains or
@@ -14,7 +15,7 @@ export interface SettingsSearchEntry {
 // display names come from SETTINGS_PAGE_LABELS, not repeated per entry.
 const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   {
-    category: "general",
+    category: "appearance",
     label: "Theme",
     keywords: ["appearance", "light", "dark", "system"],
   },
@@ -29,7 +30,12 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["billing", "manage account", "email"],
   },
   {
-    category: "general",
+    category: "appearance",
+    label: "Navigation rail",
+    keywords: ["nav rail", "sidebar", "icon size", "labels", "compact"],
+  },
+  {
+    category: "appearance",
     label: "Mission Control overlay",
     keywords: ["macos", "logo"],
   },
@@ -277,6 +283,19 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
 
   {
     category: "advanced",
+    label: "Back up settings and sounds",
+    requiresBackupFiles: true,
+    keywords: [
+      "backup",
+      "export",
+      "import",
+      "restore",
+      "transfer",
+      "custom sounds",
+    ],
+  },
+  {
+    category: "advanced",
     label: "Always create pull requests for cloud runs",
     keywords: ["auto publish", "draft pr", "pull request"],
   },
@@ -326,12 +345,15 @@ function tokenScore(entry: SettingsSearchEntry, token: string): number {
 export function searchSettings(
   query: string,
   hiddenCategories: ReadonlySet<SettingsCategory>,
+  backupAvailable = true,
 ): SettingsSearchEntry[] {
   const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (tokens.length === 0) return [];
 
   return SETTINGS_SEARCH_INDEX.filter(
-    (entry) => !hiddenCategories.has(entry.category),
+    (entry) =>
+      !hiddenCategories.has(entry.category) &&
+      (backupAvailable || !entry.requiresBackupFiles),
   )
     .map((entry) => {
       let score = 0;
