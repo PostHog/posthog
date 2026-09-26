@@ -77,8 +77,13 @@ async def eval_event_match(ctx: EvalContext) -> None:
         started = time.monotonic()
         try:
             # Sync and blocking on the gateway, so keep it off the event loop. No cache: every run asks the model.
+            # A failed chunk leaves its events out, which would score as a model miss, so a partial answer is an error.
             likely = await asyncio.to_thread(
-                likely_core_events, task_ctx.demo_data.master_team_id, case.prompt, use_cache=False
+                likely_core_events,
+                task_ctx.demo_data.master_team_id,
+                case.prompt,
+                use_cache=False,
+                require_complete=True,
             )
         except Exception as error:
             return {"model": SEARCH_INTENT_MODEL, "suggested": [], "error": f"{type(error).__name__}: {error}"}

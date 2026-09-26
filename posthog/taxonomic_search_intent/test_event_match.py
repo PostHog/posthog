@@ -12,7 +12,12 @@ from posthog.llm.system_one import NoulAnswer, Question, SystemOneRequestFailed,
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS
 from posthog.models import EventDefinition
 from posthog.taxonomic_search_intent.contracts import EventMatch, EventMatchRequest
-from posthog.taxonomic_search_intent.event_match import CORE_EVENT_CANDIDATES, _question, match_core_events
+from posthog.taxonomic_search_intent.event_match import (
+    CORE_EVENT_CANDIDATES,
+    _question,
+    likely_core_events,
+    match_core_events,
+)
 
 BUILD_CLIENT = "posthog.taxonomic_search_intent.event_match.build_system_one_client"
 CAPTURE = "posthog.taxonomic_search_intent.event_match.capture_exception"
@@ -138,6 +143,11 @@ class TestMatchCoreEvents(BaseTest):
         assert capture.call_count == 2
         # A partial answer is not cached, so the second search asks every request again.
         assert client.decide.call_count == 2 * requests_per_search
+
+    def test_a_partial_answer_fails_when_every_event_must_be_answered(self) -> None:
+        client = _model_that_believes({"Autocapture": 0.95}, failing_label="Autocapture")
+        with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE), self.assertRaises(SystemOneRequestFailed):
+            likely_core_events(self.team.id, "browser capture", use_cache=False, require_complete=True)
 
     def test_fails_when_every_request_fails(self) -> None:
         client = MagicMock()

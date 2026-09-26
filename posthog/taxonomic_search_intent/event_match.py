@@ -153,10 +153,13 @@ def _cache_key(team_id: int, query: str) -> str:
     return f"{CACHE_KEY_PREFIX}:{_CANDIDATES_DIGEST}:{team_id}:{digest}"
 
 
-def likely_core_events(team_id: int, query: str, *, use_cache: bool = True) -> list[EventMatch]:
+def likely_core_events(
+    team_id: int, query: str, *, use_cache: bool = True, require_complete: bool = False
+) -> list[EventMatch]:
     """Every core event the model finds likely, strongest first, before the check against ingested events.
 
     The model reads the search with its values replaced by placeholders, and nothing when only values are left.
+    With `require_complete`, a failed request raises instead of leaving its events out of the answer.
     """
     model_query = redact_values(query)
     if model_query is None:
@@ -171,6 +174,8 @@ def likely_core_events(team_id: int, query: str, *, use_cache: bool = True) -> l
             except ValidationError:
                 pass
     answers = _probabilities(team_id, model_query)
+    if require_complete and not answers.complete:
+        raise SystemOneRequestFailed("Some event match requests failed")
     likely = sorted(
         (
             EventMatch(name=name, label=CORE_EVENT_CANDIDATES[name].label, probability=probability)
