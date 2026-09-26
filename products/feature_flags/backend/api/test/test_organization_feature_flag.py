@@ -18,10 +18,12 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.group_type_mapping import GroupTypesUnavailable
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.persons import create_group_type_mapping
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import sort_cohorts_topologically
@@ -30,8 +32,11 @@ from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.api.organization_feature_flag import (
     EXISTING_TARGET_SCHEDULE_DEPENDENCY_WARNING,
+    GROUP_TYPES_UNAVAILABLE_ERROR,
     MAX_COPY_FLAGS_TARGET_PROJECTS,
+    MISSING_TARGET_GROUP_TYPE_ERROR,
     TARGET_COPY_PERMISSION_ERROR,
+    UNKNOWN_SOURCE_GROUP_TYPE_ERROR,
     OrganizationFeatureFlagView,
 )
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
@@ -2969,6 +2974,127 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         existing_flag.refresh_from_db()
         self.assertEqual(existing_flag.filters, {"groups": [{"rollout_percentage": 10}]})
 
+    def _create_group_flag_to_copy(self, group_type_index: int) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="group-flag-to-copy",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$group_key",
+                                "type": "group",
+                                "value": "acme",
+                                "operator": "exact",
+                                "group_type_index": group_type_index,
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                        "aggregation_group_type_index": group_type_index,
+                    }
+                ],
+                "aggregation_group_type_index": group_type_index,
+            },
+        )
+
+    def test_copy_feature_flag_remaps_group_type_index_to_target_project(self):
+        create_group_type_mapping(
+            team=self.team_1, project_id=self.team_1.project_id, group_type="organization", group_type_index=0
+        )
+        create_group_type_mapping(
+            team=self.team_1, project_id=self.team_1.project_id, group_type="company", group_type_index=1
+        )
+        create_group_type_mapping(
+            team=self.team_2, project_id=self.team_2.project_id, group_type="company", group_type_index=0
+        )
+        create_group_type_mapping(
+            team=self.team_2, project_id=self.team_2.project_id, group_type="organization", group_type_index=1
+        )
+        cache.clear()
+        flag_to_copy = self._create_group_flag_to_copy(group_type_index=1)
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/copy_flags",
+            {
+                "feature_flag_key": flag_to_copy.key,
+                "from_project": self.team_1.id,
+                "target_project_ids": [self.team_2.id],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["failed"], [])
+        copied_flag = FeatureFlag.objects.get(key=flag_to_copy.key, team=self.team_2)
+        self.assertEqual(copied_flag.filters["aggregation_group_type_index"], 0)
+        self.assertEqual(copied_flag.filters["groups"][0]["aggregation_group_type_index"], 0)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["group_type_index"], 0)
+        self.assertEqual(copied_flag.filters["groups"][0]["properties"][0]["value"], "acme")
+
+    @parameterized.expand(
+        [
+            (
+                "target_project_lacks_the_group_type",
+                [("company", 1)],
+                MISSING_TARGET_GROUP_TYPE_ERROR.format(group_types='"company"'),
+            ),
+            (
+                "source_project_lacks_the_group_type",
+                [],
+                UNKNOWN_SOURCE_GROUP_TYPE_ERROR.format(group_type_indices="1"),
+            ),
+        ]
+    )
+    def test_copy_feature_flag_fails_when_group_type_cannot_be_matched(self, _name, source_group_types, expected_error):
+        for group_type, group_type_index in source_group_types:
+            create_group_type_mapping(
+                team=self.team_1,
+                project_id=self.team_1.project_id,
+                group_type=group_type,
+                group_type_index=group_type_index,
+            )
+        cache.clear()
+        flag_to_copy = self._create_group_flag_to_copy(group_type_index=1)
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/copy_flags",
+            {
+                "feature_flag_key": flag_to_copy.key,
+                "from_project": self.team_1.id,
+                "target_project_ids": [self.team_2.id],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["success"], [])
+        self.assertEqual(
+            response.json()["failed"],
+            [{"project_id": self.team_2.id, "error_message": expected_error}],
+        )
+        self.assertFalse(FeatureFlag.objects.filter(key=flag_to_copy.key, team=self.team_2).exists())
+
+    @patch("products.feature_flags.backend.api.organization_feature_flag.get_group_types_for_projects")
+    def test_copy_feature_flag_fails_when_group_types_cannot_be_read(self, mock_get_group_types):
+        mock_get_group_types.side_effect = GroupTypesUnavailable([self.team_1.project_id])
+        flag_to_copy = self._create_group_flag_to_copy(group_type_index=1)
+
+        response = self.client.post(
+            f"/api/organizations/{self.organization.id}/feature_flags/copy_flags",
+            {
+                "feature_flag_key": flag_to_copy.key,
+                "from_project": self.team_1.id,
+                "target_project_ids": [self.team_2.id],
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response.json()["failed"],
+            [{"project_id": self.team_2.id, "error_message": GROUP_TYPES_UNAVAILABLE_ERROR}],
+        )
+        self.assertFalse(FeatureFlag.objects.filter(key=flag_to_copy.key, team=self.team_2).exists())
+
 
 class TestOrganizationFeatureFlagCopyPersonalAPIKey(APIBaseTest):
     """Verify the `copy_flags` action accepts personal API keys with `feature_flag:write` scope.
@@ -3090,6 +3216,79 @@ class TestOrganizationFeatureFlagCopySchedules(APIBaseTest):
         }
         data.update(overrides)
         return self.client.post(f"/api/organizations/{self.organization.id}/feature_flags/copy_flags", data)
+
+    def _create_group_release_condition_schedule(self, group_type_index: int) -> ScheduledChange:
+        return ScheduledChange.objects.create(
+            record_id=str(self.feature_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            payload={
+                "operation": "add_release_condition",
+                "value": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100,
+                            "aggregation_group_type_index": group_type_index,
+                        }
+                    ],
+                    "payloads": {},
+                    "multivariate": None,
+                    "aggregation_group_type_index": group_type_index,
+                },
+            },
+            scheduled_at=timezone.now() + timedelta(days=1),
+            team=self.team_1,
+            created_by=self.user,
+        )
+
+    def test_copy_flag_remaps_group_type_index_in_scheduled_change(self):
+        create_group_type_mapping(
+            team=self.team_1, project_id=self.team_1.project_id, group_type="organization", group_type_index=0
+        )
+        create_group_type_mapping(
+            team=self.team_1, project_id=self.team_1.project_id, group_type="company", group_type_index=1
+        )
+        create_group_type_mapping(
+            team=self.team_2, project_id=self.team_2.project_id, group_type="company", group_type_index=0
+        )
+        create_group_type_mapping(
+            team=self.team_2, project_id=self.team_2.project_id, group_type="organization", group_type_index=1
+        )
+        cache.clear()
+        self._create_group_release_condition_schedule(group_type_index=1)
+
+        response = self._post_copy_flag(copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("schedule_copy_warning", response.json()["success"][0])
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        target_schedule = ScheduledChange.objects.get(
+            record_id=str(copied_flag.id),
+            model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+            team=self.team_2,
+        )
+        self.assertEqual(target_schedule.payload["value"]["aggregation_group_type_index"], 0)
+        self.assertEqual(target_schedule.payload["value"]["groups"][0]["aggregation_group_type_index"], 0)
+
+    def test_copy_flag_skips_scheduled_change_when_target_lacks_group_type(self):
+        create_group_type_mapping(
+            team=self.team_1, project_id=self.team_1.project_id, group_type="company", group_type_index=1
+        )
+        cache.clear()
+        self._create_group_release_condition_schedule(group_type_index=1)
+
+        response = self._post_copy_flag(copy_schedule=True)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("company", response.json()["success"][0]["schedule_copy_warning"])
+        copied_flag = FeatureFlag.objects.get(key=self.feature_flag_key, team=self.team_2)
+        self.assertFalse(
+            ScheduledChange.objects.filter(
+                record_id=str(copied_flag.id),
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG,
+                team=self.team_2,
+            ).exists()
+        )
 
     def test_copy_flag_without_schedules(self):
         """Copying a flag without copy_schedule=True should not copy schedules."""
