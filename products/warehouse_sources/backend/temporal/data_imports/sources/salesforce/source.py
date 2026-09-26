@@ -64,8 +64,8 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             # the customer. Match the stable status text, not the volatile url that follows it.
             "404 Client Error: Not Found for url": (
                 "Salesforce doesn't have this object, or your org doesn't support the API version "
-                "this source uses. Remove the table from the source's selected tables, then "
-                "re-enable the sync."
+                "this source uses. Remove the table from the source's selected tables, or contact "
+                "support."
             ),
             "inactive organization": None,
             # Salesforce's OAuth token endpoint returns error_description "inactive user" when the
