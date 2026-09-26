@@ -109,6 +109,11 @@ _NO_ISSUES_MEDIA = (
         "A panda relaxing and waving",
     ),
     (
+        "https://raw.githubusercontent.com/PostHog/pr-assets/"
+        "e2fc77ad0eb32d2333ea265dfa604bbe33934905/2026/09/8193c291-b734-4c65-81c1-94488b902d14.png",
+        "A white car on a quiet road",
+    ),
+    (
         "https://media.tenor.com/v-9wvFB5nBEAAAAC/twin-peaks-dance.gif",
         "The dancing man in the red room from Twin Peaks",
     ),
