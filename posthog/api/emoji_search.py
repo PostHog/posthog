@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import Any
 
 from django.utils.cache import patch_vary_headers
 
@@ -46,14 +46,6 @@ class EmojiSearchThrottle(UserRateThrottle):
     rate = "60/minute"
 
 
-class EmojiSearchDailyThrottle(UserRateThrottle):
-    scope = "emoji_search_daily"
-    rate = "3000/day"
-
-    def get_cache_key(self, request: Request, view: APIView) -> str:
-        return self.cache_format % {"scope": self.scope, "ident": cast("EmojiSearchViewSet", view).team_id}
-
-
 class EmojiSearchSessionPermission(BasePermission):
     message = "Emoji suggestions are available only in the web app."
 
@@ -72,21 +64,15 @@ class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         query_serializer=EmojiSearchRequestSerializer,
         responses={
             200: OpenApiResponse(response=EmojiSearchResponseSerializer, description="Suggested emojis."),
+            429: OpenApiResponse(description="Too many requests from this user."),
             503: OpenApiResponse(description="The decision model is unavailable."),
         },
         summary="Suggest emojis for an unmatched search",
     )
     @action(detail=False, methods=["GET"])
     def suggest(self, request: Request, **kwargs: Any) -> Response:
-        def check_daily_throttle() -> None:
-            throttle = EmojiSearchDailyThrottle()
-            if not throttle.allow_request(request, self):
-                self.throttled(request, wait=throttle.wait() or 0)
-
         try:
-            result = suggest_emojis(
-                request.validated_query_data["query"], team_id=self.team_id, before_model_call=check_daily_throttle
-            )
+            result = suggest_emojis(request.validated_query_data["query"], team_id=self.team_id)
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("emoji_search_unavailable", team_id=self.team_id, reason=type(error).__name__)
             raise EmojiSearchUnavailable() from error
