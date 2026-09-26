@@ -18,7 +18,7 @@
             "type": "array"
         },
         "output_config": {
-            "description": "Output settings used to validate the preview, including numeric bounds and allows_na.",
+            "description": "Output settings used to validate the preview, including bounds, categories, and allows_na.",
             "properties": {
                 "allows_na": {
                     "description": "Whether the evaluation can return N/A for non-applicable generations.",
@@ -46,6 +46,30 @@
                     ],
                     "description": "Inclusive minimum numeric score. Omit for no lower bound."
                 },
+                "options": {
+                    "description": "Categorical output options. Keys identify stored results; labels are displayed to users.",
+                    "items": {
+                        "properties": {
+                            "key": {
+                                "description": "Stable category key.",
+                                "maxLength": 128,
+                                "minLength": 1,
+                                "pattern": "^[a-z0-9]+(?:[_-][a-z0-9]+)*$",
+                                "type": "string"
+                            },
+                            "label": {
+                                "description": "Category display label.",
+                                "maxLength": 256,
+                                "minLength": 1,
+                                "type": "string"
+                            }
+                        },
+                        "required": ["key", "label"],
+                        "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                },
                 "passing_rule": {
                     "anyOf": [
                         {
@@ -64,10 +88,28 @@
                             "type": "object"
                         },
                         {
+                            "properties": {
+                                "categories": {
+                                    "description": "Passing category keys. Every returned category must be in this list; an empty result passes.",
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["categories"],
+                            "type": "object"
+                        },
+                        {
                             "type": "null"
                         }
                     ],
-                    "description": "Optional numeric passing rule. Null removes the rule; historical scores use the current rule."
+                    "description": "Optional numeric or categorical passing rule. Null removes the rule; historical results use the current rule."
+                },
+                "selection_mode": {
+                    "description": "Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single.",
+                    "enum": ["single", "multiple"],
+                    "type": "string"
                 },
                 "step": {
                     "anyOf": [
@@ -82,7 +124,7 @@
                     "description": "Optional positive input increment. Does not round evaluation results."
                 },
                 "true_is_failure": {
-                    "description": "Boolean output only. Omit for numeric and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
+                    "description": "Boolean output only. Omit for numeric, categorical, and sentiment output. Whether a true result means the evaluation found a problem. False (the default) suits pass/fail evaluations, where a true result satisfied the criteria. Set it to true for detector-style evaluations, so a true result is counted and labeled as a fail.",
                     "type": "boolean"
                 }
             },
@@ -90,8 +132,8 @@
         },
         "output_type": {
             "default": "boolean",
-            "description": "Expected output: boolean or numeric. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric",
-            "enum": ["boolean", "numeric"],
+            "description": "Expected output: boolean, numeric, or categorical. Sentiment is not supported by Hog.\n\n* `boolean` - Boolean (Pass/Fail)\n* `numeric` - Numeric\n* `categorical` - Categorical",
+            "enum": ["boolean", "numeric", "categorical"],
             "type": "string"
         },
         "sample_count": {
@@ -102,7 +144,7 @@
             "type": "number"
         },
         "source": {
-            "description": "Hog source code to test. Must return a boolean or a finite number matching output_type, or null for allowed N/A. Output settings determine which boolean counts as a failure.",
+            "description": "Hog source code to test. Return a boolean, finite number, or category keys matching output_type. Categorical single selection accepts one key or a one-item list; multiple selection accepts a list, including []. Return null only for allowed N/A. Output settings determine which boolean counts as a failure.",
             "minLength": 1,
             "type": "string"
         },
