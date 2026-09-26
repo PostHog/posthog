@@ -274,6 +274,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgeMagicEightBall": {
+        "template": "/business-knowledge/magic-8-ball",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledgeSettings": {
         "template": "/business-knowledge/settings",
         "params": [],

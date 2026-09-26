@@ -101,6 +101,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
     '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
     '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+    '/business-knowledge/magic-8-ball': ['BusinessKnowledgeMagicEightBall', 'businessKnowledgeMagicEightBall'],
     '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
@@ -617,6 +618,12 @@ export const productConfiguration: Record<string, any> = {
             'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
     },
     BusinessKnowledgeSettings: { name: 'Business knowledge settings', projectBased: true, iconType: 'conversations' },
+    BusinessKnowledgeMagicEightBall: {
+        name: 'Magic 8 ball',
+        projectBased: true,
+        iconType: 'conversations',
+        description: 'Ask a product question and let your business knowledge shake out an answer.',
+    },
     BusinessKnowledgeSource: {
         name: 'Knowledge source',
         projectBased: true,
@@ -1235,6 +1242,7 @@ export const productUrls = {
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
     businessKnowledge: (): string => '/business-knowledge',
     businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+    businessKnowledgeMagicEightBall: (): string => '/business-knowledge/magic-8-ball',
     businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     transformations: (): string => '/transformations',
     eventFiltering: (): string => '/event-filtering',
@@ -2136,7 +2144,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
         flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
         sceneKey: 'BusinessKnowledge',
-        sceneKeys: ['BusinessKnowledge', 'BusinessKnowledgeSettings', 'BusinessKnowledgeSource'],
+        sceneKeys: [
+            'BusinessKnowledge',
+            'BusinessKnowledgeSettings',
+            'BusinessKnowledgeMagicEightBall',
+            'BusinessKnowledgeSource',
+        ],
     },
     {
         path: 'Clusters',

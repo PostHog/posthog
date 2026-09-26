@@ -17,6 +17,8 @@ import type {
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
     CreateTextSourceApi,
+    EightBallAnswerApi,
+    EightBallQuestionApi,
     GapActionApi,
     GapTopicActionApi,
     GapTopicActionResultApi,
@@ -82,6 +84,26 @@ export const businessKnowledgeDocumentsWindowList = async (
     return apiMutator<KnowledgeDocumentWindowApi[]>(getBusinessKnowledgeDocumentsWindowListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeDocumentsEightBallCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/documents/eight_ball/`
+}
+
+/**
+ * Answer a product question like a magic 8 ball, from this project's business knowledge.
+ */
+export const businessKnowledgeDocumentsEightBallCreate = async (
+    projectId: string,
+    eightBallQuestionApi: EightBallQuestionApi,
+    options?: RequestInit
+): Promise<EightBallAnswerApi> => {
+    return apiMutator<EightBallAnswerApi>(getBusinessKnowledgeDocumentsEightBallCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(eightBallQuestionApi),
     })
 }
 

@@ -10,6 +10,18 @@
 import * as zod from 'zod'
 
 /**
+ * Answer a product question like a magic 8 ball, from this project's business knowledge.
+ */
+export const businessKnowledgeDocumentsEightBallCreateBodyQuestionMax = 500
+
+export const BusinessKnowledgeDocumentsEightBallCreateBody = /* @__PURE__ */ zod.object({
+    question: zod
+        .string()
+        .max(businessKnowledgeDocumentsEightBallCreateBodyQuestionMax)
+        .describe('The product question to ask. Business knowledge search finds what the team has written about it.'),
+})
+
+/**
  * Surfaces topics the support AI couldn't answer from the knowledge base.
  *
  * Two list shapes controlled by the ``ticket_id`` query param:

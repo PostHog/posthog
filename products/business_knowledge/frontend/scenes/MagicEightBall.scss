@@ -1,0 +1,124 @@
+.MagicEightBall {
+    --ball-size: min(18rem, 70vw);
+
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: var(--ball-size);
+    height: var(--ball-size);
+    padding: 0;
+    cursor: pointer;
+    background: radial-gradient(circle at 30% 25%, #5a5a5a 0%, #1a1a1a 35%, #000 70%);
+    border: none;
+    border-radius: 50%;
+    box-shadow:
+        0 1.5rem 3rem rgb(0 0 0 / 35%),
+        inset -1rem -1.5rem 3rem rgb(0 0 0 / 60%);
+    transition: transform 150ms ease;
+    -webkit-tap-highlight-color: transparent;
+
+    &:hover {
+        transform: scale(1.02);
+    }
+
+    &:focus-visible {
+        outline: 3px solid var(--color-accent);
+        outline-offset: 4px;
+    }
+}
+
+.MagicEightBall--shaking {
+    animation: MagicEightBall__shake 0.6s ease-in-out infinite;
+}
+
+.MagicEightBall__window {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 46%;
+    height: 46%;
+    overflow: hidden;
+    background: radial-gradient(circle, #1c2a6b 0%, #0b1033 80%);
+    border-radius: 50%;
+    box-shadow: inset 0 0 1rem #000;
+}
+
+.MagicEightBall__eight {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    font-size: calc(var(--ball-size) * 0.26);
+    font-weight: 700;
+    color: #111;
+    background: #fff;
+    border-radius: 50%;
+}
+
+.MagicEightBall__triangle {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    width: 92%;
+    height: 82%;
+    padding-top: 14%;
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+    background: #2a4bd7;
+    animation: MagicEightBall__reveal 700ms ease-out both;
+
+    span {
+        width: 62%;
+        font-size: calc(var(--ball-size) * 0.042);
+        font-weight: 700;
+        line-height: 1.2;
+        color: #fff;
+        text-align: center;
+        text-transform: uppercase;
+    }
+}
+
+@keyframes MagicEightBall__shake {
+    0%,
+    100% {
+        transform: translate(0, 0) rotate(0);
+    }
+
+    20% {
+        transform: translate(-6%, 2%) rotate(-8deg);
+    }
+
+    40% {
+        transform: translate(5%, -3%) rotate(6deg);
+    }
+
+    60% {
+        transform: translate(-4%, 3%) rotate(-5deg);
+    }
+
+    80% {
+        transform: translate(3%, -2%) rotate(4deg);
+    }
+}
+
+@keyframes MagicEightBall__reveal {
+    from {
+        filter: blur(6px);
+        opacity: 0;
+        transform: scale(0.6) rotate(-10deg);
+    }
+
+    to {
+        filter: blur(0);
+        opacity: 1;
+        transform: scale(1) rotate(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .MagicEightBall--shaking,
+    .MagicEightBall__triangle {
+        animation: none;
+    }
+}
