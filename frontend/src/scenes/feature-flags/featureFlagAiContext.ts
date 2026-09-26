@@ -64,6 +64,66 @@ function targetingValue(featureFlag: FeatureFlagType): string {
     })
 }
 
+/** Skill the "Review cleanup with AI" action asks PostHog AI to load; bundled into the agent sandbox image. */
+export const FEATURE_FLAG_CLEANUP_SKILL = 'cleaning-up-stale-feature-flags'
+
+// The visible chip and the hidden instruction it stands for share this group, so dismissing the chip
+// detaches the instruction too. Mirrors the pattern in products/workflows/frontend/Workflows/workflowAgentContext.ts.
+export const FEATURE_FLAG_CLEANUP_DISMISS_GROUP = 'feature-flag-cleanup-assessment'
+
+export const FEATURE_FLAG_CLEANUP_ASSESSMENT_PROMPT = 'Assess this feature flag for cleanup.'
+
+export const FEATURE_FLAG_CLEANUP_SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'skill',
+    key: FEATURE_FLAG_CLEANUP_SKILL,
+    label: 'Cleaning up stale feature flags skill',
+    dismissGroup: FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
+}
+
+// Our own static, build-time text only. Never interpolate the flag's key, name, or description into
+// this item, or a project-authored string would ride inside the trusted block the agent is told to
+// follow. The saved identity a reader needs to act on travels separately, as the untrusted
+// `feature_flag_cleanup_target` item below.
+const FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
+    value:
+        `Load the ${FEATURE_FLAG_CLEANUP_SKILL} skill before assessing. The feature_flag_cleanup_target item ` +
+        'names the flag by project, id, and key. Re-fetch its current definition with the feature-flag tools ' +
+        'rather than trusting values elsewhere in this conversation, because it can have changed since the page ' +
+        'that started this request was loaded. Check linked systems (dependent flags, experiments, holdouts, ' +
+        'schedules) and recent activity before concluding. This request is assessment only: return the evidence ' +
+        'you gathered, any blockers, and a recommended next step. Do not edit any files, open a pull request, or ' +
+        'change this flag in PostHog - do not enable, disable, archive, unarchive, or delete it.',
+}
+
+function cleanupTargetValue(featureFlag: FeatureFlagType, projectId: number | null): string {
+    return JSON.stringify({ project_id: projectId, id: featureFlag.id, key: featureFlag.key })
+}
+
+/**
+ * Context for the flag-page "Review cleanup with AI" action: a visible pointer to the cleanup skill, a
+ * static instruction to load it, and the saved flag's identity as untrusted data. Attach this only when
+ * that action is taken - an ordinary conversation on this page keeps using `featureFlagContextItems` alone,
+ * so it is unaffected by this skill and instruction.
+ */
+export function featureFlagCleanupAssessmentContextItems(
+    featureFlag: FeatureFlagType,
+    projectId: number | null
+): AttachedContextItem[] {
+    return [
+        FEATURE_FLAG_CLEANUP_SKILL_CHIP_CONTEXT_ITEM,
+        FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM,
+        {
+            type: 'feature_flag_cleanup_target',
+            hidden: true,
+            dismissGroup: FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
+            value: cleanupTargetValue(featureFlag, projectId),
+        },
+    ]
+}
+
 // `create-feature-flag` is left out because it never targets the flag on screen.
 // `delete-feature-flag` and the bulk tools can target it, and are still left out: there is nothing
 // to refresh into after a delete, and the bulk tools pass a list of ids that this matcher does not

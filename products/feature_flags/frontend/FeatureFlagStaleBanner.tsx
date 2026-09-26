@@ -1,11 +1,17 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
+import { IconSparkles } from '@posthog/icons'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { endWithPunctation } from 'lib/utils/strings'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 
+import { FeatureFlagType } from '~/types'
+
+import { featureFlagCleanupAssessmentLogic } from './featureFlagCleanupAssessmentLogic'
 import { formatPercentage } from './FractionalRolloutWarning'
 import type { FeatureFlagRolloutSummaryApi } from './generated/api.schemas'
 
@@ -51,29 +57,64 @@ function rolloutSentence(
     return reasonStatesRollout ? null : `One release condition rolls out to all ${targets}.`
 }
 
+/**
+ * The internally-gated escalation from "review usage" to "ask PostHog AI to assess this flag for
+ * cleanup". A separate component so its `featureFlagCleanupAssessmentLogic` mount (and the hooks that
+ * come with it) only happens once the parent banner has already decided to render - the banner itself
+ * returns null before any flag is confirmed stale, and hooks can't run conditionally in one component.
+ */
+function ReviewCleanupWithAiButton({
+    featureFlag,
+    currentProjectId,
+}: {
+    featureFlag: FeatureFlagType & { id: number }
+    currentProjectId: number | null
+}): JSX.Element | null {
+    const { isCleanupAvailable, assessmentStarted } = useValues(
+        featureFlagCleanupAssessmentLogic({ id: featureFlag.id })
+    )
+    const { startAssessment } = useActions(featureFlagCleanupAssessmentLogic({ id: featureFlag.id }))
+
+    if (!isCleanupAvailable) {
+        return null
+    }
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconSparkles />}
+            data-attr="feature-flag-stale-banner-review-cleanup"
+            disabledReason={assessmentStarted ? 'Assessment started. Continue in PostHog AI.' : undefined}
+            onClick={() => startAssessment(featureFlag, currentProjectId)}
+        >
+            Review cleanup with AI
+        </LemonButton>
+    )
+}
+
 export function FeatureFlagStaleBanner(): JSX.Element | null {
-    const { showStaleFlagBanner, flagStatus, hasExperiment, dependentFlags, aggregationTargetName } =
-        useValues(featureFlagLogic)
+    const {
+        showStaleFlagBanner,
+        flagStatus,
+        hasExperiment,
+        dependentFlags,
+        aggregationTargetName,
+        featureFlag,
+        currentProjectId,
+    } = useValues(featureFlagLogic)
     const { setSelectedTab } = useActions(featureFlagLogic)
 
-    if (!showStaleFlagBanner || !flagStatus) {
+    // `showStaleFlagBanner` already requires a saved flag (see featureFlagLogic), so `featureFlag.id`
+    // is never null here - the extra check narrows the type for `ReviewCleanupWithAiButton` below.
+    if (!showStaleFlagBanner || !flagStatus || !featureFlag.id) {
         return null
     }
 
     const rollout = rolloutSentence(flagStatus.rollout, flagStatus.reason_states_rollout, aggregationTargetName)
 
     return (
-        <LemonBanner
-            type="warning"
-            action={{
-                children: 'View usage',
-                'data-attr': 'feature-flag-stale-banner-view-usage',
-                onClick: () => {
-                    posthog.capture('feature flag stale banner view usage clicked')
-                    setSelectedTab(FeatureFlagsTab.USAGE)
-                },
-            }}
-        >
+        <LemonBanner type="warning">
             <div className="flex flex-col gap-1">
                 <strong>This flag may no longer be needed</strong>
                 <span>
@@ -83,6 +124,23 @@ export function FeatureFlagStaleBanner(): JSX.Element | null {
                 {hasExperiment && <span>This flag is linked to an experiment.</span>}
                 {dependentFlags.length > 0 && <span>Other flags depend on this flag.</span>}
                 <span>Review usage and code references before disabling or archiving this flag.</span>
+                <div className="flex flex-wrap gap-2 mt-1">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        data-attr="feature-flag-stale-banner-view-usage"
+                        onClick={() => {
+                            posthog.capture('feature flag stale banner view usage clicked')
+                            setSelectedTab(FeatureFlagsTab.USAGE)
+                        }}
+                    >
+                        View usage
+                    </LemonButton>
+                    <ReviewCleanupWithAiButton
+                        featureFlag={featureFlag as FeatureFlagType & { id: number }}
+                        currentProjectId={currentProjectId}
+                    />
+                </div>
             </div>
         </LemonBanner>
     )
