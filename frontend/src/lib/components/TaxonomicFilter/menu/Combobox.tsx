@@ -15,7 +15,7 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { MutableRefObject, ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconCheck, IconChevronRight, IconClock, IconPinFilled } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconClock, IconPinFilled, IconPlus } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -57,6 +57,7 @@ import {
 } from '../utils/collapsedContainsRow'
 import { floatToFront } from '../utils/floatToFront'
 import { hiddenEventMatchingSearch } from '../utils/hiddenEvents'
+import { buildNonCapturedEventItem, isNonCapturedEventItem } from '../utils/nonCapturedEvent'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
 import { MatchedValueBadge } from './MatchedValueBadge'
@@ -236,6 +237,10 @@ export function MenuFilterCombobox({
     // `loadingByType` which is `loading && no-items-yet`). Drives the reveal
     // barrier so kept-previous-data refetches still hold the list.
     const [fetchingByType, setFetchingByType] = useState<Record<string, { query?: string; fetching: boolean }>>({})
+    // Per-group "the typed name can be used as an event we haven't captured" flags,
+    // reported up by `Fetcher`. The guards (caller opt-in, group type, excluded names,
+    // settled fetch, zero results) all live in `useGroupList`, shared with the classic list.
+    const [nonCapturedByType, setNonCapturedByType] = useState<Record<string, boolean>>({})
     // Only engages while actively searching a fetching scope. Recent/Pinned read
     // pre-resolved entries (`drillItems` when drilled to, the recents/pinned props
     // when picked from the category select) and never fetch, so they're never gated.
@@ -282,6 +287,10 @@ export function MenuFilterCombobox({
 
     const reportLoading = useCallback((type: string, loading: boolean): void => {
         setLoadingByType((prev) => (prev[type] === loading ? prev : { ...prev, [type]: loading }))
+    }, [])
+
+    const reportNonCaptured = useCallback((type: string, show: boolean): void => {
+        setNonCapturedByType((prev) => (prev[type] === show ? prev : { ...prev, [type]: show }))
     }, [])
 
     const reportFetching = useCallback((type: string, fetching: boolean, query?: string): void => {
@@ -392,6 +401,16 @@ export function MenuFilterCombobox({
                 merged.push(buildMenuFilterEntry(item, group))
             }
         }
+        // "Use event name" rows trail the real results, so a search that matches nothing in
+        // the events group but matches rows in another group keeps those rows where they are.
+        // The classic list has one group per tab, so it leads with the row instead.
+        if (trimmedQuery) {
+            for (const group of targetGroups) {
+                if (nonCapturedByType[group.type]) {
+                    merged.push(buildNonCapturedEventEntry(trimmedQuery, group))
+                }
+            }
+        }
         // Make sure the committed selection is reachable from the list
         // even when the remote endpoint paginated past it (limit=100,
         // alphabetical ordering — long-tail custom events get cut off
@@ -428,6 +447,7 @@ export function MenuFilterCombobox({
         pinnedEntries,
         targetGroups,
         itemsByType,
+        nonCapturedByType,
         selectedEntry,
         showChips,
         activeChip,
@@ -1053,7 +1073,13 @@ export function MenuFilterCombobox({
                 keepHighlight
                 openOnInputClick={false}
                 itemToStringValue={(entry: MenuFilterEntry) => entry.name}
-                onItemHighlighted={(entry) => setHighlightedEntry((entry as MenuFilterEntry | undefined) ?? null)}
+                // The preview pane describes a definition PostHog holds. A name we have not
+                // captured has none, and its Pin button would save a row that resolves to
+                // nothing, so that row leaves the pane empty.
+                onItemHighlighted={(entry) => {
+                    const next = (entry as MenuFilterEntry | undefined) ?? null
+                    setHighlightedEntry(next && isNonCapturedEventItem(next.item) ? null : next)
+                }}
             >
                 {searchFieldRow}
                 {/* Flex layout: list flexes, separator is 1px, preview is a
@@ -1070,6 +1096,7 @@ export function MenuFilterCombobox({
                                     onItems={reportItems}
                                     onLoadingChange={reportLoading}
                                     onFetchingChange={reportFetching}
+                                    onNonCapturedOptionChange={reportNonCaptured}
                                 />
                             ))}
                         <ScrollArea className="flex-1 min-h-0 scroll-py-8" alwaysShowScrollbars>
@@ -1312,6 +1339,44 @@ function resolveRowCells(entry: MenuFilterEntry): {
     return { name: entry.name, category: entry.group.name }
 }
 
+/**
+ * The "use this name anyway" row. Sits in the list as a normal
+ * `Autocomplete.Item`, so a click and the Enter key both commit it, like any
+ * other row. The dashed border separates it from the captured definitions.
+ */
+function NonCapturedEventRow({ entry, onSelect }: { entry: MenuFilterEntry; onSelect: () => void }): JSX.Element {
+    return (
+        <Autocomplete.Item
+            value={entry}
+            onClick={(e) => {
+                e.preventDefault()
+                onSelect()
+            }}
+            className={cn(
+                'flex flex-row items-center justify-center gap-2 rounded-sm px-2 py-1 cursor-pointer outline-none',
+                'border border-dashed border-secondary',
+                'data-selected:bg-(--fill-hover)'
+            )}
+            render={(itemProps, state) => (
+                <div
+                    {...itemProps}
+                    id={rowDomId(entry)}
+                    data-slot="taxonomic-filter-menu-row"
+                    data-attr="prop-filter-event-option-custom"
+                    data-selected={state.highlighted ? '' : undefined}
+                />
+            )}
+        >
+            <IconPlus className="size-4 text-tertiary shrink-0" />
+            <span className="text-sm text-tertiary">Use event name</span>
+            <span className="text-sm font-medium truncate">{entry.name}</span>
+            <Badge variant="warning" className="shrink-0">
+                Not seen yet
+            </Badge>
+        </Autocomplete.Item>
+    )
+}
+
 function Row({
     entry,
     showCategory,
@@ -1321,6 +1386,9 @@ function Row({
     selectedRename,
     onSelect,
 }: RowProps): JSX.Element {
+    if (isNonCapturedEventItem(entry.item)) {
+        return <NonCapturedEventRow entry={entry} onSelect={onSelect} />
+    }
     const cells = resolveRowCells(entry)
     const stableId = rowDomId(entry)
     const isSelected = selectedRowId === stableId
@@ -1406,6 +1474,7 @@ function Fetcher({
     onItems,
     onLoadingChange,
     onFetchingChange,
+    onNonCapturedOptionChange,
 }: {
     group: TaxonomicFilterGroup
     /** Hide stale event definitions (event / custom-event groups only). */
@@ -1417,6 +1486,9 @@ function Fetcher({
     /** Reports `isFetching` (true during background refetches too) so the
      *  parent's reveal barrier holds the list until every group settles. */
     onFetchingChange: (type: string, fetching: boolean, query?: string) => void
+    /** Reports whether the typed name can be committed as an event PostHog has
+     *  not captured yet, so the parent can offer that row. */
+    onNonCapturedOptionChange: (type: string, show: boolean) => void
 }): null {
     const { getGroupListInput } = useTaxonomicFilterContext()
     const input = getGroupListInput(group)
@@ -1430,6 +1502,9 @@ function Fetcher({
     useEffect(() => {
         onFetchingChange(group.type, list.isFetching, input.searchQuery)
     }, [group.type, list.isFetching, input.searchQuery, onFetchingChange])
+    useEffect(() => {
+        onNonCapturedOptionChange(group.type, list.showNonCapturedEventOption)
+    }, [group.type, list.showNonCapturedEventOption, onNonCapturedOptionChange])
     // Make sure we flip back to "not loading"/"not fetching" when this group
     // unmounts — otherwise a stale `true` from a previously-active chip would
     // keep the skeleton (or the reveal barrier) stuck after we switch scope.
@@ -1437,8 +1512,9 @@ function Fetcher({
         return () => {
             onLoadingChange(group.type, false)
             onFetchingChange(group.type, false)
+            onNonCapturedOptionChange(group.type, false)
         }
-    }, [group.type, onLoadingChange, onFetchingChange])
+    }, [group.type, onLoadingChange, onFetchingChange, onNonCapturedOptionChange])
     return null
 }
 
@@ -1496,6 +1572,14 @@ function getFriendlyLabel(item: TaxonomicDefinitionTypes, group: TaxonomicFilter
         return undefined
     }
     return getCoreFilterDefinition(raw, group.type)?.label
+}
+
+function buildNonCapturedEventEntry(name: string, group: TaxonomicFilterGroup): MenuFilterEntry {
+    return {
+        item: buildNonCapturedEventItem(name) as unknown as TaxonomicDefinitionTypes,
+        group,
+        name,
+    }
 }
 
 function buildMenuFilterEntry(item: TaxonomicDefinitionTypes, group: TaxonomicFilterGroup): MenuFilterEntry {
