@@ -3,7 +3,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Live Debugger',
@@ -45,7 +45,7 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.LIVE_DEBUGGER,
             iconType: 'live_debugger',
             tags: ['alpha'],
-            iconColor: ['var(--color-product-live-debugger-light)'] as FileSystemIconColor,
+            iconColor: ['var(--color-product-live-debugger-light)', 'var(--color-product-live-debugger-dark)'],
         },
     ],
 }

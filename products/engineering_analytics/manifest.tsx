@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'EngineeringAnalytics',
@@ -124,7 +124,10 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',
             iconType: 'health' as FileSystemIconType,
-            iconColor: ['var(--color-product-data-warehouse-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-engineering-analytics-light)',
+                'var(--color-product-engineering-analytics-dark)',
+            ],
             href: urls.engineeringAnalytics(),
             flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
             tags: ['alpha'],

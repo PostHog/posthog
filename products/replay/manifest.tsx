@@ -50,7 +50,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Session replay',
             intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             href: urls.replay(ReplayTabs.Home),
             type: 'session_recording_playlist',
             iconType: 'session_replay',
@@ -69,7 +69,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Heatmaps',
             intents: [ProductKey.HEATMAPS],
-            category: ProductItemCategory.BEHAVIOR,
+            category: ProductItemCategory.PRODUCT_ENGINEERING,
             iconType: 'heatmap',
             iconColor: ['var(--color-product-heatmaps-light)', 'var(--color-product-heatmaps-dark)'],
             href: urls.heatmaps(),

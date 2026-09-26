@@ -75,7 +75,7 @@ export const manifest: ProductManifest = {
         {
             path: 'Tracing',
             intents: [ProductKey.TRACING],
-            category: ProductItemCategory.APP_MONITORING,
+            category: ProductItemCategory.MONITORING,
             iconType: 'tracing',
             iconColor: [
                 'var(--color-product-tracing-light)',
