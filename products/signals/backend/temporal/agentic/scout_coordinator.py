@@ -369,7 +369,7 @@ def _collect_planned_runs(
             live_skills = register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld_for_team)
         else:
             # Wildcard-discovered (`"*"`): the team already self-seeded its configs through the
-            # product-autonomy-gated UI / `sync` materialization, so skip the per-tick seed +
+            # Inbox UI / `sync` materialization, so skip the per-tick seed +
             # reconcile — that's what keeps the hot path cheap as self-enrollment scales to thousands
             # of teams. Read only the live scout skill names (cheap) so a config whose skill was
             # deleted/superseded isn't dispatched, and honor the holdback denylist. Central canonical
@@ -525,7 +525,7 @@ def _participating_teams(enrollment: Enrollment) -> list[tuple[Team, bool]]:
       Adding an id in the flag UI enrolls it on the next tick with no manual seed; removing it (or
       listing it in `skip_team_ids`) drains it.
     - the `"*"` wildcard → every team that already has an enabled `SignalScoutConfig`
-      (`needs_seed=False`): it self-enrolled through the product-autonomy-gated UI, so it already
+      (`needs_seed=False`): it self-enrolled through the Inbox UI, so it already
       has configs and the tick skips the expensive seed/reconcile for it. If a team is in both, the
       explicit tag wins (it gets the seed pass).
     Child envs canonicalize to their parent project; `skip_team_ids` is removed from both sets.
