@@ -3,7 +3,7 @@ import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifi
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { useActions, useValues } from 'kea'
 
-import { IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -11,6 +11,7 @@ import {
     LemonInput,
     LemonLabel,
     LemonModal,
+    LemonSegmentedButton,
     LemonSelect,
     LemonTag,
 } from '@posthog/lemon-ui'
@@ -36,6 +37,7 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
     const {
         setEditorOpen,
         setEditorName,
+        setEditorVisibility,
         addEditorComponent,
         duplicateEditorComponent,
         removeEditorComponent,
@@ -45,11 +47,15 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
         deleteView,
     } = useActions(logic)
     const availableComponents = listAvailableAccountViewComponents(featureFlags)
-    const saveDisabledReason = !editorDraft.name.trim()
-        ? 'Enter a view name'
-        : editorDraft.components.length === 0
-          ? 'Add at least one component'
-          : undefined
+    const canEditContent = !editingView || editingView.can_edit
+    const visibilityOnly = !!editingView && !canEditContent && editingView.can_change_visibility
+    const saveDisabledReason = canEditContent
+        ? !editorDraft.name.trim()
+            ? 'Enter a view name'
+            : editorDraft.components.length === 0
+              ? 'Add at least one component'
+              : undefined
+        : undefined
 
     const confirmDelete = (): void => {
         if (!editingView) {
@@ -57,7 +63,10 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
         }
         LemonDialog.open({
             title: `Delete "${editingView.name}"?`,
-            description: 'This removes the view from your account tabs.',
+            description:
+                editingView.visibility === 'team'
+                    ? 'This removes the view for everyone in the project.'
+                    : 'This removes the view from your account tabs.',
             primaryButton: {
                 children: 'Delete view',
                 status: 'danger',
@@ -71,11 +80,11 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
         <LemonModal
             isOpen={editorOpen}
             onClose={() => setEditorOpen(false)}
-            title={editingView ? 'Edit view' : 'Add view'}
+            title={visibilityOnly ? 'Change view visibility' : editingView ? 'Edit view' : 'Add view'}
             width={640}
             footer={
                 <>
-                    {editingView ? (
+                    {editingView?.can_delete ? (
                         <LemonButton
                             status="danger"
                             type="secondary"
@@ -99,7 +108,7 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
                         disabledReason={saveDisabledReason}
                         data-attr="account-view-save"
                     >
-                        {editingView ? 'Save changes' : 'Create view'}
+                        {visibilityOnly ? 'Save visibility' : editingView ? 'Save changes' : 'Create view'}
                     </LemonButton>
                 </>
             }
@@ -110,70 +119,99 @@ export function AccountViewEditorModal({ projectId }: AccountViewEditorModalProp
                         This view changed since you opened it. Reload the latest version before saving.
                     </LemonBanner>
                 ) : null}
-                <div className="flex flex-col gap-1">
-                    <LemonLabel htmlFor="account-view-name">View name</LemonLabel>
-                    <LemonInput
-                        id="account-view-name"
-                        value={editorDraft.name}
-                        onChange={setEditorName}
-                        placeholder="Account overview"
-                        autoFocus
-                        data-attr="account-view-name"
-                    />
-                </div>
-                <div className="flex flex-wrap items-end gap-2">
-                    <div className="flex min-w-56 flex-1 flex-col gap-1">
-                        <LemonLabel>Components</LemonLabel>
-                        <LemonSelect<AccountViewComponentKind>
-                            value={null}
-                            allowClear
-                            onChange={(kind) => kind && addEditorComponent(kind)}
-                            options={availableComponents.map((component) => ({
-                                value: component.kind,
-                                label: component.label,
-                            }))}
-                            placeholder="Choose a component"
+                {canEditContent ? (
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel htmlFor="account-view-name">View name</LemonLabel>
+                        <LemonInput
+                            id="account-view-name"
+                            value={editorDraft.name}
+                            onChange={setEditorName}
+                            placeholder="Account overview"
+                            autoFocus
+                            data-attr="account-view-name"
                         />
                     </div>
-                    <LemonTag type="muted">{editorDraft.components.length} added</LemonTag>
-                </div>
-                <div className="flex flex-col gap-2">
-                    {editorDraft.components.length === 0 ? (
-                        <div className="rounded border border-dashed p-4 text-center text-secondary">
-                            Add the account sections you want to show in this view.
+                ) : null}
+                {editingView?.can_change_visibility ? (
+                    <div className="flex flex-col gap-1">
+                        <LemonLabel>Visibility</LemonLabel>
+                        <LemonSegmentedButton
+                            value={editorDraft.visibility}
+                            onChange={setEditorVisibility}
+                            options={[
+                                { value: 'private', label: 'Only me' },
+                                { value: 'team', label: 'Team' },
+                            ]}
+                            size="small"
+                        />
+                    </div>
+                ) : null}
+                {canEditContent ? (
+                    <>
+                        <div className="flex flex-wrap items-end gap-2">
+                            <div className="flex min-w-56 flex-1 flex-col gap-1">
+                                <LemonLabel>Components</LemonLabel>
+                                <LemonSelect<AccountViewComponentKind>
+                                    value={null}
+                                    allowClear
+                                    onChange={(kind) => kind && addEditorComponent(kind)}
+                                    options={availableComponents.map((component) => ({
+                                        value: component.kind,
+                                        label: component.label,
+                                    }))}
+                                    placeholder="Choose a component"
+                                />
+                            </div>
+                            <LemonTag type="muted">{editorDraft.components.length} added</LemonTag>
                         </div>
-                    ) : (
-                        <DndContext
-                            onDragEnd={({ active, over }) => {
-                                if (over) {
-                                    reorderEditorComponent(String(active.id), String(over.id))
-                                }
-                            }}
-                            modifiers={[restrictToVerticalAxis, restrictToParentElement]}
-                        >
-                            <SortableContext
-                                items={editorDraft.components.map((component) => component.nodeId)}
-                                strategy={verticalListSortingStrategy}
-                            >
-                                <div className="flex flex-col gap-2">
-                                    {editorDraft.components.map((component) => {
-                                        const definition = getAccountViewComponentByKind(component.kind)
-                                        return (
-                                            <AccountViewEditorComponentItem
-                                                key={component.nodeId}
-                                                component={component}
-                                                label={component.title ?? definition?.label ?? component.kind}
-                                                disabled={editorSaving}
-                                                onDuplicate={() => duplicateEditorComponent(component.nodeId)}
-                                                onRemove={() => removeEditorComponent(component.nodeId)}
-                                            />
-                                        )
-                                    })}
+                        <div className="flex flex-col gap-2">
+                            {editorDraft.components.length === 0 ? (
+                                <div className="rounded border border-dashed p-4 text-center text-secondary">
+                                    Add the account sections you want to show in this view.
                                 </div>
-                            </SortableContext>
-                        </DndContext>
-                    )}
-                </div>
+                            ) : (
+                                <DndContext
+                                    onDragEnd={({ active, over }) => {
+                                        if (over) {
+                                            reorderEditorComponent(String(active.id), String(over.id))
+                                        }
+                                    }}
+                                    modifiers={[restrictToVerticalAxis, restrictToParentElement]}
+                                >
+                                    <SortableContext
+                                        items={editorDraft.components.map((component) => component.nodeId)}
+                                        strategy={verticalListSortingStrategy}
+                                    >
+                                        <div className="flex flex-col gap-2">
+                                            {editorDraft.components.map((component) => {
+                                                const definition = getAccountViewComponentByKind(component.kind)
+                                                return (
+                                                    <AccountViewEditorComponentItem
+                                                        key={component.nodeId}
+                                                        component={component}
+                                                        label={component.title ?? definition?.label ?? component.kind}
+                                                        disabled={editorSaving}
+                                                        onDuplicate={() => duplicateEditorComponent(component.nodeId)}
+                                                        onRemove={() => removeEditorComponent(component.nodeId)}
+                                                    />
+                                                )
+                                            })}
+                                        </div>
+                                    </SortableContext>
+                                </DndContext>
+                            )}
+                        </div>
+                    </>
+                ) : (
+                    <LemonBanner type="info">
+                        You can change this view's visibility, but only account editors can change its name or contents.
+                    </LemonBanner>
+                )}
+                {!editingView ? (
+                    <LemonBanner type="info" icon={<IconPlus />}>
+                        New views are personal. You can share the view with your team after creating it.
+                    </LemonBanner>
+                ) : null}
             </div>
         </LemonModal>
     )

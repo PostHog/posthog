@@ -30,7 +30,7 @@ export function AccountViewTile({
     const { tileSaving, tileConfigReloads } = useValues(logic)
     const { openTileEditor, removeViewComponent, updateViewComponentConfig } = useActions(logic)
     const title = component.title ?? getAccountViewComponentByKind(component.kind)?.label ?? component.kind
-    const menuDisabledReason = tileSaving ? 'Saving changes' : undefined
+    const menuDisabledReason = !view.can_edit ? 'You cannot edit this view' : tileSaving ? 'Saving changes' : undefined
 
     const confirmRemove = (): void => {
         LemonDialog.open({
@@ -89,7 +89,11 @@ export function AccountViewTile({
                     externalId={externalId}
                     instanceId={`${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`}
                     initialConfig={component.config}
-                    onConfigChange={(config) => updateViewComponentConfig(view.id, component.nodeId, config)}
+                    onConfigChange={
+                        view.can_edit
+                            ? (config) => updateViewComponentConfig(view.id, component.nodeId, config)
+                            : undefined
+                    }
                     embedded
                 />
             </div>

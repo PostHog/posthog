@@ -988,7 +988,11 @@ class AccountViewContentSerializer(serializers.Serializer):
 class AccountViewSerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Stable account view identifier.")
     name = serializers.CharField(read_only=True, help_text="Name shown in the account view.")
-    visibility = serializers.CharField(read_only=True, help_text="Account views created through this API are private.")
+    visibility = serializers.ChoiceField(
+        read_only=True,
+        choices=AccountViewVisibility.choices,
+        help_text="Whether the view is personal or available to the project.",
+    )
     content = AccountViewContentSerializer(read_only=True, help_text="Validated Markdown notebook document.")
     text_content = serializers.CharField(
         read_only=True, help_text="Searchable component labels extracted from content."
@@ -1002,6 +1006,12 @@ class AccountViewSerializer(DataclassSerializer):
     )
     created_at = serializers.DateTimeField(read_only=True, help_text="When the view was created.")
     updated_at = serializers.DateTimeField(read_only=True, help_text="When the view was last changed.")
+    can_edit = serializers.BooleanField(read_only=True, help_text="Whether the requesting user can edit the view.")
+    can_delete = serializers.BooleanField(read_only=True, help_text="Whether the requesting user can delete the view.")
+    can_change_visibility = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the requesting user can change the view visibility.",
+    )
 
     class Meta:
         dataclass = AccountView
@@ -1017,6 +1027,9 @@ class AccountViewSerializer(DataclassSerializer):
             "last_modified_by",
             "created_at",
             "updated_at",
+            "can_edit",
+            "can_delete",
+            "can_change_visibility",
         ]
 
 
@@ -1038,17 +1051,11 @@ class AccountViewUpdateSerializer(serializers.Serializer):
         help_text="Replacement account view components. Omit to keep current content.",
     )
     visibility = serializers.ChoiceField(
-        choices=[(AccountViewVisibility.PRIVATE, "Personal")],
+        choices=AccountViewVisibility.choices,
         required=False,
-        write_only=True,
-        help_text="Views can only be private.",
+        help_text="New visibility. Only the creator or a project admin can change it.",
     )
     version = serializers.IntegerField(min_value=1, help_text="Version returned by the last read.")
-
-    def validate_visibility(self, value: str) -> str:
-        if value != AccountViewVisibility.PRIVATE:
-            raise serializers.ValidationError("Views can only be private.")
-        return value
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         if "version" not in attrs:
@@ -2226,6 +2233,23 @@ class TaskDigestPreferencesUpdateSerializer(serializers.Serializer):
     )
 
 
+class AccountDetailTabsConfigSerializer(serializers.Serializer):
+    ordered_tab_ids = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=True,
+        help_text="Tab identifiers in the user's preferred order.",
+    )
+    hidden_tab_ids = serializers.ListField(
+        child=serializers.CharField(),
+        allow_empty=True,
+        help_text="Tab identifiers hidden from the tab strip.",
+    )
+    default_tab_id = serializers.CharField(
+        allow_null=True,
+        help_text="Tab identifier opened by default. Null uses the first available system tab.",
+    )
+
+
 class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
     pinned_properties = PinnedAccountPropertySerializer(
         many=True,
@@ -2235,6 +2259,10 @@ class UserCustomerAnalyticsConfigSerializer(serializers.Serializer):
     task_digest = TaskDigestPreferencesSerializer(
         read_only=True,
         help_text="Task digest email preferences. Disabled until the user turns the digest on.",
+    )
+    account_detail_tabs = AccountDetailTabsConfigSerializer(
+        read_only=True,
+        help_text="Personal order, visibility, and default for account tabs.",
     )
 
 
@@ -2248,6 +2276,10 @@ class UserCustomerAnalyticsConfigUpdateSerializer(serializers.Serializer):
     task_digest = TaskDigestPreferencesUpdateSerializer(
         required=False,
         help_text="Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.",
+    )
+    account_detail_tabs = AccountDetailTabsConfigSerializer(
+        required=False,
+        help_text="Complete personal account tab configuration. Omit to keep it unchanged.",
     )
 
 

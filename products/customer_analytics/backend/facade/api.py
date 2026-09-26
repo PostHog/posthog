@@ -100,6 +100,7 @@ from products.customer_analytics.backend.facade.email_matching import schedule_e
 from products.customer_analytics.backend.facade.enums import (
     AccountPropertyPinKind,
     AccountRelationshipSource,
+    AccountViewVisibility,
     TaskDigestCadence,
 )
 from products.customer_analytics.backend.logic import (
@@ -1210,13 +1211,21 @@ def delete_customer_profile_config(
 
 InvalidAccountViewContent = _account_views_logic.InvalidAccountViewContent
 AccountViewVersionConflict = _account_views_logic.AccountViewVersionConflict
+AccountViewPermissionDenied = _account_views_logic.AccountViewPermissionDenied
 
 
-def _to_account_view(view: AccountViewModel) -> contracts.AccountView:
+def _to_account_view(
+    view: AccountViewModel,
+    *,
+    actor_user_id: int,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
+) -> contracts.AccountView:
+    is_creator = view.created_by_id == actor_user_id
     return contracts.AccountView(
         id=view.id,
         name=view.name,
-        visibility=cast(Literal["private"], view.visibility),
+        visibility=cast(Literal["private", "team"], view.visibility),
         content=view.content,
         text_content=view.text_content,
         version=view.version,
@@ -1224,24 +1233,53 @@ def _to_account_view(view: AccountViewModel) -> contracts.AccountView:
         last_modified_by=view.last_modified_by_id,
         created_at=view.created_at,
         updated_at=view.updated_at,
+        can_edit=(view.visibility == AccountViewVisibility.PRIVATE and is_creator)
+        or (view.visibility == AccountViewVisibility.TEAM and can_edit_team_views),
+        can_delete=is_creator or is_project_admin,
+        can_change_visibility=is_creator or is_project_admin,
     )
 
 
-def list_account_views(*, team_id: int, user_id: int) -> list[contracts.AccountView]:
+def list_account_views(
+    *, team_id: int, user_id: int, can_edit_team_views: bool, is_project_admin: bool
+) -> list[contracts.AccountView]:
     return [
-        _to_account_view(view) for view in _account_views_logic.list_account_views(team_id=team_id, user_id=user_id)
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=can_edit_team_views,
+            is_project_admin=is_project_admin,
+        )
+        for view in _account_views_logic.list_account_views(team_id=team_id, user_id=user_id)
     ]
 
 
-def get_account_view(*, team_id: int, user_id: int, view_id: UUID) -> contracts.AccountView | None:
+def get_account_view(
+    *,
+    team_id: int,
+    user_id: int,
+    view_id: UUID,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
+) -> contracts.AccountView | None:
     view = _account_views_logic.get_account_view(team_id=team_id, user_id=user_id, view_id=view_id)
-    return _to_account_view(view) if view is not None else None
-
-
-def create_account_view(*, team_id: int, user_id: int, name: str, content: dict[str, Any]) -> contracts.AccountView:
-    return _to_account_view(
-        _account_views_logic.create_account_view(team_id=team_id, user_id=user_id, name=name, content=content)
+    return (
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=can_edit_team_views,
+            is_project_admin=is_project_admin,
+        )
+        if view is not None
+        else None
     )
+
+
+def create_account_view(
+    *, team_id: int, user_id: int, name: str, content: dict[str, Any], is_project_admin: bool
+) -> contracts.AccountView:
+    view = _account_views_logic.create_account_view(team_id=team_id, user_id=user_id, name=name, content=content)
+    return _to_account_view(view, actor_user_id=user_id, can_edit_team_views=True, is_project_admin=is_project_admin)
 
 
 def update_account_view(
@@ -1250,26 +1288,44 @@ def update_account_view(
     user_id: int,
     view_id: UUID,
     expected_version: int,
+    can_edit_team_views: bool,
+    is_project_admin: bool,
     name: str | None = None,
     content: dict[str, Any] | None = None,
+    visibility: str | None = None,
 ) -> contracts.AccountView | None:
     view = _account_views_logic.update_account_view(
         team_id=team_id,
         user_id=user_id,
         view_id=view_id,
         expected_version=expected_version,
+        can_edit_team_views=can_edit_team_views,
+        is_project_admin=is_project_admin,
         name=name,
         content=content,
+        visibility=visibility,
     )
-    return _to_account_view(view) if view is not None else None
+    return (
+        _to_account_view(
+            view,
+            actor_user_id=user_id,
+            can_edit_team_views=can_edit_team_views,
+            is_project_admin=is_project_admin,
+        )
+        if view is not None
+        else None
+    )
 
 
-def delete_account_view(*, team_id: int, user_id: int, view_id: UUID, expected_version: int) -> bool:
+def delete_account_view(
+    *, team_id: int, user_id: int, view_id: UUID, expected_version: int, is_project_admin: bool
+) -> bool:
     return _account_views_logic.delete_account_view(
         team_id=team_id,
         user_id=user_id,
         view_id=view_id,
         expected_version=expected_version,
+        is_project_admin=is_project_admin,
     )
 
 
@@ -1289,6 +1345,7 @@ def _to_user_customer_analytics_config(
             for reference in raw_references
         ],
         task_digest=_user_customer_analytics_config_logic.read_task_digest(config),
+        account_detail_tabs=_user_customer_analytics_config_logic.read_account_detail_tabs(config),
     )
 
 
@@ -1304,6 +1361,24 @@ def update_user_customer_analytics_config(
         team_id=team_id,
         user_id=user_id,
         references=[(AccountPropertyPinKind(reference.kind), reference.id) for reference in pinned_properties],
+    )
+    return _to_user_customer_analytics_config(config)
+
+
+def update_user_account_detail_tabs(
+    *,
+    team_id: int,
+    user_id: int,
+    ordered_tab_ids: list[str],
+    hidden_tab_ids: list[str],
+    default_tab_id: str | None,
+) -> contracts.UserCustomerAnalyticsConfig:
+    config = _user_customer_analytics_config_logic.update_account_detail_tabs(
+        team_id=team_id,
+        user_id=user_id,
+        ordered_tab_ids=ordered_tab_ids,
+        hidden_tab_ids=hidden_tab_ids,
+        default_tab_id=default_tab_id,
     )
     return _to_user_customer_analytics_config(config)
 
