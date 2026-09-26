@@ -210,7 +210,7 @@ def reconcile_stored_bucket_config(organization_id: str | UUID, *, bucket: str, 
 
 
 def get_control_plane_bucket(organization_id: str | UUID) -> str | None:
-    from products.managed_warehouse.backend.presentation.views import cp_bucket_for  # noqa: PLC0415
+    from products.managed_warehouse.backend.presentation.views.warehouse_state import cp_bucket_for  # noqa: PLC0415
 
     return cp_bucket_for(organization_id)
 
@@ -218,19 +218,21 @@ def get_control_plane_bucket(organization_id: str | UUID) -> str | None:
 def update_team_earliest_event_date(
     organization_id: str | UUID, team_id: int, earliest_event_date: date | None
 ) -> bool:
-    from products.managed_warehouse.backend.presentation.views import push_team_earliest_event_date  # noqa: PLC0415
+    from products.managed_warehouse.backend.presentation.views.team_rows import (
+        push_team_earliest_event_date,  # noqa: PLC0415
+    )
 
     return push_team_earliest_event_date(organization_id, team_id, earliest_event_date)
 
 
 def get_team_deletion_block_reason(team_id: int, organization_id: str | UUID) -> str | None:
-    from products.managed_warehouse.backend.presentation.views import block_team_deletion  # noqa: PLC0415
+    from products.managed_warehouse.backend.presentation.views.teardown import block_team_deletion  # noqa: PLC0415
 
     return block_team_deletion(team_id, organization_id)
 
 
 def deprovision_for_org_deletion(organization_id: str | UUID) -> None:
-    from products.managed_warehouse.backend.presentation.views import (  # noqa: PLC0415
+    from products.managed_warehouse.backend.presentation.views.teardown import (  # noqa: PLC0415
         deprovision_for_org_deletion as deprovision,
     )
 

@@ -37,7 +37,7 @@ class TestResolveManagedWarehouseTrinoConnection:
     def test_combines_the_control_plane_target_with_the_stored_trino_secret(self) -> None:
         with (
             mock.patch(
-                "products.managed_warehouse.backend.presentation.views._request",
+                "products.managed_warehouse.backend.presentation.views.control_plane._request",
                 return_value=_ready_response(),
             ) as request,
             mock.patch(
@@ -89,14 +89,16 @@ class TestResolveManagedWarehouseTrinoConnection:
         ],
     )
     def test_rejects_an_unusable_or_cross_organization_target(self, response: Response) -> None:
-        with mock.patch("products.managed_warehouse.backend.presentation.views._request", return_value=response):
+        with mock.patch(
+            "products.managed_warehouse.backend.presentation.views.control_plane._request", return_value=response
+        ):
             with pytest.raises(ManagedWarehouseTrinoConnectionUnavailable, match="ready managed Trino connection"):
                 resolve_managed_warehouse_trino_connection("org-1")
 
     def test_rejects_a_missing_stored_trino_secret(self) -> None:
         with (
             mock.patch(
-                "products.managed_warehouse.backend.presentation.views._request",
+                "products.managed_warehouse.backend.presentation.views.control_plane._request",
                 return_value=_ready_response(),
             ),
             mock.patch(
@@ -160,7 +162,7 @@ def test_managed_trino_requests_bypass_environment_proxies_only_for_known_hosts(
     with (
         mock.patch.dict(os.environ, {"HTTPS_PROXY": proxy_url, "NO_PROXY": ""}, clear=True),
         mock.patch(
-            "products.managed_warehouse.backend.presentation.views._request",
+            "products.managed_warehouse.backend.presentation.views.control_plane._request",
             return_value=_ready_response(host=host, port=port),
         ),
         mock.patch(

@@ -34,19 +34,19 @@ class TestDataWarehouseAPI(APIBaseTest):
     ) -> None:
         with (
             patch(
-                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.status_for",
+                "products.managed_warehouse.backend.presentation.views.warehouse_state.status_for",
                 return_value=Response({"state": "ready"}, status=200),
             ),
             patch(
-                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.team_backfill_state",
+                "products.managed_warehouse.backend.presentation.views.team_rows.team_backfill_state",
                 return_value={"has_backfill": team_onboarded, "table_suffix": "prod" if team_onboarded else None},
             ),
             patch(
-                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.team_onboarding_state",
+                "products.managed_warehouse.backend.presentation.views.team_rows.team_onboarding_state",
                 return_value={"team_onboarded": team_onboarded, "schema_name": "prod" if team_onboarded else None},
             ),
             patch(
-                "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.ensure_direct_connection_tables"
+                "products.managed_warehouse.backend.presentation.views.query_sources.ensure_direct_connection_tables"
             ) as ensure_tables,
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
