@@ -1436,24 +1436,65 @@ class BreakGlassSustainedThrottle(UserOrEmailRateThrottle):
     rate = "75/hour"
 
 
-class WidgetUserBurstThrottle(SimpleRateThrottle):
-    """Rate limit per widget_session_id or IP for POST/GET requests."""
+def _widget_request_team(request: "Request") -> Team | None:
+    """WidgetAuthentication puts the authenticated team in `request.auth`."""
+    team = getattr(request, "auth", None)
+    return team if isinstance(team, Team) else None
+
+
+class _WidgetThrottle(SimpleRateThrottle):
+    """Shared behavior for the public support widget buckets.
+
+    The widget carries no personal API key, so these cannot subclass PersonalApiKeyRateThrottle.
+    They still have to honor the team bypass allow list and report each rejection, otherwise a
+    saturated bucket is invisible until a customer reports the 429s.
+    """
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        if super().allow_request(request, view):
+            return True
+
+        team = _widget_request_team(request)
+        team_id = team.pk if team else None
+        route = get_route_from_path(getattr(request, "path", None))
+
+        # An unauthenticated widget request has no team to look up in the allow list.
+        if team_id is not None and team_is_allowed_to_bypass_throttle(team_id):
+            RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=route, route=route).inc()
+            return True
+
+        RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=self.scope, path=route, route=route).inc()
+        return False
+
+
+class WidgetUserBurstThrottle(_WidgetThrottle):
+    """Rate limit one widget visitor for POST/GET requests."""
 
     scope = "widget_user_burst"
-    rate = "30/minute"
+    rate = settings.CONVERSATIONS_WIDGET_USER_BURST_THROTTLE_RATE
 
     def get_cache_key(self, request, view):
-        # Throttle by widget_session_id if available, otherwise by IP
         widget_session_id = request.data.get("widget_session_id") or request.query_params.get("widget_session_id")
         if widget_session_id:
-            ident = hashlib.sha256(widget_session_id.encode()).hexdigest()
+            ident = hashlib.sha256(str(widget_session_id).encode()).hexdigest()
         else:
+            # Identity mode sends no widget_session_id. The IP on its own would put every visitor
+            # behind one office network or mobile carrier NAT into the same bucket.
+            identity_distinct_id = request.data.get("identity_distinct_id") or request.query_params.get(
+                "identity_distinct_id"
+            )
             ident = self.get_ident(request)
+            if identity_distinct_id:
+                ident = hashlib.sha256(f"{identity_distinct_id}:{ident}".encode()).hexdigest()
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class _WidgetTeamTokenThrottle(SimpleRateThrottle):
-    rate = "3600/hour"
+class _WidgetTeamTokenThrottle(_WidgetThrottle):
+    """One bucket for a whole site: every visitor's widget sends the same public token.
+
+    Size these for a busy site's total widget traffic, not for one visitor. Per-visitor abuse
+    is what WidgetUserBurstThrottle bounds.
+    """
 
     def get_cache_key(self, request: "Request", view: "APIView") -> str:
         if not self.scope:
@@ -1471,12 +1512,14 @@ class WidgetTeamPollThrottle(_WidgetTeamTokenThrottle):
     polling 429 ticket creates."""
 
     scope = "widget_team_poll"
+    rate = settings.CONVERSATIONS_WIDGET_TEAM_POLL_THROTTLE_RATE
 
 
 class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
     """Keep this off GET poll views so list and message polling cannot exhaust it."""
 
     scope = "widget_team_write"
+    rate = settings.CONVERSATIONS_WIDGET_TEAM_WRITE_THROTTLE_RATE
 
 
 WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamPollThrottle)

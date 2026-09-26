@@ -115,6 +115,18 @@ class TestWidgetAPI(BaseTest):
         finally:
             cache.clear()
 
+    @patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=True)
+    def test_allow_listed_team_keeps_polling_past_an_exhausted_bucket(self, bypass_mock):
+        cache.clear()
+        tickets_url = f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}"
+        try:
+            with patch.object(WidgetTeamPollThrottle, "rate", "1/minute"):
+                self.assertEqual(self.client.get(tickets_url, **self._get_headers()).status_code, status.HTTP_200_OK)
+                self.assertEqual(self.client.get(tickets_url, **self._get_headers()).status_code, status.HTTP_200_OK)
+            self.assertEqual([call.args[0] for call in bypass_mock.call_args_list], [self.team.pk])
+        finally:
+            cache.clear()
+
     def test_create_ticket_channel_detail_widget_enabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}
         self.team.save()
