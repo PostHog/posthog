@@ -17,6 +17,8 @@ packages:
     - nodejs
     - nodejs/src/scripts
     - products/*
+    # products/*/packages/* is not covered by the products/* glob, which matches one level.
+    - products/workflows/packages/*
     # products/desktop is a nested standalone workspace (own lockfile, catalog,
     # overrides, Node version); the root install must not absorb it.
     - '!products/desktop'
