@@ -529,6 +529,18 @@
             ],
             "type": "string"
         },
+        "key": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only."
+        },
         "name": {
             "anyOf": [
                 {

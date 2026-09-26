@@ -403,6 +403,8 @@ export const HogFlowTemplatesPartialUpdateBody = /* @__PURE__ */ zod
         'Serializer for creating hog flow templates.\nValidates and sanitizes the workflow before creating it as a template.'
     )
 
+export const hogFlowsCreateBodyKeyMax = 400
+
 export const hogFlowsCreateBodyNameMax = 400
 
 export const hogFlowsCreateBodyDescriptionDefault = ``
@@ -426,6 +428,13 @@ export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDef
 
 export const HogFlowsCreateBody = /* @__PURE__ */ zod
     .object({
+        key: zod
+            .string()
+            .max(hogFlowsCreateBodyKeyMax)
+            .nullish()
+            .describe(
+                'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+            ),
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
         status: zod
@@ -1787,6 +1796,8 @@ export const HogFlowsGraphPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const hogFlowsInvocationsCreateBodyConfigurationOneKeyMax = 400
+
 export const hogFlowsInvocationsCreateBodyConfigurationOneNameMax = 400
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneDescriptionDefault = ``
@@ -1826,6 +1837,13 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     configuration: zod
         .object({
             id: zod.uuid(),
+            key: zod
+                .string()
+                .max(hogFlowsInvocationsCreateBodyConfigurationOneKeyMax)
+                .nullish()
+                .describe(
+                    'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+                ),
             name: zod
                 .string()
                 .max(hogFlowsInvocationsCreateBodyConfigurationOneNameMax)
@@ -2585,6 +2603,8 @@ export const HogFlowsSchedulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
 })
 
+export const hogFlowsBulkDeleteCreateBodyKeyMax = 400
+
 export const hogFlowsBulkDeleteCreateBodyNameMax = 400
 
 export const hogFlowsBulkDeleteCreateBodyDescriptionDefault = ``
@@ -2610,6 +2630,13 @@ export const hogFlowsBulkDeleteCreateBodyActionsItemConfigTwoEventsItemFiltersOn
 
 export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
     .object({
+        key: zod
+            .string()
+            .max(hogFlowsBulkDeleteCreateBodyKeyMax)
+            .nullish()
+            .describe(
+                'Client-chosen identifier, unique within this environment. Set only when creating a workflow. Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only.'
+            ),
         name: zod.string().max(hogFlowsBulkDeleteCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod
             .string()
