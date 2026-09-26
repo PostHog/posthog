@@ -432,9 +432,29 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert "dashboard_url" in result
         assert "utm_source=web_analytics_weekly_digest" in result["dashboard_url"]
         assert f"/project/{self.team.pk}/web" in result["dashboard_url"]
+        assert result["metadata"]["data_status"] == "ok"
 
-    def test_works_with_no_events(self):
+    @parameterized.expand(
+        [
+            ("no_events", None, "no_sessions"),
+            ("custom_events_only", "signed_in", "no_web_sessions"),
+            ("pageviews_outside_period", "$pageview", "no_sessions"),
+        ]
+    )
+    def test_works_with_no_web_traffic(self, _name: str, event: str | None, expected_status: str) -> None:
         with time_machine.travel(QUERY_TIMESTAMP, tick=False):
+            if event:
+                _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
+                timestamp = "2025-01-10" if event == "$pageview" else "2025-01-25"
+                _create_event(
+                    team=self.team,
+                    event=event,
+                    distinct_id="user_1",
+                    timestamp=timestamp,
+                    properties={"$session_id": str(uuid7(timestamp))},
+                )
+                flush_persons_and_events()
+
             result = build_team_digest(self.team)
 
         assert result["team"] == self.team
@@ -446,3 +466,6 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
         assert result["top_pages"] == []
         assert result["top_sources"] == []
         assert result["goals"] == []
+        assert result["metadata"]["data_status"] == expected_status
+        assert result["metadata"]["filter_test_accounts"] is True
+        assert result["metadata"]["date_from"].date().isoformat() == "2025-01-22"

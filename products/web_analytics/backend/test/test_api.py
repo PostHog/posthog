@@ -68,6 +68,7 @@ class TestWebAnalyticsDigestAPI(ClickhouseTestMixin, APIBaseTest):
             "top_pages",
             "top_sources",
             "goals",
+            "metadata",
             "dashboard_url",
         }
         assert set(data["visitors"].keys()) == {"current", "previous", "change"}
