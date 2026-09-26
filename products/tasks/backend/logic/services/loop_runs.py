@@ -22,7 +22,6 @@ from posthog.models import User
 from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE, PosthogMcpScopes, resolve_scopes
 from posthog.user_permissions import UserPermissions
 
-from products.canvas.backend.facade import api as canvas_facade
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.loop_notifications import dispatch_loop_event
 from products.tasks.backend.loop_service import pause_loop_schedules, signal_loop_run_cancelled
@@ -204,6 +203,8 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
 
 def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
     """Whether `canvas_id` is a canvas in this team the user may see."""
+    from products.canvas.backend.facade import api as canvas_facade
+
     return canvas_facade.canvas_is_visible(team_id=team_id, canvas_id=canvas_id, user_id=user_id)
 
 

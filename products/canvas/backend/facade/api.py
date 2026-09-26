@@ -86,7 +86,9 @@ def canvas_owner_id(*, team_id: int, canvas_id: str) -> int | None:
 
 def canvas_is_visible(*, team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
     """Whether `canvas_id` is a live canvas in this team that the user may see."""
-    return _visible_canvases(team_id, user_id).filter(id=canvas_id).exists()
+    return (
+        _visible_canvases(team_id, user_id).filter(id=canvas_id, source_policy=Canvas.SOURCE_POLICY_STANDARD).exists()
+    )
 
 
 def channel_has_canvases(*, team_id: int, channel_id: UUID) -> bool:
