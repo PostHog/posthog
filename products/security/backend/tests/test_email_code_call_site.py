@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from posthog.helpers.email_utils import ESPSuppressionResult
-from posthog.helpers.two_factor_session import CodeBasedVerifier, add_code_based_verification_bypass
+from posthog.helpers.two_factor_session import CodeBasedVerifier
 
 from products.security.backend.tests.helpers import exempt_rule, seed_rules
 
@@ -47,8 +47,3 @@ class TestEmailCodeCallSite(SimpleTestCase):
     def test_expired_everyone_rule_requires_the_code(self, *_mocks: MagicMock) -> None:
         seed_rules(exempt_rule(targetType="everyone", targetValue="", expiresAt="2020-01-01T00:00:00Z"))
         assert self._should_send("anyone@example.com") is True
-
-    def test_legacy_redis_bypass_still_works(self, *_mocks: MagicMock) -> None:
-        seed_rules()
-        add_code_based_verification_bypass("legacy@example.com")
-        assert self._should_send("legacy@example.com") is False

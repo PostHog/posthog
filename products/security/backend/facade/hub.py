@@ -18,7 +18,6 @@ from ..logic.hub_auth import (
     INTERNAL_PURPOSE as INTERNAL_PURPOSE,
     claims_allow,
 )
-from ..logic.mfa_export import MfaExport, export_mfa_bypasses
 from ..metrics import HUB_API_AUTH_COUNTER
 
 
@@ -36,10 +35,6 @@ def count_org_members(organization_id: str) -> tuple[bool, CappedCount]:
 
 def posthog_account_exists(*, user_uuid: str | None = None, organization_id: str | None = None) -> bool:
     return has_posthog_account(user_uuid=user_uuid, organization_id=organization_id)
-
-
-def mfa_bypasses() -> MfaExport:
-    return export_mfa_bypasses()
 
 
 def token_allows(claims: Mapping[str, Any] | None, op: str) -> bool:
