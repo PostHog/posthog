@@ -39,9 +39,9 @@ Then query person properties like `$survey_dismissed/{id}` or `$survey_responded
 ### Find feature flag keys
 
 ```sql
-SELECT id, key, name, rollout_percentage
+SELECT id, key, name, active
 FROM system.feature_flags
-WHERE NOT deleted
+WHERE NOT deleted AND NOT archived
 ORDER BY created_at DESC
 LIMIT 20
 ```
