@@ -149,6 +149,10 @@ POSTHOG_USAGE_FIELD_MAPPINGS = {
     "events_30d_momentum": "posthog_events_30d_momentum__c",
 }
 
+# Both momentum fields are Number(7, 2) in Salesforce, which rejects the whole record for a value above
+# 99,999.99. Momentum is a percentage change, so growth from a nearly empty previous period exceeds it.
+SALESFORCE_MOMENTUM_MAX = 99_999.99
+
 STRIPE_ENRICHMENT_PAGE_SIZE: int = 5_000
 
 
