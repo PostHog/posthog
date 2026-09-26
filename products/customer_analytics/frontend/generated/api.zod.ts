@@ -182,6 +182,87 @@ export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
     confirmed: zod.boolean(),
 })
 
+/**
+ * @summary Create a personal account view
+ */
+export const accountViewsCreateBodyNameMax = 400
+
+export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(accountViewsCreateBodyNameMax).describe('View name.'),
+    content: zod
+        .object({
+            type: zod.enum(['doc']).describe('\* `doc` - doc').describe('Document root type.\n\n\* `doc` - doc'),
+            content: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['ph-markdown-notebook'])
+                            .describe('\* `ph-markdown-notebook` - ph-markdown-notebook')
+                            .describe(
+                                'Markdown notebook node type.\n\n\* `ph-markdown-notebook` - ph-markdown-notebook'
+                            ),
+                        attrs: zod
+                            .object({
+                                nodeId: zod.string().describe('Stable identifier for this document.'),
+                                markdown: zod
+                                    .string()
+                                    .describe('Component-only Markdown stored by the account view editor.'),
+                            })
+                            .describe('Markdown notebook attributes.'),
+                    })
+                )
+                .describe('The single Markdown notebook node containing the account view components.'),
+        })
+        .describe('Initial account view components.'),
+})
+
+/**
+ * @summary Update an account view
+ */
+export const accountViewsPartialUpdateBodyNameMax = 400
+
+export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(accountViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('New view name. Omit to keep the current name.'),
+    content: zod
+        .object({
+            type: zod.enum(['doc']).describe('\* `doc` - doc').describe('Document root type.\n\n\* `doc` - doc'),
+            content: zod
+                .array(
+                    zod.object({
+                        type: zod
+                            .enum(['ph-markdown-notebook'])
+                            .describe('\* `ph-markdown-notebook` - ph-markdown-notebook')
+                            .describe(
+                                'Markdown notebook node type.\n\n\* `ph-markdown-notebook` - ph-markdown-notebook'
+                            ),
+                        attrs: zod
+                            .object({
+                                nodeId: zod.string().describe('Stable identifier for this document.'),
+                                markdown: zod
+                                    .string()
+                                    .describe('Component-only Markdown stored by the account view editor.'),
+                            })
+                            .describe('Markdown notebook attributes.'),
+                    })
+                )
+                .describe('The single Markdown notebook node containing the account view components.'),
+        })
+        .optional()
+        .describe('Replacement account view components. Omit to keep current content.'),
+    visibility: zod
+        .enum(['private', 'team'])
+        .describe('\* `private` - Personal\n\* `team` - Team')
+        .optional()
+        .describe(
+            'New visibility. Only the creator or a project admin can change it.\n\n\* `private` - Personal\n\* `team` - Team'
+        ),
+    version: zod.number().min(1).optional().describe('Version returned by the last read.'),
+})
+
 export const accountsCreateBodyNameMax = 400
 
 export const accountsCreateBodyExternalIdMax = 400
@@ -1724,4 +1805,15 @@ export const UserCustomerAnalyticsConfigPartialUpdateBody = /* @__PURE__ */ zod.
         .describe(
             'Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one.'
         ),
+    account_detail_tabs: zod
+        .object({
+            ordered_tab_ids: zod.array(zod.string()).describe("Tab identifiers in the user's preferred order."),
+            hidden_tab_ids: zod.array(zod.string()).describe('Tab identifiers hidden from the tab strip.'),
+            default_tab_id: zod
+                .string()
+                .nullable()
+                .describe('Tab identifier opened by default. Null uses the first available system tab.'),
+        })
+        .optional()
+        .describe('Complete personal account tab configuration. Omit to keep it unchanged.'),
 })

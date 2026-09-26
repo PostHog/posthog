@@ -87,6 +87,7 @@ ActivityScope = Literal[
     "OAuthApplication",
     "User",
     "Action",
+    "AccountView",
     "AlertConfiguration",
     "Threshold",
     "AlertSubscription",
@@ -280,6 +281,7 @@ common_field_exclusions = [
 
 
 field_with_masked_contents: dict[AuditableScope, list[str]] = {
+    "AccountView": ["content"],
     "HogFunction": [
         # Encrypted secret inputs (Fernet ciphertext) — a diff would be noise at best and
         # leak-adjacent at worst; record that they changed, never the values.
@@ -584,6 +586,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "AccountView": ["version"],
     # The reverse relations are listed because the diff reads each one in full; a scanner's
     # observations run to millions of rows, and its alerts carry their own audit trail.
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],

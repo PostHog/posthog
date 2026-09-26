@@ -15,14 +15,17 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { AccountDetailTabs } from '../../components/Accounts/AccountDetailTabs'
 import { AccountLogo } from '../../components/Accounts/AccountLogo'
 import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
 import type { AccountApi } from '../../generated/api.schemas'
 import { AccountDetailActions } from './AccountDetailActions'
+import { AccountDetailNavigation } from './AccountDetailNavigation'
 import { AccountPresence } from './AccountPresence'
 import { AccountSidebar } from './AccountSidebar'
+import { AccountViewEditorModal } from './AccountViewEditorModal'
+import { AccountViewTileEditorModal } from './AccountViewTileEditorModal'
+import { ConfigureAccountTabsModal } from './ConfigureAccountTabsModal'
 import {
     CustomerAnalyticsAccountSceneLogicProps,
     customerAnalyticsAccountSceneLogic,
@@ -86,10 +89,11 @@ export function CustomerAnalyticsAccountScene(): JSX.Element {
 }
 
 function CustomerAnalyticsAccountSceneContent(): JSX.Element {
-    const { account, accountLoadError, accountLoading, activeTab, isAccountMissing } = useValues(
+    const { account, accountLoadError, accountLoading, requestedTab, isAccountMissing } = useValues(
         customerAnalyticsAccountSceneLogic
     )
     const { loadAccount, setActiveTab } = useActions(customerAnalyticsAccountSceneLogic)
+    const projectId = getCurrentTeamIdOrNone()
 
     if (isAccountMissing) {
         return <NotFound object="account" />
@@ -130,28 +134,37 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                 actions={
                     <>
                         <AccountPresence />
-                        <AccountDetailActions />
+                        {projectId ? <AccountDetailActions projectId={projectId} /> : null}
                     </>
                 }
             />
             <SceneDivider />
-            <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto @min-[60rem]:-mt-4 @min-[60rem]:-ml-4">
+            <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto -mt-4 -mr-4 [scrollbar-gutter:stable] @min-[60rem]:-ml-4 @min-[60rem]:[scrollbar-gutter:auto]">
                 <div className="flex min-h-full w-full flex-col gap-4 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:flex-row">
                     <AccountSidebar account={account} />
                     <main
-                        className="flex-1 min-w-0 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:overflow-y-auto"
+                        className="flex-1 min-w-0 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:overflow-y-auto @min-[60rem]/account-detail:[scrollbar-gutter:stable]"
                         data-attr="account-detail-tabs"
                     >
-                        <AccountDetailTabs
-                            accountId={account.id}
-                            externalId={account.external_id ?? ''}
-                            activeTab={activeTab}
-                            onChange={setActiveTab}
-                            embedded={false}
-                        />
+                        {projectId ? (
+                            <AccountDetailNavigation
+                                projectId={projectId}
+                                accountId={account.id}
+                                externalId={account.external_id ?? ''}
+                                requestedTab={requestedTab}
+                                onChange={setActiveTab}
+                            />
+                        ) : null}
                     </main>
                 </div>
             </div>
+            {projectId ? (
+                <>
+                    <AccountViewEditorModal projectId={projectId} />
+                    <AccountViewTileEditorModal projectId={projectId} />
+                    <ConfigureAccountTabsModal projectId={projectId} />
+                </>
+            ) : null}
         </SceneContent>
     )
 }

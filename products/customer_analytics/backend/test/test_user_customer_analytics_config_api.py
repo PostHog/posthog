@@ -29,7 +29,11 @@ DISABLED_TASK_DIGEST = {"enabled": False, "send_time": "09:00", "cadence": "week
 
 
 def config_body(pinned_properties: list[dict[str, str]], task_digest: dict[str, Any] | None = None) -> dict[str, Any]:
-    return {"pinned_properties": pinned_properties, "task_digest": task_digest or DISABLED_TASK_DIGEST}
+    return {
+        "pinned_properties": pinned_properties,
+        "task_digest": task_digest or DISABLED_TASK_DIGEST,
+        "account_detail_tabs": {"ordered_tab_ids": [], "hidden_tab_ids": [], "default_tab_id": None},
+    }
 
 
 class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
@@ -372,3 +376,31 @@ class TestUserCustomerAnalyticsConfigAPI(APIBaseTest):
         response = self.client.patch(self.endpoint, {"pinned_properties": pinned}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(self.client.get(self.endpoint).json(), config_body(pinned))
+
+    def test_patch_account_detail_tabs_preserves_other_configuration(self) -> None:
+        pinned = [{"kind": "custom_property", "id": str(self._custom_property().id)}]
+        self.client.patch(self.endpoint, {"pinned_properties": pinned}, format="json")
+        self.client.patch(
+            self.endpoint,
+            {"task_digest": {"enabled": True, "send_time": "07:30", "cadence": "every_day"}},
+            format="json",
+        )
+        account_detail_tabs = {
+            "ordered_tab_ids": ["system:usage", "view:11111111-2222-4333-8444-555555555555"],
+            "hidden_tab_ids": ["system:notes"],
+            "default_tab_id": "system:usage",
+        }
+
+        response = self.client.patch(
+            self.endpoint,
+            {"account_detail_tabs": account_detail_tabs},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["pinned_properties"], pinned)
+        self.assertEqual(
+            response.json()["task_digest"],
+            {"enabled": True, "send_time": "07:30", "cadence": "every_day"},
+        )
+        self.assertEqual(response.json()["account_detail_tabs"], account_detail_tabs)

@@ -516,6 +516,131 @@ export interface PaginatedAccountTrackRuleRunViewListApi {
 }
 
 /**
+ * * `private` - Personal
+ * * `team` - Team
+ */
+export type AccountViewVisibilityEnumApi =
+    (typeof AccountViewVisibilityEnumApi)[keyof typeof AccountViewVisibilityEnumApi]
+
+export const AccountViewVisibilityEnumApi = {
+    Private: 'private',
+    Team: 'team',
+} as const
+
+/**
+ * * `doc` - doc
+ */
+export type AccountViewContentTypeEnumApi =
+    (typeof AccountViewContentTypeEnumApi)[keyof typeof AccountViewContentTypeEnumApi]
+
+export const AccountViewContentTypeEnumApi = {
+    Doc: 'doc',
+} as const
+
+/**
+ * * `ph-markdown-notebook` - ph-markdown-notebook
+ */
+export type AccountViewMarkdownNodeTypeEnumApi =
+    (typeof AccountViewMarkdownNodeTypeEnumApi)[keyof typeof AccountViewMarkdownNodeTypeEnumApi]
+
+export const AccountViewMarkdownNodeTypeEnumApi = {
+    PhMarkdownNotebook: 'ph-markdown-notebook',
+} as const
+
+export interface AccountViewMarkdownAttributesApi {
+    /** Stable identifier for this document. */
+    nodeId: string
+    /** Component-only Markdown stored by the account view editor. */
+    markdown: string
+}
+
+export interface AccountViewMarkdownNodeApi {
+    /** Markdown notebook node type.
+     *
+     * * `ph-markdown-notebook` - ph-markdown-notebook */
+    type: AccountViewMarkdownNodeTypeEnumApi
+    /** Markdown notebook attributes. */
+    attrs: AccountViewMarkdownAttributesApi
+}
+
+export interface AccountViewContentApi {
+    /** Document root type.
+     *
+     * * `doc` - doc */
+    type: AccountViewContentTypeEnumApi
+    /** The single Markdown notebook node containing the account view components. */
+    content: AccountViewMarkdownNodeApi[]
+}
+
+export interface AccountViewApi {
+    /** Stable account view identifier. */
+    readonly id: string
+    /** Name shown in the account tab strip. */
+    readonly name: string
+    /** Whether the view is personal or available to the project.
+     *
+     * * `private` - Personal
+     * * `team` - Team */
+    readonly visibility: AccountViewVisibilityEnumApi
+    /** Validated Markdown notebook document. */
+    readonly content: AccountViewContentApi
+    /** Searchable component labels extracted from content. */
+    readonly text_content: string
+    /** Optimistic concurrency version. */
+    readonly version: number
+    /**
+     * Creator user ID.
+     * @nullable
+     */
+    readonly created_by: number | null
+    /**
+     * User ID that last changed the view.
+     * @nullable
+     */
+    readonly last_modified_by: number | null
+    /** When the view was created. */
+    readonly created_at: string
+    /** When the view was last changed. */
+    readonly updated_at: string
+    /** Whether the requesting user can edit the view. */
+    readonly can_edit: boolean
+    /** Whether the requesting user can delete the view. */
+    readonly can_delete: boolean
+    /** Whether the requesting user can change the view visibility. */
+    readonly can_change_visibility: boolean
+}
+
+export interface AccountViewCreateApi {
+    /**
+     * View name.
+     * @maxLength 400
+     */
+    name: string
+    /** Initial account view components. */
+    content: AccountViewContentApi
+}
+
+export interface PatchedAccountViewUpdateApi {
+    /**
+     * New view name. Omit to keep the current name.
+     * @maxLength 400
+     */
+    name?: string
+    /** Replacement account view components. Omit to keep current content. */
+    content?: AccountViewContentApi
+    /** New visibility. Only the creator or a project admin can change it.
+     *
+     * * `private` - Personal
+     * * `team` - Team */
+    visibility?: AccountViewVisibilityEnumApi
+    /**
+     * Version returned by the last read.
+     * @minimum 1
+     */
+    version?: number
+}
+
+/**
  * * `daily` - daily
  * * `weekly` - weekly
  * * `monthly` - monthly
@@ -4369,11 +4494,25 @@ export interface TaskDigestPreferencesApi {
     cadence: TaskDigestCadenceEnumApi
 }
 
+export interface AccountDetailTabsConfigApi {
+    /** Tab identifiers in the user's preferred order. */
+    ordered_tab_ids: string[]
+    /** Tab identifiers hidden from the tab strip. */
+    hidden_tab_ids: string[]
+    /**
+     * Tab identifier opened by default. Null uses the first available system tab.
+     * @nullable
+     */
+    default_tab_id: string | null
+}
+
 export interface UserCustomerAnalyticsConfigApi {
     /** Account properties pinned in sidebar display order. */
     readonly pinned_properties: readonly PinnedAccountPropertyApi[]
     /** Task digest email preferences. Disabled until the user turns the digest on. */
     readonly task_digest: TaskDigestPreferencesApi
+    /** Personal order, visibility, and default for account tabs. */
+    readonly account_detail_tabs: AccountDetailTabsConfigApi
 }
 
 export interface TaskDigestPreferencesUpdateApi {
@@ -4393,6 +4532,8 @@ export interface PatchedUserCustomerAnalyticsConfigUpdateApi {
     pinned_properties?: PinnedAccountPropertyApi[]
     /** Task digest email preferences to change. Omit the object to keep them all; omit a field inside it to keep that one. */
     task_digest?: TaskDigestPreferencesUpdateApi
+    /** Complete personal account tab configuration. Omit to keep it unchanged. */
+    account_detail_tabs?: AccountDetailTabsConfigApi
 }
 
 export type CustomerAnalyticsExternalAccountRetrieveParams = {
@@ -4477,6 +4618,13 @@ export type AccountTrackRulesRunsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type AccountViewsDestroyParams = {
+    /**
+     * Version returned by the last read.
+     */
+    version: number
 }
 
 export type AccountsListParams = {
