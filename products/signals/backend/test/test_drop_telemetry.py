@@ -5,6 +5,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 
 from products.signals.backend.temporal.drop_telemetry import (
     CaptureSignalDroppedInput,
+    capture_signal_batch_dropped,
     capture_signal_dropped,
     capture_signal_dropped_activity,
     summarize_drop_error,
@@ -14,11 +15,15 @@ from products.signals.backend.temporal.types import EmitSignalInputs
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.drop_telemetry"
 
 
-def _make_signal(team_id: int = 1) -> EmitSignalInputs:
+def _make_signal(
+    team_id: int = 1,
+    source_product: str = "signals_scout",
+    source_type: str = "cross_source_issue",
+) -> EmitSignalInputs:
     return EmitSignalInputs(
         team_id=team_id,
-        source_product="signals_scout",
-        source_type="cross_source_issue",
+        source_product=source_product,
+        source_type=source_type,
         source_id="run:abc:finding:def",
         description="a finding",
         weight=0.7,
@@ -75,6 +80,8 @@ async def test_capture_signal_dropped_activity_emits_event(ateam):
     assert kwargs["properties"]["source_type"] == "cross_source_issue"
     assert kwargs["properties"]["source_id"] == "run:abc:finding:def"
     assert kwargs["properties"]["weight"] == 0.7
+    # always present so a consumer can sum lost volume across per-signal and per-batch events
+    assert kwargs["properties"]["signal_count"] == 1
     # extra is flattened to top-level scalars; nested customer-derived content is dropped
     assert kwargs["properties"]["skill_name"] == "error-tracking"
     assert kwargs["properties"]["task_run_id"] == "task-run-1"
@@ -134,6 +141,66 @@ async def test_helper_schedules_capture_activity():
     # extra is flattened before scheduling so nested customer-derived payloads
     # never enter workflow history via the activity input
     assert activity_input.extra == {"skill_name": "error-tracking"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "second_product,second_type,expected_product,expected_type",
+    [
+        ("signals_scout", "cross_source_issue", "signals_scout", "cross_source_issue"),
+        ("error_tracking", "issue_created", "mixed", "mixed"),
+    ],
+)
+async def test_batch_helper_schedules_one_capture_for_the_whole_batch(
+    second_product, second_type, expected_product, expected_type
+):
+    batch = [
+        _make_signal(team_id=42),
+        _make_signal(team_id=42, source_product=second_product, source_type=second_type),
+    ]
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.patched", return_value=True),
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.execute_activity", new_callable=AsyncMock) as execute_activity,
+    ):
+        await capture_signal_batch_dropped(batch, ValueError("boom"), stage="grouping_prep")
+
+    execute_activity.assert_called_once()
+    activity_input = execute_activity.call_args.args[1]
+    assert activity_input.signal_count == 2
+    assert activity_input.weight == pytest.approx(1.4)
+    assert activity_input.stage == "grouping_prep"
+    assert activity_input.source_product == expected_product
+    assert activity_input.source_type == expected_type
+    # A batch attempt has no single source, and per-signal extra cannot be merged
+    assert activity_input.source_id == ""
+    assert activity_input.extra == {}
+
+
+@pytest.mark.asyncio
+async def test_batch_helper_replays_a_prepatch_history_as_one_capture_per_signal():
+    with (
+        patch(
+            f"{PIPELINE_MODULE_PATH}.workflow.patched",
+            side_effect=lambda marker: marker != "signal-dropped-batch-telemetry-v1",
+        ),
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.execute_activity", new_callable=AsyncMock) as execute_activity,
+    ):
+        await capture_signal_batch_dropped([_make_signal(), _make_signal()], ValueError("boom"), stage="grouping_prep")
+
+    assert execute_activity.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_batch_helper_swallows_activity_failure():
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.workflow.patched", return_value=True),
+        patch(
+            f"{PIPELINE_MODULE_PATH}.workflow.execute_activity",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("activity failed"),
+        ),
+    ):
+        await capture_signal_batch_dropped([_make_signal()], ValueError("boom"), stage="grouping_prep")
 
 
 @pytest.mark.asyncio
