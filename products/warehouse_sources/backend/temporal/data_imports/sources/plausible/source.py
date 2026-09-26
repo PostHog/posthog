@@ -52,6 +52,10 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
         return {
             "401 Client Error": "Your Plausible API key is invalid or has been revoked. Create a new key in your Plausible account settings, then reconnect.",
             "403 Client Error": "Your Plausible API key is missing the stats read scope needed to sync this data. Grant it in your Plausible account settings, then reconnect.",
+            # Plausible answers 402 when the site's subscription has lapsed or its plan doesn't
+            # include the stats API. The billing state is fixed until the customer changes it, so
+            # every retry replays the same rejection. Match the status text, not the self-hosted URL.
+            "402 Client Error": "Your Plausible plan doesn't include API access, or its subscription has lapsed. Update the subscription in your Plausible account, then reconnect.",
             # Plausible rejects the query as malformed for this site (a permanent 400 — auth and
             # missing-site cases are 401/403/404 and handled above). Retrying resends the same
             # request, so stop. Match the status text, not the self-hosted URL, which varies.
