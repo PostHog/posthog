@@ -527,6 +527,28 @@ export const SignalReportBillingExemptReasonEnumApi = {
     PosthogSystem: 'posthog_system',
 } as const
 
+/**
+ * Outcome head name to its calibrated probability. Empty when the served model skipped the report.
+ */
+export type ReportRankingApiScores = { [key: string]: number }
+
+export interface ReportRankingApi {
+    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
+    served_key: string
+    /** Feature family of the served model. */
+    model_name: string
+    /** Training partition of the served model, as `YYYY-MM-DD`. */
+    model_version: string
+    /** Version of the serving manifest that chose the model. */
+    manifest_version: string
+    /** When the scoring sweep scored the report. */
+    scored_at: string
+    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
+    scores: ReportRankingApiScores
+    /** Heads whose holdout AUC the training run could read. Treat scores of other heads with caution. */
+    readable_heads: string[]
+}
+
 export interface SignalReportListApi {
     readonly id: string
     /** @nullable */
@@ -631,6 +653,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly channel_id: string | null
+    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    readonly ranking: ReportRankingApi | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -817,6 +841,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly channel_id: string | null
+    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    readonly ranking: ReportRankingApi | null
 }
 
 /**
@@ -6704,6 +6730,13 @@ export type SignalsScoutRunsRecentPerScoutParams = {
      * @maximum 100
      */
     per_scout_limit?: number
+}
+
+export type SignalsScoutReportCheckListParams = {
+    /**
+     * The report whose checks to list.
+     */
+    report_id: string
 }
 
 export type SignalsScoutScratchpadSearchParams = {

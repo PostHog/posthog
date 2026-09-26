@@ -1257,7 +1257,8 @@ class SignalReportArtefact(UUIDModel):
         }
     )
     # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
-    # no activity a user can see, so the artefact count and the artefact log leave them out.
+    # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
+    # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
