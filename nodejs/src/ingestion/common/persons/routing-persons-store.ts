@@ -20,8 +20,9 @@ import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-wri
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
+import { PersonMergeUnsettledError } from './person-merge-types'
 import { EventOps } from './person-update'
-import { PersonhogPersonsStore } from './personhog-persons-store'
+import { CREATE_EVENT_NAME, PersonhogPersonsStore } from './personhog-persons-store'
 import {
     FlushResult,
     MergePersonsRequest,
@@ -350,8 +351,46 @@ export class RoutingPersonsStore implements PersonsStore {
                     extraDistinctIds,
                     tx,
                     batchId
-                )
+                ),
+            {
+                after: (authoritative, shadow, abandoned) =>
+                    this.reconcileShadowCreate(
+                        authoritative,
+                        shadow as CreatePersonResult,
+                        properties,
+                        primaryDistinctId.distinctId,
+                        batchId,
+                        abandoned
+                    ),
+            }
         )
+    }
+
+    /** Postgres created the person and personhog only found it: apply the creation properties set-once. */
+    private async reconcileShadowCreate(
+        authoritative: CreatePersonResult,
+        shadow: CreatePersonResult,
+        properties: Properties,
+        distinctId: string,
+        batchId: number,
+        abandoned: AbortSignal
+    ): Promise<void> {
+        if (
+            abandoned.aborted ||
+            !(authoritative.success && authoritative.created) ||
+            !(shadow.success && !shadow.created)
+        ) {
+            return
+        }
+        const ops: EventOps = {
+            set: {},
+            setOnce: properties,
+            unset: [],
+            denied: false,
+            shouldForceUpdate: true,
+            eventName: CREATE_EVENT_NAME,
+        }
+        await this.personhog.applyEventOps(shadow.person, ops, distinctId, batchId)
     }
 
     applyEventOps(
@@ -440,7 +479,7 @@ export class RoutingPersonsStore implements PersonsStore {
             () => this.personhog.mergePersons(request, batchId),
             {
                 shadow: (abandoned) => this.shadowMerge(request, batchId, abandoned),
-                compare: (authoritative, shadow) => this.compareMerge(authoritative, shadow),
+                compare: (authoritative, shadow) => this.compareMerge(request, authoritative, shadow),
                 after: (authoritative, shadow, abandoned) =>
                     this.redriveShadowFoldPairs(request, batchId, authoritative, shadow, abandoned),
             }
@@ -448,23 +487,39 @@ export class RoutingPersonsStore implements PersonsStore {
     }
 
     /** The merge service's retries wrap the routed call, which never throws for the shadow side. */
-    private retriedShadowMerge(
+    private async retriedShadowMerge(
         request: MergePersonsRequest,
         batchId: number,
         abandoned: AbortSignal
     ): Promise<MergePersonsResult> {
-        return promiseRetry(
-            // An abandoned verb starts no new write; one already in flight still finishes.
-            () =>
-                abandoned.aborted
-                    ? Promise.reject(new ShadowVerbTimeoutError('mergePersons'))
-                    : this.personhog.mergePersons(request, batchId),
-            'shadow_merge_persons',
-            undefined,
-            undefined,
-            undefined,
-            [ConnectError, ShadowVerbTimeoutError]
-        )
+        let unsettled: MergePersonsResult | undefined
+        try {
+            return await promiseRetry(
+                async () => {
+                    // An abandoned verb starts no new write; one already in flight still finishes.
+                    if (abandoned.aborted) {
+                        throw new ShadowVerbTimeoutError('mergePersons')
+                    }
+                    const result = await this.personhog.mergePersons(request, batchId)
+                    // Unsettled means a retry under the same op id may settle it.
+                    if (result.results.some((source) => source.settled === false)) {
+                        unsettled = result
+                        throw new PersonMergeUnsettledError('shadow merge verdict is unsettled')
+                    }
+                    return result
+                },
+                'shadow_merge_persons',
+                undefined,
+                undefined,
+                undefined,
+                [ConnectError, ShadowVerbTimeoutError]
+            )
+        } catch (error) {
+            if (error instanceof PersonMergeUnsettledError && unsettled !== undefined) {
+                return unsettled
+            }
+            throw error
+        }
     }
 
     /** A fold is never retried as a fold: one that throws aborts, and its pairs take the re-drive. */
@@ -554,10 +609,33 @@ export class RoutingPersonsStore implements PersonsStore {
      * disagreement is the most consequential divergence; the vocabularies
      * differ between backends, so a difference is a finding, not an alarm.
      */
-    private compareMerge(authoritative: unknown, shadow: unknown): void {
+    private compareMerge(request: MergePersonsRequest, authoritative: unknown, shadow: unknown): void {
         const left = authoritative as MergePersonsResult
         const right = shadow as MergePersonsResult
         personhogStoreShadowComparedCounter.labels({ verb: 'mergePersons' }).inc()
+        // Sorted by source: the backends report the same verdicts in different orders.
+        const verdicts = (result: MergePersonsResult): string =>
+            result.foldAborted !== undefined
+                ? `aborted:${result.foldAborted}`
+                : result.results
+                      .map((source) => `${source.sourceDistinctId}=${source.outcome}`)
+                      .sort()
+                      .join(',')
+        const bothAborted = left.foldAborted !== undefined && right.foldAborted !== undefined
+        const disagree =
+            (left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null) || verdicts(left) !== verdicts(right)
+        if (disagree && !bothAborted) {
+            logger.info('personhog shadow merge verdicts differ', {
+                team_id: request.teamId,
+                target_distinct_id: request.targetDistinctId,
+                trigger_source_distinct_id: request.triggerSourceDistinctId,
+                sources: request.sources.map((source) => source.distinctId),
+                pg_survivor: left.survivor?.uuid ?? null,
+                pg: verdicts(left),
+                personhog_survivor: right.survivor?.uuid ?? null,
+                personhog: verdicts(right),
+            })
+        }
         // An aborted fold carries no verdicts, so the disposition itself is
         // what the backends can disagree on: one record when only one side
         // aborted, nothing when both did.

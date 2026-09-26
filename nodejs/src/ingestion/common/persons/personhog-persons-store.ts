@@ -102,7 +102,7 @@ function moveLimitFor(mergeMode: MergeMode, syncMergeMoveLimit: number): number 
 }
 
 /** The event name stamped on creation calls; per-event names are consumed at fold time. */
-const CREATE_EVENT_NAME = '$create_person'
+export const CREATE_EVENT_NAME = '$create_person'
 
 /** The event name stamped on direct diff updates, which carry no originating event. */
 const DIRECT_UPDATE_EVENT_NAME = '$direct_update'
@@ -390,10 +390,14 @@ export class PersonhogPersonsStore implements PersonsStore {
         batchId: number,
         options: { grade: 'check' | 'update'; generation: number; fillOnly?: boolean }
     ): InternalPerson | null {
+        const distinctKey = `${teamId}:${distinctId}`
         if (options.generation !== this.generationOf(teamId)) {
+            // A cached absence this answer contradicts is wrong even when the answer is not installed.
+            if (fetched !== null && this.resolutions.get(distinctKey) === null) {
+                this.resolutions.delete(distinctKey)
+            }
             return this.snapshot(fetched)
         }
-        const distinctKey = `${teamId}:${distinctId}`
         if (fetched === null) {
             // A stale absence must not overwrite presence; a live mapping
             // stands and serves its best available view.
@@ -432,7 +436,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /** Check grade only: the personless step discards properties there, and the update grade reads the leader. */
+    /** Identity's answer without properties, for reads the leader cannot serve. */
     private identityDocument(identity: PersonIdentity): InternalPerson {
         return { ...identity, properties: {}, properties_last_updated_at: {}, properties_last_operation: null }
     }
@@ -459,20 +463,32 @@ export class PersonhogPersonsStore implements PersonsStore {
             return cached
         }
         const generation = this.generationOf(teamId)
-        const edge = this.resolutions.get(`${teamId}:${distinctId}`)
+        const distinctKey = `${teamId}:${distinctId}`
+        const edge = this.resolutions.get(distinctKey)
         if (edge != null) {
             // The edge is trusted but only a checking read backs it, which
             // lags the leader; the update path pays one leader read.
             const person = await this.repository.fetchPersonById(teamId, edge.slice(edge.indexOf(':') + 1), CALLER_TAG)
-            return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
+            if (person !== null) {
+                return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
+            }
+            // The leader no longer holds this person; identity decides where the id lives now. A purge or a newer
+            // read during the leader read owns the entry, so only the edge this read found is removed.
+            if (this.generationOf(teamId) === generation && this.resolutions.get(distinctKey) === edge) {
+                this.clearPersonCacheForPersonId(edge, 'stale_write_answer')
+                this.resolutions.delete(distinctKey)
+            }
         }
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         if (!resolved?.person) {
             return this.cacheFetchedPerson(teamId, distinctId, null, batchId, { grade: 'update', generation })
         }
-        // A null read here means the person vanished mid-flight; the miss
-        // is cached and the caller's create path re-resolves.
         const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
+        if (person === null) {
+            // The person died mid-call; serve identity's answer rather than cache an absence.
+            this.clearPersonCacheForPersonId(`${teamId}:${resolved.person.id}`, 'stale_write_answer')
+            return this.identityDocument(resolved.person)
+        }
         return this.cacheFetchedPerson(teamId, distinctId, person, batchId, { grade: 'update', generation })
     }
 
@@ -957,7 +973,8 @@ export class PersonhogPersonsStore implements PersonsStore {
                             return
                         }
                         const person = await this.repository.fetchPersonById(entry.teamId, entry.person.id, CALLER_TAG)
-                        if (!this.prefetchingBatches.has(batchId)) {
+                        // Merged away since identity answered; the update read resolves it.
+                        if (!this.prefetchingBatches.has(batchId) || person === null) {
                             return
                         }
                         // Fill-only: this response raced everything the
