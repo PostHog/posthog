@@ -76,6 +76,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     examples_object_key,
     grade_metadata,
     inbox_ranking_training_examples,
+    inbox_ranking_unseen_graded,
     inbox_ranking_unseen_scores,
     load_snapshots,
     load_unseen_models,
@@ -124,6 +125,7 @@ from products.signals.dags.inbox_ranking.training.unseen import (
     SCORE_COLUMNS,
     TABULAR_MODEL_NAME,
     TITLE_EMBEDDINGS_MODEL_NAME,
+    UNSEEN_SCORES_TABLE,
     ModelFamily,
     UnseenModel,
     calibration_rows,
@@ -874,6 +876,107 @@ def test_head_grades_report_counts_and_an_undefined_auc_on_a_single_class():
     assert metadata["open_tabular_xgb_candidate_rows"] == dagster.MetadataValue.int(2)
     assert metadata["open_tabular_xgb_candidate_auc"] == dagster.MetadataValue.float(1.0)
     assert "open_tabular_xgb_candidate_auc" not in grade_metadata([single_class])
+
+
+@pytest.mark.parametrize(
+    "observed_days,missing_merge_column",
+    [(0, False), (1, False), (2, False), (3, False), (7, False), (14, False), (15, False), (0, True), (14, True)],
+)
+def test_unseen_daily_evaluations_keep_baked_events_at_each_heads_horizon(
+    monkeypatch, observed_days, missing_merge_column
+):
+    ids = ["fast", "slow", "pending"]
+    head_names = ["open", "pr_created", "pr_merged"]
+    families = [TABULAR_MODEL_NAME, EMBEDDINGS_MODEL_NAME]
+    scores = pd.concat(
+        [
+            _scores(ids, head=[head] * 3, model_name=[family] * 3, score=[0.9, 0.1, 0.5])
+            for head in head_names
+            for family in families
+        ],
+        ignore_index=True,
+    )
+    day = D0 + datetime.timedelta(days=observed_days)
+    partition = day.isoformat()
+    outcomes = [1, int(observed_days >= 2), 0]
+    labels = _labels(ids, open_count=outcomes, pr_created_count=outcomes, pr_merged_count=outcomes)
+    if missing_merge_column:
+        labels = labels.drop(columns=["pr_merged_count"])
+        head_names.remove("pr_merged")
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    storage = _ParquetS3(
+        {
+            partition_object_key(prefix, STATE_TABLE, partition): _parquet(_state(ids)),
+            partition_object_key(prefix, LABELS_TABLE, partition): _parquet(labels),
+            partition_object_key(prefix, UNSEEN_SCORES_TABLE, D0.isoformat()): _parquet(scores),
+        }
+    )
+    monkeypatch.setattr(settings, "INBOX_RANKING_DATASET_S3_BUCKET", "test-bucket")
+    monkeypatch.setattr("products.signals.dags.inbox_ranking.training.dag.s3_client", lambda: storage)
+    client = _patch_capture(monkeypatch, cloud=True, debug=False)
+
+    with dagster.build_asset_context(partition_key=partition) as context:
+        inbox_ranking_unseen_graded(context)
+
+    daily = [call["properties"] for call in client.calls if call["event"] == "inbox_ranking_unseen_head_evaluated"]
+    expected_heads = {name for name in head_names if observed_days <= HEADS_BY_NAME[name].horizon_days}
+    assert {(row["head"], row["model_name"]) for row in daily} == {
+        (head, family) for head in expected_heads for family in families
+    }
+    for row in daily:
+        assert {
+            "scoring_partition": D0.isoformat(),
+            "evaluation_partition": partition,
+            "observed_days": observed_days,
+            "is_mature": observed_days == HEADS_BY_NAME[row["head"]].horizon_days,
+            "model_version": D0.isoformat(),
+            "rows": 3,
+            "scored_rows": 3,
+            "positives": sum(outcomes),
+            "cohort_coverage": 1.0,
+            "mean_score": 0.5,
+            "auc": 1.0 if observed_days < 2 else 0.5,
+        }.items() <= row.items()
+        assert datetime.datetime.fromisoformat(row["evaluated_at"]).tzinfo is not None
+
+    baked_heads = {name for name in head_names if observed_days == HEADS_BY_NAME[name].horizon_days}
+    baked = [call["properties"] for call in client.calls if call["event"] == "inbox_ranking_unseen_head_graded"]
+    assert {(row["head"], row["model_name"]) for row in baked} == {
+        (head, family) for head in baked_heads for family in families
+    }
+    for row in baked:
+        daily_row = next(
+            item for item in daily if (item["head"], item["model_name"]) == (row["head"], row["model_name"])
+        )
+        assert row.items() <= daily_row.items()
+
+    report_events = [
+        call["properties"] for call in client.calls if call["event"] == "inbox_ranking_unseen_report_graded"
+    ]
+    assert len(report_events) == (len(ids) * len(families) if baked_heads else 0)
+    for row in report_events:
+        assert row["horizon_days"] == observed_days
+        assert {key.removeprefix("outcome_") for key in row if key.startswith("outcome_")} == baked_heads
+    calibration = [call["properties"] for call in client.calls if call["event"] == "inbox_ranking_unseen_calibration"]
+    assert {row["head"] for row in calibration} == baked_heads
+
+
+@pytest.mark.parametrize("impressions", [0, 1])
+def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(impressions):
+    head = HEADS_BY_NAME["open"]
+    graded = graded_rows(
+        _scores(["pending"], head_readable=[False]),
+        _labels(["pending"], impression_unit_count=[impressions]),
+        head,
+        pool=POOL_NAME,
+    )
+    (grade,) = head_grades(graded, head, pool=POOL_NAME, scoring_partition=D0.isoformat(), include_empty=True)
+    assert (grade.scored_rows, grade.rows, grade.positives) == (1, impressions, 0)
+    assert (grade.auc, grade.recency_auc, grade.null_auc) == (None, None, None)
+    assert grade.readable is False
+    if not impressions:
+        assert (grade.mean_score, grade.base_rate, grade.expected_calibration_error) == (None, None, None)
+        assert head_grades(graded, head, pool=POOL_NAME, scoring_partition=D0.isoformat()) == []
 
 
 def test_calibration_buckets_keep_a_run_of_tied_scores_in_one_bucket():
