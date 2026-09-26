@@ -30,7 +30,7 @@ from .classify import (
     MIN_QUERY_CHARS,
     SEARCH_INTENT_MODEL,
     SEARCH_INTENT_TIMEOUT_SECONDS,
-    is_value_shaped,
+    redact_values,
 )
 from .contracts import EventMatch, EventMatchRequest
 
@@ -154,8 +154,14 @@ def _cache_key(team_id: int, query: str) -> str:
 
 
 def likely_core_events(team_id: int, query: str, *, use_cache: bool = True) -> list[EventMatch]:
-    """Every core event the model finds likely, strongest first, before the check against ingested events."""
-    key = _cache_key(team_id, query)
+    """Every core event the model finds likely, strongest first, before the check against ingested events.
+
+    The model reads the search with its values replaced by placeholders, and nothing when only values are left.
+    """
+    model_query = redact_values(query)
+    if model_query is None:
+        return []
+    key = _cache_key(team_id, model_query)
     if use_cache:
         cached = cache.get(key)
         # The Django cache pickles what it stores, so matches go in as JSON text and come out schema-validated.
@@ -164,7 +170,7 @@ def likely_core_events(team_id: int, query: str, *, use_cache: bool = True) -> l
                 return _CACHED_MATCHES.validate_json(cached)
             except ValidationError:
                 pass
-    answers = _probabilities(team_id, query)
+    answers = _probabilities(team_id, model_query)
     likely = sorted(
         (
             EventMatch(name=name, label=CORE_EVENT_CANDIDATES[name].label, probability=probability)
@@ -195,7 +201,7 @@ def match_core_events(request: EventMatchRequest, *, use_cache: bool = True) -> 
     Raises the System One errors; the caller decides whether a failed answer matters.
     """
     query = " ".join(request.query.split())
-    if not MIN_QUERY_CHARS <= len(query) <= MAX_QUERY_CHARS or is_value_shaped(query):
+    if not MIN_QUERY_CHARS <= len(query) <= MAX_QUERY_CHARS:
         return []
     likely = likely_core_events(request.team_id, query, use_cache=use_cache)
     if not likely:

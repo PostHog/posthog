@@ -72,16 +72,9 @@ class TestClassifySearchIntent(SimpleTestCase):
                 None,
                 SearchIntentSource.SKIPPED,
             ),
-            ("id_like", "user 12345678", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("opaque_token", "sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
-            ("opaque_token_in_words", "session sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
-            ("url_after_words", "visits https://example.com/reset", ALL_TABS, None, SearchIntentSource.SKIPPED),
-            ("path_after_words", "visits /reset?token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("key_value_pair", "token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
-            ("wrapped_url", "visits (https://example.com/reset)", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("url_inside_word", "visits:https://example.com/reset", ALL_TABS, None, SearchIntentSource.SKIPPED),
-            ("bare_host_url", "visits example.com/reset/abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
-            ("windows_path", "opened C:\\Users\\ada\\notes.txt", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("too_short", "e", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("one_option_left", "email", ("events", "suggested_filters"), None, SearchIntentSource.SKIPPED),
         ]
@@ -94,6 +87,27 @@ class TestClassifySearchIntent(SimpleTestCase):
         assert (intent.group_type, intent.source) == (expected, source)
         self.decide.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("id_like", "user 12345678", "user <number>"),
+            ("opaque_token_in_words", "session sess_a1b2c3d4", "session <id>"),
+            ("partial_email_in_words", "emails from ada@exa", "emails from <email>"),
+            ("url_after_words", "visits https://example.com/reset", "visits <url>"),
+            ("path_after_words", "visits /reset?token=abc", "visits <path>"),
+            ("wrapped_url", "visits (https://example.com/reset)", "visits <url>"),
+            ("bare_host_url", "visits example.com/reset/abc", "visits <path>"),
+            ("windows_path", "opened C:\\Users\\ada\\notes.txt", "opened <path>"),
+            ("key_value_in_words", "campaign utm_source=newsletter", "campaign <value>"),
+        ]
+    )
+    def test_asks_the_model_with_values_replaced(self, _name: str, query: str, model_reads: str) -> None:
+        self.decide.return_value = _answer("event_properties", 0.8)
+
+        intent = classify_search_intent(_search(query))
+
+        assert f"Search: {model_reads}\n" in self.decide.call_args.kwargs["state"] + "\n"
+        assert intent.model_query == model_reads
+
     def test_offers_only_the_tabs_the_picker_shows(self) -> None:
         self.decide.return_value = _answer("person_properties", 0.9)
 
@@ -105,6 +119,7 @@ class TestClassifySearchIntent(SimpleTestCase):
             is_confident=True,
             source=SearchIntentSource.MODEL,
             suggests_switch=True,
+            model_query="email",
         )
         sent = self.decide.call_args.kwargs
         assert set(sent["questions"]["tab"].criteria) == {

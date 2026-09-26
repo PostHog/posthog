@@ -79,6 +79,13 @@ class SearchIntentResponseSerializer(serializers.Serializer):
             "a skipped search, or the bundled fallback prompt."
         ),
     )
+    model_query = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by "
+            "placeholders such as <url>. Null when the model did not answer."
+        ),
+    )
 
 
 class EventMatchRequestSerializer(serializers.Serializer):
@@ -177,6 +184,7 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "suggests_switch": intent.suggests_switch,
                     "method": intent.source,
                     "prompt_version": intent.prompt_version,
+                    "model_query": intent.model_query,
                 }
             ).data
         )

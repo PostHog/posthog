@@ -61,8 +61,7 @@ class TestMatchCoreEvents(BaseTest):
             ("too_short", "a"),
             ("email", "ada@example.com"),
             ("url", "https://example.com/pricing"),
-            ("id", "user 12345678"),
-            ("url_after_words", "visits https://example.com/reset?token=abc"),
+            ("path", "/reset?token=abc"),
         ]
     )
     def test_never_asks_the_model_about_values_or_unanswerable_searches(self, _name: str, query: str) -> None:
@@ -70,6 +69,15 @@ class TestMatchCoreEvents(BaseTest):
             assert match_core_events(self._search(query)) == []
 
         build.assert_not_called()
+
+    def test_the_model_reads_placeholders_instead_of_values(self) -> None:
+        client = _model_that_believes({})
+        with patch(BUILD_CLIENT, return_value=client):
+            match_core_events(self._search("visits https://example.com/reset?token=abc"))
+
+        assert {call.kwargs["state"].splitlines()[-1] for call in client.decide.call_args_list} == {
+            "Search: visits <url>"
+        }
 
     def test_asks_about_every_core_event_within_the_gateway_limit(self) -> None:
         client = _model_that_believes({})

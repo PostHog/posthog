@@ -89807,6 +89807,11 @@ export namespace Schemas {
          * @nullable
          */
       prompt_version: number | null;
+      /**
+         * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
+         * @nullable
+         */
+      model_query: string | null;
     }
 
     export interface SearchSuggestionsQuery {

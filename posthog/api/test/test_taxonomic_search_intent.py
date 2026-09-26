@@ -56,6 +56,7 @@ class TestSearchIntentEndpoint(APIBaseTest):
             "suggests_switch": True,
             "method": "model",
             "prompt_version": None,
+            "model_query": "email",
         }
         assert build.call_args.kwargs["distinct_id"] == team_distinct_id(self.team.id)
         assert enabled.call_args.args == ("taxonomic-filter-search-intent", str(self.user.distinct_id))

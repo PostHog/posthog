@@ -31,6 +31,8 @@ class SearchIntent:
     suggests_switch: bool = False
     # The managed prompt version the model read, or None for a rule match, a skip or the bundled prompt.
     prompt_version: int | None = None
+    # The search as the model read it, with values replaced by placeholders. None when the model did not answer.
+    model_query: str | None = None
 
 
 @frozen

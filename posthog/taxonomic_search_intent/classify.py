@@ -1,8 +1,10 @@
 """
 Classify a filter picker search: which tab (taxonomic group) does the person look for?
 
-Value-shaped input (an email address, a URL, a path) is matched by pattern and never goes to the model.
-Everything else is one multiple choice question to the decision model, over the tabs the picker shows.
+A search that is one value (an email address, a URL, a path) is matched by pattern. Everything else is one
+multiple choice question to the decision model, over the tabs the picker shows. The model reads the search
+with each value-shaped word replaced by a placeholder, which names the shape and keeps the value itself out of
+model inputs and anything built from them.
 """
 
 import re
@@ -33,7 +35,7 @@ MAX_QUERY_CHARS = 64
 SEARCH_INTENT_TIMEOUT_SECONDS = 2.0
 CACHE_TTL_SECONDS = 24 * 60 * 60
 # Keyed per team: a cache shared across teams lets a fast answer tell one team what another team searched.
-CACHE_KEY_PREFIX = "taxonomic_search_intent:v1"
+CACHE_KEY_PREFIX = "taxonomic_search_intent:v2"
 
 _EMAIL_VALUE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.IGNORECASE)
 _URL_VALUE = re.compile(r"^(https?://|www\.)", re.IGNORECASE)
@@ -85,31 +87,50 @@ def _rule_match(group_type: str) -> SearchIntent:
 
 
 def rule_intent(query: str, available_group_types: tuple[str, ...]) -> SearchIntent | None:
-    """Match value-shaped input. None means the query is not a value and the model can read it."""
-    if "@" in query:
-        if _EMAIL_VALUE.match(query) and "email_addresses" in available_group_types:
+    """Answer a search that is one value by its shape. None means the model reads it, with any values redacted."""
+    if _EMAIL_VALUE.match(query):
+        if "email_addresses" in available_group_types:
             return _rule_match("email_addresses")
-        if _EMAIL_VALUE.match(query) and "person_properties" in available_group_types:
+        if "person_properties" in available_group_types:
             return _rule_match("person_properties")
-        # A partial email address is still personal data, so it never goes to the model.
-        return _skipped()
-    if _URL_VALUE.match(query) or _PATH_VALUE.match(query):
-        if "pageview_urls" in available_group_types:
-            return _rule_match("pageview_urls")
-        return _skipped()
-    # Brackets, quotes and trailing punctuation around a value would otherwise hide it from the anchored patterns.
-    words = [word.strip("()[]{}<>.,;:!?\"'`") for word in query.split()]
-    # A slash or backslash, a www host or a key=value pair anywhere in a word marks a URL or a path, which can carry a token.
-    if any("/" in word or "\\" in word or "=" in word or "www." in word.lower() for word in words):
-        return _skipped()
-    if _DIGIT_RUN.search(query) or any(_OPAQUE_TOKEN.match(word) for word in words):
-        return _skipped()
+    if (_URL_VALUE.match(query) or _PATH_VALUE.match(query)) and "pageview_urls" in available_group_types:
+        return _rule_match("pageview_urls")
     return None
 
 
-def is_value_shaped(query: str) -> bool:
-    """Whether the query looks like a value (an email address, a URL, a path, an id), which never goes to the model."""
-    return rule_intent(query, ()) is not None
+# Brackets, quotes and trailing punctuation around a value would otherwise hide it from the shape checks.
+_WRAPPING_PUNCTUATION = "()[]{}<>.,;:!?\"'`"
+
+
+def _placeholder(word: str) -> str | None:
+    """The shape of a value-shaped word, which the model reads instead of the value. None for an ordinary word."""
+    bare = word.strip(_WRAPPING_PUNCTUATION)
+    if "@" in bare:
+        return "<email>"
+    if "://" in bare or "www." in bare.lower():
+        return "<url>"
+    # A path can carry a token or personal data in any segment, a Windows path included.
+    if "/" in bare or "\\" in bare:
+        return "<path>"
+    if "=" in bare:
+        return "<value>"
+    if _DIGIT_RUN.search(bare):
+        return "<number>"
+    if _OPAQUE_TOKEN.match(bare):
+        return "<id>"
+    return None
+
+
+def redact_values(query: str) -> str | None:
+    """The search with each value-shaped word replaced by a placeholder that names its shape.
+
+    None when only values are left, because the model then has nothing to read.
+    """
+    words = query.split()
+    placeholders = [_placeholder(word) for word in words]
+    if all(placeholders):
+        return None
+    return " ".join(placeholder or word for word, placeholder in zip(words, placeholders))
 
 
 def search_intent_state(query: str, active_group_type: str, scene: str | None) -> str:
@@ -168,8 +189,11 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
     }
     if len(options) < 2:
         return _skipped()
+    model_query = redact_values(query)
+    if model_query is None:
+        return _skipped()
 
-    state = search_intent_state(query, request.active_group_type, request.scene)
+    state = search_intent_state(model_query, request.active_group_type, request.scene)
     key = _cache_key(
         request.team_id, SEARCH_INTENT_MODEL, state, prompt.instructions, options, prompt.confident_threshold
     )
@@ -198,6 +222,7 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
         is_confident=answer.confidence >= prompt.confident_threshold,
         source=SearchIntentSource.MODEL,
         prompt_version=prompt.version,
+        model_query=model_query,
     )
     if use_cache:
         cache.set(key, _CACHED_INTENT.dump_json(intent).decode(), CACHE_TTL_SECONDS)
