@@ -151,12 +151,9 @@ class TestEightBallAPI(APIBaseTest):
         assert response.json() == {"answer": "Cannot predict now", "confidence": 0.0, "sources": []}
         decide.assert_not_called()
 
-    def test_no_fitted_chunks_still_requires_decision_enrollment(self, _embed, _ff) -> None:
+    def test_checks_decision_enrollment_before_search(self, _embed, _ff) -> None:
         with (
-            patch(
-                "products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team",
-                return_value=[_chunk("x" * (STATE_MAX_BYTES * 2))],
-            ) as search,
+            patch("products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team") as search,
             patch(
                 "products.business_knowledge.backend.magic_eight_ball.decision_api.decisions_enabled",
                 return_value=False,
