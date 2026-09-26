@@ -17,10 +17,14 @@ from posthog.test.base import (
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.properties_timeline.properties_timeline import PropertiesTimelineResult
-from posthog.models import PersonalAPIKey
+from posthog.models import PersonalAPIKey, PropertyDefinition
 from posthog.models.filters.mixins.base import BreakdownType
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 
 MATERIALIZED_COLUMN_KWARGS = {"person_properties": ["foo", "bar"]}
 TEST_PERSON_ID = uuid.UUID("12345678-0000-0000-0000-000000000001")
@@ -806,3 +810,29 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, expected_status, response.json())
         if expected_status == status.HTTP_200_OK:
             self.assertEqual(response.json()["points"], [])
+
+    def test_timeline_hides_property_restricted_for_requesting_member(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        restricted = PropertyDefinition.objects.create(
+            team=self.team, name="bar", property_type="Numeric", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=restricted,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        self._create_person({"foo": "abc", "bar": 123})
+        self._create_event(
+            event="$pageview",
+            actor_properties={"foo": "abc", "bar": 123},
+            timestamp="2020-01-01T00:00:00Z",
+        )
+        flush_persons_and_events()
+
+        timeline = self._get_timeline_result(events=[{"id": "$pageview"}], date_from="2020-01-01", date_to="2020-01-05")
+
+        self.assertEqual([point["properties"] for point in timeline["points"]], [{"foo": "abc"}])

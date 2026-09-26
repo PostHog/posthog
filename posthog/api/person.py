@@ -1628,7 +1628,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person = self.get_object()
         filter = PropertiesTimelineFilter(request=request, team=self.team)
 
-        properties_timeline = PropertiesTimeline().run(filter, self.team, person)
+        properties_timeline = PropertiesTimeline().run(filter, self.team, person, user=cast(User, request.user))
 
         return response.Response(data=properties_timeline)
 
