@@ -10,7 +10,10 @@ import math
 from dataclasses import dataclass
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.core.exceptions import PermissionDenied
+
+import posthoganalytics
 
 from posthog.models.team import Team
 
@@ -27,6 +30,7 @@ from products.ml_inference.backend.facade.enums import DecisionQuestionType
 from . import logic
 
 ANSWER_QUESTION_ID = "answer"
+MAGIC_EIGHT_BALL_FEATURE_FLAG = "business-knowledge-magic-eight-ball"
 SEARCH_LIMIT = 8
 # Leave room in the model context for the question and answer options.
 STATE_MAX_BYTES = 6 * 1024
@@ -62,6 +66,10 @@ EIGHT_BALL_ANSWERS: dict[str, str] = {
 
 class InvalidEightBallAnswer(Exception):
     """The decision model answered, but not with one of the ball's answers."""
+
+
+class EightBallDisabledError(Exception):
+    pass
 
 
 @dataclass(frozen=True)
@@ -119,6 +127,16 @@ def ask(team: Team, question: str) -> EightBallAnswer:
     """
     if not team.organization.is_ai_data_processing_approved:
         raise PermissionDenied("AI data processing is not approved for this organization.")
+
+    if not settings.DEBUG and not posthoganalytics.feature_enabled(
+        MAGIC_EIGHT_BALL_FEATURE_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    ):
+        raise EightBallDisabledError()
 
     if not decision_api.decisions_enabled(team.id):
         raise DecisionsDisabledError(team.id)

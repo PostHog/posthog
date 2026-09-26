@@ -626,6 +626,8 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         try:
             result = magic_eight_ball.ask(self.team, serializer.validated_data["question"])
+        except magic_eight_ball.EightBallDisabledError:
+            raise exceptions.NotFound("The Magic 8 ball is not enabled for this project.")
         except DecisionsDisabledError:
             raise exceptions.NotFound("The decision model is not enabled for this project.")
         except (

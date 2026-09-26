@@ -84,6 +84,9 @@ export function MagicEightBallScene(): JSX.Element {
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
     }
+    if (!featureFlags[FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]) {
+        return <NotFound object="Magic 8 ball" caption="This feature is not enabled for your project." />
+    }
     if (
         !preflight?.is_debug &&
         (preflight?.region !== Region.US || !featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS])

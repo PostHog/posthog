@@ -23,7 +23,10 @@ describe('BusinessKnowledgeTabs', () => {
     })
 
     it('links Settings and the available Magic 8 ball to their scenes', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
+            [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true,
+        })
         render(<BusinessKnowledgeTabs activeTab="sources" />)
 
         expect(screen.getByText('Sources').closest('a')?.getAttribute('href')).toMatch(/\/business-knowledge$/)
@@ -36,14 +39,23 @@ describe('BusinessKnowledgeTabs', () => {
     })
 
     it('does not show the Magic 8 ball outside the US cloud', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true,
+            [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true,
+        })
         preflightLogic.actions.loadPreflightSuccess({ region: Region.EU } as PreflightStatus)
         render(<BusinessKnowledgeTabs activeTab="sources" />)
         expect(screen.queryByText('Magic 8 ball')).not.toBeInTheDocument()
     })
 
     it('does not show the Magic 8 ball without decision enrollment', () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL]: true })
+        render(<BusinessKnowledgeTabs activeTab="sources" />)
+        expect(screen.queryByText('Magic 8 ball')).not.toBeInTheDocument()
+    })
+
+    it('does not show the Magic 8 ball when its rollout flag is off', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ML_INFERENCE_DECISIONS]: true })
         render(<BusinessKnowledgeTabs activeTab="sources" />)
         expect(screen.queryByText('Magic 8 ball')).not.toBeInTheDocument()
     })

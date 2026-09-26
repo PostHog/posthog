@@ -15,8 +15,9 @@ export function BusinessKnowledgeTabs({ activeTab }: { activeTab: BusinessKnowle
     const { featureFlags } = useValues(featureFlagLogic)
     const { preflight } = useValues(preflightLogic)
     const decisionsAvailable =
-        !!preflight?.is_debug ||
-        (preflight?.region === Region.US && !!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS])
+        !!featureFlags[FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL] &&
+        (!!preflight?.is_debug ||
+            (preflight?.region === Region.US && !!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS]))
 
     return (
         <LemonTabs

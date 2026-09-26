@@ -5,7 +5,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -16,6 +16,7 @@ from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.magic_eight_ball import (
     ANSWER_QUESTION_ID,
     EIGHT_BALL_ANSWERS,
+    MAGIC_EIGHT_BALL_FEATURE_FLAG,
     STATE_MAX_BYTES,
     build_state,
 )
@@ -111,6 +112,19 @@ class TestEightBallAPI(APIBaseTest):
         assert request.team_id == self.team.id
         assert request.state["question"] == "Is our pricing usage based?"
         assert "usage based" in request.state["business_knowledge"][0]["text"]
+
+    @override_settings(DEBUG=False)
+    def test_rollout_flag_off_does_not_search(self, _embed, feature_enabled) -> None:
+        feature_enabled.side_effect = lambda flag, *_args, **_kwargs: flag != MAGIC_EIGHT_BALL_FEATURE_FLAG
+        with (
+            patch("products.business_knowledge.backend.magic_eight_ball.logic.search_knowledge_for_team") as search,
+            patch(DECIDE) as decide,
+        ):
+            response = self.client.post(self.url, {"question": "Will it ship?"}, format="json")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        search.assert_not_called()
+        decide.assert_not_called()
 
     def test_answers_with_no_matching_knowledge(self, _embed, _ff) -> None:
         with (
