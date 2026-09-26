@@ -12,7 +12,7 @@ from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
 
 MODEL = "posthog/hogference/jevk5-fp8-0.2"
-CACHE_SECONDS = 30 * 24 * 60 * 60
+CACHE_SECONDS = 24 * 60 * 60
 OPTIONS_PER_QUESTION = 15
 
 
