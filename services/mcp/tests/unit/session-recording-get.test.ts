@@ -29,6 +29,13 @@ describe('session-recording-get', () => {
         expect(tool._meta?.ui?.resourceUri).toBeTruthy()
     })
 
+    it.each(['session_id', 'sessionId', 'recording_id', 'recordingId', 'session_recording_id', 'sessionRecordingId'])(
+        'accepts %s as an alias for id',
+        (alias) => {
+            expect(tool.schema.parse({ [alias]: 'session-123' })).toEqual({ id: 'session-123' })
+        }
+    )
+
     it('returns recording metadata on a hit', async () => {
         const request = vi.fn().mockResolvedValue({ id: 'session-123', person: { properties: { email: 'private' } } })
 

@@ -74,6 +74,15 @@ tools:
             `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific
             session, or sample recent events for project-wide issues).
         ui_app: session-recording
+        param_overrides:
+            id:
+                aliases:
+                    - session_id
+                    - sessionId
+                    - recording_id
+                    - recordingId
+                    - session_recording_id
+                    - sessionRecordingId
         response:
             exclude:
                 - person.properties
