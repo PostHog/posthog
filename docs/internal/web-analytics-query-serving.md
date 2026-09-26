@@ -187,6 +187,22 @@ Use that ID to find the failed request in the query log.
 The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
 Errors outside the query path, such as configuration failures, may have no query ID.
 
+## Marketing conversion details
+
+Ad performance and the legacy marketing dashboard share the conversion table.
+The `marketing-analytics-conversion-people` feature flag controls the people drill-down in both views.
+When the flag is off or unavailable, conversion values remain non-interactive.
+Click a positive conversion goal value to open the people list for that goal and row.
+The list retains the table's date range, filters, attribution settings, and breakdown, including the source for campaign rows.
+It shows distinct people, so its count can differ from event totals or fractional attribution credit.
+Ad-platform reported conversions do not link to people because they do not identify PostHog persons.
+The details query reuses the attribution pipeline before aggregation and follows the table's precompute-readiness rules.
+The table and people list use the same click-ID source fallback and source normalization.
+Campaign and channel/source rows need the Source column to identify the clicked group; hiding it disables the conversion link.
+People appear in a stable order, and CSV exports retain the selected goal and attribution filters.
+If conversion details are not ready, the list shows a preparation message and requests a background calculation.
+The people query requires viewer access to Web analytics, including when it serves cached results.
+
 ## Campaign breakdown columns
 
 Marketing analytics saves campaign column selection, sorting, and pinned columns in browser storage for each project.

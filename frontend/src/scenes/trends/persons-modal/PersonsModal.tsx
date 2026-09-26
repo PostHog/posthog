@@ -58,6 +58,7 @@ import {
     cleanedInsightActorsQueryOptions,
     funnelBreakdownSelectValue,
     funnelStepBreakdownFromSelectValue,
+    personsModalExportContext,
 } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
@@ -78,6 +79,7 @@ export function PersonsModal({
     urlsIndex,
     urls,
     query: _query,
+    actorsQuery: _actorsQuery,
     title,
     onAfterClose,
     inline,
@@ -90,6 +92,7 @@ export function PersonsModal({
     const logic = personsModalLogic({
         url: originalUrl,
         query: _query,
+        actorsQuery: _actorsQuery,
         additionalSelect,
         orderBy,
     })
@@ -281,6 +284,8 @@ export function PersonsModal({
                                     <Spinner />
                                     <span>Loading {actorLabel.plural}...</span>
                                 </>
+                            ) : actorsResponse?.precomputeNotReady ? (
+                                <span>Preparing conversion details...</span>
                             ) : (
                                 <span>
                                     {actorsResponse?.next || actorsResponse?.offset ? 'More than ' : ''}
@@ -316,6 +321,10 @@ export function PersonsModal({
                             ) : (
                                 <InsightErrorState query={query} />
                             )
+                        ) : actorsResponse?.precomputeNotReady ? (
+                            <LemonBanner type="info">
+                                Conversion details are being prepared. Close this list and try again in a few minutes.
+                            </LemonBanner>
                         ) : actors && actors.length > 0 ? (
                             <>
                                 {actors.map((actor) => (
@@ -364,17 +373,7 @@ export function PersonsModal({
                                     onClick={() => {
                                         startExport({
                                             export_format: ExporterFormat.CSV,
-                                            export_context: query
-                                                ? {
-                                                      source: {
-                                                          ...actorsQuery,
-                                                          select: actorsQuery!.select?.filter(
-                                                              (c) => c !== 'matched_recordings'
-                                                          ),
-                                                          source: { ...actorsQuery!.source, includeRecordings: false },
-                                                      },
-                                                  }
-                                                : { path: originalUrl },
+                                            export_context: personsModalExportContext(actorsQuery, originalUrl),
                                         })
                                     }}
                                     tooltip={`Up to ${MAX_SELECT_RETURNED_ROWS} persons will be exported`}

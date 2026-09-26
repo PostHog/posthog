@@ -25,6 +25,11 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
+import {
+    marketingAnalyticsActorsQuery,
+    openMarketingAnalyticsPersonsModal,
+} from 'products/marketing_analytics/frontend/marketingAnalyticsPersonsModal'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
@@ -52,6 +57,7 @@ export const MarketingAnalyticsTable = ({
     const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
     const { drillDownLevel, nativeSourcesHierarchyStatus } = useValues(marketingAnalyticsLogic)
     const hasExtendedDrillDown = useFeatureFlag('MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN')
+    const hasConversionPeople = useFeatureFlag('MARKETING_ANALYTICS_CONVERSION_PEOPLE')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     const { notReady: precomputeNotReady, computedAt } = useMarketingAnalyticsPrecompute(query.source, insightProps)
 
@@ -97,15 +103,43 @@ export const MarketingAnalyticsTable = ({
                 return Array.from(allKnownColumns).reduce(
                     (acc, column) => {
                         const isGroupingColumn = allGroupingAliases.includes(column)
+                        const conversionGoal = conversion_goals.find((goal) => goal.conversion_goal_name === column)
                         acc[column] = {
-                            render: (props) => (
-                                <MarketingAnalyticsCell
-                                    {...props}
-                                    style={{
-                                        maxWidth: isGroupingColumn ? '200px' : undefined,
-                                    }}
-                                />
-                            ),
+                            render: (props) => {
+                                const currentValue =
+                                    typeof props.value === 'object' &&
+                                    props.value !== null &&
+                                    'value' in props.value &&
+                                    typeof props.value.value === 'number'
+                                        ? props.value.value
+                                        : null
+                                const actorsQuery =
+                                    conversionGoal && currentValue !== null && currentValue > 0
+                                        ? marketingAnalyticsActorsQuery({
+                                              enabled: hasConversionPeople,
+                                              conversionGoalId: conversionGoal.conversion_goal_id,
+                                              query: props.query as DataTableNode,
+                                              record: props.record,
+                                          })
+                                        : null
+                                return (
+                                    <MarketingAnalyticsCell
+                                        {...props}
+                                        style={{
+                                            maxWidth: isGroupingColumn ? '200px' : undefined,
+                                        }}
+                                        onClick={
+                                            conversionGoal && actorsQuery
+                                                ? () =>
+                                                      openMarketingAnalyticsPersonsModal({
+                                                          conversionGoalName: conversionGoal.conversion_goal_name,
+                                                          actorsQuery,
+                                                      })
+                                                : undefined
+                                        }
+                                    />
+                                )
+                            },
                         }
                         return acc
                     },
@@ -113,7 +147,7 @@ export const MarketingAnalyticsTable = ({
                 )
             })(),
         }),
-        [insightProps, query.source, searchTerm, conversion_goals]
+        [insightProps, query.source, searchTerm, conversion_goals, hasConversionPeople]
     )
 
     return (

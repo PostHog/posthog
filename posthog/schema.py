@@ -1938,6 +1938,14 @@ class MarkdownBlock(BaseModel):
     type: Literal["markdown"] = "markdown"
 
 
+class MarketingAnalyticsActorsBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    source: str | None = None
+    value: str
+
+
 class MarketingAnalyticsAttributionModelCell(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9506,6 +9514,7 @@ class ActorsQueryResponse(BaseModel):
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
+    precomputeNotReady: bool | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -11173,6 +11182,7 @@ class CachedActorsQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int
+    precomputeNotReady: bool | None = None
     query_metadata: dict[str, Any] | None = None
     query_scan: QueryScanSummary | None = Field(
         default=None,
@@ -16247,6 +16257,7 @@ class Response1(BaseModel):
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
+    precomputeNotReady: bool | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -20138,6 +20149,7 @@ class QueryResponseAlternative3(BaseModel):
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
+    precomputeNotReady: bool | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -21526,6 +21538,7 @@ class QueryResponseAlternative39(BaseModel):
     missing_actors_count: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int
+    precomputeNotReady: bool | None = None
     query_status: QueryStatus | None = Field(
         default=None,
         description=("Query status indicates whether next to the provided data, a query is still running."),
@@ -29716,6 +29729,20 @@ class InsightFilter(
     )
 
 
+class MarketingAnalyticsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: MarketingAnalyticsActorsBreakdown
+    conversionGoalId: str
+    kind: Literal["MarketingAnalyticsActorsQuery"] = "MarketingAnalyticsActorsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: HogQLQueryResponse | None = None
+    source: MarketingAnalyticsTableQuery
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32318,6 +32345,7 @@ class ActorsQuery(BaseModel):
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | MarketingAnalyticsActorsQuery
         | HogQLQuery
         | None
     ) = None
@@ -32585,6 +32613,7 @@ class HogQLAutocomplete(BaseModel):
         | HogQLMetadata
         | HogQLAutocomplete
         | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsActorsQuery
         | MarketingAnalyticsAggregatedQuery
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
@@ -32712,6 +32741,7 @@ class HogQLMetadata(BaseModel):
         | HogQLMetadata
         | HogQLAutocomplete
         | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsActorsQuery
         | MarketingAnalyticsAggregatedQuery
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery

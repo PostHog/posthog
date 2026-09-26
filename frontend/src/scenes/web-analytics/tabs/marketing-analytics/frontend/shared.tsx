@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconGraph, IconLineGraph, IconTrending } from '@posthog/icons'
-import { LemonSegmentedButtonOption } from '@posthog/lemon-ui'
+import { LemonButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { IconAreaChart, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
@@ -190,9 +190,11 @@ const getChangeBackgroundColor = (
 const MarketingAnalyticsCellInternal = ({
     value: item,
     style,
+    onClick,
 }: {
     value: MarketingAnalyticsItem
     style?: React.CSSProperties
+    onClick?: () => void
 }): JSX.Element | null => {
     const { baseCurrency } = useValues(teamLogic)
 
@@ -258,10 +260,24 @@ const MarketingAnalyticsCellInternal = ({
 
     const bgColor = getChangeBackgroundColor(item.changeFromPreviousPct, item.isIncreaseBad)
 
-    return (
-        <Tooltip title={tooltip} delayMs={300} className="cursor-default">
+    const cell = (
+        <Tooltip
+            title={
+                onClick ? (
+                    <>
+                        {tooltip}
+                        <br />
+                        Click to view people
+                    </>
+                ) : (
+                    tooltip
+                )
+            }
+            delayMs={300}
+            className={onClick ? 'cursor-pointer' : 'cursor-default'}
+        >
             <div
-                className="flex flex-wrap items-center min-w-0 cursor-default w-full hover:bg-warning-highlight h-full"
+                className="flex flex-wrap items-center min-w-0 w-full hover:bg-warning-highlight h-full"
                 style={{
                     backgroundColor: bgColor,
                     padding: '0.5rem',
@@ -283,20 +299,41 @@ const MarketingAnalyticsCellInternal = ({
             </div>
         </Tooltip>
     )
+
+    return onClick ? (
+        <LemonButton
+            type="tertiary"
+            className="w-full h-full justify-start p-0"
+            onClick={onClick}
+            data-attr="marketing-analytics-view-conversions"
+        >
+            {cell}
+        </LemonButton>
+    ) : (
+        cell
+    )
 }
 
 // Adapter component that matches QueryContextColumnComponent interface
 export const MarketingAnalyticsCell = ({
     value,
     style,
+    onClick,
 }: {
     value: unknown
     style?: React.CSSProperties
+    onClick?: () => void
 }): JSX.Element | null => {
     // Type guard to ensure we have a MarketingAnalyticsItem
     if (typeof value !== 'object' || value === null || !('key' in value)) {
         return <span>-</span>
     }
 
-    return <MarketingAnalyticsCellInternal value={withEmptyUtmLabel(value as MarketingAnalyticsItem)} style={style} />
+    return (
+        <MarketingAnalyticsCellInternal
+            value={withEmptyUtmLabel(value as MarketingAnalyticsItem)}
+            style={style}
+            onClick={onClick}
+        />
+    )
 }

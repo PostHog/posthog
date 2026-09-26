@@ -149,12 +149,14 @@ export interface PersonModalLogicProps {
         | ExperimentActorsQuery
         | PathsV2ActorsQuery
         | null
+    actorsQuery?: ActorsQuery | null
     url?: string | null
     additionalSelect?: Partial<Record<keyof CommonActorType, string>>
     orderBy?: string[]
 }
 
 export interface ListActorsResponse {
+    precomputeNotReady?: boolean
     results: {
         count: number
         people: ActorType[]
@@ -287,13 +289,14 @@ export interface personsModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         actorLabel: (
             actors: ActorType[],
-            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+            aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => Noun
         validationError: (errorObject: Record<string, any> | null) => string | null
         propertiesTimelineFilterFromUrl: (arg: any) => PropertiesTimelineFilterType
         selectFields: (arg: any) => string[]
         actorsQuery: (
             arg: any,
+            arg2: any,
             query: FunnelsActorsQuery | InsightActorsQuery<InsightQueryNode> | null,
             searchTerm: string,
             selectFields: string[]
@@ -381,6 +384,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         const additionalFieldIndices = fieldValues.map((field) => assembledSelectFields.indexOf(field))
                         const personColumnIndex = (response.columns || []).indexOf('person')
                         const newResponse: ListActorsResponse = {
+                            precomputeNotReady: response.precomputeNotReady,
                             results: [
                                 {
                                     count: response.results.length,
@@ -637,31 +641,42 @@ export const personsModalLogic = kea<personsModalLogicType>([
             },
         ],
         actorsQuery: [
-            (s) => [(_, p) => p.orderBy, s.query, s.searchTerm, s.selectFields],
+            (s) => [(_, p) => p.orderBy, (_, p) => p.actorsQuery, s.query, s.searchTerm, s.selectFields],
             (
                 orderBy,
+                directActorsQuery: ActorsQuery | null | undefined,
                 query: FunnelsActorsQuery | InsightActorsQuery | null,
                 searchTerm: string,
                 selectFields: string[]
             ): ActorsQuery | null => {
-                if (!query) {
+                if (!query && !directActorsQuery) {
                     return null
                 }
-                const sourceTags = { ...query.source?.tags, ...query.tags }
                 const activeScene = sceneLogic.findMounted()?.values.activeSceneId
+                const sourceTags = directActorsQuery
+                    ? { ...directActorsQuery.source?.tags, ...directActorsQuery.tags }
+                    : { ...query?.source?.tags, ...query?.tags }
                 const tags = {
                     ...sourceTags,
                     ...(activeScene && !sourceTags.scene ? { scene: activeScene } : {}),
                 }
                 return setLatestVersionsOnQuery(
-                    {
-                        kind: NodeKind.ActorsQuery,
-                        source: query,
-                        select: selectFields,
-                        orderBy: orderBy || [],
-                        search: searchTerm,
-                        ...(Object.keys(tags).length > 0 ? { tags } : {}),
-                    },
+                    directActorsQuery
+                        ? {
+                              ...directActorsQuery,
+                              select: selectFields,
+                              orderBy: orderBy || directActorsQuery.orderBy || [],
+                              search: searchTerm,
+                              ...(Object.keys(tags).length > 0 ? { tags } : {}),
+                          }
+                        : {
+                              kind: NodeKind.ActorsQuery,
+                              source: query!,
+                              select: selectFields,
+                              orderBy: orderBy || [],
+                              search: searchTerm,
+                              ...(Object.keys(tags).length > 0 ? { tags } : {}),
+                          },
                     { recursion: false }
                 )
             },

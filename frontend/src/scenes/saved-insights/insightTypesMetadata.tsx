@@ -555,6 +555,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsActorsQuery]: {
+        name: 'Marketing analytics actors',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.MarketingAnalyticsAggregatedQuery]: {
         name: 'Marketing Analytics Aggregated',
         icon: IconHogQL,

@@ -280,6 +280,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             return {"product": Product.MAX_AI}
         case (
             NodeKind.MARKETING_ANALYTICS_TABLE_QUERY
+            | NodeKind.MARKETING_ANALYTICS_ACTORS_QUERY
             | NodeKind.MARKETING_ANALYTICS_AGGREGATED_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
