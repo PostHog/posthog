@@ -724,7 +724,12 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         request=None,
         responses={200: OrganizationRemoveBlockedMembersResponseSerializer},
     )
-    @action(detail=True, methods=["post"], url_path="remove_blocked_members_and_enforce_verified_domains")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="remove_blocked_members_and_enforce_verified_domains",
+        required_scopes=["organization:write"],
+    )
     def remove_blocked_members_and_enforce_verified_domains(self, request: Request, **kwargs) -> Response:
         """
         Remove the members whose email domain is outside the organization's verified domains and turn
