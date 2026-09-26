@@ -8,6 +8,8 @@ import { SUBAGENT_REWRITES } from "../hooks";
 import {
   buildSessionOptions,
   buildSystemPrompt,
+  removePinnedSettings,
+  settingsFlagIncludes,
   toEffortFlagSettings,
   toSdkEffort,
 } from "./options";
@@ -821,6 +823,25 @@ describe("buildSessionOptions", () => {
       openaiApiKey: "tok",
     };
 
+    let configDir: string;
+    let savedConfigDir: string | undefined;
+    beforeEach(() => {
+      savedConfigDir = process.env.CLAUDE_CONFIG_DIR;
+      configDir = fs.mkdtempSync(path.join(os.tmpdir(), "options-settings-"));
+      process.env.CLAUDE_CONFIG_DIR = configDir;
+    });
+    afterEach(() => {
+      if (savedConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = savedConfigDir;
+      fs.rmSync(configDir, { recursive: true, force: true });
+    });
+
+    function flagSettings(options: Options) {
+      const file = String(options.extraArgs?.settings);
+      expect(path.isAbsolute(file)).toBe(true);
+      return JSON.parse(fs.readFileSync(file, "utf-8"));
+    }
+
     it("enables per-turn traceparent when routed through the gateway", () => {
       const env = buildSessionOptions({ ...makeParams(), gatewayEnv }).env;
 
@@ -880,7 +901,7 @@ describe("buildSessionOptions", () => {
     it("registers the traceparent hook and hook events for gateway sessions", () => {
       const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
 
-      const settings = JSON.parse(String(options.extraArgs?.settings));
+      const settings = flagSettings(options);
       const hook = settings.hooks.UserPromptSubmit[0].hooks[0];
       expect(hook.command).toContain("$TRACEPARENT");
       expect(options.includeHookEvents).toBe(true);
@@ -900,7 +921,131 @@ describe("buildSessionOptions", () => {
         userProvidedOptions: { extraArgs: { settings: '{"model":"x"}' } },
       });
 
-      expect(options.extraArgs?.settings).toBe('{"model":"x"}');
+      const settings = flagSettings(options);
+      expect(settings.model).toBe("x");
+      expect(settings.hooks).toBeUndefined();
+      expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://gateway.example");
+    });
+
+    it("pins the gateway env in --settings so repo settings cannot redirect it", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      const settings = flagSettings(options);
+      expect(settings.env).toMatchObject({
+        ANTHROPIC_BASE_URL: "https://gateway.example",
+        ANTHROPIC_AUTH_TOKEN: "tok",
+        ANTHROPIC_API_KEY: "tok",
+      });
+      expect(settings.env.ANTHROPIC_CUSTOM_HEADERS).toBe(
+        options.env?.ANTHROPIC_CUSTOM_HEADERS,
+      );
+    });
+
+    it("merges the pins into a caller's SDK settings object", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: {
+          settings: {
+            model: "x",
+            env: { FOO: "1", ANTHROPIC_BASE_URL: "https://elsewhere.example" },
+          },
+        },
+      });
+
+      expect(options.settings).toBeUndefined();
+      expect(flagSettings(options)).toMatchObject({
+        model: "x",
+        env: { FOO: "1", ANTHROPIC_BASE_URL: "https://gateway.example" },
+      });
+    });
+
+    it("removes the pinned settings file and nothing outside its directory", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+      const file = String(options.extraArgs?.settings);
+      const outside = path.join(configDir, "keep.json");
+      fs.writeFileSync(outside, "{}");
+
+      removePinnedSettings(options);
+      removePinnedSettings({ extraArgs: { settings: outside } });
+
+      expect(fs.existsSync(file)).toBe(false);
+      expect(fs.existsSync(outside)).toBe(true);
+    });
+
+    it("keeps the pinned base URL out of argv in an owner-only file", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv: {
+          ...gatewayEnv,
+          anthropicBaseUrl: "http://127.0.0.1:5000/secret-token",
+        },
+      });
+
+      const file = String(options.extraArgs?.settings);
+      expect(file).not.toContain("secret-token");
+      expect(file.startsWith(configDir)).toBe(true);
+      if (process.platform !== "win32") {
+        expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+      }
+      expect(flagSettings(options).env.ANTHROPIC_BASE_URL).toBe(
+        "http://127.0.0.1:5000/secret-token",
+      );
+    });
+
+    it("detects the traceparent hook in a pinned settings file", () => {
+      const pinned = buildSessionOptions({ ...makeParams(), gatewayEnv });
+      expect(settingsFlagIncludes(pinned, "0123456789abcdef")).toBe(true);
+
+      const skipped = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: { extraArgs: { settings: '{"model":"x"}' } },
+      });
+      expect(settingsFlagIncludes(skipped, "0123456789abcdef")).toBe(false);
+    });
+
+    it("keeps a hostile session id inside the pinned settings directory", () => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        sessionId: "../../escape/x",
+      });
+
+      const file = String(options.extraArgs?.settings);
+      expect(path.dirname(file)).toBe(
+        path.join(configDir, "posthog-session-settings"),
+      );
+      removePinnedSettings(options);
+      expect(fs.existsSync(file)).toBe(false);
+    });
+
+    it("keeps project and local settings when the pin is installed", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      expect(options.settingSources).toEqual(["user", "project", "local"]);
+    });
+
+    it.each([
+      ["a settings file path", { settings: "/tmp/caller-settings.json" }],
+      ["an unparseable settings flag", { extraArgs: { settings: "not json" } }],
+    ])("drops project and local settings when given %s", (_name, provided) => {
+      const options = buildSessionOptions({
+        ...makeParams(),
+        gatewayEnv,
+        userProvidedOptions: provided as Options,
+      });
+
+      expect(options.settingSources).toEqual(["user"]);
+    });
+
+    it("drops project and local settings when the pin cannot be written", () => {
+      fs.writeFileSync(path.join(configDir, "posthog-session-settings"), "");
+
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      expect(options.settingSources).toEqual(["user"]);
+      expect(options.extraArgs?.settings).not.toMatch(/^\//);
     });
 
     it("skips the hook when the caller uses the SDK settings option", () => {
@@ -920,7 +1065,9 @@ describe("buildSessionOptions", () => {
       Object.defineProperty(process, "platform", { value: "win32" });
       try {
         const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
-        expect(options.extraArgs?.settings).toBeUndefined();
+        const settings = flagSettings(options);
+        expect(settings.hooks).toBeUndefined();
+        expect(settings.env.ANTHROPIC_BASE_URL).toBe("https://gateway.example");
         expect(options.includeHookEvents).toBe(false);
       } finally {
         if (platform) {

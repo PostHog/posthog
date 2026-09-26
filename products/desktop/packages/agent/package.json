@@ -60,6 +60,10 @@
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js"
     },
+    "./utils/redact-secrets": {
+      "types": "./dist/utils/redact-secrets.d.ts",
+      "import": "./dist/utils/redact-secrets.js"
+    },
     "./adapters/claude/questions/utils": {
       "types": "./dist/adapters/claude/questions/utils.d.ts",
       "import": "./dist/adapters/claude/questions/utils.js"

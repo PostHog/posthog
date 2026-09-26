@@ -153,6 +153,8 @@ import {
   buildSystemPrompt,
   type GatewayEnv,
   type ProcessSpawnedInfo,
+  removePinnedSettings,
+  settingsFlagIncludes,
   toEffortFlagSettings,
   toSdkEffort,
 } from "./session/options";
@@ -481,6 +483,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       this.sideQuestionAbort?.abort();
       await super.closeSession();
     } finally {
+      if (this.session) removePinnedSettings(this.session.queryOptions);
       this.enrichment?.dispose();
       this.enrichment = undefined;
       this.enrichedReadCache.clear();
@@ -1006,6 +1009,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
     session.cancelController = undefined;
     session.settingsManager.dispose();
+    removePinnedSettings(session.queryOptions);
     session.input.end();
     this.toolUseStreamCache.clear();
     this.emittedToolCalls.clear();
@@ -2280,6 +2284,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         this.terminateQuery(newQuery, newAbortController);
       }
       session.queryClosed = true;
+      removePinnedSettings(session.queryOptions);
       const message = error instanceof Error ? error.message : String(error);
       try {
         await this.client.extNotification(POSTHOG_NOTIFICATIONS.STATUS, {
@@ -2632,6 +2637,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         this.terminateQuery(newQuery, newAbortController);
       }
       prev.queryClosed = true;
+      removePinnedSettings(prev.queryOptions);
       const message = error instanceof Error ? error.message : String(error);
       throw new RequestError(-32603, message, { sessionId: this.sessionId });
     }
@@ -3224,9 +3230,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       },
       taskState,
       traceparentHookNonce,
-      traceparentHookInstalled:
-        typeof options.extraArgs?.settings === "string" &&
-        options.extraArgs.settings.includes(traceparentHookNonce),
+      traceparentHookInstalled: settingsFlagIncludes(
+        options,
+        traceparentHookNonce,
+      ),
 
       // Custom properties
       cwd,
@@ -3235,6 +3242,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     };
     // A replaced session's consumer never reaches closeQueryStream.
     this.emittedToolCalls.clear();
+    const replaced = this.session as Session | undefined;
+    if (
+      replaced &&
+      replaced.queryOptions.extraArgs?.settings !== options.extraArgs?.settings
+    ) {
+      removePinnedSettings(replaced.queryOptions);
+    }
     this.session = session;
     this.sessionId = sessionId;
 
@@ -3258,6 +3272,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         );
       } catch (err) {
         settingsManager.dispose();
+        removePinnedSettings(options);
         this.terminateQuery(q, abortController);
         if (
           err instanceof Error &&
@@ -3345,6 +3360,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         });
       } catch (err) {
         settingsManager.dispose();
+        removePinnedSettings(options);
         this.terminateQuery(q, abortController);
         const initMs = Date.now() - initStartedAt;
         startupLogger.error("Session initialization failed", {

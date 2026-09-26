@@ -167,6 +167,7 @@ vi.mock("./codex-home", () => ({
   cleanupCodexHome: vi.fn().mockResolvedValue(undefined),
   getCodexHomeDir: vi.fn(() => "/mock/codex-home"),
   prepareCodexHome: vi.fn().mockResolvedValue("/mock/codex-home"),
+  writeCodexGatewayProvider: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock("node:fs", async (importOriginal) => {
@@ -194,6 +195,7 @@ import {
   buildAutoApproveOutcome,
   shouldAutoApprovePermissionRequest,
 } from "./agent";
+import { cleanupCodexHome, writeCodexGatewayProvider } from "./codex-home";
 import { AgentServiceEvent } from "./schemas";
 
 // --- Test helpers ---
@@ -883,6 +885,56 @@ describe("AgentService", () => {
       const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
       expect(claudeMcp).toHaveLength(1);
       expect(codexMcp).toEqual(claudeMcp);
+    });
+
+    it("hands the CLIs the proxy placeholder, never the OAuth token", async () => {
+      await service.startSession(baseSessionParams);
+
+      expect(mockAgentRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({
+          gatewayUrl: "http://127.0.0.1:9999",
+          gatewayApiKey: "posthog-code-auth-proxy",
+        }),
+      );
+    });
+
+    it("names the Codex base URL in its home config instead of argv", async () => {
+      await service.startSession({ ...baseSessionParams, adapter: "codex" });
+
+      expect(writeCodexGatewayProvider).toHaveBeenCalledWith(
+        "/mock/codex-home",
+        "http://127.0.0.1:9999/v1",
+        expect.anything(),
+      );
+      expect(mockAgentRun).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        expect.objectContaining({ codexBaseUrlInConfig: true }),
+      );
+    });
+
+    it("refuses to start Codex when the gateway config write fails", async () => {
+      vi.mocked(writeCodexGatewayProvider).mockResolvedValueOnce(false);
+
+      await expect(
+        service.startSession({ ...baseSessionParams, adapter: "codex" }),
+      ).rejects.toThrow(/Codex gateway config/);
+      expect(mockAgentRun).not.toHaveBeenCalled();
+    });
+
+    it("removes the Codex home when a Codex session fails to start", async () => {
+      vi.mocked(cleanupCodexHome).mockClear();
+      mockAgentRun.mockRejectedValueOnce(new Error("spawn failed"));
+
+      await expect(
+        service.startSession({ ...baseSessionParams, adapter: "codex" }),
+      ).rejects.toThrow("spawn failed");
+      expect(cleanupCodexHome).toHaveBeenCalledWith(
+        expect.any(String),
+        "run-1",
+      );
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {

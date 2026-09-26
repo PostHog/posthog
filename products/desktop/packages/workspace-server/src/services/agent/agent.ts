@@ -99,6 +99,7 @@ import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { inject, injectable, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
+import { AUTH_PROXY_PLACEHOLDER_CREDENTIAL } from "../auth-proxy/ports";
 import { POSTHOG_PLUGIN_SERVICE } from "../posthog-plugin/identifiers";
 import type { PosthogPluginService } from "../posthog-plugin/posthog-plugin";
 import { PROCESS_TRACKING_SERVICE } from "../process-tracking/identifiers";
@@ -112,6 +113,7 @@ import {
   getCodexCloudHomeDir,
   getCodexHomeDir,
   prepareCodexHome,
+  writeCodexGatewayProvider,
 } from "./codex-home";
 import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
@@ -1111,6 +1113,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       const claudeAuthGeneration = this.claudeAuthGeneration;
 
       let codexHome: string | undefined;
+      let codexBaseUrlInConfig = false;
       if (adapter === "codex") {
         if (codexSubscription) {
           codexHome = getCodexHomeDir(this.storagePaths.appDataPath, taskRunId);
@@ -1122,6 +1125,19 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
             bundledSkillsDir,
             log: this.log,
           });
+          // The proxy URL carries a secret, so it never falls back to argv.
+          if (
+            !(await writeCodexGatewayProvider(
+              codexHome,
+              `${proxyUrl}/v1`,
+              this.log,
+            ))
+          ) {
+            throw new Error(
+              "Could not write the Codex gateway config; not starting the session.",
+            );
+          }
+          codexBaseUrlInConfig = true;
         }
       }
 
@@ -1130,6 +1146,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         codexModelAccess: codexSubscription ? "own-subscription" : undefined,
         claudeModelAccess: claudeSubscription ? "own-subscription" : undefined,
         gatewayUrl: proxyUrl,
+        gatewayApiKey: AUTH_PROXY_PLACEHOLDER_CREDENTIAL,
+        codexBaseUrlInConfig,
         contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
           adapter === "codex" ? this.getCodexBinaryPath() : undefined,
@@ -1484,6 +1502,12 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         this.log.debug("Agent cleanup failed during error handling", {
           taskRunId,
         });
+      }
+      // The run's config.toml names the proxy URL and its path token.
+      if (adapter === "codex") {
+        await cleanupCodexHome(this.storagePaths.appDataPath, taskRunId).catch(
+          () => this.log.debug("Codex home cleanup failed", { taskRunId }),
+        );
       }
 
       if (!isRetry && isAuthError(err)) {

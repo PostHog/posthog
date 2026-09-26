@@ -130,6 +130,18 @@ describe("AgentAuthAdapter", () => {
     );
   });
 
+  it.each(["https://app.dev.posthog.dev", "https://app.dev.posthog.dev."])(
+    "routes %s to the dev PostHog MCP",
+    async (apiHost) => {
+      await adapter.buildMcpServers({ ...baseCredentials, apiHost });
+
+      expect(deps.mcpProxy.register).toHaveBeenCalledWith(
+        "posthog",
+        "https://mcp.dev.posthog.dev/mcp",
+      );
+    },
+  );
+
   it("gives a custom instance no PostHog MCP server", async () => {
     configureCustomCloud({
       url: "https://posthog.example.com",

@@ -65,7 +65,10 @@ export class Agent {
     }
   }
 
-  private async _resolveGatewayConfig(overrideUrl?: string): Promise<{
+  private async _resolveGatewayConfig(
+    overrideUrl?: string,
+    overrideApiKey?: string,
+  ): Promise<{
     gatewayUrl: string;
     apiKey: string;
   } | null> {
@@ -73,9 +76,13 @@ export class Agent {
       return null;
     }
 
+    // An override URL is the loopback proxy; the real token must never back it.
+    if (overrideUrl && !overrideApiKey) {
+      throw new Error("gatewayUrl override requires gatewayApiKey");
+    }
     try {
       const gatewayUrl = overrideUrl ?? this.posthogAPI.getLlmGatewayUrl();
-      const apiKey = await this.posthogAPI.getApiKey();
+      const apiKey = overrideApiKey ?? (await this.posthogAPI.getApiKey());
       return { gatewayUrl, apiKey };
     } catch (error) {
       this.logger.error("Failed to resolve LLM gateway config", error);
@@ -93,7 +100,10 @@ export class Agent {
       options.claudeModelAccess === "own-subscription";
     const gatewayConfig = claudeSubscription
       ? null
-      : await this._resolveGatewayConfig(options.gatewayUrl);
+      : await this._resolveGatewayConfig(
+          options.gatewayUrl,
+          options.gatewayUrl ? options.gatewayApiKey : undefined,
+        );
     this.taskRunId = taskRunId;
 
     const needsAttribution = !claudeSubscription && gatewayConfig !== null;
@@ -142,6 +152,7 @@ export class Agent {
       !codexSubscription && gatewayConfig
         ? {
             apiBaseUrl: `${gatewayConfig.gatewayUrl}/v1`,
+            apiBaseUrlInConfig: options.codexBaseUrlInConfig,
             apiKey: gatewayConfig.apiKey,
             httpHeaders: {
               ...buildPosthogPropertyHeaderRecord(

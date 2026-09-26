@@ -1,6 +1,7 @@
+import http from "node:http";
 import type { RootLogger } from "@posthog/di/logger";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AuthProxyService } from "./auth-proxy";
+import { AuthProxyService, MAX_BODY_BYTES, PROXY_TIMEOUTS } from "./auth-proxy";
 import type { AuthProxyAuth } from "./ports";
 
 type AuthMock = {
@@ -163,3 +164,276 @@ describe("AuthProxyService", () => {
     expect(await res.text()).toBe("data: one\n\ndata: two\n\n");
   });
 });
+
+describe("AuthProxyService legacy hardening", () => {
+  let authFetch: ReturnType<typeof vi.fn>;
+  let logs: unknown[][];
+  let service: AuthProxyService;
+
+  beforeEach(() => {
+    authFetch = vi.fn();
+    logs = [];
+    const record =
+      (level: string) =>
+      (...args: unknown[]) =>
+        logs.push([level, ...args]);
+    const scoped = {
+      debug: record("debug"),
+      info: record("info"),
+      warn: record("warn"),
+      error: record("error"),
+    };
+    const logger = { ...scoped, scope: () => scoped } as unknown as RootLogger;
+    service = new AuthProxyService(
+      { authenticatedFetch: authFetch } as AuthProxyAuth,
+      logger,
+    );
+  });
+
+  afterEach(async () => {
+    await service.stop();
+  });
+
+  it("strips inbound credentials and cookies and refuses redirects", async () => {
+    authFetch.mockResolvedValue(new Response("ok"));
+    const proxyUrl = await service.start("https://gateway.example");
+
+    await fetch(`${proxyUrl}/v1/messages`, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer posthog-code-auth-proxy",
+        "x-api-key": "posthog-code-auth-proxy",
+        cookie: "session=abc",
+      },
+      body: "{}",
+    });
+
+    const [, init] = authFetch.mock.calls[0];
+    expect(init.redirect).toBe("manual");
+    expect(init.headers).not.toHaveProperty("authorization");
+    expect(init.headers).not.toHaveProperty("x-api-key");
+    expect(init.headers).not.toHaveProperty("cookie");
+  });
+
+  it("strips cookies and auth challenges from the response", async () => {
+    authFetch.mockResolvedValue(
+      new Response("ok", {
+        headers: {
+          "set-cookie": "a=b",
+          "www-authenticate": "Bearer",
+          "x-posthog-trace-id": "trace",
+        },
+      }),
+    );
+    const proxyUrl = await service.start("https://gateway.example");
+
+    const res = await fetch(`${proxyUrl}/v1/messages`);
+
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(res.headers.get("www-authenticate")).toBeNull();
+    expect(res.headers.get("x-posthog-trace-id")).toBe("trace");
+  });
+
+  function hopRequest(
+    url: string,
+    headers: http.OutgoingHttpHeaders,
+  ): Promise<http.IncomingMessage> {
+    return new Promise((resolve, reject) => {
+      const req = http.request(url, { headers, agent: false }, (res) => {
+        res.resume();
+        res.on("end", () => resolve(res));
+      });
+      req.on("error", reject);
+      req.end();
+    });
+  }
+
+  it("strips hop-by-hop request headers and any the Connection value names", async () => {
+    authFetch.mockResolvedValue(new Response("ok"));
+    const proxyUrl = await service.start("https://gateway.example");
+
+    await hopRequest(`${proxyUrl}/v1/models`, {
+      connection: "close, x-hop",
+      "keep-alive": "timeout=5",
+      "proxy-connection": "keep-alive",
+      te: "trailers",
+      upgrade: "websocket",
+      "x-hop": "1",
+      "x-kept": "1",
+    });
+
+    const headers = Object.keys(authFetch.mock.calls[0][1].headers);
+    for (const name of [
+      "connection",
+      "keep-alive",
+      "proxy-connection",
+      "te",
+      "upgrade",
+      "x-hop",
+    ]) {
+      expect(headers).not.toContain(name);
+    }
+    expect(headers).toContain("x-kept");
+  });
+
+  it("strips hop-by-hop response headers and any the Connection value names", async () => {
+    authFetch.mockResolvedValue(
+      new Response("ok", {
+        headers: {
+          connection: "x-hop",
+          "keep-alive": "timeout=999",
+          "proxy-connection": "keep-alive",
+          trailer: "x-sum",
+          upgrade: "websocket",
+          "x-hop": "1",
+          "x-kept": "1",
+        },
+      }),
+    );
+    const proxyUrl = await service.start("https://gateway.example");
+
+    const res = await hopRequest(`${proxyUrl}/v1/models`, {});
+
+    expect(res.headers["keep-alive"]).toBeUndefined();
+    for (const name of ["proxy-connection", "trailer", "upgrade", "x-hop"]) {
+      expect(res.headers[name]).toBeUndefined();
+    }
+    expect(res.headers["x-kept"]).toBe("1");
+  });
+
+  it("turns an upstream redirect into a 502", async () => {
+    authFetch.mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://evil.example" },
+      }),
+    );
+    const proxyUrl = await service.start("https://gateway.example");
+
+    const res = await fetch(`${proxyUrl}/v1/messages`, { redirect: "manual" });
+
+    expect(res.status).toBe(502);
+    expect(res.headers.get("location")).toBeNull();
+  });
+
+  it("refuses a body over the cap with a size error the classifier knows", async () => {
+    const proxyUrl = await service.start("https://gateway.example");
+
+    const res = await fetch(`${proxyUrl}/v1/messages`, {
+      method: "POST",
+      body: Buffer.alloc(MAX_BODY_BYTES + 1, 97),
+    });
+
+    expect(res.status).toBe(413);
+    expect(await res.text()).toContain("request body too large");
+    expect(authFetch).not.toHaveBeenCalled();
+  });
+
+  it("never logs the path token or the upstream query string", async () => {
+    authFetch.mockResolvedValue(new Response("ok"));
+    const proxyUrl = await service.start("https://gateway.example");
+    const token = new URL(proxyUrl).pathname.slice(1);
+    const origin = new URL(proxyUrl).origin;
+
+    await fetch(`${proxyUrl}/v1/messages?secret=q`);
+    const traversal = await rawRequest(`${origin}/${token}/..%2f..%2fx`);
+    expect(traversal).toBe(403);
+    authFetch.mockRejectedValueOnce(new Error("boom"));
+    await fetch(`${proxyUrl}/v1/messages?secret=q`);
+
+    const text = JSON.stringify(logs);
+    expect(logs.length).toBeGreaterThan(0);
+    expect(text).not.toContain(token);
+    expect(text).not.toContain("secret=q");
+  });
+
+  describe("timeouts", () => {
+    const saved = { ...PROXY_TIMEOUTS };
+    afterEach(() => Object.assign(PROXY_TIMEOUTS, saved));
+
+    it("answers 408 when the request body stalls", async () => {
+      PROXY_TIMEOUTS.bodyMs = 50;
+      const proxyUrl = await service.start("https://gateway.example");
+
+      const status = await new Promise<number>((resolve, reject) => {
+        const req = http.request(`${proxyUrl}/v1/messages`, {
+          method: "POST",
+          headers: { "content-length": "100" },
+        });
+        req.on("response", (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        });
+        req.on("error", reject);
+        req.write("partial");
+      });
+
+      expect(status).toBe(408);
+      expect(authFetch).not.toHaveBeenCalled();
+    });
+
+    it("keeps streaming past the headers timeout once headers arrive", async () => {
+      PROXY_TIMEOUTS.headersMs = 50;
+      authFetch.mockImplementation(async (_url: string, init: RequestInit) => {
+        const body = new ReadableStream<Uint8Array>({
+          async start(controller) {
+            init.signal?.addEventListener("abort", () =>
+              controller.error(new DOMException("aborted", "AbortError")),
+            );
+            controller.enqueue(new TextEncoder().encode("a"));
+            await new Promise((resolve) => setTimeout(resolve, 150));
+            controller.enqueue(new TextEncoder().encode("b"));
+            controller.close();
+          },
+        });
+        return new Response(body);
+      });
+      const proxyUrl = await service.start("https://gateway.example");
+
+      const res = await fetch(`${proxyUrl}/v1/messages`);
+
+      expect(await res.text()).toBe("ab");
+    });
+
+    it("answers 504 and logs a warning when the upstream sends no headers", async () => {
+      PROXY_TIMEOUTS.headersMs = 50;
+      authFetch.mockImplementation(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      );
+      const proxyUrl = await service.start("https://gateway.example");
+
+      const res = await fetch(`${proxyUrl}/v1/messages`);
+
+      expect(res.status).toBe(504);
+      expect(
+        logs.some(
+          ([level, message]) =>
+            level === "warn" &&
+            message === "Auth proxy upstream sent no response headers in time",
+        ),
+      ).toBe(true);
+    });
+  });
+});
+
+function rawRequest(url: string): Promise<number> {
+  const parsed = new URL(url);
+  return new Promise((resolve, reject) => {
+    const req = http.request({
+      host: parsed.hostname,
+      port: parsed.port,
+      path: url.slice(parsed.origin.length),
+    });
+    req.on("response", (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}

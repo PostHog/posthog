@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import type { AgentSideConnection } from "@agentclientprotocol/sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../../acp-extensions";
@@ -560,6 +561,26 @@ describe("ClaudeAcpAgent /clear", () => {
     expect(
       findExtNotification(client, POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED),
     ).toBeDefined();
+  });
+
+  it("removes the pinned settings file when the query stream closes", () => {
+    const { agent } = makeAgent();
+    const { session } = installFakeSession(agent, "s-pinned");
+    const dir = path.join(
+      process.env.CLAUDE_CONFIG_DIR ?? "",
+      "posthog-session-settings",
+    );
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, "s-pinned.json");
+    fs.writeFileSync(file, "{}");
+    (session.queryOptions as { extraArgs?: Record<string, string> }).extraArgs =
+      { settings: file };
+
+    (
+      agent as unknown as { closeQueryStream(session: unknown): void }
+    ).closeQueryStream(session);
+
+    expect(fs.existsSync(file)).toBe(false);
   });
 
   it("closes the session and reports clearing_failed when the fresh session fails to initialize", async () => {

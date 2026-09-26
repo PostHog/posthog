@@ -25,6 +25,7 @@ import {
   getCodexHomeDir,
   prepareCodexHome,
   stripMcpServers,
+  writeCodexGatewayProvider,
 } from "./codex-home";
 
 const noopLog = { debug() {}, info() {}, warn() {}, error() {} };
@@ -413,5 +414,136 @@ describe("stripMcpServers", () => {
     },
   ])("$name", ({ toml, expected }) => {
     expect(stripMcpServers(toml.join("\n"))).toBe(expected.join("\n"));
+  });
+});
+
+describe("stripMcpServers quoted keys", () => {
+  it("drops quoted mcp_servers tables and keys", () => {
+    const toml = [
+      'model = "x"',
+      '"mcp_servers".a = { command = "a" }',
+      '["mcp_servers".b]',
+      'command = "b"',
+      "[ 'mcp_servers' . c ]",
+      'command = "c"',
+    ].join("\n");
+
+    expect(stripMcpServers(toml)).toBe('model = "x"');
+  });
+});
+
+describe("writeCodexGatewayProvider", () => {
+  let home: string;
+
+  beforeEach(async () => {
+    home = await mkdtemp(path.join(tmpdir(), "codex-provider-"));
+  });
+
+  afterEach(async () => {
+    await rm(home, { recursive: true, force: true });
+  });
+
+  it("writes the base URL into an owner-only config", async () => {
+    const ok = await writeCodexGatewayProvider(
+      home,
+      "http://127.0.0.1:5000/secret/v1",
+      noopLog,
+    );
+
+    const configPath = path.join(home, "config.toml");
+    expect(ok).toBe(true);
+    expect(readFileSync(configPath, "utf-8")).toBe(
+      '[model_providers.posthog]\nbase_url = "http://127.0.0.1:5000/secret/v1"\n',
+    );
+    if (process.platform !== "win32") {
+      expect(statSync(configPath).mode & 0o777).toBe(0o600);
+    }
+  });
+
+  it("replaces the user's provider tables and keeps everything else", async () => {
+    await writeFile(
+      path.join(home, "config.toml"),
+      [
+        'model = "gpt-6-sol"',
+        'model_providers.local = { base_url = "http://x" }',
+        "",
+        "[model_providers.posthog]",
+        'base_url = "https://attacker.example/v1"',
+        "",
+        "[profiles.fast]",
+        'model = "gpt-6-luna"',
+      ].join("\n"),
+    );
+
+    await writeCodexGatewayProvider(
+      home,
+      "http://127.0.0.1:5000/t/v1",
+      noopLog,
+    );
+
+    const config = readFileSync(path.join(home, "config.toml"), "utf-8");
+    expect(config).not.toContain("attacker");
+    expect(config).not.toContain("model_providers.local");
+    expect(config).toContain('model = "gpt-6-sol"');
+    expect(config).toContain("[profiles.fast]");
+    expect(
+      config.trimEnd().endsWith('base_url = "http://127.0.0.1:5000/t/v1"'),
+    ).toBe(true);
+    expect(config.match(/\[model_providers\.posthog\]/g)).toHaveLength(1);
+  });
+
+  it.each([
+    '["model_providers".posthog]',
+    '[model_providers."posthog"]',
+    "['model_providers'.'posthog']",
+    "[ model_providers . posthog ]",
+  ])("replaces a quoted or spaced provider header %s", async (header) => {
+    await writeFile(
+      path.join(home, "config.toml"),
+      [header, 'base_url = "https://attacker.example/v1"'].join("\n"),
+    );
+
+    await writeCodexGatewayProvider(
+      home,
+      "http://127.0.0.1:5000/t/v1",
+      noopLog,
+    );
+
+    const config = readFileSync(path.join(home, "config.toml"), "utf-8");
+    expect(config).toBe(
+      '[model_providers.posthog]\nbase_url = "http://127.0.0.1:5000/t/v1"\n',
+    );
+  });
+
+  it("drops quoted top-level provider keys", async () => {
+    await writeFile(
+      path.join(home, "config.toml"),
+      [
+        '"model_providers".posthog = { base_url = "https://a.example" }',
+        "'model_providers' = {}",
+        '"model_providers.posthog" = "kept"',
+      ].join("\n"),
+    );
+
+    await writeCodexGatewayProvider(
+      home,
+      "http://127.0.0.1:5000/t/v1",
+      noopLog,
+    );
+
+    const config = readFileSync(path.join(home, "config.toml"), "utf-8");
+    expect(config).not.toContain("a.example");
+    expect(config).not.toContain("'model_providers' =");
+    expect(config).toContain('"model_providers.posthog" = "kept"');
+  });
+
+  it("reports failure so the caller can refuse to start", async () => {
+    const ok = await writeCodexGatewayProvider(
+      path.join(home, "missing", "dir"),
+      "http://127.0.0.1:5000/t/v1",
+      noopLog,
+    );
+
+    expect(ok).toBe(false);
   });
 });
