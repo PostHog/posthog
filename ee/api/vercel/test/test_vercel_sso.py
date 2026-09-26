@@ -1,3 +1,4 @@
+import dataclasses
 from contextlib import contextmanager
 from urllib.parse import parse_qs, urlparse
 
@@ -122,6 +123,7 @@ def create_user_claims(installation_id: str, user_id: str = "sso_user_123", emai
         user_avatar_url=None,
         user_email=resolved_email,
         user_name="SSO User",
+        user_email_verified=True,
     )
 
 
@@ -373,6 +375,20 @@ class TestSSOUserMapping:
             SSOTestHelper.assert_user_mapping_created(
                 sso_setup["installation"], "existing_user_123", sso_setup["user"].pk
             )
+
+    def test_sso_redirect_sends_a_mapped_user_with_another_email_to_login_without_an_email(self, sso_setup):
+        sso_setup["installation"].config["user_mappings"] = {"existing_user_123": sso_setup["user"].pk}
+        sso_setup["installation"].save()
+        claims = create_user_claims(sso_setup["installation_id"], "existing_user_123", email="vercel-only@example.com")
+
+        with (
+            mock_vercel_integration(**MockFactory.successful_sso_flow(sso_setup["installation_id"])),
+            mock_jwt_validation(claims),
+        ):
+            response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"])
+
+        SSOTestHelper.assert_login_redirect(response, {"mode": "sso", "code": "test_auth_code", "state": "test_state"})
+        assert "email" not in parse_qs(urlparse(response.url).query)
 
     def test_sso_redirect_cleans_up_stale_user_mapping(self, sso_setup):
         """
@@ -646,18 +662,19 @@ class TestSSOCrossRegionClaimsToken:
         from ee.api.vercel.vercel_sso import _encrypt_claims
 
         eu_installation_id = sso_setup["installation_id"]
+        sso_setup["installation"].config["user_mappings"] = {"sso_user_123": sso_setup["user"].pk}
+        sso_setup["installation"].save()
         claims = create_user_claims(eu_installation_id)
         token = _encrypt_claims(claims)
 
         with (
             self.settings(SITE_URL=EU_SITE_URL, DEBUG=False),
             mock_vercel_integration(**MockFactory.successful_sso_flow(eu_installation_id)),
-            mock_jwt_validation(claims),
+            mock_jwt_validation(dataclasses.replace(claims, user_email_verified=None)),
         ):
             response = SSOTestHelper.make_sso_request(sso_setup["client"], sso_setup["url"], _claims_token=token)
 
-        assert response.status_code == status.HTTP_302_FOUND
-        assert "eu.posthog.com" not in response.url
+        SSOTestHelper.assert_successful_redirect(response)
 
     def test_eu_receives_invalid_claims_token_falls_through(self, sso_setup):
         with (
