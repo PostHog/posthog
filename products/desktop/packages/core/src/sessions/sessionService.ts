@@ -56,6 +56,7 @@ import {
   type TaskRunStatus,
   TRANSCRIPT_TAIL_WINDOW,
   TranscriptBoundaries,
+  withTimeout,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
@@ -178,6 +179,14 @@ const LOCAL_SESSION_RECOVERY_FAILED_MESSAGE =
   "Connecting to to the agent has been lost. Retry, or start a new session.";
 const AUTO_RETRY_MAX_ATTEMPTS = 2;
 const AUTO_RETRY_DELAY_MS = 10_000;
+/**
+ * A local agent start that never settles leaves the task on "Starting local
+ * agent" with no session to hold the prompt. Past this bound the start fails
+ * like any other start error, so the prompt is kept and retried.
+ */
+const LOCAL_AGENT_START_TIMEOUT_MS = 3 * 60 * 1000;
+const LOCAL_AGENT_START_TIMEOUT_MESSAGE =
+  "The local agent took too long to start. Retry to send your prompt again.";
 const AUTH_RESTORE_MAX_RETRY_WAITS = 6;
 const MAX_SUPERSEDED_RUN_IDS = 100;
 const MAX_RESPONDED_PERMISSION_REQUEST_IDS = 500;
@@ -2741,28 +2750,43 @@ export class SessionService {
         },
       },
     );
-    const result = await this.d.trpc.agent.start
-      .mutate({
-        taskId,
-        taskRunId: taskRun.id,
-        repoPath,
-        apiHost: auth.apiHost,
-        projectId: auth.projectId,
-        permissionMode: executionMode,
-        adapter,
-        codexModelAccess: resolvedModelAccess.codex,
-        claudeModelAccess: resolvedModelAccess.claude,
-        customInstructions: startCustomInstructions || undefined,
-        rtkEnabled: rtkEnabledLocal,
-        spokenNarration: spokenNarrationEnabled === true,
-        bedrockGatewayVariant,
-        effort: effortLevelSchema.safeParse(reasoningLevel).success
-          ? (reasoningLevel as EffortLevel)
-          : undefined,
-        contextWindow,
-        fastMode,
-        model: preferredModel,
-        importedSessionId,
+    const startRequest = this.d.trpc.agent.start.mutate({
+      taskId,
+      taskRunId: taskRun.id,
+      repoPath,
+      apiHost: auth.apiHost,
+      projectId: auth.projectId,
+      permissionMode: executionMode,
+      adapter,
+      codexModelAccess: resolvedModelAccess.codex,
+      claudeModelAccess: resolvedModelAccess.claude,
+      customInstructions: startCustomInstructions || undefined,
+      rtkEnabled: rtkEnabledLocal,
+      spokenNarration: spokenNarrationEnabled === true,
+      bedrockGatewayVariant,
+      effort: effortLevelSchema.safeParse(reasoningLevel).success
+        ? (reasoningLevel as EffortLevel)
+        : undefined,
+      contextWindow,
+      fastMode,
+      model: preferredModel,
+      importedSessionId,
+    });
+    const result = await withTimeout(startRequest, LOCAL_AGENT_START_TIMEOUT_MS)
+      .then((outcome) => {
+        if (outcome.result === "success") return outcome.value;
+        this.d.log.error("Local agent start timed out", {
+          taskId,
+          taskRunId: taskRun.id,
+          timeoutMs: LOCAL_AGENT_START_TIMEOUT_MS,
+        });
+        // The retry starts a new run, so stop this one if it starts late.
+        void startRequest
+          .then(() =>
+            this.d.trpc.agent.cancel.mutate({ sessionId: taskRun.id }),
+          )
+          .catch(() => {});
+        throw new Error(LOCAL_AGENT_START_TIMEOUT_MESSAGE);
       })
       .catch((error) => {
         this.d.store.clearTaskStarting?.(taskId, taskRun.id);
