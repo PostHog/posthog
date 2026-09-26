@@ -212,6 +212,33 @@ describe("SessionService idle session eviction", () => {
     expect(removeSession).not.toHaveBeenCalledWith("run-cloud-active");
   });
 
+  it("bounds the budget when reconciling a logs-only task", async () => {
+    const seeds = seedIdleSessions();
+    const { service, removeSession } = createHarness(seeds);
+    const loadLogsOnly = vi
+      .spyOn(service, "loadLogsOnly")
+      .mockResolvedValue(undefined);
+
+    service.reconcileTaskConnection({
+      task: {
+        id: "logs-only",
+        title: "logs-only",
+        description: "logs-only",
+        latest_run: { id: "run-logs-only", log_url: "https://logs" },
+      } as Task,
+      session: undefined,
+      repoPath: null,
+      isCloud: false,
+      isOnline: true,
+    } as ReconcileTaskConnectionParams);
+
+    await vi.waitFor(() => {
+      expect(removeSession).toHaveBeenCalledTimes(1);
+    });
+    expect(removeSession).toHaveBeenCalledWith("run-idle-0");
+    expect(loadLogsOnly).toHaveBeenCalled();
+  });
+
   it("evicts cloud sessions once their runs are terminal", async () => {
     const seeds = Array.from({ length: MAX_CONNECTED_SESSIONS }, (_, i) =>
       makeSession(`cloud-${i}`, i + 1, {
