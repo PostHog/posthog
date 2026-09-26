@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import uuid
 import asyncio
+import logging
 from datetime import timedelta
 
 import pytest
 from unittest import mock
 
 import temporalio.worker
-from temporalio import activity
+from temporalio import activity, workflow
+from temporalio.exceptions import ActivityError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -25,6 +27,33 @@ from posthog.temporal.session_replay.surfacing_scoring_sweep.types import (
     ScoreSessionsBatchResult,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.workflow import ScoreSessionsBatchWorkflow, _summarize
+
+# A crash in workflow code is a workflow *task* failure, which Temporal retries forever,
+# so a regression wedges the run instead of failing it. Cap every execution so the test
+# reports a timeout rather than hanging the suite.
+WEDGE_GUARD_TIMEOUT = timedelta(seconds=30)
+
+
+# The production `workflow.logger`. A `MagicMock` accepts any keyword and so hides the one
+# way this logger fails: it is a stdlib `LoggerAdapter`, which rejects structured fields
+# passed as keywords instead of in `extra`. `log_during_replay` keeps `isEnabledFor` from
+# asking the absent event loop whether it is replaying.
+def _workflow_logger() -> workflow.LoggerAdapter:
+    adapter = workflow.LoggerAdapter(logging.getLogger("temporalio.workflow"), {})
+    adapter.log_during_replay = True
+    return adapter
+
+
+def _activity_error(message: str) -> ActivityError:
+    return ActivityError(
+        message,
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="test",
+        activity_type="score_chunk_activity",
+        activity_id="1",
+        retry_state=None,
+    )
 
 
 def _plan(chunks: list[ChunkSpec], *, estimated: int = 0) -> ListChunksResult:
@@ -46,11 +75,14 @@ class TestSummarize:
         chunks = [_chunk(0), _chunk(1), _chunk(2)]
         results: list[ChunkResult | BaseException] = [
             ChunkResult(chunk_id=0, scored=3, fetched=4),
-            RuntimeError("ch timeout"),
+            _activity_error("ch timeout"),
             ChunkResult(chunk_id=2, scored=7, fetched=9),
         ]
         with (
-            mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"),
+            mock.patch(
+                "posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger",
+                _workflow_logger(),
+            ),
             mock.patch(
                 "posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.record_tick_summary",
             ) as mock_record_tick_summary,
@@ -68,7 +100,10 @@ class TestSummarize:
             ChunkResult(chunk_id=1, scored=0, fetched=0),
         ]
         with (
-            mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger"),
+            mock.patch(
+                "posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.workflow.logger",
+                _workflow_logger(),
+            ),
             mock.patch(
                 "posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.record_tick_summary",
             ) as mock_record_tick_summary,
@@ -107,6 +142,7 @@ async def test_workflow_noop_when_plan_has_no_chunks() -> None:
                 ScoreSessionsBatchInputs(),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                execution_timeout=WEDGE_GUARD_TIMEOUT,
             )
 
     parsed = _as_batch_result(result)
@@ -141,6 +177,7 @@ async def test_workflow_fans_out_chunks_and_aggregates_scores() -> None:
                 ScoreSessionsBatchInputs(),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                execution_timeout=WEDGE_GUARD_TIMEOUT,
             )
 
     parsed = _as_batch_result(result)
@@ -178,10 +215,7 @@ async def test_workflow_tolerates_partial_chunk_failures() -> None:
                 ScoreSessionsBatchInputs(),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
-                # A crash in workflow code is a workflow *task* failure, which Temporal
-                # retries forever, so a regression here wedges instead of failing. Cap it
-                # so the test reports a timeout rather than hanging the suite.
-                execution_timeout=timedelta(seconds=30),
+                execution_timeout=WEDGE_GUARD_TIMEOUT,
             )
 
     parsed = _as_batch_result(result)
@@ -216,6 +250,7 @@ async def test_workflow_survives_empty_chunk_results() -> None:
                 ScoreSessionsBatchInputs(),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
+                execution_timeout=WEDGE_GUARD_TIMEOUT,
             )
 
     parsed = _as_batch_result(result)
@@ -254,7 +289,7 @@ async def test_bounds_concurrent_score_chunk_activities(patched: bool) -> None:
     with (
         mock.patch("temporalio.workflow.execute_activity", side_effect=execute_activity),
         mock.patch("temporalio.workflow.patched", return_value=patched),
-        mock.patch("temporalio.workflow.logger", mock.MagicMock()),
+        mock.patch("temporalio.workflow.logger", _workflow_logger()),
         mock.patch("posthog.temporal.session_replay.surfacing_scoring_sweep.workflow.record_tick_summary"),
     ):
         result = await ScoreSessionsBatchWorkflow().run(ScoreSessionsBatchInputs())
