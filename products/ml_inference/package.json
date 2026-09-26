@@ -14,6 +14,7 @@
     },
     "peerDependencies": {
         "@types/react": "*",
+        "clsx": "*",
         "react": "*"
     }
 }

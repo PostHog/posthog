@@ -62,7 +62,7 @@ const EXCLUDED_HELPERS = new Set(['absolute', 'default', 'project', 'currentProj
 // to a scene that renders its missing-parameter error, so an entry would be a confident dead link.
 const EXCLUDED_BUILDERS = new Set(['tracingOperation'])
 // Flag-gated surfaces for PostHog staff only: a link an agent hands a customer would land on a scene that refuses them.
-const INTERNAL_BUILDERS = new Set(['decisionPlayground'])
+const INTERNAL_BUILDERS = new Set(['decisionPlayground', 'magicEightBall'])
 
 const sentinel = (name) => `:${name}`
 

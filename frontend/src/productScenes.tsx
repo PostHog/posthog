@@ -132,6 +132,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     McpGatewayMember: () => import('../../products/mcp_store/frontend/gateway/GatewayMemberScene'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
     DecisionPlayground: () => import('../../products/ml_inference/frontend/DecisionPlaygroundScene'),
+    MagicEightBall: () => import('../../products/ml_inference/frontend/MagicEightBallScene'),
     ReusableWidget: () => import('../../products/notebooks/frontend/ReusableWidget/ReusableWidgetScene'),
     Person: () => import('../../products/persons/frontend/pages/PersonScene'),
     Persons: () => import('../../products/persons/frontend/pages/PersonsScene'),

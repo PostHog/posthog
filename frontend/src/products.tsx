@@ -220,6 +220,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-servers/:tab': ['McpGateway', 'mcpGatewayTab'],
     '/metrics': ['Metrics', 'metrics'],
     '/ml-inference/playground': ['DecisionPlayground', 'decisionPlayground'],
+    '/ml-inference/magic-8-ball': ['MagicEightBall', 'magicEightBall'],
     '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
     '/person/*': ['Person', 'personByDistinctId'],
     '/persons/*': ['Person', 'personByUUID'],
@@ -929,6 +930,12 @@ export const productConfiguration: Record<string, any> = {
         description: 'Ask the decision model questions about a piece of text.',
         layout: 'app-container',
     },
+    MagicEightBall: {
+        projectBased: true,
+        name: 'Magic 8 ball',
+        description: 'Ask a product question and let the decision model shake out an answer.',
+        layout: 'app-container',
+    },
     ReusableWidget: { name: 'Reusable widget', projectBased: true, activityScope: 'Notebook', iconType: 'notebook' },
     Person: { projectBased: true, name: 'People', activityScope: ActivityScope.PERSON, iconType: 'user' },
     Persons: {
@@ -1506,6 +1513,7 @@ export const productUrls = {
     mcpGatewayMember: (id: string | number): string => `/mcp-servers/member/${id}`,
     metrics: (): string => '/metrics',
     decisionPlayground: (): string => '/ml-inference/playground',
+    magicEightBall: (): string => '/ml-inference/magic-8-ball',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,

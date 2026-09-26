@@ -63,3 +63,34 @@ type Story = StoryObj<{}>
 
 // The playground before anything is asked: the example text and the three example questions.
 export const Playground: Story = {}
+
+// The Magic 8 ball before anything is asked: the question input and the ball showing its 8.
+export const MagicEightBall: Story = {
+    parameters: {
+        pageUrl: urls.magicEightBall(),
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                'api/projects/:team_id/ml_inference/decisions/decide/': [
+                    200,
+                    {
+                        model: 'jevk5-fp8-0.2',
+                        answers: {
+                            answer: {
+                                type: 'choice',
+                                probability: null,
+                                choice: 'Signs point to yes',
+                                score: null,
+                                confidence: 0.83,
+                                probabilities: { 'Signs point to yes': 0.83, 'Ask again later': 0.17 },
+                            },
+                        },
+                        input_tokens: 40,
+                        latency_ms: 28,
+                    },
+                ],
+            },
+        }),
+    ],
+}
