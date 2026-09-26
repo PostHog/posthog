@@ -86,13 +86,28 @@ class EightBallAnswer:
     sources: list[EightBallSource]
 
 
+def _interleave_documents(chunks: list[logic.KnowledgeSearchResult]) -> list[logic.KnowledgeSearchResult]:
+    """
+    Search groups each document's chunks together, in document rank order. Take one chunk from each
+    document in turn, so a top document's neighbouring chunks do not use the byte budget before
+    lower ranked documents get any.
+    """
+    seen_per_document: dict[UUID, int] = {}
+    keyed: list[tuple[int, int, logic.KnowledgeSearchResult]] = []
+    for index, chunk in enumerate(chunks):
+        position = seen_per_document.get(chunk.document_id, 0)
+        seen_per_document[chunk.document_id] = position + 1
+        keyed.append((position, index, chunk))
+    return [chunk for _, _, chunk in sorted(keyed, key=lambda item: (item[0], item[1]))]
+
+
 def build_state(
     question: str, chunks: list[logic.KnowledgeSearchResult]
 ) -> tuple[dict[str, JsonValue], list[logic.KnowledgeSearchResult]]:
     """Pack the highest ranked chunks that fit under STATE_MAX_BYTES, and return the chunks that made it in."""
     knowledge: list[JsonValue] = []
     used: list[logic.KnowledgeSearchResult] = []
-    for chunk in chunks:
+    for chunk in _interleave_documents(chunks):
         entry: dict[str, JsonValue] = {
             "source": chunk.source_name,
             "document": chunk.document_title,

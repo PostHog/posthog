@@ -49,6 +49,7 @@ from .constants import (
     BK_EMBEDDING_DOCUMENT_TYPE,
     BK_EMBEDDING_MODEL,
     BK_EMBEDDING_PRODUCT,
+    BK_QUERY_EMBEDDING_TIMEOUT,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
     BK_RRF_K,
@@ -2539,7 +2540,9 @@ def search_knowledge_for_team(
     """
     embedding: list[float] | None = None
     try:
-        embedding = generate_embedding(team, query, model=BK_EMBEDDING_MODEL).embedding
+        embedding = generate_embedding(
+            team, query, model=BK_EMBEDDING_MODEL, timeout=BK_QUERY_EMBEDDING_TIMEOUT
+        ).embedding
     except Exception:
         logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
     return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)

@@ -77,6 +77,15 @@ class TestBuildState(SimpleTestCase):
 
         assert used == [small]
 
+    def test_one_document_does_not_crowd_out_lower_ranked_documents(self) -> None:
+        top_document_id = uuid4()
+        top = [replace(_chunk("x" * 2500), document_id=top_document_id, ordinal=i) for i in range(3)]
+        other = _chunk("refunds within 30 days")
+
+        _, used = build_state("Do we refund?", [*top, other])
+
+        assert used[:2] == [top[0], other]
+
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
 @patch(EMBED, side_effect=Exception("unavailable"))
