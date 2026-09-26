@@ -828,12 +828,6 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
-                hideCancelButton: zod
-                    .boolean()
-                    .optional()
-                    .describe(
-                        'Whether to hide the cancel button. A respondent then cannot dismiss the survey and can only close it by answering the questions. Product tours set this for their steps. The survey editor has no control for it.'
-                    ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
                 thankYouMessageDescription: zod.string().optional(),
@@ -1756,12 +1750,6 @@ export const SurveysUpdateBody = /* @__PURE__ */ zod.object({
                     ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
-                hideCancelButton: zod
-                    .boolean()
-                    .optional()
-                    .describe(
-                        'Whether to hide the cancel button. A respondent then cannot dismiss the survey and can only close it by answering the questions. Product tours set this for their steps. The survey editor has no control for it.'
-                    ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
                 thankYouMessageDescription: zod.string().optional(),
@@ -2686,12 +2674,6 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     ),
                 whiteLabel: zod.boolean().optional(),
                 autoDisappear: zod.boolean().optional(),
-                hideCancelButton: zod
-                    .boolean()
-                    .optional()
-                    .describe(
-                        'Whether to hide the cancel button. A respondent then cannot dismiss the survey and can only close it by answering the questions. Product tours set this for their steps. The survey editor has no control for it.'
-                    ),
                 displayThankYouMessage: zod.boolean().optional(),
                 thankYouMessageHeader: zod.string().optional(),
                 thankYouMessageDescription: zod.string().optional(),

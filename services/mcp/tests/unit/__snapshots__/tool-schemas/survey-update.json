@@ -49,10 +49,6 @@
                         "fontFamily": {
                             "type": "string"
                         },
-                        "hideCancelButton": {
-                            "description": "Whether to hide the cancel button. A respondent then cannot dismiss the survey and can only close it by answering the questions. Product tours set this for their steps. The survey editor has no control for it.",
-                            "type": "boolean"
-                        },
                         "inputBackground": {
                             "description": "Background color of open text inputs and rating buttons.",
                             "type": "string"

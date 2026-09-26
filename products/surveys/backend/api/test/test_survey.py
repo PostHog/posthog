@@ -5024,7 +5024,6 @@ class TestSurveyAppearanceSchema(SimpleTestCase):
             **DEFAULT_SURVEY_APPEARANCE,
             **{field: f"{field} text" for field in SURVEY_APPEARANCE_HTML_FIELDS},
             "inputTextColor": "black",
-            "hideCancelButton": True,
         }
         serializer = SurveyAppearanceSchemaSerializer(data=appearance)
 
