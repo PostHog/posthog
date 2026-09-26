@@ -383,10 +383,10 @@ class TestWebStatsPreAggregated(WebAnalyticsPreAggregatedTestBase):
         response = self._calculate_breakdown_query(WebStatsBreakdown.VIEWPORT, use_preagg=True)
 
         expected_results = [
-            ["1440x900", (1.0, None), (1.0, None), 1 / 6, ""],  # user_2
-            ["1920x1080", (3.0, None), (4.0, None), 3 / 6, ""],  # user_0, user_1, user_5 (4 views total)
-            ["375x812", (1.0, None), (1.0, None), 1 / 6, ""],  # user_3
-            ["414x896", (1.0, None), (1.0, None), 1 / 6, ""],  # user_4
+            [(1440, 900), (1.0, None), (1.0, None), 1 / 6, ""],  # user_2
+            [(1920, 1080), (3.0, None), (4.0, None), 3 / 6, ""],  # user_0, user_1, user_5 (4 views total)
+            [(375, 812), (1.0, None), (1.0, None), 1 / 6, ""],  # user_3
+            [(414, 896), (1.0, None), (1.0, None), 1 / 6, ""],  # user_4
         ]
 
         assert self._sort_results(response.results) == self._sort_results(expected_results)
