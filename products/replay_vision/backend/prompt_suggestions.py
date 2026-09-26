@@ -30,6 +30,7 @@ from posthoganalytics.ai.gemini import (
 from posthog.models.user import User
 
 from products.replay_vision.backend.feedback_themes import refresh_feedback_themes_if_stale, theme_lines
+from products.replay_vision.backend.gemini_client import GatewayGeminiClient, replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -230,15 +231,18 @@ def _build_user_content(
     return "\n".join(lines)
 
 
-def _gemini_client() -> GeminiClient:
+def _gemini_client() -> GeminiClient | GatewayGeminiClient:
     # The generate endpoint runs inline in a web worker, so a hung provider call must time out.
     try:
-        return genai.Client(
-            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+        return replay_gemini_client(
+            lambda: genai.Client(
+                api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
+                # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
+                posthog_privacy_mode=True,
+                posthog_client=posthoganalytics.default_client,
+                http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
+            ),
+            timeout_ms=_MODEL_CALL_TIMEOUT_MS,
         )
     except Exception as e:
         # A missing or malformed API key raises at construction. Wrap it so the API returns
@@ -397,7 +401,7 @@ def _dispatch_agent_tool(scanner: ReplayScanner, call: types.FunctionCall) -> di
 
 
 def _model_call(
-    client: GeminiClient,
+    client: GeminiClient | GatewayGeminiClient,
     contents: list[types.Content | types.Part],
     config: GenerateContentConfig,
     *,

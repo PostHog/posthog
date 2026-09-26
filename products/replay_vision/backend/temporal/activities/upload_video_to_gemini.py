@@ -1,4 +1,4 @@
-"""Upload the rasterized session MP4 to Gemini and wait for it to be ACTIVE."""
+"""Upload the rasterized session MP4 to Gemini and wait for it to be ACTIVE, unless the scan sends it inline."""
 
 import time
 import asyncio
@@ -13,7 +13,7 @@ from google.genai import (
 )
 from temporalio import activity
 
-from posthog.storage import object_storage
+from posthog.llm.gateway_client import resolve_ai_gateway_config
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -29,6 +29,7 @@ from products.replay_vision.backend.temporal.gemini import (
 )
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import track_uploaded_file
 from products.replay_vision.backend.temporal.types import UploadedVideo, UploadVideoToGeminiInputs
+from products.replay_vision.backend.temporal.video_asset import MAX_INLINE_VIDEO_BYTES, read_asset_video_bytes
 
 logger = structlog.get_logger(__name__)
 
@@ -72,21 +73,17 @@ async def _upload_video(inputs: UploadVideoToGeminiInputs) -> UploadedVideo:
     if not await sync_to_async(is_ai_data_processing_approved)(asset.team_id):
         raise ConsentWithdrawnError("AI data processing consent was withdrawn before this recording could be analyzed")
 
-    video_bytes: bytes | None
-    if asset.content:
-        video_bytes = bytes(asset.content)
-    elif asset.content_location:
-        video_bytes = await sync_to_async(object_storage.read_bytes, thread_sensitive=False)(asset.content_location)
-    else:
-        raise ScannerFailureError(
-            f"ExportedAsset {inputs.asset_id} has neither content nor content_location",
-            kind=FailureKind.INTERNAL_ERROR,
+    video_bytes = await read_asset_video_bytes(asset)
+    # The gateway serves no Files API, so the scan sends the bytes inline. A video over the inline bound uploads
+    # directly, because the gateway rejects every turn that carries it.
+    if resolve_ai_gateway_config() is not None:
+        if len(video_bytes) <= MAX_INLINE_VIDEO_BYTES:
+            return UploadedVideo(file_uri="", mime_type=asset.export_format, gemini_file_name="", inline_video=True)
+        logger.warning(
+            "replay_vision.upload_video_to_gemini.inline_too_large_uploading_directly",
+            size_bytes=len(video_bytes),
+            limit_bytes=MAX_INLINE_VIDEO_BYTES,
         )
-    if not video_bytes:
-        raise ScannerFailureError(
-            f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
-        )
-
     raw_client = RawGenAIClient(api_key=gemini_api_key())
     # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
     uploaded_file = await asyncio.to_thread(

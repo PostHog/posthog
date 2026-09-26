@@ -36,6 +36,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
+from products.replay_vision.backend.gemini_client import GatewayGeminiClient, replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.tags import slugify_tag
@@ -98,6 +99,7 @@ from products.replay_vision.backend.temporal.types import (
     ScannerSnapshot,
     VerificationRecord,
 )
+from products.replay_vision.backend.temporal.video_asset import MAX_INLINE_VIDEO_BYTES, read_asset_video_bytes
 from products.replay_vision.backend.temporal.video_clock import VideoClock, video_clock_from_export_context
 
 logger = structlog.get_logger(__name__)
@@ -197,6 +199,15 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
     video_clock = await sync_to_async(_load_video_clock)(
         inputs.team_id, inputs.exported_asset_id, llm_inputs.metadata.duration_seconds
     )
+    video_bytes = None
+    if inputs.inline_video:
+        asset = await ExportedAsset.objects.aget(team_id=inputs.team_id, pk=inputs.exported_asset_id)
+        video_bytes = await read_asset_video_bytes(asset)
+        if len(video_bytes) > MAX_INLINE_VIDEO_BYTES:
+            # The upload activity only records inline mode under this bound, so the asset changed since.
+            raise ScannerFailureError(
+                "The recording's video is too large to send inline", kind=FailureKind.INTERNAL_ERROR
+            )
     return await run_scan(
         snapshot=snapshot,
         scanner=scanner,
@@ -208,6 +219,7 @@ async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCa
         video_clock=video_clock,
         network_payload=network_payload,
         trace_id=_scan_trace_id(inputs),
+        video_bytes=video_bytes,
     )
 
 
@@ -281,6 +293,7 @@ async def run_scan(
     video_clock: VideoClock,
     network_payload: SessionNetworkPayload | None = None,
     trace_id: str | None = None,
+    video_bytes: bytes | None = None,
 ) -> ScannerCallOutput:
     """Run the scanner conversation over an already-uploaded video, independent of where the inputs came from.
 
@@ -290,6 +303,8 @@ async def run_scan(
     silently skip the known-freeform-tags injection. The production activity checks AI data-processing consent
     before calling this; any other caller must do the same before recording data reaches the provider (the eval
     suite is covered because dataset collection is consent-gated and time-boxed).
+
+    With `video_bytes` the video goes inline and `file_uri` is unused. That is the only mode the AI gateway serves.
     """
     # Built before the preamble so one object decides both the wording and the tool list, which keeps the
     # prompt from describing a tool the conversation does not carry.
@@ -307,7 +322,11 @@ async def run_scan(
         tool_budget=_tool_budget(snapshot.model),
         network_state=network_index.state(),
     )
-    video_part = types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
+    video_part = (
+        types.Part.from_bytes(data=video_bytes, mime_type=mime_type)
+        if video_bytes is not None
+        else types.Part(file_data=types.FileData(file_uri=file_uri, mime_type=mime_type))
+    )
 
     outcome = await _run_mission(
         scanner=scanner,
@@ -319,6 +338,7 @@ async def run_scan(
         video_clock=video_clock,
         network_index=network_index,
         trace_id=trace_id if trace_id is not None else str(uuid4()),
+        inline_video=video_bytes is not None,
     )
     duration_ms = int(llm_inputs.metadata.duration_seconds * 1000)
     finalized = _resolve_citations(outcome.finalized, scanner, duration_ms, video_clock)
@@ -522,26 +542,40 @@ async def _run_mission(
     video_clock: VideoClock,
     trace_id: str,
     network_index: NetworkIndex | None = None,
+    inline_video: bool = False,
 ) -> _MissionOutcome:
     """Cache the video, run every mission step as a tool-using turn, then assemble the output + side-mission findings.
 
     Caching is best-effort: a video too short to cache (or any cache hiccup) falls back to sending it inline, and a
     cached run that fails for a non-validation reason is retried inline once before giving up.
+
+    `inline_video` skips the cache and uses the AI gateway when it is configured. A file-URI video always calls
+    Google directly, since only our own key can read that file.
     """
-    api_key = gemini_api_key()
     # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
-    client = genai.AsyncClient(
-        api_key=api_key,
-        # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
-        posthog_privacy_mode=True,
-        posthog_properties={
-            "ai_product": "replay_vision",
-            "feature": "scanner",
-            "scanner_type": snapshot.scanner_type.value,
-            "team_id": team_id,
-        },
-    )
-    cache_client = GoogleGenAIClient(api_key=api_key)
+    properties = {
+        "ai_product": "replay_vision",
+        "feature": "scanner",
+        "scanner_type": snapshot.scanner_type.value,
+        "team_id": team_id,
+    }
+
+    def direct_client() -> Any:
+        return genai.AsyncClient(
+            api_key=gemini_api_key(),
+            # Privacy mode keeps the recording's content out of the internal project, where it could not be deleted with the recording.
+            posthog_privacy_mode=True,
+            posthog_properties=properties,
+        )
+
+    client: Any
+    cache_client: GoogleGenAIClient | None = None
+    if inline_video:
+        routed = replay_gemini_client(direct_client, properties=properties)
+        client = routed.aio if isinstance(routed, GatewayGeminiClient) else routed
+    else:
+        client = direct_client()
+        cache_client = GoogleGenAIClient(api_key=gemini_api_key())
     model = f"models/{snapshot.model}"
     metric_labels = {
         "provider": snapshot.provider,
@@ -579,7 +613,11 @@ async def _run_mission(
             return {"error": f"unknown tool: {name}"}
         return handler(call)
 
-    cache = await _maybe_create_video_cache(cache_client, model, video_part, preamble_text, tools=tools)
+    cache = (
+        await _maybe_create_video_cache(cache_client, model, video_part, preamble_text, tools=tools)
+        if cache_client is not None
+        else None
+    )
     steps = [
         replace(
             step,
@@ -631,10 +669,11 @@ async def _run_mission(
                 run=run,
                 cache=cache,
                 model=snapshot.model,
+                inline_video=inline_video,
             )
             step_outputs = {**step_outputs, STEP_CORE: served}
     finally:
-        if cache is not None:
+        if cache is not None and cache_client is not None:
             await _delete_video_cache(cache_client, cache.name)
 
     finalized, signals = scanner.assemble(step_outputs)
@@ -655,6 +694,7 @@ async def _verify_positive_verdict(
     run: Any,
     cache: Any | None,
     model: str,
+    inline_video: bool = False,
 ) -> tuple[MonitorLlmResponse, VerificationRecord]:
     """Re-draw the core step once; a `yes` is served only when the second draw agrees.
 
@@ -662,13 +702,14 @@ async def _verify_positive_verdict(
     less than a wrong one. So a single dissenting draw is enough to drop the `yes`, and the dissent (its verdict and
     its reasoning) is what gets served. No third draw breaks the tie in favour of the finding.
 
-    Every draw is a fresh conversation over the same cached video and preamble, so it never sees the first pass or
-    its reasoning. Verification only ever tightens a scan that already succeeded: without a cache, without time left
-    in the activity budget, or when the draw fails for any reason, the first verdict stands and the record says why.
+    Every draw is a fresh conversation over the same video and preamble, so it never sees the first pass or its
+    reasoning. An inline-video scan has no cache, so its draw re-sends the video; a file scan without a cache skips
+    the draw. Verification only ever tightens a scan that already succeeded: without time left in the activity
+    budget, or when the draw fails for any reason, the first verdict stands and the record says why.
     """
     draws = [first]
     skipped_reason: str | None = None
-    if cache is None:
+    if cache is None and not inline_video:
         skipped_reason = "no_cache"
     else:
         # An activity timeout fires outside the `except` below and fails the whole scan, first verdict included.
@@ -679,7 +720,8 @@ async def _verify_positive_verdict(
         else:
             verify_step = replace(core_step, name=f"{STEP_CORE}_verify_2")
             try:
-                outputs = await asyncio.wait_for(run(steps=[verify_step], cache_name=cache.name), timeout=budget)
+                cache_name = cache.name if cache is not None else None
+                outputs = await asyncio.wait_for(run(steps=[verify_step], cache_name=cache_name), timeout=budget)
                 draw = outputs[verify_step.name]
                 if not isinstance(draw, MonitorLlmResponse):
                     raise TypeError(f"verify draw returned {type(draw).__name__}")
