@@ -32,3 +32,13 @@ export const WaitingToInvestigate: Story = {
 export const Investigating: Story = {
   args: { report: inboxStoryReport({ status: "in_progress" }) },
 };
+
+export const NotActionableAfterResearch: Story = {
+  args: {
+    report: inboxStoryReport({
+      status: "ready",
+      actionability: "not_actionable",
+      title: "chore(surveys): review the response export limit",
+    }),
+  },
+};

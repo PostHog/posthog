@@ -9,6 +9,8 @@ export interface ReportVerdict {
   title: string;
   /** One or two sentences: why the report is in this state and what to do. */
   body: string;
+  /** What research wrote to justify the state, when the state is its verdict. */
+  rationale?: string;
 }
 
 /**
@@ -18,11 +20,24 @@ export interface ReportVerdict {
  *
  * `hasExistingPr` folds in what the report row alone can't know: a linked
  * implementation task may hold a live PR before `implementation_pr_url` is
- * stamped (see findContinuableImplementationTask).
+ * stamped (see findContinuableImplementationTask). `hasLiveImplementationTask`
+ * is the weaker fact of a task still running without one.
+ *
+ * `actionabilityExplanation` is the reasoning off the report's latest
+ * actionability judgment. A verdict that parks the report carries it, because
+ * the reader cannot act on the verdict without knowing what drove it.
  */
 export function deriveReportVerdict(
   report: SignalReport,
-  { hasExistingPr }: { hasExistingPr: boolean },
+  {
+    hasExistingPr,
+    hasLiveImplementationTask = false,
+    actionabilityExplanation,
+  }: {
+    hasExistingPr: boolean;
+    hasLiveImplementationTask?: boolean;
+    actionabilityExplanation?: string | null;
+  },
 ): ReportVerdict {
   switch (report.status) {
     case "resolved":
@@ -85,6 +100,16 @@ export function deriveReportVerdict(
       body: "Implementation is already in flight. Review the pull request, or ask about it for more context.",
     };
   }
+  // A running task with no pull request has nothing to review yet, so it names
+  // the task instead. It also does not outrank a verdict that parked the
+  // report, because no pull request follows that task either.
+  if (hasLiveImplementationTask && report.actionability !== "not_actionable") {
+    return {
+      tone: "decision",
+      title: "Implementation in progress",
+      body: "Implementation is already in flight. View the task, or ask about it for more context.",
+    };
+  }
   if (report.already_addressed) {
     return {
       tone: "info",
@@ -105,12 +130,17 @@ export function deriveReportVerdict(
         title: "Needs your direction",
         body: "A fix needs your call first: business context, trade-offs, or a choice between approaches. Add direction when you start the PR, or ask about it in chat.",
       };
-    case "not_actionable":
+    case "not_actionable": {
+      const rationale = actionabilityExplanation?.trim() || undefined;
       return {
         tone: "info",
-        title: "For your awareness",
-        body: "No code change follows from this report. Read it, then dismiss it.",
+        title: "Not actionable after research",
+        body: rationale
+          ? "Research judged this report not actionable, so no pull request follows it. Read the reasoning, then dismiss the report."
+          : "Research judged this report not actionable, so no pull request follows it. Open Activity for the judgment, then dismiss the report.",
+        rationale,
       };
+    }
     default:
       return {
         tone: "decision",
