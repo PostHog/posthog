@@ -2,6 +2,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { apiMutator } from '../../../frontend/src/lib/api-orval-mutator'
 import {
+    businessKnowledgeDocumentsEightBallCreate,
     businessKnowledgeSourcesCreate,
     businessKnowledgeSourcesDestroy,
     businessKnowledgeSourcesDocumentsList,
@@ -16,11 +17,12 @@ import type {
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
+    EightBallAnswerApi,
     KnowledgeSourceApi,
     KnowledgeSourceDocumentApi,
 } from './generated/api.schemas'
 
-export type { KnowledgeSourceApi as KnowledgeSourceDTOApi }
+export type { EightBallAnswerApi, KnowledgeSourceApi as KnowledgeSourceDTOApi }
 
 // TODO: replace with generated types once the backend exposes URL source serializers
 export type RefreshIntervalValue = 'manual' | '1h' | '6h' | '24h' | '7d'
@@ -127,4 +129,8 @@ export async function deleteSource(id: string): Promise<void> {
 
 export async function refreshSource(id: string): Promise<KnowledgeSourceApi> {
     return await businessKnowledgeSourcesRefreshCreate(String(getCurrentTeamId()), id)
+}
+
+export async function askEightBall(question: string): Promise<EightBallAnswerApi> {
+    return await businessKnowledgeDocumentsEightBallCreate(String(getCurrentTeamId()), { question })
 }

@@ -13,6 +13,10 @@ describe('BusinessKnowledgeTabs', () => {
         render(<BusinessKnowledgeTabs activeTab="sources" />)
 
         expect(screen.getByText('Sources').closest('a')).toHaveAttribute('href', '/business-knowledge')
+        expect(screen.getByText('Magic 8 ball').closest('a')).toHaveAttribute(
+            'href',
+            '/business-knowledge/magic-8-ball'
+        )
         expect(screen.getByText('Settings').closest('a')).toHaveAttribute('href', '/business-knowledge/settings')
     })
 })

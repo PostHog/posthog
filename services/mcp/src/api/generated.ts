@@ -35316,6 +35316,32 @@ export namespace Schemas {
       DoNotUse: 'do_not_use',
     } as const;
 
+    export interface EightBallSource {
+      /** ID of a knowledge source the answer drew on. */
+      readonly source_id: string;
+      /** Human label of the knowledge source. */
+      readonly source_name: string;
+      /** Title of the document the answer drew on. */
+      readonly document_title: string;
+    }
+
+    export interface EightBallAnswer {
+      /** The magic 8 ball answer the decision model picked. */
+      readonly answer: string;
+      /** The model's confidence in that answer, 0 to 1. */
+      readonly confidence: number;
+      /** Knowledge sources the answer drew on, most relevant first. Empty when nothing matched. */
+      readonly sources: readonly EightBallSource[];
+    }
+
+    export interface EightBallQuestion {
+      /**
+         * The product question to ask. Business knowledge search finds what the team has written about it.
+         * @maxLength 500
+         */
+      question: string;
+    }
+
     export interface Element {
       /**
          * @maxLength 10000

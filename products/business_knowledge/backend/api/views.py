@@ -24,7 +24,13 @@ from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
-from .. import logic
+from products.ml_inference.backend.facade.contracts import (
+    DecisionGatewayError,
+    DecisionGatewayUnreachableError,
+    DecisionsDisabledError,
+)
+
+from .. import logic, magic_eight_ball
 from ..constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
@@ -41,6 +47,8 @@ from .serializers import (
     CreateFileSourceSerializer,
     CreateTextSourceSerializer,
     CreateUrlSourceSerializer,
+    EightBallAnswerSerializer,
+    EightBallQuestionSerializer,
     GapActionSerializer,
     GapTopicActionResultSerializer,
     GapTopicActionSerializer,
@@ -68,6 +76,12 @@ class _ConflictError(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "Resource is busy."
     default_code = "conflict"
+
+
+class _DecisionUnavailableError(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The magic 8 ball is cloudy right now. Try again in a moment."
+    default_code = "decision_unavailable"
 
 
 class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -594,6 +608,33 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # can return up to ~3x the anchor limit. Trim to honor the requested bound.
         results = results[:limit]
         return Response(KnowledgeSearchResultSerializer(instance=results, many=True).data)
+
+    @extend_schema(request=EightBallQuestionSerializer, responses={200: EightBallAnswerSerializer})
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="eight_ball",
+        pagination_class=None,
+        # A POST, but it only reads knowledge, so the read scope is the right one.
+        required_scopes=["business_knowledge:read"],
+    )
+    def eight_ball(self, request: Request, **kwargs) -> Response:
+        """Answer a product question like a magic 8 ball, from this project's business knowledge."""
+        serializer = EightBallQuestionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            result = magic_eight_ball.ask(self.team, serializer.validated_data["question"])
+        except DecisionsDisabledError:
+            raise exceptions.NotFound("The decision model is not enabled for this project.")
+        except (
+            DecisionGatewayError,
+            DecisionGatewayUnreachableError,
+            magic_eight_ball.InvalidEightBallAnswer,
+        ) as error:
+            # The gateway error body can echo the state, which holds the team's knowledge, so only the type is logged.
+            logger.warning("business_knowledge.eight_ball.failed", error_type=type(error).__name__)
+            raise _DecisionUnavailableError()
+        return Response(EightBallAnswerSerializer(instance=result).data)
 
     def _parse_bool_param(self, request: Request, name: str, *, default: bool) -> bool:
         raw = request.query_params.get(name)

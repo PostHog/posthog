@@ -664,3 +664,37 @@ class BusinessKnowledgeSettingsUpdateSerializer(serializers.Serializer):
         if value and not bool(getattr(self.context.get("team"), "conversations_enabled", False)):
             raise serializers.ValidationError("Turn on Support to learn from resolved tickets.")
         return value
+
+
+# ---------------------------------------------------------------------------
+# Magic 8 ball
+# ---------------------------------------------------------------------------
+
+
+class EightBallQuestionSerializer(serializers.Serializer):
+    question = serializers.CharField(
+        max_length=500,
+        help_text="The product question to ask. Business knowledge search finds what the team has written about it.",
+    )
+
+    def validate_question(self, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Question cannot be blank.")
+        return value
+
+
+class EightBallSourceSerializer(serializers.Serializer):
+    source_id = serializers.UUIDField(read_only=True, help_text="ID of a knowledge source the answer drew on.")
+    source_name = serializers.CharField(read_only=True, help_text="Human label of the knowledge source.")
+    document_title = serializers.CharField(read_only=True, help_text="Title of the document the answer drew on.")
+
+
+class EightBallAnswerSerializer(serializers.Serializer):
+    answer = serializers.CharField(read_only=True, help_text="The magic 8 ball answer the decision model picked.")
+    confidence = serializers.FloatField(read_only=True, help_text="The model's confidence in that answer, 0 to 1.")
+    sources = EightBallSourceSerializer(
+        many=True,
+        read_only=True,
+        help_text="Knowledge sources the answer drew on, most relevant first. Empty when nothing matched.",
+    )
