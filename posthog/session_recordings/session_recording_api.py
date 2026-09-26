@@ -514,8 +514,8 @@ class SessionRecordingBulkDeleteRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. "
-        "Providing this narrows the lookup and speeds up the request; defaults to the project's "
-        "recording retention period.",
+        "Recordings that started before this time are skipped. When omitted, the lookup has no start time "
+        "limit, so it also finds recordings past their retention period.",
     )
 
 
