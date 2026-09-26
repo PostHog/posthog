@@ -13,7 +13,7 @@ _DATA_WAREHOUSE_NODE_KINDS = {"DataWarehouseNode", "FunnelsDataWarehouseNode", "
 
 # Fields where the higher-priority (override) layer replaces the lower-priority (base) value outright
 # when set. Property filters are handled separately (stacked unless they contradict).
-_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts"]
+_SCALAR_OVERRIDE_FIELDS = ["breakdown_filter", "interval", "filterTestAccounts", "compareFilter"]
 
 # Tile-only flag, not a filter value: it must never reach DashboardFilter(**effective_filters)
 # (extra="forbid"), so every merged output strips it. It only acts on the override (tile) layer;

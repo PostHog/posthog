@@ -9,6 +9,10 @@ import { dateFromToText } from 'lib/utils/dateFilters'
 
 import { CompareFilter as CompareFilterType } from '~/queries/schema/schema-general'
 
+/** Shared `disableReason` for callers that turn off comparison once the date range is "All time". */
+export const COMPARE_ALL_TIME_DISABLED_REASON =
+    "All time starts at your first event, so there's no earlier period to compare to. Pick a date range to compare."
+
 type CompareFilterProps = {
     allowCustomComparison?: boolean
     compareFilter?: CompareFilterType | null
@@ -17,6 +21,11 @@ type CompareFilterProps = {
     disableReason?: string | null
     /** Shown on hover, e.g. the resolved comparison date range */
     tooltip?: string | null
+    /** Label for a 4th option that lets the caller fall back to some other setting. The option only renders when `onInherit` is also passed. */
+    inheritLabel?: string
+    /** Called instead of `updateCompareFilter` when the inherit option is selected. Selected whenever `compareFilter` is null/undefined. Requires `inheritLabel`. */
+    onInherit?: () => void
+    fullWidth?: boolean
 }
 
 export function CompareFilter({
@@ -26,6 +35,9 @@ export function CompareFilter({
     disableReason,
     tooltip,
     allowCustomComparison = true,
+    inheritLabel,
+    onInherit,
+    fullWidth,
 }: CompareFilterProps): JSX.Element | null {
     // This keeps the state of the rolling date range filter, even when different drop down options are selected
     // The default value for this is one month
@@ -41,6 +53,14 @@ export function CompareFilter({
     }, [compareFilter?.compare_to]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const options = [
+        ...(onInherit && inheritLabel
+            ? [
+                  {
+                      value: 'inherit',
+                      label: inheritLabel,
+                  },
+              ]
+            : []),
         {
             value: 'none',
             label: 'No comparison between periods',
@@ -68,7 +88,9 @@ export function CompareFilter({
     ]
 
     let value = 'none'
-    if (compareFilter?.compare) {
+    if (onInherit && inheritLabel && compareFilter == null) {
+        value = 'inherit'
+    } else if (compareFilter?.compare) {
         if (compareFilter?.compare_to) {
             value = 'compareTo'
         } else {
@@ -98,6 +120,8 @@ export function CompareFilter({
                     return isHugeScreen ? 'Compare to previous period' : 'Previous period'
                 } else if (leaf.value === 'none') {
                     return isHugeScreen ? 'No comparison between periods' : 'No comparison'
+                } else if (leaf.value === 'inherit') {
+                    return inheritLabel ?? ''
                 }
 
                 // Should never happen
@@ -106,7 +130,9 @@ export function CompareFilter({
             value={value}
             dropdownMatchSelectWidth={false}
             onChange={(value) => {
-                if (value === 'none') {
+                if (value === 'inherit') {
+                    onInherit?.()
+                } else if (value === 'none') {
                     updateCompareFilter({ compare: false, compare_to: undefined })
                 } else if (value === 'previous') {
                     updateCompareFilter({ compare: true, compare_to: undefined })
@@ -115,6 +141,7 @@ export function CompareFilter({
             data-attr="compare-filter"
             options={options.filter((option) => allowCustomComparison || option.value !== 'compareTo')}
             size="small"
+            fullWidth={fullWidth}
             disabled={disabled}
             disabledReason={disableReason}
             tooltip={tooltip}

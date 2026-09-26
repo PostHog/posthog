@@ -7,6 +7,7 @@ import { LemonBadge, LemonButton, LemonDivider, LemonLabel, LemonSegmentedButton
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardCompareFilter } from 'scenes/dashboard/DashboardCompareFilter'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,10 +31,14 @@ const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
 
 /**
  * "…" at the end of the dashboard edit bar, opening a panel for overrides that are too rarely
- * used to earn a spot in the bar itself. Hosts the test account filter override and the
- * breakdown color override.
+ * used to earn a spot in the bar itself. Hosts the test account filter override, the comparison
+ * period override, and the breakdown color override.
  */
-export function DashboardEditBarAdvancedFilters(): JSX.Element {
+export function DashboardEditBarAdvancedFilters({
+    showCompareFilter = true,
+}: {
+    showCompareFilter?: boolean
+}): JSX.Element {
     const { dashboard, dashboardEditing, placement, canEditDashboard, effectiveEditBarFilters } =
         useValues(dashboardLogic)
     const { setFilterTestAccounts, setDashboardEditing } = useActions(dashboardLogic)
@@ -49,8 +54,8 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
     // Only the full dashboard scene mounts DashboardInsightColorsModal, so elsewhere the button would no-op.
     const showColors =
         hasDashboardColors && canEditDashboard && !!dashboard && placement === DashboardPlacement.Dashboard
-    // Color customizations don't count towards the badge: they are visible on the charts
-    // themselves, while a forced test account filter changes the data with no other visible cue.
+    // Colors and the comparison period don't count towards the badge: their effect is visible on
+    // the charts themselves, while a forced test account filter changes the data with no other visible cue.
     const overrideCount = choice === 'inherit' ? 0 : 1
 
     return (
@@ -117,6 +122,15 @@ export function DashboardEditBarAdvancedFilters(): JSX.Element {
                         ]}
                     />
                     <p className="mb-0 text-xs text-secondary">{CHOICE_HINTS[choice]}</p>
+                    {showCompareFilter && (
+                        <>
+                            <LemonDivider className="my-0" />
+                            <LemonLabel info="Override the comparison period for every insight on this dashboard, or let each insight keep its own setting.">
+                                Comparison
+                            </LemonLabel>
+                            <DashboardCompareFilter fullWidth />
+                        </>
+                    )}
                     {showColors && (
                         <>
                             <LemonDivider className="my-0" />

@@ -21,7 +21,6 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     CompareItem,
-    DashboardFilter,
     DataWarehouseEventsModifier,
     DataWarehouseNode,
     DayItem,
@@ -1317,18 +1316,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             display = self.query.trendsFilter.display
 
         return TrendsDisplay(display)
-
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
-        super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-
-        if (
-            self.query.compareFilter is not None
-            and self.query.compareFilter.compare
-            and dashboard_filter.date_from == "all"
-        ):
-            # TODO: Move this "All time" range handling out of `apply_dashboard_filters` – if the date range is "all",
-            # we should disable `compare` _no matter how_ we arrived at the final executed query
-            self.query.compareFilter.compare = False
 
     def _format_breakdown_label(self, breakdown_value: Any):
         if self.query.breakdownFilter is not None and self.query.breakdownFilter.breakdowns is not None:

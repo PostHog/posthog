@@ -2349,6 +2349,13 @@ export namespace Schemas {
       breakdowns?: Breakdown[] | null;
     }
 
+    export interface CompareFilter {
+      /** Whether to compare the current date range to a previous date range. */
+      compare?: boolean | null;
+      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+      compare_to?: string | null;
+    }
+
     export type IntervalType = typeof IntervalType[keyof typeof IntervalType];
 
 
@@ -2637,12 +2644,14 @@ export namespace Schemas {
 
     export interface DashboardFilter {
       breakdown_filter?: BreakdownFilter | null;
+      /** Period comparison forced onto every insight that supports one. */
+      compareFilter?: CompareFilter | null;
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;
-      /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+      /** Tri-state test-account override. True = force on; false = force off. */
       filterTestAccounts?: boolean | null;
-      /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+      /** Time granularity forced onto every insight that supports one. */
       interval?: IntervalType | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
     }
@@ -4161,13 +4170,6 @@ export namespace Schemas {
     export interface CalendarHeatmapFilter {
       /** When true and the series math is `dau`/`unique_users`, each user contributes to the (day-of-week, hour) bucket of their session's first event only — matching the web overview session-start attribution. When false (default), the user contributes to every bucket they have any event in. No effect on `total` math (event counts are unchanged either way). */
       bucketBySessionStart?: boolean | null;
-    }
-
-    export interface CompareFilter {
-      /** Whether to compare the current date range to a previous date range. */
-      compare?: boolean | null;
-      /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
-      compare_to?: string | null;
     }
 
     export interface CustomEventConversionGoal {
@@ -9825,6 +9827,7 @@ export namespace Schemas {
 
     export interface TileFilters {
       breakdown_filter?: BreakdownFilter | null;
+      compareFilter?: CompareFilter | null;
       date_from?: string | null;
       date_to?: string | null;
       explicitDate?: boolean | null;

@@ -181,40 +181,64 @@ describe('InsightDetails', () => {
                 label: 'dashboard-only test account override',
                 filtersOverride: { filterTestAccounts: true },
                 tileFiltersOverride: undefined,
-                expected: { filterTestAccounts: { value: true, source: 'dashboard' }, interval: null },
+                expected: {
+                    filterTestAccounts: { value: true, source: 'dashboard' },
+                    interval: null,
+                    compareFilter: null,
+                },
             },
             {
                 label: 'force-off (false) still counts as a test account override',
                 filtersOverride: { filterTestAccounts: false },
                 tileFiltersOverride: undefined,
-                expected: { filterTestAccounts: { value: false, source: 'dashboard' }, interval: null },
+                expected: {
+                    filterTestAccounts: { value: false, source: 'dashboard' },
+                    interval: null,
+                    compareFilter: null,
+                },
             },
             {
                 label: 'dashboard-only interval override',
                 filtersOverride: { interval: 'month' },
                 tileFiltersOverride: undefined,
-                expected: { filterTestAccounts: null, interval: { value: 'month', source: 'dashboard' } },
+                expected: {
+                    filterTestAccounts: null,
+                    interval: { value: 'month', source: 'dashboard' },
+                    compareFilter: null,
+                },
+            },
+            {
+                label: 'dashboard-only compare override',
+                filtersOverride: { compareFilter: { compare: true, compare_to: '-1m' } },
+                tileFiltersOverride: undefined,
+                expected: {
+                    filterTestAccounts: null,
+                    interval: null,
+                    compareFilter: { value: { compare: true, compare_to: '-1m' }, source: 'dashboard' },
+                },
             },
             {
                 label: 'tile scalar overrides beat dashboard ones',
-                filtersOverride: { filterTestAccounts: true, interval: 'week' },
-                tileFiltersOverride: { filterTestAccounts: false, interval: 'day' },
+                filtersOverride: { filterTestAccounts: true, interval: 'week', compareFilter: { compare: true } },
+                tileFiltersOverride: { filterTestAccounts: false, interval: 'day', compareFilter: { compare: false } },
                 expected: {
                     filterTestAccounts: { value: false, source: 'tile' },
                     interval: { value: 'day', source: 'tile' },
+                    compareFilter: { value: { compare: false }, source: 'tile' },
                 },
             },
             {
                 label: 'no scalar overrides set',
                 filtersOverride: { properties: [countryUS] },
                 tileFiltersOverride: undefined,
-                expected: { filterTestAccounts: null, interval: null },
+                expected: { filterTestAccounts: null, interval: null, compareFilter: null },
             },
         ])('$label', ({ filtersOverride, tileFiltersOverride, expected }) => {
             const result = getEffectiveFilterOverrides(undefined, filtersOverride as any, tileFiltersOverride as any)
 
             expect(result.filterTestAccounts).toEqual(expected.filterTestAccounts)
             expect(result.interval).toEqual(expected.interval)
+            expect(result.compareFilter).toEqual(expected.compareFilter)
         })
 
         it('resolves scalar overrides from the backend context layers, ignoring raw props', () => {
