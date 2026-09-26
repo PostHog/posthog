@@ -93,7 +93,8 @@ class TestTopHogAdminHelpers(BaseTest):
     @parameterized.expand(
         [
             ("known_names_mapped", ["sessionreplay", "analytics"], ["analytics", "session_recordings"]),
-            ("unknown_names_dropped", ["heatmaps", "ai"], []),
+            ("heatmaps_mapped", ["heatmaps"], ["heatmaps"]),
+            ("unknown_names_dropped", ["ai"], []),
         ]
     )
     def test_map_pipelines(self, _name, tophog_pipelines, expected):

@@ -43,6 +43,7 @@ const PIPELINE_LABELS: Record<IngestionPipelineEnumApi, string> = {
     session_recordings: 'session recordings',
     errortracking: 'error tracking',
     clientwarnings: 'client warnings',
+    heatmaps: 'heatmaps',
     ai: 'AI',
 }
 
