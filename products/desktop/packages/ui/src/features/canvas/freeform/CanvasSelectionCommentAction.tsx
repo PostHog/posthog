@@ -26,7 +26,7 @@ export function CanvasSelectionCommentAction({
 }) {
   const { members } = useOrgMembers();
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
-  const target = { scope: "desktop_canvas" as const, itemId: dashboardId };
+  const target = { scope: "canvas" as const, itemId: dashboardId };
   const createComment = useCreateComment(target, taskId ?? undefined);
 
   const anchor: TextCommentAnchor | null = selection

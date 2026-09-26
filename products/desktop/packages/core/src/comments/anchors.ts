@@ -14,6 +14,19 @@ export type CommentTarget = {
   itemId: string;
 };
 
+const COMMENT_SCOPES: readonly CommentScope[] = [
+  "task",
+  "task_artifact",
+  "canvas",
+];
+
+export function commentScopeFromWire(
+  scope: string | null | undefined,
+): CommentScope | null {
+  const canonical = scope === "desktop_canvas" ? "canvas" : scope;
+  return COMMENT_SCOPES.find((known) => known === canonical) ?? null;
+}
+
 /** The target as one string, for map keys and cache-key membership tests. */
 export function commentTargetKey(target: CommentTarget): string {
   return `${target.scope}:${target.itemId}`;

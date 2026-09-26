@@ -190,7 +190,7 @@ function CanvasComments({
         onlySource={{
           kind: "canvas",
           name: canvasName,
-          target: { scope: "desktop_canvas", itemId: canvasId },
+          target: { scope: "canvas", itemId: canvasId },
           url: null,
         }}
         canvasVersionId={canvasVersionId}

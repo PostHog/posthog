@@ -12,7 +12,7 @@ import {
 export function openActivityItem(item: TaskActivityItem): void {
   const { channelId } = item;
 
-  if (channelId && item.commentTarget?.scope === "desktop_canvas") {
+  if (channelId && item.commentTarget?.scope === "canvas") {
     useCanvasChatPanelStore.getState().openComments();
     navigateToChannelDashboard(channelId, item.commentTarget.itemId);
     return;

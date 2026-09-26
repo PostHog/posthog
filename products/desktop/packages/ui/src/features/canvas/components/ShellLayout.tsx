@@ -288,7 +288,7 @@ function CanvasBreadcrumb({
   const openComments = useCanvasChatPanelStore((state) => state.openComments);
   const name = dashboard?.name ?? "Canvas";
   const commentTarget = {
-    scope: "desktop_canvas" as const,
+    scope: "canvas" as const,
     itemId: dashboardId,
   };
   const commentTaskId = canvasCommentTaskId(

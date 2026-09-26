@@ -47,7 +47,7 @@ type CommentNavigationStore = CommentNavigationStoreState &
 let nonce = 0;
 
 export function canvasCommentFocusKey(canvasId: string): string {
-  return commentTargetKey({ scope: "desktop_canvas", itemId: canvasId });
+  return commentTargetKey({ scope: "canvas", itemId: canvasId });
 }
 
 function sameResolutions(

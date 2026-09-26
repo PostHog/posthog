@@ -279,7 +279,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [
       comment({
         item_id: "canvas-1",
-        scope: "desktop_canvas",
+        scope: "canvas",
         content: "Canvas feedback",
         item_context: {
           anchor: {
@@ -303,7 +303,7 @@ describe("TaskCommentsList", () => {
         onlySource={{
           kind: "canvas",
           name: "Launch canvas",
-          target: { scope: "desktop_canvas", itemId: "canvas-1" },
+          target: { scope: "canvas", itemId: "canvas-1" },
           url: null,
         }}
         canvasVersionId="version-2"
@@ -313,7 +313,7 @@ describe("TaskCommentsList", () => {
     );
 
     expect(mocks.queriedTargets.at(-1)).toEqual([
-      { scope: "desktop_canvas", itemId: "canvas-1" },
+      { scope: "canvas", itemId: "canvas-1" },
     ]);
     expect(screen.getByText("Canvas feedback")).toBeInTheDocument();
     expect(screen.getByText("“important copy”")).toBeInTheDocument();
@@ -323,7 +323,7 @@ describe("TaskCommentsList", () => {
     expect(screen.queryByLabelText("Filter by source")).not.toBeInTheDocument();
     expect(screen.queryByText("Launch canvas")).not.toBeInTheDocument();
     expect(mocks.createdFor.at(-1)).toEqual({
-      scope: "desktop_canvas",
+      scope: "canvas",
       itemId: "canvas-1",
     });
 
@@ -370,7 +370,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [
       comment({
         item_id: "canvas-1",
-        scope: "desktop_canvas",
+        scope: "canvas",
         content: "Linked canvas feedback",
       }),
     ];
@@ -393,7 +393,7 @@ describe("TaskCommentsList", () => {
     );
 
     expect(mocks.queriedTargets.at(-1)).toContainEqual({
-      scope: "desktop_canvas",
+      scope: "canvas",
       itemId: "canvas-1",
     });
     expect(screen.getByText("Linked canvas feedback")).toBeInTheDocument();
@@ -500,7 +500,7 @@ describe("TaskCommentsList", () => {
     mocks.comments = [
       comment({
         item_id: "canvas-1",
-        scope: "desktop_canvas",
+        scope: "canvas",
         content: "Historical canvas feedback",
         item_context: {
           anchor: { kind: "document" },
@@ -517,7 +517,7 @@ describe("TaskCommentsList", () => {
         onlySource={{
           kind: "canvas",
           name: "Launch canvas",
-          target: { scope: "desktop_canvas", itemId: "canvas-1" },
+          target: { scope: "canvas", itemId: "canvas-1" },
           url: null,
         }}
         canvasVersionId="version-3"
@@ -530,7 +530,7 @@ describe("TaskCommentsList", () => {
         .getState()
         .requestCommentFocus(
           canvasCommentFocusKey("canvas-1"),
-          { scope: "desktop_canvas", itemId: "canvas-1" },
+          { scope: "canvas", itemId: "canvas-1" },
           "comment-1",
         );
     });
