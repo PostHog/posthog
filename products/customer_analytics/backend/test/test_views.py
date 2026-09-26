@@ -3527,6 +3527,46 @@ class TestCalendarSyncViewSet(APIBaseTest):
             },
         )
 
+    def test_sync_interval_defaults_and_is_scoped_to_one_account(self):
+        self._become_admin()
+        first = self._create_syncable_integration()
+        second = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="second-account")
+        endpoint = f"/api/environments/{self.team.id}/calendar_sync/"
+        initial = self.client.get(endpoint)
+        self.assertEqual({row["sync_interval_minutes"] for row in initial.json()}, {60})
+
+        response = self.client.post(f"{endpoint}interval/", {"integration_id": first.id, "sync_interval_minutes": 15})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {row["integration_id"]: row["sync_interval_minutes"] for row in self.client.get(endpoint).json()},
+            {first.id: 15, second.id: 60},
+        )
+
+    def test_sync_interval_rejects_invalid_or_unowned_integrations(self):
+        self._become_admin()
+        integration = self._create_syncable_integration()
+        endpoint = f"/api/environments/{self.team.id}/calendar_sync/interval/"
+        self.assertEqual(
+            self.client.post(endpoint, {"integration_id": integration.id, "sync_interval_minutes": 10}).status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other = self._create_syncable_integration(team=other_team)
+        wrong_kind = Integration.objects.create(team=self.team, kind="slack", integration_id="wrong-kind")
+        for integration_id in (other.id, wrong_kind.id):
+            self.assertEqual(
+                self.client.post(endpoint, {"integration_id": integration_id, "sync_interval_minutes": 5}).status_code,
+                status.HTTP_404_NOT_FOUND,
+            )
+
+    def test_sync_interval_requires_project_admin(self):
+        integration = self._create_syncable_integration()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/calendar_sync/interval/",
+            {"integration_id": integration.id, "sync_interval_minutes": 5},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
         self._become_admin()
         integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")

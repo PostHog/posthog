@@ -2491,6 +2491,8 @@ export interface CalendarSyncStatusApi {
     readonly last_synced_at: string | null
     /** Whether a sync run is currently in flight. */
     readonly is_syncing: boolean
+    /** Minutes between scheduled syncs. */
+    readonly sync_interval_minutes: number
 }
 
 export interface CalendarSyncBackfillApi {
@@ -2523,6 +2525,13 @@ export interface CalendarSyncTriggerResponseApi {
      * * `started` - started
      * * `already_running` - already_running */
     status: CalendarSyncTriggerResponseStatusEnumApi
+}
+
+export interface CalendarSyncIntervalApi {
+    /** Id of the connected Google account. */
+    integration_id: number
+    /** Minutes between scheduled syncs: 5, 15, 30, or 60. */
+    sync_interval_minutes: number
 }
 
 /**

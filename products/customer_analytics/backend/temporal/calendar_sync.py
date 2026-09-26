@@ -31,7 +31,7 @@ logger = structlog.get_logger(__name__)
 
 CALENDAR_SYNC_COORDINATOR_SCHEDULE_ID = "customer-analytics-calendar-sync-coordinator-schedule"
 CALENDAR_SYNC_COORDINATOR_WORKFLOW_NAME = "customer-analytics-calendar-sync-coordinator"
-COORDINATOR_INTERVAL_MINUTES = 60
+COORDINATOR_INTERVAL_MINUTES = 5
 MAX_SYNCS_PER_RUN = 200
 BACKFILL_PAGES_PER_RUN = 100
 GOOGLE_WORKSPACE_RETRY_DELAY = timedelta(hours=1)
@@ -106,10 +106,51 @@ class GoogleAccountBackfillOutput:
 
 def _collect_calendar_integrations() -> list[CalendarSyncInput]:
     # Deferred: keeps Django models out of the workflow sandbox import path.
+    from django.utils import timezone  # noqa: PLC0415
+
     from posthog.models.integration import Integration  # noqa: PLC0415
 
-    rows = Integration.objects.filter(kind="google-calendar").values_list("id", "team_id")[:MAX_SYNCS_PER_RUN]
-    return [CalendarSyncInput(integration_id=row[0], team_id=row[1]) for row in rows]
+    from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
+        LAST_SYNCED_AT_CONFIG_KEY,
+        SYNC_ATTEMPTED_AT_CONFIG_KEY,
+        SYNC_RETRY_AT_CONFIG_KEY,
+        SYNC_STALE_AFTER,
+        SYNC_STARTED_AT_CONFIG_KEY,
+        get_calendar_sync_interval,
+    )
+
+    now = timezone.now()
+    due: list[tuple[datetime, int, int]] = []
+    for integration in Integration.objects.filter(kind="google-calendar").only("id", "team_id", "config").iterator():
+        config = integration.config or {}
+        last_sync = _calendar_config_datetime(config.get(LAST_SYNCED_AT_CONFIG_KEY))
+        attempted = _calendar_config_datetime(config.get(SYNC_ATTEMPTED_AT_CONFIG_KEY))
+        started = _calendar_config_datetime(config.get(SYNC_STARTED_AT_CONFIG_KEY))
+        retry = _calendar_config_datetime(config.get(SYNC_RETRY_AT_CONFIG_KEY))
+        if retry and retry > now:
+            continue
+        if started and started > now - SYNC_STALE_AFTER and (last_sync is None or started > last_sync):
+            continue
+        last_run = max((date for date in (last_sync, attempted) if date), default=None)
+        if last_run and last_run + timedelta(minutes=get_calendar_sync_interval(config)) > now:
+            continue
+        due.append((last_run or datetime.min.replace(tzinfo=now.tzinfo), integration.id, integration.team_id))
+
+    due.sort()
+    return [
+        CalendarSyncInput(integration_id=integration_id, team_id=team_id)
+        for _, integration_id, team_id in due[:MAX_SYNCS_PER_RUN]
+    ]
+
+
+def _calendar_config_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+        return parsed if parsed.tzinfo else None
+    except ValueError:
+        return None
 
 
 @activity.defn
@@ -313,7 +354,7 @@ class GoogleAccountBackfillWorkflow:
 
 @workflow.defn(name=CALENDAR_SYNC_COORDINATOR_WORKFLOW_NAME)
 class CalendarSyncCoordinatorWorkflow:
-    """Hourly coordinator: one child per connected calendar.
+    """Scheduled coordinator: one child per connected calendar.
 
     Child ids are deterministic per integration, so overlapping ticks can't sync the
     same calendar concurrently (start fails with WorkflowAlreadyStartedError while a
