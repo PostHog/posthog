@@ -4,7 +4,7 @@ This module calculates experiment metrics in the background using Temporal, a wo
 
 ## How it works
 
-Each team can configure when their experiments should be recalculated (default: 2 AM UTC). The system runs 24 schedules - one for each hour of the day. When a schedule fires, it finds all experiments belonging to teams configured for that hour and calculates their metrics.
+Each team can configure when their experiments should be recalculated (default: 2 AM UTC). The system runs 24 schedules - one for each hour of the day. Each schedule starts between 2 and 32 minutes past its hour, so the runs do not pile up with other jobs at minute zero. When a schedule fires, it finds all experiments belonging to teams configured for that hour and calculates their metrics.
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐

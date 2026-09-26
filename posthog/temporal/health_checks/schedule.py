@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import timedelta
 
 from django.conf import settings
 
@@ -36,7 +37,9 @@ async def create_health_check_schedules(client: Client) -> None:
                 id=f"health-check-{config.name}",
                 task_queue=settings.HEALTH_CHECK_TASK_QUEUE,
             ),
-            spec=ScheduleSpec(cron_expressions=[config.schedule]),
+            # Checks look back a day or more, so a start up to 30 minutes after the cron time finds the same
+            # issues. The jitter also stops checks that share a cron time from starting together.
+            spec=ScheduleSpec(cron_expressions=[config.schedule], jitter=timedelta(minutes=30)),
         )
 
         if await a_schedule_exists(client, schedule_id):
