@@ -128,7 +128,7 @@ export class PostgresPersonRepository
         this.isClaimTeam = buildIntegerMatcher(this.options.personCreateClaimTeamAllowlist, true)
     }
 
-    private async handleOversizedPersonProperties(
+    async handleOversizedPersonProperties(
         person: InternalPerson,
         update: PersonUpdateFields,
         tx?: TransactionClient
@@ -1529,6 +1529,30 @@ export class PostgresPersonRepository
         return rows.length > 0
     }
 
+    async readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        tx?: TransactionClient
+    ): Promise<InternalPerson[]> {
+        // Ascending id order, as the batch write locks, so the two cannot deadlock.
+        const { rows } = await this.postgres.query<RawPerson>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `WITH sources AS MATERIALIZED (
+                SELECT ${PERSON_COLUMNS} FROM posthog_person
+                 WHERE team_id = $1 AND id = ANY($3::bigint[]) AND is_deleted = false
+                 ORDER BY id
+                 FOR NO KEY UPDATE
+             )
+             SELECT ${PERSON_COLUMNS} FROM posthog_person WHERE team_id = $1 AND id = $2 AND is_deleted = false
+             UNION ALL
+             SELECT * FROM sources`,
+            [teamId, targetId, sourceIds],
+            'readMergeRows'
+        )
+        return rows.map((row) => this.toPerson(row))
+    }
+
     async addDistinctId(
         person: InternalPerson,
         distinctId: string,
@@ -2028,6 +2052,11 @@ export class PostgresPersonRepository
         try {
             // Calculate final properties by applying set and unset operations
             const finalProperties = { ...personUpdate.properties }
+            for (const [key, value] of Object.entries(personUpdate.properties_to_set_once)) {
+                if (!Object.hasOwn(finalProperties, key)) {
+                    finalProperties[key] = value
+                }
+            }
             Object.entries(personUpdate.properties_to_set).forEach(([key, value]) => {
                 finalProperties[key] = value
             })
@@ -2100,15 +2129,29 @@ export class PostgresPersonRepository
      * Batch update multiple persons in a single query using UNNEST.
      * This uses a fixed query structure regardless of batch size, enabling prepared statement reuse.
      *
-     * The method updates all mutable fields (properties, is_identified, created_at) and increments version.
-     * It does NOT assert version - it always overwrites with the provided values.
+     * No version assertion: every column merges with the row, so a stale snapshot cannot undo another writer's flush.
      */
-    async updatePersonsBatch(
-        personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>> {
+    async updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                properties?: Properties
+                error?: Error
+            }
+        >
+    > {
         const results = new Map<
             string,
-            { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                properties?: Properties
+                error?: Error
+            }
         >()
 
         if (personUpdates.length === 0) {
@@ -2119,29 +2162,19 @@ export class PostgresPersonRepository
         const uuids: string[] = []
         const teamIds: number[] = []
         const properties: string[] = []
-        const propertiesLastUpdatedAt: string[] = []
-        const propertiesLastOperation: string[] = []
         const isIdentified: boolean[] = []
         const createdAt: string[] = []
         const lastSeenAt: (string | null)[] = []
+        const propertiesToUnset: string[] = []
+        const propertiesToSetOnce: string[] = []
 
         for (const update of personUpdates) {
             uuids.push(update.uuid)
             teamIds.push(update.team_id)
 
-            // Calculate final properties by applying set and unset operations
-            const finalProperties = { ...update.properties }
-            Object.entries(update.properties_to_set).forEach(([key, value]) => {
-                finalProperties[key] = value
-            })
-            update.properties_to_unset.forEach((key) => {
-                delete finalProperties[key]
-            })
-
-            // sanitizeJsonbValue already returns JSON.stringify(value) for objects, so don't double-stringify
-            properties.push(sanitizeJsonbValue(finalProperties))
-            propertiesLastUpdatedAt.push(sanitizeJsonbValue(update.properties_last_updated_at))
-            propertiesLastOperation.push(sanitizeJsonbValue(update.properties_last_operation))
+            properties.push(sanitizeJsonbValue(update.properties_to_set))
+            propertiesToUnset.push(sanitizeJsonbValue(update.properties_to_unset))
+            propertiesToSetOnce.push(sanitizeJsonbValue(update.properties_to_set_once))
             isIdentified.push(update.is_identified)
             createdAt.push(update.created_at.toISO()!)
             lastSeenAt.push(update.last_seen_at?.toISO() ?? null)
@@ -2150,39 +2183,48 @@ export class PostgresPersonRepository
         try {
             // Use UNNEST to pass arrays, keeping query structure constant for prepared statement reuse
             // Note: batch column names are prefixed with 'new_' to avoid any potential confusion with table columns
+            // Lock in ascending id order first, as a merge does, so the two cannot deadlock.
             const { rows } = await this.postgres.query<RawPerson>(
                 PostgresUse.PERSONS_WRITE,
                 `
+                WITH locked AS MATERIALIZED (
+                    SELECT p.id FROM posthog_person AS p
+                    JOIN UNNEST($1::uuid[], $2::integer[]) AS ids(batch_uuid, batch_team_id)
+                      ON p.uuid = ids.batch_uuid AND p.team_id = ids.batch_team_id
+                    WHERE p.is_deleted = false
+                    ORDER BY p.id
+                    FOR NO KEY UPDATE
+                )
                 UPDATE posthog_person AS p SET
-                    properties = batch.new_properties::jsonb,
-                    properties_last_updated_at = batch.new_properties_last_updated_at::jsonb,
-                    properties_last_operation = batch.new_properties_last_operation::jsonb,
-                    is_identified = batch.new_is_identified,
-                    created_at = batch.new_created_at::timestamp with time zone,
-                    last_seen_at = batch.new_last_seen_at::timestamp with time zone,
+                    properties = ((batch.new_set_once::jsonb || p.properties) || batch.new_properties::jsonb)
+                        - ARRAY(SELECT jsonb_array_elements_text(batch.unset_json::jsonb)),
+                    is_identified = p.is_identified OR batch.new_is_identified,
+                    created_at = LEAST(p.created_at, batch.new_created_at::timestamp with time zone),
+                    last_seen_at = GREATEST(p.last_seen_at, batch.new_last_seen_at::timestamp with time zone),
                     version = COALESCE(p.version, 0)::numeric + 1
                 FROM UNNEST(
                     $1::uuid[],
                     $2::integer[],
                     $3::text[],
-                    $4::text[],
+                    $4::boolean[],
                     $5::text[],
-                    $6::boolean[],
+                    $6::text[],
                     $7::text[],
                     $8::text[]
-                ) AS batch(batch_uuid, batch_team_id, new_properties, new_properties_last_updated_at, new_properties_last_operation, new_is_identified, new_created_at, new_last_seen_at)
+                ) AS batch(batch_uuid, batch_team_id, new_properties, new_is_identified, new_created_at, new_last_seen_at, unset_json, new_set_once)
                 WHERE p.uuid = batch.batch_uuid AND p.team_id = batch.batch_team_id AND p.is_deleted = false
+                  AND p.id IN (SELECT id FROM locked)
                 RETURNING ${PERSON_COLUMNS_PREFIXED}
                 `,
                 [
                     uuids,
                     teamIds,
                     properties,
-                    propertiesLastUpdatedAt,
-                    propertiesLastOperation,
                     isIdentified,
                     createdAt,
                     lastSeenAt,
+                    propertiesToUnset,
+                    propertiesToSetOnce,
                 ],
                 'updatePersonsBatch'
             )
@@ -2202,6 +2244,7 @@ export class PostgresPersonRepository
                         success: true,
                         version: updatedPerson.version,
                         kafkaMessage: generateKafkaPersonUpdateMessage(updatedPerson),
+                        properties: updatedPerson.properties,
                     })
                 } else {
                     // Person was not found/updated - likely deleted or merged

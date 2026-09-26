@@ -252,6 +252,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -315,6 +316,169 @@ describe('PostgresPersonRepository', () => {
 
             expect(version).toBeUndefined()
             expect(messages).toEqual([])
+        })
+
+        it('updatePersonsBatch keeps what another writer set after the snapshot was read', async () => {
+            const person = await createTestPerson(team.id, 'batch-lost-update-did', { own: 'v1' })
+            const olderCreatedAt = person.created_at.minus({ minutes: 5 })
+            const laterLastSeenAt = person.created_at.plus({ hours: 1 })
+
+            // Another writer lands a key, its metadata and newer scalars after this pod's read.
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `UPDATE posthog_person
+                 SET properties = properties || '{"from_merge": "kept?", "gone": "x"}'::jsonb,
+                     properties_last_updated_at = '{"from_merge": "new", "gone": "x"}'::jsonb,
+                     created_at = $3, is_identified = true, last_seen_at = $4, version = version + 1
+                 WHERE team_id = $1 AND id = $2`,
+                [team.id, person.id, olderCreatedAt.toISO(), laterLastSeenAt.toISO()],
+                'otherWriter'
+            )
+
+            // This pod flushes its own $set and $unset from the snapshot it read before that write.
+            const stale = {
+                ...buildPersonUpdate(person, 'batch-lost-update-did', person.version),
+                properties: { own: 'v1' },
+                properties_to_set: { own: 'v2' },
+                properties_to_set_once: { from_merge: 'stale', filled: 'yes' },
+                properties_to_unset: ['gone'],
+                properties_last_updated_at: { from_merge: 'old' },
+                is_identified: false,
+            }
+            const results = await repository.updatePersonsBatch([stale])
+            expect(results.get(person.uuid)).toMatchObject({ success: true })
+
+            const rows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                `SELECT properties, properties_last_updated_at, is_identified,
+                        extract(epoch FROM created_at)::bigint AS created_at_epoch,
+                        extract(epoch FROM last_seen_at)::bigint AS last_seen_at_epoch
+                 FROM posthog_person WHERE team_id = $1 AND id = $2`,
+                [team.id, person.id],
+                'fetchAfterBatch'
+            )
+            // Set-once fills a missing key and leaves the other writer's key alone.
+            expect(rows.rows[0].properties).toEqual({ own: 'v2', from_merge: 'kept?', filled: 'yes' })
+            expect(rows.rows[0].properties_last_updated_at).toEqual({ from_merge: 'new', gone: 'x' })
+            expect(Number(rows.rows[0].created_at_epoch)).toBe(Math.floor(olderCreatedAt.toSeconds()))
+            expect(rows.rows[0].is_identified).toBe(true)
+            expect(Number(rows.rows[0].last_seen_at_epoch)).toBe(Math.floor(laterLastSeenAt.toSeconds()))
+        })
+
+        it('readMergeRows locks the sources and reads the target as it stands', async () => {
+            const target = await createTestPerson(team.id, 'merge-rows-target')
+            const source = await createTestPerson(team.id, 'merge-rows-source')
+            const probe = (id: string) =>
+                postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    'SELECT id FROM posthog_person WHERE id = $1 FOR UPDATE NOWAIT',
+                    [id],
+                    'mergeRowsProbe'
+                )
+
+            await postgres.transaction(PostgresUse.PERSONS_WRITE, 'mergeRowsHold', async (tx) => {
+                const rows = await repository.readMergeRows(team.id, target.id, [source.id], tx)
+                expect(rows.map((row) => row.id).sort()).toEqual([target.id, source.id].sort())
+                await expect(probe(target.id)).resolves.toBeDefined()
+                await expect(probe(source.id)).rejects.toThrow('could not obtain lock')
+            })
+        })
+
+        it('updatePersonsBatch locks its rows in ascending id order before it touches any of them', async () => {
+            const first = await createTestPerson(team.id, 'lock-order-first')
+            const second = await createTestPerson(team.id, 'lock-order-second')
+            expect(Number(first.id)).toBeLessThan(Number(second.id))
+            // Rewrite the first row so a physical-order scan reaches the higher id first.
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'UPDATE posthog_person SET version = version + 1 WHERE id = $1',
+                [first.id],
+                'lockOrderReorder'
+            )
+
+            // A merge holds the lower id; ordered locking blocks the write there and leaves the higher id free.
+            let markLocked!: () => void
+            let releaseHold!: () => void
+            const locked = new Promise<void>((resolve) => (markLocked = resolve))
+            const held = new Promise<void>((resolve) => (releaseHold = resolve))
+            const holder = postgres.transaction(PostgresUse.PERSONS_WRITE, 'lockOrderHold', async (tx) => {
+                await postgres.query(
+                    tx,
+                    'SELECT id FROM posthog_person WHERE id = $1 FOR NO KEY UPDATE',
+                    [first.id],
+                    'lockOrderHold'
+                )
+                markLocked()
+                await held
+            })
+            await locked
+            const waitingOnLock = async (): Promise<boolean> => {
+                const { rows } = await postgres.query(
+                    PostgresUse.PERSONS_WRITE,
+                    `SELECT 1 FROM pg_stat_activity
+                     WHERE wait_event_type = 'Lock' AND query LIKE '%<updatePersonsBatch>%'`,
+                    [],
+                    'lockOrderProbe'
+                )
+                return rows.length > 0
+            }
+            try {
+                const writing = repository.updatePersonsBatch([
+                    buildPersonUpdate(second, 'lock-order-second', second.version),
+                    buildPersonUpdate(first, 'lock-order-first', first.version),
+                ])
+                for (let attempt = 0; !(await waitingOnLock()); attempt++) {
+                    expect(attempt).toBeLessThan(500)
+                    await new Promise((resolve) => setTimeout(resolve, 10))
+                }
+
+                await expect(
+                    postgres.query(
+                        PostgresUse.PERSONS_WRITE,
+                        'SELECT id FROM posthog_person WHERE id = $1 FOR UPDATE NOWAIT',
+                        [second.id],
+                        'lockOrderProbe'
+                    )
+                ).resolves.toBeDefined()
+
+                releaseHold()
+                await holder
+                const results = await writing
+                expect(results.get(first.uuid)).toMatchObject({ success: true })
+                expect(results.get(second.uuid)).toMatchObject({ success: true })
+            } finally {
+                releaseHold()
+                await holder
+            }
+        })
+
+        it('updatePersonsBatch sanitizes null bytes in unset keys the same way as set keys', async () => {
+            const person = await createTestPerson(team.id, 'batch-null-byte-did')
+            const nullByteKey = 'bad\u0000key'
+            const sanitizedKey = 'bad\uFFFDkey'
+
+            // A set of the key lands sanitized; an unset of the same raw key must remove it, not fail the statement.
+            const setting = {
+                ...buildPersonUpdate(person, 'batch-null-byte-did', person.version),
+                properties_to_set: { [nullByteKey]: 'x', keep: 'y' },
+            }
+            expect((await repository.updatePersonsBatch([setting])).get(person.uuid)).toMatchObject({ success: true })
+
+            const unsetting = {
+                ...buildPersonUpdate(person, 'batch-null-byte-did', person.version),
+                properties_to_set: {},
+                properties_to_unset: [nullByteKey],
+            }
+            expect((await repository.updatePersonsBatch([unsetting])).get(person.uuid)).toMatchObject({ success: true })
+
+            const rows = await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'SELECT properties FROM posthog_person WHERE team_id = $1 AND id = $2',
+                [team.id, person.id],
+                'fetchAfterNullByteUnset'
+            )
+            expect(rows.rows[0].properties).not.toHaveProperty(sanitizedKey)
+            expect(rows.rows[0].properties).toMatchObject({ keep: 'y' })
         })
 
         it('updatePersonsBatch skips tombstoned persons and leaves the death version intact', async () => {
@@ -1801,6 +1965,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -1838,6 +2003,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30 },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -1873,6 +2039,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane' },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -1904,6 +2071,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { new_prop: 'new_value', to_update: 'new' }, // New properties to merge
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -1944,6 +2112,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: {},
                 properties_to_unset: ['remove_me'],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -1982,6 +2151,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { update: 'new', added: 'fresh' },
                 properties_to_unset: ['remove'],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,
@@ -2610,6 +2780,7 @@ describe('PostgresPersonRepository', () => {
                     needs_write: true,
                     properties_to_set: { description: 'x'.repeat(150) },
                     properties_to_unset: [],
+                    properties_to_set_once: {},
                     original_is_identified: false,
                     original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                     original_last_seen_at: null,
@@ -2860,6 +3031,7 @@ describe('PostgresPersonRepository', () => {
                 needs_write: true,
                 properties_to_set: { name: 'Jane', age: 30, data: 'y'.repeat(2500) },
                 properties_to_unset: [],
+                properties_to_set_once: {},
                 original_is_identified: false,
                 original_created_at: DateTime.fromISO('2020-01-01T00:00:00.000Z'),
                 original_last_seen_at: null,

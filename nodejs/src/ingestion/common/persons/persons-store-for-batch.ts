@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { MergePersonUpdate } from '~/common/persons/person-update-batch'
 import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
@@ -32,7 +33,7 @@ export interface PersonsStoreTransactionForBatch {
 
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]>
 
@@ -55,6 +56,9 @@ export interface PersonsStoreTransactionForBatch {
 
     /** Whether the person is live; only meaningful while holding its lifecycle mark. */
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean>
+
+    /** The sources are row-locked; the target is read unlocked. */
+    readMergeRows(teamId: number, targetId: string, sourceIds: string[], distinctId: string): Promise<InternalPerson[]>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 
@@ -183,7 +187,7 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
 
     updatePersonForMerge(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: MergePersonUpdate,
         distinctId: string
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
         return this.tx.updatePersonForMerge(person, update, distinctId, this.batchId)
@@ -227,6 +231,15 @@ export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactio
 
     isPersonLive(person: InternalPerson, distinctId: string): Promise<boolean> {
         return this.tx.isPersonLive(person, distinctId)
+    }
+
+    readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        distinctId: string
+    ): Promise<InternalPerson[]> {
+        return this.tx.readMergeRows(teamId, targetId, sourceIds, distinctId)
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {

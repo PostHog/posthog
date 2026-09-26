@@ -210,13 +210,29 @@ export class PersonHogPersonRepository implements PersonRepository {
         return this.postgres.updatePerson(person, update, tag)
     }
 
+    handleOversizedPersonProperties(
+        person: InternalPerson,
+        update: PersonUpdateFields
+    ): Promise<[InternalPerson, PersonMessage[], boolean]> {
+        return this.postgres.handleOversizedPersonProperties(person, update)
+    }
+
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]> {
         return this.postgres.updatePersonAssertVersion(personUpdate)
     }
 
-    updatePersonsBatch(
-        personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>> {
+    updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                properties?: Properties
+                error?: Error
+            }
+        >
+    > {
         return this.postgres.updatePersonsBatch(personUpdates)
     }
 

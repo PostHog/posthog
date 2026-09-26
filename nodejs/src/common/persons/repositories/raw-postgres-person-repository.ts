@@ -51,9 +51,18 @@ export interface RawPostgresPersonRepository {
 
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, PersonMessage[]]>
 
-    updatePersonsBatch(
-        personUpdates: PersonUpdate[]
-    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: PersonMessage; error?: Error }>>
+    updatePersonsBatch(personUpdates: PersonUpdate[]): Promise<
+        Map<
+            string,
+            {
+                success: boolean
+                version?: number
+                kafkaMessage?: PersonMessage
+                properties?: Properties
+                error?: Error
+            }
+        >
+    >
 
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<PersonMessage[]>
 
@@ -73,6 +82,14 @@ export interface RawPostgresPersonRepository {
 
     /** See PersonRepository.isPersonLive. */
     isPersonLive(person: InternalPerson, tx?: TransactionClient): Promise<boolean>
+
+    /** The sources are row-locked; the target is read unlocked. */
+    readMergeRows(
+        teamId: number,
+        targetId: string,
+        sourceIds: string[],
+        tx?: TransactionClient
+    ): Promise<InternalPerson[]>
 
     addDistinctId(
         person: InternalPerson,
