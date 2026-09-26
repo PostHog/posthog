@@ -10,6 +10,9 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -423,6 +426,34 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/actions/?ordering={ordering}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([a["name"] for a in response.json()["results"]], expected_names)
+
+    @parameterized.expand(
+        [
+            ("default", "", '"posthog_action"."id" DESC'),
+            ("name", "?ordering=name", '"posthog_action"."id" ASC'),
+            ("name_descending", "?ordering=-name", '"posthog_action"."id" DESC'),
+            ("created_at", "?ordering=created_at", '"posthog_action"."id" ASC'),
+            ("created_at_descending", "?ordering=-created_at", '"posthog_action"."id" DESC'),
+            ("pinned_at", "?ordering=pinned_at", '"posthog_action"."id" ASC'),
+            ("created_by", "?ordering=created_by", '"posthog_action"."id" ASC'),
+            ("rejected_field", "?ordering=created_by__password", '"posthog_action"."id" DESC'),
+        ]
+    )
+    def test_listing_actions_orders_on_a_unique_last_term(self, _name: str, params: str, expected_tail: str) -> None:
+        # Every sortable field permits ties or nulls, so only a unique last term makes offset
+        # pages disjoint. Postgres returns small tied tables in heap order, so paging through
+        # them cannot show the defect; assert the SQL instead.
+        Action.objects.create(team=self.team, name="alpha", created_by=self.user)
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(f"/api/projects/{self.team.id}/actions/{params}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        list_queries = [q["sql"] for q in captured.captured_queries if 'FROM "posthog_action"' in q["sql"]]
+        self.assertTrue(list_queries)
+        for sql in list_queries:
+            order_by = sql.rsplit("ORDER BY", 1)[1].split("LIMIT")[0].strip()
+            self.assertTrue(order_by.endswith(expected_tail), f"{order_by} should end with {expected_tail}")
 
     def test_get_tags_returns_list(self):
         action = Action.objects.create(team=self.team, name="bla")
