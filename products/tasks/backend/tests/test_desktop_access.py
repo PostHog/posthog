@@ -93,6 +93,84 @@ class TestDesktopAccessPolicy(APIBaseTest):
         self.assertTrue(decision.allowed)
         mock_funding.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("allowed", None, PrepaidCreditState.NONE, True),
+            ("startup", "Startup", PrepaidCreditState.NONE, False),
+            ("prepaid", None, PrepaidCreditState.ACTIVE, False),
+        ]
+    )
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_funding_cache_reuses_the_decision_within_its_window(
+        self, _name, startup_program_label, prepaid_credit_state, expected_allowed, mock_funding
+    ) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=startup_program_label, prepaid_credit_state=prepaid_credit_state
+        )
+        first = get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+        second = get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+
+        self.assertEqual((first.allowed, second.allowed), (expected_allowed, expected_allowed))
+        self.assertEqual(first, second)
+        self.assertEqual(mock_funding.call_count, 1)
+        # The per-user override flag is never cached.
+        self.assertEqual(self.mock_feature_flag.call_count, 2)
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_funding_cache_lives_for_the_window_it_was_given(self, mock_funding) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        with patch("products.tasks.backend.access.cache.set", wraps=cache.set) as cache_set:
+            get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+        cache_set.assert_called_once_with(
+            f"desktop_access_funding_decision:{self.organization.id}", "allowed", timeout=300
+        )
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_without_a_funding_cache_every_call_reads_funding(self, mock_funding) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        get_desktop_access_decision(self.user, self.organization)
+        get_desktop_access_decision(self.user, self.organization)
+        self.assertEqual(mock_funding.call_count, 2)
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_a_funding_failure_is_not_cached(self, mock_funding) -> None:
+        mock_funding.side_effect = [
+            DesktopAccessResolutionError("unavailable"),
+            OrganizationFundingStatus(startup_program_label=None, prepaid_credit_state=PrepaidCreditState.NONE),
+        ]
+        with self.assertRaises(DesktopAccessResolutionError):
+            get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+        self.assertTrue(get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300).allowed)
+        self.assertEqual(mock_funding.call_count, 2)
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_an_unexpected_cached_value_falls_through_to_the_live_lookup(self, mock_funding) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label="Startup", prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        for unexpected in (["allowed"], "not_a_decision"):
+            cache.set(f"desktop_access_funding_decision:{self.organization.id}", unexpected, timeout=300)
+            decision = get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+            self.assertFalse(decision.allowed)
+        self.assertEqual(mock_funding.call_count, 2)
+
+    @patch("products.tasks.backend.access._get_funding_status")
+    def test_a_cache_error_falls_through_to_the_live_lookup(self, mock_funding) -> None:
+        mock_funding.return_value = OrganizationFundingStatus(
+            startup_program_label="Startup", prepaid_credit_state=PrepaidCreditState.NONE
+        )
+        with (
+            patch("products.tasks.backend.access.cache.get", side_effect=ConnectionError("down")),
+            patch("products.tasks.backend.access.cache.set", side_effect=ConnectionError("down")),
+        ):
+            decision = get_desktop_access_decision(self.user, self.organization, funding_cache_seconds=300)
+        self.assertFalse(decision.allowed)
+        mock_funding.assert_called_once()
+
     @patch(
         "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
         side_effect=DesktopAccessResolutionError("unavailable"),
