@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import { TeamPublicType, TeamType } from '~/types'
 
-import { hogFlowsBatchJobsList, hogFlowsList } from 'products/workflows/frontend/generated/api'
+import { hogFlowsBatchJobsList, hogFlowsList, hogFlowsSchedulesList } from 'products/workflows/frontend/generated/api'
 import type {
     HogFlowApi,
     HogFlowBatchJobApi,
@@ -28,6 +28,8 @@ export interface BroadcastRowDetails {
     latestBatchJob: HogFlowBatchJobApi | null
     /** Null until the run's metrics load, or when they fail to. */
     totals: Record<string, number> | null
+    /** Whether an active schedule has sends still to come. Unset when the schedules couldn't load. */
+    hasPendingSchedule?: boolean
 }
 
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
@@ -119,7 +121,7 @@ export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product
 }
 
 export function getBroadcastStatus(
-    broadcast: HogFlowMinimalApi,
+    broadcast: { status?: string | null },
     details: BroadcastRowDetails | undefined
 ): BroadcastStatus {
     if (broadcast.status === 'draft') {
@@ -137,7 +139,11 @@ export function getBroadcastStatus(
             return 'sending'
         }
         if (latestJob.status === 'completed') {
-            return 'sent'
+            // A recurring broadcast between runs has more to send. A failed run still reads as failed.
+            if (details.hasPendingSchedule === undefined) {
+                return 'unknown'
+            }
+            return details.hasPendingSchedule ? 'scheduled' : 'sent'
         }
         // Without this a failed or cancelled run falls through to the no-run fallback below, which
         // tells the sender another send is still pending when nothing is coming.
@@ -351,12 +357,19 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             for (const broadcast of broadcasts.results ?? []) {
                 void (async () => {
                     let latestBatchJob: HogFlowBatchJobApi | null
+                    let hasPendingSchedule: boolean | undefined
                     try {
-                        const batchJobs =
+                        // The list rows carry no schedules, and a recurring broadcast between runs needs them
+                        // to read as scheduled. A failed schedules request only loses that distinction.
+                        const [batchJobs, schedules] =
                             broadcast.status === 'draft'
-                                ? ([] as HogFlowBatchJobApi[])
-                                : await hogFlowsBatchJobsList(String(projectId), broadcast.id)
+                                ? [[] as HogFlowBatchJobApi[], undefined]
+                                : await Promise.all([
+                                      hogFlowsBatchJobsList(String(projectId), broadcast.id),
+                                      hogFlowsSchedulesList(String(projectId), broadcast.id).catch(() => undefined),
+                                  ])
                         latestBatchJob = batchJobs[0] ?? null
+                        hasPendingSchedule = schedules?.some((schedule) => schedule.status === 'active')
                     } catch {
                         if (isCurrent()) {
                             actions.clearRowDetails(broadcast.id)
@@ -366,14 +379,18 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     if (!isCurrent()) {
                         return
                     }
-                    actions.setRowDetails(broadcast.id, { latestBatchJob, totals: latestBatchJob ? null : {} })
+                    actions.setRowDetails(broadcast.id, {
+                        latestBatchJob,
+                        totals: latestBatchJob ? null : {},
+                        hasPendingSchedule,
+                    })
                     if (!latestBatchJob) {
                         return
                     }
                     try {
                         const totals = await loadRunMetricTotals(latestBatchJob, values.currentTeam?.timezone ?? 'UTC')
                         if (isCurrent()) {
-                            actions.setRowDetails(broadcast.id, { latestBatchJob, totals })
+                            actions.setRowDetails(broadcast.id, { latestBatchJob, totals, hasPendingSchedule })
                         }
                     } catch {
                         // The counts stay unknown; the status already rendered from the run.

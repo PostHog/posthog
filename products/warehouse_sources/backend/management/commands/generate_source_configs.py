@@ -9,6 +9,7 @@ from structlog import get_logger
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -124,6 +125,10 @@ class SourceConfigGenerator:
 
         elif isinstance(field, SourceFieldOauthAccountSelectConfig):
             field_def = self._process_oauth_account_select_field(field)
+            return [field_def] if field_def else [], []
+
+        elif isinstance(field, SourceFieldCredentialAccountSelectConfig):
+            field_def = self._process_credential_account_select_field(field)
             return [field_def] if field_def else [], []
 
         elif isinstance(field, SourceFieldFileUploadConfig):
@@ -334,6 +339,20 @@ class SourceConfigGenerator:
                 field_parts.append(f'alias="{field.name}"')
             field_parts.append("default_factory=lambda: None")
             return f"    {python_field_name}: list[str] | None = config.value({', '.join(field_parts)})"
+
+        if field.required:
+            if should_alias:
+                return f'    {python_field_name}: str = config.value(alias="{field.name}")'
+            return f"    {python_field_name}: str"
+
+        if should_alias:
+            return f'    {python_field_name}: str | None = config.value(alias="{field.name}", default_factory=lambda: None)'
+        return f"    {python_field_name}: str | None = None"
+
+    def _process_credential_account_select_field(self, field: SourceFieldCredentialAccountSelectConfig) -> str:
+        # Persisted exactly like a text field — the picker only changes how the value is chosen, so a
+        # source can switch a field to this type without reshaping configs already stored.
+        python_field_name, should_alias = self._make_python_identifier(field.name)
 
         if field.required:
             if should_alias:

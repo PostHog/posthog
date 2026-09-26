@@ -5,14 +5,9 @@ from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthAccountSelectConfig,
-    SourceFieldOauthConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
-    SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
     SourceSchema,
@@ -26,16 +21,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.s
     PostgresSource,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-_SourceField = (
-    SourceFieldInputConfig
-    | SourceFieldSwitchGroupConfig
-    | SourceFieldSelectConfig
-    | SourceFieldOauthConfig
-    | SourceFieldOauthAccountSelectConfig
-    | SourceFieldFileUploadConfig
-    | SourceFieldSSHTunnelConfig
-)
 
 # Supabase's direct connection host (`db.<ref>.supabase.co`) is IPv6-only and so is
 # unreachable from PostHog's IPv4 egress — by far the biggest cause of Supabase
@@ -172,7 +157,7 @@ class SupabaseSource(PostgresSource):
         )
 
     @staticmethod
-    def _adjust_field(field: _SourceField) -> _SourceField:
+    def _adjust_field(field: FieldType) -> FieldType:
         if isinstance(field, SourceFieldInputConfig) and field.name == "host":
             return field.model_copy(
                 update={
