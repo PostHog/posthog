@@ -1555,7 +1555,7 @@ class BasePrinter(Visitor[str]):
 
     def _get_week_start_day(self) -> WeekStartDay:
         if self.context.week_start_day is not None:
-            return self.context.week_start_day
+            return WeekStartDay(self.context.week_start_day)
         return self.context.database.get_week_start_day() if self.context.database else WeekStartDay.SUNDAY
 
     def _is_type_nullable(self, node_type: ast.Type) -> bool | None:
