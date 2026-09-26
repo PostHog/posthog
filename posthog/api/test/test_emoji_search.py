@@ -9,11 +9,13 @@ from django.urls import path
 
 from drf_spectacular.generators import SchemaGenerator
 from rest_framework import status
+from rest_framework.exceptions import Throttled
 from rest_framework.request import Request
 
 from posthog.api.emoji_search import (
     EmojiSearchDailyThrottle,
     EmojiSearchRequestSerializer,
+    EmojiSearchThrottle,
     EmojiSearchUnavailable,
     EmojiSearchViewSet,
 )
@@ -28,6 +30,9 @@ from posthog.llm.system_one import SystemOneNotConfigured
 
 
 class TestEmojiSearch(SimpleTestCase):
+    def test_request_throttle_keeps_cached_results_available(self) -> None:
+        assert EmojiSearchViewSet.throttle_classes == [EmojiSearchThrottle]
+
     def test_daily_throttle_is_shared_by_team(self) -> None:
         throttle = EmojiSearchDailyThrottle()
         keys = []
@@ -89,7 +94,25 @@ class TestEmojiSearch(SimpleTestCase):
                 assert response.data == {"suggestions": [{"emoji": "🦖", "label": "T-Rex"}]}
                 assert response["Cache-Control"] == cache_control
                 assert set(response["Vary"].split(", ")) == {"Cookie", "Authorization"}
-                suggest.assert_called_once_with("jurassic park", team_id=1)
+                suggest.assert_called_once()
+                assert suggest.call_args.args == ("jurassic park",)
+                assert suggest.call_args.kwargs["team_id"] == 1
+                assert callable(suggest.call_args.kwargs["before_model_call"])
+
+    @patch("posthog.api.emoji_search.EmojiSearchDailyThrottle")
+    def test_model_call_is_blocked_after_team_daily_limit(self, throttle_class) -> None:
+        throttle_class.return_value.allow_request.return_value = False
+        throttle_class.return_value.wait.return_value = 60
+        view = EmojiSearchViewSet()
+        view.team_id = 1
+        request = SimpleNamespace(query_params={"query": "jurassic park"})
+
+        def run_model(*args, **kwargs):
+            kwargs["before_model_call"]()
+
+        with patch("posthog.api.emoji_search.suggest_emojis", side_effect=run_model):
+            with self.assertRaises(Throttled):
+                view.suggest(request)
 
     def test_unavailable(self) -> None:
         view = EmojiSearchViewSet()

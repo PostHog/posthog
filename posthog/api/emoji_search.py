@@ -66,7 +66,7 @@ class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = EmojiSearchRequestSerializer
     permission_classes = [EmojiSearchSessionPermission]
-    throttle_classes = [EmojiSearchThrottle, EmojiSearchDailyThrottle]
+    throttle_classes = [EmojiSearchThrottle]
 
     @validated_request(
         query_serializer=EmojiSearchRequestSerializer,
@@ -78,8 +78,15 @@ class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["GET"])
     def suggest(self, request: Request, **kwargs: Any) -> Response:
+        def check_daily_throttle() -> None:
+            throttle = EmojiSearchDailyThrottle()
+            if not throttle.allow_request(request, self):
+                self.throttled(request, wait=throttle.wait() or 0)
+
         try:
-            result = suggest_emojis(request.validated_query_data["query"], team_id=self.team_id)
+            result = suggest_emojis(
+                request.validated_query_data["query"], team_id=self.team_id, before_model_call=check_daily_throttle
+            )
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             logger.warning("emoji_search_unavailable", team_id=self.team_id, reason=type(error).__name__)
             raise EmojiSearchUnavailable() from error

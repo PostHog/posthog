@@ -1,5 +1,6 @@
 import json
 import hashlib
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
@@ -128,7 +129,9 @@ def _cache_suggestions(cache_key: str, keys: list[str]) -> None:
         logger.warning("emoji_search_cache_write_failed", exc_info=True)
 
 
-def suggest_emojis(query: str, *, team_id: int) -> EmojiSearchResult:
+def suggest_emojis(
+    query: str, *, team_id: int, before_model_call: Callable[[], None] | None = None
+) -> EmojiSearchResult:
     query = " ".join(query.split())
     if not 3 <= len(query) <= 64:
         return EmojiSearchResult([])
@@ -147,6 +150,9 @@ def suggest_emojis(query: str, *, team_id: int) -> EmojiSearchResult:
                 return EmojiSearchResult([catalog.emojis[key].suggestion for key in keys])
         except (TypeError, ValueError):
             pass
+
+    if before_model_call is not None:
+        before_model_call()
 
     client = build_system_one_client(
         model=MODEL, ai_product="emoji_search", distinct_id=team_distinct_id(team_id), timeout=1.2

@@ -3,7 +3,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
@@ -182,14 +182,16 @@ class TestSuggestEmojis(SimpleTestCase):
             return answer_questions(questions, selected)
 
         build_client.return_value.decide.side_effect = decide
-        result = suggest_emojis("jurassic park", team_id=1)
+        before_model_call = Mock()
+        result = suggest_emojis("jurassic park", team_id=1, before_model_call=before_model_call)
 
         assert {suggestion.emoji for suggestion in result.suggestions} == {"🦖", "🦕", "🎢", "🎡", "🎠"}
         assert result.cacheable
         assert build_client.return_value.decide.call_count == 2
         for call in build_client.return_value.decide.call_args_list:
             assert len(call.kwargs["questions"]) <= 32
-        assert suggest_emojis("jurassic park", team_id=1) == result
+        assert suggest_emojis("jurassic park", team_id=1, before_model_call=before_model_call) == result
+        before_model_call.assert_called_once_with()
         assert build_client.return_value.decide.call_count == 2
 
     @patch("posthog.emoji_search.match.build_system_one_client")
