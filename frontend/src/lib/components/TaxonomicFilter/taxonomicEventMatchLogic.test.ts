@@ -104,6 +104,25 @@ describe('taxonomicEventMatchLogic', () => {
         expect(logic.values.suggestedEvents).toEqual([])
     })
 
+    it('does not suggest an event the picker excludes', async () => {
+        const excludingProps: TaxonomicFilterLogicProps = {
+            ...PROPS,
+            taxonomicFilterLogicKey: 'event-match-excluding-test',
+            excludedProperties: { [TaxonomicFilterGroupType.Events]: ['$autocapture'] },
+        }
+        const excludingFilterLogic = taxonomicFilterLogic(excludingProps)
+        excludingFilterLogic.mount()
+        const excludingLogic = taxonomicEventMatchLogic(excludingProps)
+        excludingLogic.mount()
+        enroll(true)
+
+        excludingFilterLogic.actions.setSearchQuery('browser capture')
+        await expectLogic(excludingLogic).toFinishAllListeners()
+
+        expect(matchRequests).toHaveLength(1)
+        expect(excludingLogic.values.suggestedEvents).toEqual([])
+    })
+
     it('stops asking for the project after a 404', async () => {
         enroll(true)
         status = 404

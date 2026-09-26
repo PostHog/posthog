@@ -51,6 +51,7 @@ class TestMatchCoreEvents(BaseTest):
             ("email", "ada@example.com"),
             ("url", "https://example.com/pricing"),
             ("id", "user 12345678"),
+            ("url_after_words", "visits https://example.com/reset?token=abc"),
         ]
     )
     def test_never_asks_the_model_about_values_or_unanswerable_searches(self, _name: str, query: str) -> None:

@@ -75,6 +75,9 @@ class TestClassifySearchIntent(SimpleTestCase):
             ("id_like", "user 12345678", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("opaque_token", "sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("opaque_token_in_words", "session sess_a1b2c3d4", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("url_after_words", "visits https://example.com/reset", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("path_after_words", "visits /reset?token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
+            ("key_value_pair", "token=abc", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("too_short", "e", ALL_TABS, None, SearchIntentSource.SKIPPED),
             ("one_option_left", "email", ("events", "suggested_filters"), None, SearchIntentSource.SKIPPED),
         ]

@@ -121,6 +121,18 @@ class SearchIntentSustainedThrottle(UserRateThrottle):
     rate = "3000/day"
 
 
+# Each event match miss makes several model requests, and it only runs for a search with no results,
+# so it gets far lower rates than classify.
+class EventMatchBurstThrottle(UserRateThrottle):
+    scope = "taxonomic_event_match_burst"
+    rate = "20/minute"
+
+
+class EventMatchSustainedThrottle(UserRateThrottle):
+    scope = "taxonomic_event_match_sustained"
+    rate = "400/day"
+
+
 @extend_schema(extensions={"x-product": "core"})
 class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
@@ -179,7 +191,7 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Match an events search to core events",
         description="Guess which PostHog core events a search that matched no event name describes.",
     )
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], throttle_classes=[EventMatchBurstThrottle, EventMatchSustainedThrottle])
     def match_events(self, request: Request, **kwargs: Any) -> Response:
         user = cast(User, request.user)
         if not search_intent_enabled(str(user.distinct_id), str(self.organization_id), flag=EVENT_MATCH_FEATURE_FLAG):

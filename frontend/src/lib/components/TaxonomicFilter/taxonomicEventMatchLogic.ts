@@ -77,7 +77,11 @@ export interface taxonomicEventMatchLogicActions {
 export interface taxonomicEventMatchLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        suggestedEvents: (eventMatches: EventMatches | null, searchQuery: string) => EventMatchApi[]
+        suggestedEvents: (
+            eventMatches: EventMatches | null,
+            searchQuery: string,
+            taxonomicGroups: TaxonomicFilterGroup[]
+        ) => EventMatchApi[]
     }
 }
 
@@ -122,10 +126,22 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
     }),
     selectors({
         suggestedEvents: [
-            (s) => [s.eventMatches, s.searchQuery],
-            (eventMatches: EventMatches | null, searchQuery: string): EventMatchApi[] =>
+            (s) => [s.eventMatches, s.searchQuery, s.taxonomicGroups],
+            (
+                eventMatches: EventMatches | null,
+                searchQuery: string,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): EventMatchApi[] => {
                 // An answer for an older search stays hidden, so a suggestion never names the wrong search.
-                eventMatches?.query === searchQuery.trim() ? eventMatches.matches : [],
+                if (eventMatches?.query !== searchQuery.trim()) {
+                    return []
+                }
+                // A picker that excludes an event from its list must not offer it as a suggestion either.
+                const excluded =
+                    taxonomicGroups.find((group) => group.type === TaxonomicFilterGroupType.Events)
+                        ?.excludedProperties ?? []
+                return eventMatches.matches.filter((match) => !excluded.includes(match.name))
+            },
         ],
     }),
     listeners(({ actions, values }) => ({
@@ -173,6 +189,9 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
                 return
             }
             const position = values.suggestedEvents.findIndex((suggested) => suggested.name === match.name)
+            if (position === -1) {
+                return
+            }
             // pinned: analytics event name and properties, the flag's success metric reads them
             posthog.capture('taxonomic filter event match selected', {
                 surface: legacyTaxonomicSurface(),

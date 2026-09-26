@@ -97,7 +97,11 @@ def rule_intent(query: str, available_group_types: tuple[str, ...]) -> SearchInt
         if "pageview_urls" in available_group_types:
             return _rule_match("pageview_urls")
         return _skipped()
-    if _DIGIT_RUN.search(query) or any(_OPAQUE_TOKEN.match(word) for word in query.split()):
+    words = query.split()
+    # A URL, a path or a key=value pair later in the search still carries a value, such as a token in a query string.
+    if any(_URL_VALUE.match(word) or _PATH_VALUE.match(word) or "=" in word for word in words):
+        return _skipped()
+    if _DIGIT_RUN.search(query) or any(_OPAQUE_TOKEN.match(word) for word in words):
         return _skipped()
     return None
 
