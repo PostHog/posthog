@@ -28,6 +28,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import as_utc_datetime
 from posthog.temporal.ai_observability.evaluation_types import EVALUATION_WORKFLOW_PREFIXES
 from posthog.temporal.ai_observability.evaluation_workflow_activities import RunEvaluationInputs
+from posthog.temporal.ai_observability.metrics import increment_backfill_remainder_outcome
 from posthog.temporal.ai_observability.run_aggregate_evaluation import (
     INGESTION_LAG_MARGIN_SECONDS,
     RunAggregateEvaluationInputs,
@@ -490,11 +491,13 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
                     schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
                     retry_policy=ACTIVITY_RETRY_POLICY,
                 )
+                increment_backfill_remainder_outcome("success")
             except Exception as error:
                 # The walk is done either way, so failing the tick here would spend a consecutive
                 # failure and log at exception level over a number the row can live without.
                 if is_cancelled_exception(error):
                     raise
+                increment_backfill_remainder_outcome("failed")
                 temporalio.workflow.logger.warning(
                     "llma.evaluation_backfill_remainder_failed", extra={"backfill_id": inputs.backfill_id}
                 )
