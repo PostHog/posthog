@@ -72,6 +72,7 @@ import {
     HogLanguage,
     HogQLFilters,
     HogQLMetadata,
+    HogQLFixEdit,
     HogQLMetadataResponse,
     HogQLQuery,
     NodeKind,
@@ -553,6 +554,42 @@ export function tabModelPath(tabId: string): string {
 // suggestion: @monaco-editor/react reuses the existing model on remount without re-applying
 // the `value` prop, so the content has to be written onto the model directly. No-ops when the
 // editor isn't mounted yet or the content already matches.
+function applyUndoableRangedEdits(
+    monaco: Monaco | null | undefined,
+    uri: Uri | undefined,
+    edits: HogQLFixEdit[],
+    offset: number,
+    queryText: string
+): void {
+    if (!monaco || !uri || edits.length === 0) {
+        return
+    }
+    const model = monaco.editor.getModel(uri)
+    if (!model) {
+        return
+    }
+    model.pushStackElement()
+    model.pushEditOperations(
+        [],
+        edits.map((edit) => {
+            // Offsets index the metadata query, which is one statement of a multi-statement script.
+            const start = model.getPositionAt(characterOffsetToUtf16(queryText, edit.start) + offset)
+            const end = model.getPositionAt(characterOffsetToUtf16(queryText, edit.end) + offset)
+            return {
+                range: {
+                    startLineNumber: start.lineNumber,
+                    startColumn: start.column,
+                    endLineNumber: end.lineNumber,
+                    endColumn: end.column,
+                },
+                text: edit.text,
+            }
+        }),
+        () => null
+    )
+    model.pushStackElement()
+}
+
 function applyUndoableModelEdit(monaco: Monaco | null | undefined, uri: Uri | undefined, text: string): void {
     if (!monaco || !uri) {
         return
@@ -812,6 +849,9 @@ export interface sqlEditorLogicActions {
     }
     applyIndexQuickfix: (quickfix: PredicateQuickfix) => {
         quickfix: PredicateQuickfix
+    }
+    applyQueryFix: (edits: HogQLFixEdit[]) => {
+        edits: HogQLFixEdit[]
     }
     closeAccessControlModal: () => {
         value: true
@@ -1452,6 +1492,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         applyIndexQuickfix: (quickfix: PredicateQuickfix) => ({ quickfix }),
         fixIndexUsageWithAI: (prompt: string) => ({ prompt }),
         setEditorSource: (source: SqlEditorSource) => ({ source }),
+        applyQueryFix: (edits: HogQLFixEdit[]) => ({ edits }),
         runSubquery: true,
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
@@ -1957,6 +1998,23 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     source: values.suggestedSource,
                 })
                 actions._setSuggestionPayload(null)
+            },
+            applyQueryFix: ({ edits }) => {
+                // The edits carry offsets into the SQL the server analyzed, so they only land on the
+                // right span while the editor still holds that text.
+                if (values.indexReportStale) {
+                    return
+                }
+                // Embedded mode has no tabs, so the model is reached by the path QueryWindow binds
+                // the editor to, which is the same path createTab uses.
+                const uri = values.activeTab?.uri ?? props.monaco?.Uri.parse(tabModelPath(props.tabId))
+                applyUndoableRangedEdits(
+                    props.monaco,
+                    uri,
+                    edits,
+                    values.activeQueryOffset,
+                    values.activeQueryText ?? values.queryInput ?? ''
+                )
             },
             onRejectSuggestedQueryInput: () => {
                 values.suggestionPayload?.onReject(actions, values, props)
