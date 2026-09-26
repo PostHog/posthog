@@ -312,6 +312,9 @@ impl GlobalRateLimiter {
             local_cache_max_entries: spec.local_cache_max_entries,
             metrics_scope: spec.metrics_scope.to_string(),
             min_sync_floor: spec.min_sync_floor,
+            max_read_outage: config
+                .global_rate_limit_max_read_outage_secs
+                .map(Duration::from_secs),
             max_sync_keys_per_tick: config.global_rate_limit_max_sync_keys_per_tick,
             max_keys_per_command: config.global_rate_limit_max_keys_per_command,
             max_concurrent_commands: config.global_rate_limit_max_concurrent_commands,
