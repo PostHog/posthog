@@ -3,9 +3,17 @@ from django.test.testcases import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.session_recordings.session_recording_api import clean_referer_url
+from posthog.test.regex_timeout import assert_regex_completes
 
 
 class TestCleanRefererUrl(SimpleTestCase):
+    def test_long_interior_slash_run(self) -> None:
+        def check() -> None:
+            path = "/other/" + "/" * 100_000 + "end/"
+            assert clean_referer_url(path) == "other" + "-" * 100_001 + "end"
+
+        assert_regex_completes(check)
+
     @parameterized.expand(
         [
             ("https://example.com/project/1234/", "unknown"),
