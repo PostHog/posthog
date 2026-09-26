@@ -59,7 +59,7 @@ from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
 from posthog.security.url_validation import has_ambiguous_authority
-from posthog.stable_chunks import persist_stable_chunks_choice, stable_chunks_for_request
+from posthog.stable_chunks import stable_chunks_for_request
 
 from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 
@@ -746,7 +746,7 @@ def _build_template_context(
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
             is_authenticated
         )
-        stable_chunks = stable_chunks_for_request(request, posthog_bootstrap.get("featureFlags"))
+        stable_chunks = stable_chunks_for_request(request)
         if stable_chunks:
             context["stable_chunks"] = True
             context["stable_chunks_importmap"] = stable_chunks.import_map_json(context["js_url"])
@@ -833,7 +833,6 @@ def render_template(
         response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
-    persist_stable_chunks_choice(request, response)
 
     return response
 

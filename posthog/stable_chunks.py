@@ -1,23 +1,22 @@
 """
-Opt-in serving of the frontend build with stable chunk names.
+Serving of the frontend build with stable chunk names.
 
 The build writes a second copy of the app's JS in which chunks import each other through identity
 specifiers, plus `stable-chunks-manifest.json` with the import map that resolves them (see
 frontend/bin/stableChunkNames.mjs). A chunk's URL then changes only when its own code changes,
 so a deploy no longer makes returning users download every chunk that imports a changed one.
 
-Which build a request gets is decided by `stable_chunks_choice`. Without a readable manifest,
-pages render exactly as before.
+Every app shell page gets the stable build when its manifest is readable. If the stable entry fails
+to load, the page reloads once with `?stable_chunks=fallback`, which serves the hashed build.
 """
 
 import os
 import json
-from collections.abc import Mapping
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Optional
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest
 
 import structlog
 
@@ -27,9 +26,7 @@ from posthog.exceptions_capture import capture_exception
 logger = structlog.get_logger(__name__)
 
 STABLE_CHUNKS_PARAM = "stable_chunks"
-STABLE_CHUNKS_COOKIE = "ph_stable_chunks"
-STABLE_CHUNKS_FLAG = "stable-chunk-names"
-_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+FALLBACK = "fallback"
 
 
 @frozen
@@ -56,7 +53,7 @@ class StableChunks:
 
 def read_stable_chunks_manifest(manifest_path: str) -> Optional[StableChunks]:
     """
-    Parse the manifest defensively. A missing or malformed manifest turns the opt-in off rather
+    Parse the manifest defensively. A missing or malformed manifest serves the hashed build rather
     than breaking page rendering, and is reported, because the caller caches the result per process.
     """
     try:
@@ -100,39 +97,7 @@ def _resolve_stable_chunks() -> Optional[StableChunks]:
     )
 
 
-def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]) -> bool:
-    """
-    The query param wins, then the cookie, then the flag for a logged-in user. `feature_flags` are
-    the ones bootstrapped into posthog-js, so events carry the flag value that picked the build.
-    """
-    param = request.GET.get(STABLE_CHUNKS_PARAM)
-    if param is not None:
-        return param == "1"
-
-    cookie = request.COOKIES.get(STABLE_CHUNKS_COOKIE)
-    if cookie in ("0", "1"):
-        return cookie == "1"
-
-    if not request.user.is_authenticated or not feature_flags:
-        return False
-
-    return feature_flags.get(STABLE_CHUNKS_FLAG) is True
-
-
-def stable_chunks_for_request(
-    request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]
-) -> Optional[StableChunks]:
-    return _resolve_stable_chunks() if stable_chunks_choice(request, feature_flags) else None
-
-
-def persist_stable_chunks_choice(request: HttpRequest, response: HttpResponse) -> None:
-    param = request.GET.get(STABLE_CHUNKS_PARAM)
-    if param in ("0", "1"):
-        response.set_cookie(
-            STABLE_CHUNKS_COOKIE,
-            param,
-            max_age=_COOKIE_MAX_AGE_SECONDS,
-            secure=request.is_secure(),
-            httponly=True,
-            samesite="Lax",
-        )
+def stable_chunks_for_request(request: HttpRequest) -> Optional[StableChunks]:
+    if request.GET.get(STABLE_CHUNKS_PARAM) == FALLBACK:
+        return None
+    return _resolve_stable_chunks()
