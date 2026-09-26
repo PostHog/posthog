@@ -272,22 +272,29 @@ def rewrite_paths(text: str, renames: dict[str, str]) -> str:
 def _args_span(text: str, open_idx: int) -> int | None:
     """Index just past the ``)`` that balances the ``(`` at ``text[open_idx]``.
 
-    Counts nesting and skips string literals, so decorator args that contain
-    their own parens (``expires=timedelta(hours=1)``) are matched whole instead
-    of being truncated at the first ``)``. Returns None if the parens never
-    balance.
+    Counts nesting and skips string literals and comments, so decorator args
+    that contain their own parens (``expires=timedelta(hours=1)``) are matched
+    whole instead of being truncated at the first ``)``, and a trailing
+    comment containing a stray paren (``# (for compatibility``) can't defeat
+    the balance count either. Returns None if the parens never balance.
     """
     depth = 0
     quote: str | None = None
+    in_comment = False
     i = open_idx
     while i < len(text):
         ch = text[i]
-        if quote is not None:
+        if in_comment:
+            if ch == "\n":
+                in_comment = False
+        elif quote is not None:
             if ch == "\\":
                 i += 2
                 continue
             if ch == quote:
                 quote = None
+        elif ch == "#":
+            in_comment = True
         elif ch in "\"'":
             quote = ch
         elif ch == "(":

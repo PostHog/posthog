@@ -171,6 +171,11 @@ def test_absolutize_relative_imports(source: str, package: str, expected: str) -
             "@shared_task(\n    ignore_result=True,\n    time_limit=330,\n)\ndef slow_task():\n    pass\n",
             '@shared_task(ignore_result=True,\n    time_limit=330, name="products.logs.backend.tasks.slow_task")',
         ),
+        # a stray '(' inside a trailing comment must not defeat paren balancing
+        (
+            '@shared_task(\n    queue="foo",  # (for compatibility\n)\ndef commented_task():\n    pass\n',
+            '@shared_task(queue="foo", name="products.logs.backend.tasks.commented_task")',
+        ),
     ],
 )
 def test_pin_task_names(source: str, expected_fragment: str) -> None:
