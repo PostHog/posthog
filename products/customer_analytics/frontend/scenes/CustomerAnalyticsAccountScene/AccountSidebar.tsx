@@ -24,7 +24,7 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
             className="w-full shrink-0 @max-[60rem]:border @max-[60rem]:rounded border-r rounded-r bg-surface-primary flex flex-col @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:w-60 @min-[60rem]/account-detail:overflow-y-auto"
             data-attr="account-sidebar"
         >
-            <div className="flex justify-center gap-2 p-4">
+            <div className="flex justify-center gap-2 p-2">
                 <LemonButton
                     type="secondary"
                     size="small"
