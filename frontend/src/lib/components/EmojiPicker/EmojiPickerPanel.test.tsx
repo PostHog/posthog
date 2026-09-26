@@ -91,6 +91,7 @@ describe('EmojiPickerPanel', () => {
 
         await waitFor(() => expect(emojiSearchSuggestRetrieve).toHaveBeenCalled())
         const signal = jest.mocked(emojiSearchSuggestRetrieve).mock.calls[0][2]?.signal
+        expect(signal?.aborted).toBe(false)
         unmount()
 
         expect(signal?.aborted).toBe(true)
