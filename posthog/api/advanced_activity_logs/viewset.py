@@ -15,6 +15,7 @@ from rest_framework.pagination import BasePagination, Cursor, CursorPagination, 
 from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -204,9 +205,41 @@ class TailFollowingCursorPagination(CursorPagination):
         return self.encode_cursor(Cursor(offset=0, reverse=False, position=position))  # type: ignore[arg-type]
 
 
+class UncountedPageNumberPagination(PageNumberPagination):
+    """Page-number pagination that reads one extra row to find the next page, so it never counts all matches.
+
+    The response has no `count`. A count scans every matching row, which is slow for an org with a long history.
+    """
+
+    def paginate_queryset(self, queryset, request, view=None):
+        self.request = request
+        page_size = self.get_page_size(request)
+        self.page_number = int(request.query_params.get(self.page_query_param) or 1)
+        offset = (self.page_number - 1) * page_size
+        rows = list(queryset[offset : offset + page_size + 1])
+        self.has_next = len(rows) > page_size
+        return rows[:page_size]
+
+    def get_next_link(self) -> Optional[str]:
+        if not self.has_next:
+            return None
+        return replace_query_param(self.request.build_absolute_uri(), self.page_query_param, self.page_number + 1)
+
+    def get_previous_link(self) -> Optional[str]:
+        if self.page_number <= 1:
+            return None
+        # Keep `page` on the link: without it, ActivityLogPagination switches to cursor mode.
+        return replace_query_param(self.request.build_absolute_uri(), self.page_query_param, self.page_number - 1)
+
+    def get_paginated_response(self, data):
+        return Response({"next": self.get_next_link(), "previous": self.get_previous_link(), "results": data})
+
+
 class ActivityLogPagination(BasePagination):
+    page_number_pagination_class: type[PageNumberPagination] = PageNumberPagination
+
     def __init__(self):
-        self.page_number_pagination = PageNumberPagination()
+        self.page_number_pagination = self.page_number_pagination_class()
         self.cursor_pagination = TailFollowingCursorPagination()
         self.page_number_pagination.page_size = 100
         self.page_number_pagination.page_size_query_param = "page_size"
@@ -242,6 +275,10 @@ class ActivityLogPagination(BasePagination):
         page_number_schema = self.page_number_pagination.get_paginated_response_schema(schema)
         cursor_schema["properties"]["count"] = page_number_schema["properties"]["count"]
         return cursor_schema
+
+
+class AdvancedActivityLogPagination(ActivityLogPagination):
+    page_number_pagination_class = UncountedPageNumberPagination
 
 
 class ActivityLogScopeField(serializers.ChoiceField):
@@ -555,7 +592,7 @@ class AvailableFiltersResponseSerializer(serializers.Serializer):
 @extend_schema(extensions={"x-product": "platform_features"})
 class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     serializer_class = ActivityLogSerializer
-    pagination_class = ActivityLogPagination
+    pagination_class = AdvancedActivityLogPagination
     logger = logging.getLogger(__name__)
     filter_rewrite_rules = {"project_id": "team_id"}
     scope_object = "activity_log"

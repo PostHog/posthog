@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, events, kea, listeners, path, reducers
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import api, { CountedPaginatedResponse } from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { ADVANCED_ACTIVITY_PAGE_SIZE, OrganizationMembershipLevel } from 'lib/constants'
@@ -152,7 +152,7 @@ export interface advancedActivityLogsLogicValues {
     activeAdvancedFiltersCount: number
     activeFilters: ActiveDetailFilter[]
     activeTab: 'exports' | 'logs'
-    advancedActivityLogs: CountedPaginatedResponse<ActivityLogItem>
+    advancedActivityLogs: PaginatedResponse<ActivityLogItem>
     advancedActivityLogsBaseUrl: string
     advancedActivityLogsLoading: boolean
     availableFilters: AvailableFilters | null
@@ -209,10 +209,10 @@ export interface advancedActivityLogsLogicActions {
         errorObject?: any
     }
     loadAdvancedActivityLogsSuccess: (
-        advancedActivityLogs: CountedPaginatedResponse<ActivityLogItem>,
+        advancedActivityLogs: PaginatedResponse<ActivityLogItem>,
         payload?: any
     ) => {
-        advancedActivityLogs: CountedPaginatedResponse<ActivityLogItem>
+        advancedActivityLogs: PaginatedResponse<ActivityLogItem>
         payload?: any
     }
     loadAvailableFilters: () => any
@@ -292,7 +292,7 @@ export interface advancedActivityLogsLogicMeta {
         hasActiveFilters: (filters: AdvancedActivityLogFilters, isOrganizationView: boolean) => boolean
         pagination: (
             filters: AdvancedActivityLogFilters,
-            advancedActivityLogs: CountedPaginatedResponse<ActivityLogItem>
+            advancedActivityLogs: PaginatedResponse<ActivityLogItem>
         ) => PaginationManual
         activeAdvancedFiltersCount: (filters: AdvancedActivityLogFilters) => number
         urlSearchParams: (
@@ -419,7 +419,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
     loaders(({ values }) => ({
         advancedActivityLogs: [
-            { results: [], count: 0 } as CountedPaginatedResponse<ActivityLogItem>,
+            { results: [], next: null } as PaginatedResponse<ActivityLogItem>,
             {
                 loadAdvancedActivityLogs: async (_, breakpoint) => {
                     await breakpoint(300)
@@ -549,15 +549,19 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             (s) => [s.filters, s.advancedActivityLogs],
             (
                 filters: AdvancedActivityLogFilters,
-                advancedActivityLogs: CountedPaginatedResponse<ActivityLogItem>
-            ): PaginationManual => ({
-                controlled: true,
-                pageSize: ADVANCED_ACTIVITY_PAGE_SIZE,
-                currentPage: filters.page || 1,
-                entryCount: advancedActivityLogs.count || 0,
-                onBackward: () => advancedActivityLogsLogic.actions.setPage((filters.page || 1) - 1),
-                onForward: () => advancedActivityLogsLogic.actions.setPage((filters.page || 1) + 1),
-            }),
+                advancedActivityLogs: PaginatedResponse<ActivityLogItem>
+            ): PaginationManual => {
+                // The API returns no total count, so the controls follow the `next` link and the current page.
+                const page = filters.page || 1
+                return {
+                    controlled: true,
+                    pageSize: ADVANCED_ACTIVITY_PAGE_SIZE,
+                    onBackward: page > 1 ? () => advancedActivityLogsLogic.actions.setPage(page - 1) : undefined,
+                    onForward: advancedActivityLogs.next
+                        ? () => advancedActivityLogsLogic.actions.setPage(page + 1)
+                        : undefined,
+                }
+            },
         ],
 
         activeAdvancedFiltersCount: [
