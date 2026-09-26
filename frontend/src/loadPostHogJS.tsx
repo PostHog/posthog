@@ -19,10 +19,35 @@ export function isInDeferredInitSample(sessionId: string): boolean {
     return Math.abs(hash) % 100 < 50
 }
 
+interface RawStackFrame {
+    filename?: string
+}
+
+/**
+ * Browser extensions (crypto wallets, reader modes) inject scripts into the page. When such a
+ * script throws, every stack frame points at the document URL, and error tracking reads it as an
+ * app error. The URL is part of the fingerprint, so each page makes a new issue we cannot fix.
+ * The app loads its own code from separate bundles, so a stack made only of document URL frames
+ * is not ours.
+ */
+export const dropBrowserExtensionExceptions: BeforeSendFn = (event) => {
+    if (event?.event !== '$exception') {
+        return event
+    }
+    const exceptionList = event.properties?.$exception_list
+    if (!Array.isArray(exceptionList)) {
+        return event
+    }
+    const frames: RawStackFrame[] = exceptionList.flatMap((exception) => exception?.stacktrace?.frames ?? [])
+    const documentUrl = window.location.origin + window.location.pathname
+    const isDocumentUrl = (filename: string | undefined): boolean => filename?.split(/[?#]/)[0] === documentUrl
+    return frames.length > 0 && frames.every((frame) => isDocumentUrl(frame?.filename)) ? null : event
+}
+
 export interface LoadPostHogJSOptions {
     /**
      * Hook posthog-js's `before_send` so the caller can mutate or drop events before they leave
-     * the browser. Used by the exporter app to redact the SharingConfiguration access token from
+     * the browser. Runs after `dropBrowserExtensionExceptions`, which every caller gets. Used by the exporter app to redact the SharingConfiguration access token from
      * URL-shaped properties on the interview share page — see `frontend/src/exporter/index.tsx`.
      */
     beforeSend?: BeforeSendFn | BeforeSendFn[]
@@ -61,7 +86,7 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 __capturePostHogExceptions: true,
             },
             metrics: { network: true, serviceName: 'posthog-app', ...options.metrics },
-            before_send: options.beforeSend,
+            before_send: [dropBrowserExtensionExceptions, ...[options.beforeSend ?? []].flat()],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
