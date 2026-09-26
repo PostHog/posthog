@@ -12,6 +12,7 @@ import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
+import { isMobile } from 'lib/utils/dom'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
@@ -299,6 +300,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         disabledReason = 'Cancelling...'
     }
 
+    const submitFromKeyboard = (): void => {
+        if (hasQuestion && !submissionDisabledReason && (!threadLoading || queueingEnabled)) {
+            onSubmit?.()
+            submit(inputValue)
+        }
+    }
+
     useEffect(() => {
         if (!streamingActive && textAreaRef?.current) {
             textAreaRef.current.focus()
@@ -436,16 +444,10 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             }
                                             releaseSandboxPrewarm()
                                         }}
-                                        onPressEnter={() => {
-                                            if (
-                                                hasQuestion &&
-                                                !submissionDisabledReason &&
-                                                (!threadLoading || queueingEnabled)
-                                            ) {
-                                                onSubmit?.()
-                                                submit(inputValue)
-                                            }
-                                        }}
+                                        // On phones, Return adds a newline so users can write multi-line drafts.
+                                        {...(isMobile()
+                                            ? { onPressCmdEnter: submitFromKeyboard }
+                                            : { onPressEnter: submitFromKeyboard })}
                                         onKeyDown={(event) => {
                                             if (
                                                 event.key === 'ArrowUp' &&

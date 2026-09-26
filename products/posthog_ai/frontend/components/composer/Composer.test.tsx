@@ -204,8 +204,29 @@ describe('Composer', () => {
         fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: true })
         expect(onSubmit).not.toHaveBeenCalled()
 
+        fireEvent.keyDown(textarea, { key: 'Enter', isComposing: true })
+        expect(onSubmit).not.toHaveBeenCalled()
+
         fireEvent.keyDown(textarea, { key: 'Enter' })
         expect(onSubmit).toHaveBeenCalledTimes(1)
+    })
+
+    it('keeps Return as a newline on phones and submits with Cmd+Enter or the send button', () => {
+        jest.spyOn(navigator, 'userAgent', 'get').mockReturnValue(
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148'
+        )
+        const { container } = renderComposer({ value: 'line one' })
+        const textarea = screen.getByRole('textbox')
+
+        // fireEvent returns false when a handler calls preventDefault, which would block the native newline.
+        expect(fireEvent.keyDown(textarea, { key: 'Enter' })).toBe(true)
+        expect(onSubmit).not.toHaveBeenCalled()
+
+        fireEvent.keyDown(textarea, { key: 'Enter', metaKey: true })
+        expect(onSubmit).toHaveBeenCalledTimes(1)
+
+        fireEvent.click(getSend(container))
+        expect(onSubmit).toHaveBeenCalledTimes(2)
     })
 
     it('turns the send button into a Stop button while a turn is active with empty input', () => {
