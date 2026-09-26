@@ -87,6 +87,7 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     AD_PERFORMANCE = 'ad-performance',
+    SEARCH_PERFORMANCE = 'search-performance',
     PAGE_VISIBILITY = 'page-visibility',
     ATTRIBUTION = 'attribution',
     RETENTION = 'retention',
@@ -555,8 +556,12 @@ export interface marketingAnalyticsLogicActions {
     setInitialized: () => {
         value: true
     }
-    setIntegrationFilter: (integrationFilter: IntegrationFilter) => {
+    setIntegrationFilter: (
+        integrationFilter: IntegrationFilter,
+        visibleSourceIds?: string[]
+    ) => {
         integrationFilter: IntegrationFilter
+        visibleSourceIds: string[] | undefined
     }
     setOptionsOpen: (optionsOpen: boolean) => {
         optionsOpen: boolean
@@ -801,7 +806,10 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             dateTo,
             interval,
         }),
-        setIntegrationFilter: (integrationFilter: IntegrationFilter) => ({ integrationFilter }),
+        setIntegrationFilter: (integrationFilter: IntegrationFilter, visibleSourceIds?: string[]) => ({
+            integrationFilter,
+            visibleSourceIds,
+        }),
         setOptionsOpen: (optionsOpen: boolean) => ({ optionsOpen }),
         // Internal action for URL sync - updates state without triggering actionToUrl
         syncFromUrl: (params: {
@@ -895,7 +903,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 // and strands the unreadable value under the old key for a rollback to find again.
                 { ...persistConfig, storageKey: 'scenes.webAnalytics.marketingAnalyticsLogic.integrationFilter' },
                 {
-                    setIntegrationFilter: (_, { integrationFilter }) => integrationFilter,
+                    setIntegrationFilter: (state, { integrationFilter, visibleSourceIds }) =>
+                        visibleSourceIds
+                            ? {
+                                  ...integrationFilter,
+                                  integrationSourceIds: [
+                                      ...(state.integrationSourceIds || []).filter(
+                                          (id) => !visibleSourceIds.includes(id)
+                                      ),
+                                      ...(integrationFilter.integrationSourceIds || []),
+                                  ],
+                              }
+                            : integrationFilter,
                     syncFromUrl: (state, { params }) => {
                         if (!params.integrationSourceIds && params.includeNonIntegrated === undefined) {
                             return state
@@ -1728,7 +1747,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                     )
 
                     if (validFilterIds.length !== currentFilter.integrationSourceIds.length) {
-                        actions.setIntegrationFilter({ integrationSourceIds: validFilterIds })
+                        actions.setIntegrationFilter({ ...currentFilter, integrationSourceIds: validFilterIds })
                     }
                 }
 

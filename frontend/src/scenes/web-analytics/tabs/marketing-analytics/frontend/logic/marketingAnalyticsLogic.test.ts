@@ -60,6 +60,26 @@ describe('marketingAnalyticsLogic', () => {
         localStorage.clear()
     })
 
+    it.each([
+        ['select Bing', ['google', 'bing'], ['meta', 'google', 'bing']],
+        ['clear search integrations', [], ['meta']],
+    ])('preserves other tabs’ integrations when search filters %s', async (_label, selectedIds, expectedIds) => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setIntegrationFilter({ integrationSourceIds: ['google', 'meta'], includeNonIntegrated: false })
+
+        logic.actions.setIntegrationFilter({ integrationSourceIds: selectedIds, includeNonIntegrated: false }, [
+            'google',
+            'bing',
+        ])
+
+        expect(logic.values.integrationFilter).toEqual({
+            integrationSourceIds: expectedIds,
+            includeNonIntegrated: false,
+        })
+    })
+
     it.each<{
         description: string
         overrideFromUrl?: boolean
@@ -390,10 +410,7 @@ describe('marketingAnalyticsLogic', () => {
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
-        localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({ integrationSourceIds: ['source-1'], includeNonIntegrated: true })
-        )
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ integrationSourceIds: ['source-1'], removedOption: true }))
 
         logic = marketingAnalyticsLogic()
         logic.mount()

@@ -9,6 +9,7 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     HogQLQuery,
     LifecycleDataWarehouseNode,
+    MarketingAnalyticsSearchQuery,
     RetentionEntity,
 )
 
@@ -280,8 +281,7 @@ def queried_access_controlled_resources(
 
         return _with_fallback_parents(scopes, bypassed_scopes)
 
-    # Structured insight queries (Trends/Funnels/Lifecycle/...) read warehouse data via a
-    # DataWarehouseNode in their tree rather than by table name.
+    # Structured queries can reference warehouse tables without a HogQLQuery in their tree.
     return (
         _with_fallback_parents({"warehouse_table", "warehouse_view"}, bypassed_scopes)
         if _references_data_warehouse(query)
@@ -302,10 +302,11 @@ def _with_fallback_parents(scopes: set[str], bypassed_scopes: frozenset[str]) ->
 
 
 def _references_data_warehouse(value) -> bool:
-    """True if a structured query reads a data-warehouse source via a DataWarehouseNode — or a
-    data-warehouse RetentionEntity — anywhere in its tree (series, sub-queries, exclusions, ...)"""
+    """True if a structured query reads warehouse data anywhere in its tree."""
     if isinstance(value, (DataWarehouseNode, FunnelsDataWarehouseNode, LifecycleDataWarehouseNode)):
         return True
+    if isinstance(value, MarketingAnalyticsSearchQuery):
+        return bool(value.sources)
     if isinstance(value, RetentionEntity) and value.type == EntityType.DATA_WAREHOUSE:
         return True
     if isinstance(value, BaseModel):
