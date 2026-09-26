@@ -7,8 +7,6 @@ This is the cheap, boring, high-frequency half of the product — it runs on the
 
 The cardinal rule: **inference never refits a persisted model.** A bundle is fitted once, at training completion, and every cadence loads that `model.pkl`. A recipe-only champion has no persisted model, so it fits its allowlisted sklearn class in process on every cadence; that is the cost of a champion without a bundle, not a refit.
 
-This package landed ahead of its scheduler. `../temporal/` arrives in a later piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
-
 ## What lives here
 
 - `sandbox.py`
