@@ -73,6 +73,7 @@ export interface magicEightBallLogicValues {
     confidence: number | null
     decision: DecideResponseApi | null
     decisionLoading: boolean
+    lastAskError: string | null
     motionAllowed: boolean
     question: string
     questionChangedSinceAsk: boolean
@@ -111,6 +112,7 @@ export interface magicEightBallLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         answer: (decision: DecideResponseApi | null, questionChangedSinceAsk: boolean) => string | null
         confidence: (decision: DecideResponseApi | null, questionChangedSinceAsk: boolean) => number | null
+        askError: (lastAskError: string | null, questionChangedSinceAsk: boolean) => string | null
         askDisabledReason: (question: string, decisionLoading: boolean) => string | null
     }
 }
@@ -164,11 +166,10 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
                 ask: () => false,
             },
         ],
-        askError: [
+        lastAskError: [
             null as string | null,
             {
                 ask: () => null,
-                setQuestion: () => null,
                 askFailure: (_, { error }) => error,
             },
         ],
@@ -184,6 +185,11 @@ export const magicEightBallLogic = kea<magicEightBallLogicType>([
             (s) => [s.decision, s.questionChangedSinceAsk],
             (decision: DecideResponseApi | null, questionChangedSinceAsk: boolean): number | null =>
                 questionChangedSinceAsk ? null : (answerOf(decision)?.confidence ?? null),
+        ],
+        askError: [
+            (s) => [s.lastAskError, s.questionChangedSinceAsk],
+            (lastAskError: string | null, questionChangedSinceAsk: boolean): string | null =>
+                questionChangedSinceAsk ? null : lastAskError,
         ],
         askDisabledReason: [
             (s) => [s.question, s.decisionLoading],

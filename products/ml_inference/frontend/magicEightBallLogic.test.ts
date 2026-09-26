@@ -58,6 +58,29 @@ describe('magicEightBallLogic', () => {
         expect(logic.values.confidence).toBeNull()
     })
 
+    it.each([
+        ['shows the error of a failed ask', false, expect.any(String)],
+        ['hides the error of a failed ask when the question changes during the ask', true, null],
+    ])('%s', async (_, editWhileAsking, expectedError) => {
+        useMocks({
+            post: {
+                '/api/projects/:team_id/ml_inference/decisions/decide/': () => [500, { detail: 'Model unavailable' }],
+            },
+        })
+        initKeaTests()
+        const logic = magicEightBallLogic()
+        logic.mount()
+        logic.actions.setQuestion('Will it ship?')
+
+        const pendingAsk = logic.asyncActions.ask()
+        if (editWhileAsking) {
+            logic.actions.setQuestion('Will it ship on time?')
+        }
+        await pendingAsk
+
+        expect(logic.values.askError).toEqual(expectedError)
+    })
+
     describe('motion permission', () => {
         const originalDeviceMotionEvent = Object.getOwnPropertyDescriptor(window, 'DeviceMotionEvent')
 
