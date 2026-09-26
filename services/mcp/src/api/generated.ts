@@ -49898,7 +49898,7 @@ export namespace Schemas {
     }
 
     /**
-     * The derived fields a workflow listing shows, shared by the slim summaries and the MCP list.
+     * One workflow list row, without the step graph, step inputs or email bodies.
      */
     export interface HogFlowListRow {
       /** Workflow id. */
@@ -60408,7 +60408,6 @@ export namespace Schemas {
     }
 
     export interface MessageTemplateListRow {
-      /** Template id. */
       readonly id: string;
       /** Human-readable template name shown in the library. */
       readonly name: string;
@@ -60420,11 +60419,8 @@ export namespace Schemas {
       readonly subject: string;
       /** Every address the template sends from: its override address, else the address of each sender integration it names. Empty for most templates, which leave the sender to the workflow step. */
       readonly from_addresses: readonly string[];
-      /** User who created the template. */
       readonly created_by: UserBasic | null;
-      /** When the template was created. */
       readonly created_at: string;
-      /** When the template was last changed. */
       readonly updated_at: string;
     }
 

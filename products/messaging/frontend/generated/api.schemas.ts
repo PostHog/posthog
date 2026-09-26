@@ -493,7 +493,6 @@ export interface PatchedDesignPatchApi {
 }
 
 export interface MessageTemplateListRowApi {
-    /** Template id. */
     readonly id: string
     /** Human-readable template name shown in the library. */
     readonly name: string
@@ -505,11 +504,8 @@ export interface MessageTemplateListRowApi {
     readonly subject: string
     /** Every address the template sends from: its override address, else the address of each sender integration it names. Empty for most templates, which leave the sender to the workflow step. */
     readonly from_addresses: readonly string[]
-    /** User who created the template. */
     readonly created_by: UserBasicApi | null
-    /** When the template was created. */
     readonly created_at: string
-    /** When the template was last changed. */
     readonly updated_at: string
 }
 

@@ -26,8 +26,7 @@ class ResolvedEmailSender:
 
 
 def load_email_sender_integrations(team_id: int, integration_ids: Iterable[int]) -> dict[int, EmailSenderIntegration]:
-    # Integration ids are global, so the team filter is what stops a step naming another team's sender
-    # from resolving to that team's address.
+    """Team-scoped: integration ids are global, so a step could otherwise resolve another team's sender."""
     ids = set(integration_ids)
     if not ids:
         return {}
@@ -43,9 +42,7 @@ def load_email_sender_integrations(team_id: int, integration_ids: Iterable[int])
 
 
 def _resolve_string_sender(from_value: str) -> ResolvedEmailSender:
-    # A plain-string sender can be "Name <address>". The row lists bare addresses so a `from:` filter
-    # on the address matches. A string that does not parse to an address, such as a Liquid
-    # expression, is kept as written.
+    """`Name <address>` gives the bare address. A string that is no address, such as Liquid, is kept as written."""
     name, address = parseaddr(from_value)
     if "@" not in address:
         return ResolvedEmailSender(addresses=(from_value,) if from_value else (), name=None, integration_ids=())
@@ -53,11 +50,7 @@ def _resolve_string_sender(from_value: str) -> ResolvedEmailSender:
 
 
 def resolve_email_sender(from_value: Any, integrations: Mapping[int, EmailSenderIntegration]) -> ResolvedEmailSender:
-    """Every address an email can go out from, by the rule the send path uses.
-
-    An override address wins. Otherwise each integration the send can pick resolves to its address, in
-    order, skipping ids that no longer resolve. A plain-string `from` gives its address and display name.
-    """
+    """Every address an email can go out from: the override address, else each integration a send can pick."""
     if isinstance(from_value, str):
         return _resolve_string_sender(from_value)
     if not isinstance(from_value, dict):
@@ -79,8 +72,6 @@ def resolve_email_sender(from_value: Any, integrations: Mapping[int, EmailSender
 
 
 class ListRowPagination(LimitOffsetPagination):
-    """Page size for the slim list endpoints, which the web app loads in full by following `next`."""
-
     default_limit = 500
     max_limit = 1000
 
@@ -89,13 +80,11 @@ _EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY: Final = "email_sender_integrations"
 
 
 def email_senders_from_context(context: Mapping[str, Any]) -> Mapping[int, EmailSenderIntegration]:
-    # Raises KeyError when the row is serialized without EmailSenderPrefetchListSerializer, which is
-    # the only place the map is loaded. Loading it per row instead would be one query per row.
     return context[_EMAIL_SENDER_INTEGRATIONS_CONTEXT_KEY]
 
 
 class EmailSenderPrefetchListSerializer(serializers.ListSerializer):
-    """Loads the email sender integrations every row on the page names, in one team-scoped query."""
+    """Loads the sender integrations of every row on the page in one query, for resolve_email_sender."""
 
     def sender_from_values(self, row: Any) -> Iterable[Any]:
         raise NotImplementedError

@@ -289,7 +289,6 @@ class DesignPatchSerializer(serializers.Serializer):
 
 
 class _SummaryTemplate(Protocol):
-    # Annotated by MessageTemplatesViewSet.summaries.
     email_subject: str | None
     email_from: Any
 
@@ -299,10 +298,10 @@ class MessageTemplateListRowListSerializer(EmailSenderPrefetchListSerializer):
         return [cast(_SummaryTemplate, row).email_from]
 
 
-class MessageTemplateListRowSerializer(serializers.ModelSerializer):
-    # Reads the `email_subject` and `email_from` annotations from MessageTemplatesViewSet.summaries, so a
-    # page of rows never loads the html and design JSON.
-    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the template.")
+class MessageTemplateListRowSerializer(MessageTemplateSerializer):
+    content = None
+    message_category = None
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
     subject = serializers.SerializerMethodField(
         help_text="Email subject line as written, Liquid tags included. Empty when the template has none."
     )
@@ -313,8 +312,7 @@ class MessageTemplateListRowSerializer(serializers.ModelSerializer):
         )
     )
 
-    class Meta:
-        model = MessageTemplate
+    class Meta(MessageTemplateSerializer.Meta):
         list_serializer_class = MessageTemplateListRowListSerializer
         fields = [
             "id",
@@ -328,14 +326,6 @@ class MessageTemplateListRowSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
-        extra_kwargs = {
-            "id": {"help_text": "Template id."},
-            "name": {"help_text": "Human-readable template name shown in the library."},
-            "description": {"help_text": "What the template is for and when to use it."},
-            "type": {"help_text": "Message channel of the template. Currently 'email'."},
-            "created_at": {"help_text": "When the template was created."},
-            "updated_at": {"help_text": "When the template was last changed."},
-        }
 
     @extend_schema_field(serializers.CharField())
     def get_subject(self, instance: MessageTemplate) -> str:
@@ -357,7 +347,6 @@ class MessageTemplatesViewSet(
     # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get
     # hog_flow:write checked instead of being rejected as an action with no declared scope.
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
-    # `summaries` is a custom read action, so it has to be declared for personal API keys to reach it.
     scope_object_read_actions = ["list", "retrieve", "summaries"]
 
     serializer_class = MessageTemplateSerializer
@@ -387,8 +376,6 @@ class MessageTemplatesViewSet(
         email = KeyTransform("email", "content")
         queryset = (
             self.get_queryset()
-            # created_at never changes, so a save while the web app follows `next` cannot move a row
-            # between pages. On updated_at, the saved row would jump to page one and be skipped.
             .order_by("-created_at", "-id")
             .defer("content")
             .annotate(email_subject=KeyTextTransform("subject", email), email_from=KeyTransform("from", email))

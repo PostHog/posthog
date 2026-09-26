@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import timedelta
@@ -31,7 +32,6 @@ from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION
 
 logger = structlog.get_logger(__name__)
 
-# The actions a workflow listing filters on. `summaries` is the slim list the web app loads in full.
 LIST_ACTIONS: Final[tuple[str, ...]] = ("list", "summaries")
 
 
@@ -87,8 +87,6 @@ def workflow_type_of(origin_product: Optional[str], actions: Any) -> HogFlowType
     return HogFlowType.AUTOMATION
 
 
-# How a channel shows up in the live actions. Slack and webhook steps share the generic `function`
-# action type, so their template id tells them apart.
 _CHANNEL_ACTION_TYPES: Final[dict[str, HogFlowChannel]] = {
     "function_email": HogFlowChannel.EMAIL,
     "function_sms": HogFlowChannel.SMS,
@@ -134,12 +132,7 @@ def jsonb_path_exists(column: str, path: str) -> models.Func:
 
 
 def annotate_trigger_type(queryset: QuerySet) -> QuerySet:
-    """Annotate `_trigger_type`, the SQL twin of the row's `trigger_type`. Change both together.
-
-    The first trigger step is the source of truth, as in _trigger_type. The legacy `trigger` column only
-    counts for a row with no trigger step, because rows exist where the two disagree. jsonpath runs in
-    lax mode, so a row whose `actions` is not an array has no trigger step rather than an error.
-    """
+    """The SQL twin of _trigger_type. Change both together, or the row and the `trigger_type` filter disagree."""
     return queryset.annotate(
         _trigger_action=Func(
             F("actions"),
@@ -184,7 +177,6 @@ class HogFlowListSummary:
 
 
 def _action_dicts(actions: Any) -> list[dict[str, Any]]:
-    # `actions` defaults to {} on a workflow that never got a graph.
     if not isinstance(actions, list):
         return []
     return [action for action in actions if isinstance(action, dict)]
@@ -224,11 +216,7 @@ def summarize_hog_flow(
     origin_product: Optional[str],
     integrations: Mapping[int, EmailSenderIntegration],
 ) -> HogFlowListSummary:
-    """What a workflow list row shows, derived from the live actions only.
-
-    The summary carries no action config beyond the email subject and sender, so it is safe to return
-    anywhere a workflow's name is.
-    """
+    """What a workflow list row shows, derived from the live actions only. Carries no action config beyond email subjects and senders."""
     action_list = _action_dicts(actions)
     channels = {channel for channel in map(_channel_of, action_list) if channel is not None}
 
@@ -290,7 +278,6 @@ def _user_uuids(params: QueryDict, key: str) -> Optional[list[str]]:
         return None
     values = [value for value in raw.split(",") if value]
     try:
-        # A value of only separators names no user, and is rejected like a malformed uuid.
         if not values:
             raise ValueError(raw)
         return [str(uuid.UUID(value)) for value in values]
@@ -304,11 +291,7 @@ CHANNEL_VALUES: Final[tuple[str, ...]] = tuple(HogFlowChannel.values)
 
 
 def apply_list_filters(queryset: QuerySet, params: QueryDict) -> QuerySet:
-    """The server filters shared by the workflow list and its slim summaries.
-
-    Values within one param are OR, params are AND, and an `exclude_*` param drops rows that have any of
-    its values. Every value that reaches SQL is either checked against a fixed set or parsed as a uuid.
-    """
+    """Values within one param are OR, params are AND, and an `exclude_*` param drops rows with any of its values."""
     for key, negate in (("status", False), ("exclude_status", True)):
         statuses = _comma_list(params, key, STATUS_VALUES)
         if statuses:
@@ -330,8 +313,6 @@ def apply_list_filters(queryset: QuerySet, params: QueryDict) -> QuerySet:
         queryset = annotate_trigger_type(queryset)
     for trigger_types, negate in trigger_type_filters:
         condition = Q(_trigger_type__in=sorted(trigger_types))
-        # NOT IN is unknown for a NULL annotation, so a row with no trigger type would drop out of an
-        # exclude. It has none of the excluded values, so it stays.
         queryset = queryset.filter((~condition | Q(_trigger_type__isnull=True)) if negate else condition)
 
     for key, negate in (("channel", False), ("exclude_channel", True)):
@@ -351,16 +332,11 @@ def apply_list_filters(queryset: QuerySet, params: QueryDict) -> QuerySet:
     return queryset
 
 
-# Seconds. The totals are a column on a list, so a slow metrics store costs the column, not the page.
-TOTALS_MAX_EXECUTION_TIME: Final = 5
+TOTALS_MAX_EXECUTION_TIME_SECONDS: Final = 5
 
 
 def fetch_last_7_days_totals(team_id: int, workflow_ids: Sequence[str]) -> Optional[dict[str, dict[str, int]]]:
-    """Succeeded and failed totals for the last 7 days of the given workflows, or None when ClickHouse fails.
-
-    A metrics outage or timeout must not take the list down with it, so the caller renders every row
-    without totals.
-    """
+    """Succeeded and failed totals for the last 7 days, or None when ClickHouse fails so the list still renders."""
     if not workflow_ids:
         return {}
     try:
@@ -369,7 +345,7 @@ def fetch_last_7_days_totals(team_id: int, workflow_ids: Sequence[str]) -> Optio
             app_source="hog_flow",
             after=timezone.now() - timedelta(days=7),
             app_source_ids=list(workflow_ids),
-            max_execution_time=TOTALS_MAX_EXECUTION_TIME,
+            max_execution_time=TOTALS_MAX_EXECUTION_TIME_SECONDS,
         )
     except Exception as error:
         logger.exception("hog_flow_summaries_totals_failed", team_id=team_id)
@@ -377,8 +353,6 @@ def fetch_last_7_days_totals(team_id: int, workflow_ids: Sequence[str]) -> Optio
         return None
 
 
-# Everything a summary row never reads. Loading these for a full page of workflows costs more than the
-# rows themselves, and the encrypted columns cost a decrypt each.
 SUMMARY_DEFERRED_FIELDS: Final[tuple[str, ...]] = (
     "draft",
     "draft_encrypted_inputs",
@@ -390,7 +364,6 @@ SUMMARY_DEFERRED_FIELDS: Final[tuple[str, ...]] = (
     "trigger_masking",
 )
 
-# Serializer context keys: the derived summary per row, and the page's totals from the summaries action.
 _SUMMARY_CACHE_CONTEXT_KEY: Final = "_hog_flow_list_summaries"
 RUN_TOTALS_CONTEXT_KEY: Final = "last_7_days_totals"
 
@@ -441,13 +414,10 @@ class HogFlowSummaryListSerializer(EmailSenderPrefetchListSerializer):
 
 
 class _ListedHogFlow(Protocol):
-    # Annotated by HogFlowViewSet.safely_get_queryset for the list actions.
     has_draft: bool
 
 
 class HogFlowSummaryFieldsMixin(serializers.Serializer):
-    """The derived fields a workflow listing shows, shared by the slim summaries and the MCP list."""
-
     type = serializers.SerializerMethodField(
         help_text=(
             "`loop` and `broadcast` for workflows those surfaces own. Otherwise `messaging` when a live step "
@@ -486,7 +456,6 @@ class HogFlowSummaryFieldsMixin(serializers.Serializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_has_draft(self, instance: HogFlow) -> bool:
-        # Read from the annotation so a listing never loads the draft JSON.
         return bool(cast(_ListedHogFlow, instance).has_draft)
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=HogFlowChannel.choices)))
@@ -494,16 +463,15 @@ class HogFlowSummaryFieldsMixin(serializers.Serializer):
         return [channel.value for channel in self._summary(instance).channels]
 
     @extend_schema_field(EmailStepSummarySerializer(many=True))
-    def get_email_steps(self, instance: HogFlow) -> Any:
-        return EmailStepSummarySerializer(self._summary(instance).email_steps, many=True).data
+    def get_email_steps(self, instance: HogFlow) -> list[dict[str, Any]]:
+        return [dataclasses.asdict(step) for step in self._summary(instance).email_steps]
 
 
 class HogFlowListRowSerializer(
     HogFlowSummaryFieldsMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
-    # Deliberately not a HogFlowMinimalSerializer: its to_representation reads the encrypted input columns
-    # on every row, which the summaries queryset defers, so each row would lazy-load them. The row has no
-    # secret-bearing field, so it needs no masking.
+    """One workflow list row, without the step graph, step inputs or email bodies."""
+
     created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the workflow.")
     dispatches = serializers.SerializerMethodField(
         help_text="One entry per function template the live steps dispatch through, in first-seen order."
@@ -548,8 +516,8 @@ class HogFlowListRowSerializer(
         }
 
     @extend_schema_field(DispatchSummarySerializer(many=True))
-    def get_dispatches(self, instance: HogFlow) -> Any:
-        return DispatchSummarySerializer(self._summary(instance).dispatches, many=True).data
+    def get_dispatches(self, instance: HogFlow) -> list[dict[str, Any]]:
+        return [dataclasses.asdict(dispatch) for dispatch in self._summary(instance).dispatches]
 
     @extend_schema_field(WorkflowRunTotalsSerializer(allow_null=True))
     def get_last_7_days(self, instance: HogFlow) -> Optional[dict[str, int]]:

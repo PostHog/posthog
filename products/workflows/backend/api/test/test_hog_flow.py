@@ -437,7 +437,6 @@ class TestHogFlowAPI(APIBaseTest):
             created_by=other_user,
             actions=[trigger("schedule"), step("function_sms", "template-twilio"), step("function", "template-slack")],
         )
-        # The legacy `trigger` column disagrees with the trigger action. Filters follow the action.
         HogFlow.objects.create(
             team=self.team,
             name="Sync",
@@ -454,7 +453,6 @@ class TestHogFlowAPI(APIBaseTest):
             actions=[step("function_push", "template-firebase-push")],
         )
 
-        # No steps, no trigger and no creator: every exclude_* filter must keep it, because it has none of the values.
         HogFlow.objects.create(team=self.team, name="Blank", status=HogFlow.State.ARCHIVED, actions=[])
 
         query = query.replace("ME", str(self.user.uuid)).replace("OTHER", str(other_user.uuid))

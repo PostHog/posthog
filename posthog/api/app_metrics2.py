@@ -257,8 +257,7 @@ def fetch_app_metric_totals_by_source(
     Unlike `fetch_app_metric_totals` (single object), this drops the `app_source_id`
     filter and groups by it, so callers get counts for every object at once — e.g. a
     failure overview across all workflows. Returns `{app_source_id: {metric_name: count}}`.
-    Pass `app_source_ids` to count only those objects, and `max_execution_time` (seconds)
-    to make ClickHouse give up rather than hold the caller.
+    `app_source_ids` limits the count to those objects. `max_execution_time` is in seconds.
     """
     if app_source_ids is not None and not app_source_ids:
         return {}

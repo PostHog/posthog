@@ -2918,7 +2918,6 @@ class HogFlowSummarySerializer(HogFlowSummaryFieldsMixin, HogFlowMinimalSerializ
     # detail-only fields: an action's `config` can hold credential-like values (e.g. a webhook
     # Authorization header), and a workflow *listing* must not broaden their visibility. Full
     # definitions stay behind retrieve. Used for MCP list requests; see get_serializer_class.
-    # The derived fields come from summarize_hog_flow, which exposes only email subjects and senders.
     class Meta(HogFlowMinimalSerializer.Meta):
         list_serializer_class = HogFlowSummaryListSerializer
         fields = [
@@ -3880,9 +3879,7 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
 class HogFlowFilterSet(FilterSet):
     class Meta:
         model = HogFlow
-        # `created_by` and `status` take comma lists and reject unknown values, so apply_list_filters
-        # handles them rather than an exact-match field here. `created_by` is a uuid, not a pk, because
-        # the list UI's member picker keys on uuid.
+        # `created_by` and `status` are filtered by apply_list_filters, which takes comma lists.
         fields = ["id", "created_at", "updated_at", "origin_product"]
 
 
@@ -4111,13 +4108,10 @@ class HogFlowViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action in LIST_ACTIONS:
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing a sort value can
-            # otherwise repeat on one page and never appear on another. `summaries` is loaded in full by
-            # following `next`, so it sorts on the immutable created_at: on updated_at, a save during the
-            # load moves the row to page one, and the row is lost while another repeats.
+            # otherwise repeat on one page and never appear on another.
             ordering = ("-created_at", "-id") if self.action == "summaries" else ("-updated_at", "-id")
             queryset = queryset.order_by(*ordering).select_related("created_by")
             queryset = apply_list_filters(queryset, self.request.GET)
-            # Annotated so a list row can say a draft exists without loading the draft itself.
             queryset = queryset.annotate(
                 has_draft=models.ExpressionWrapper(Q(draft__isnull=False), output_field=models.BooleanField())
             )
@@ -4203,10 +4197,8 @@ class HogFlowViewSet(
     )
     @action(detail=False, methods=["GET"], url_path="summaries", pagination_class=ListRowPagination)
     def summaries(self, request: Request, *args, **kwargs) -> Response:
+        """Applies the access-level filter itself: the routing mixin only applies it to `list`."""
         queryset = self.get_queryset()
-        # TeamAndOrgViewSetMixin._filter_queryset_by_access_level only runs for `list`, so this repeats its
-        # call for hog flows: the service-credential skip, and no `admin_include_all`. That param is not
-        # part of this endpoint's schema, so org admins see the same rows here as on `list` by default.
         if not is_service_auth(request):
             queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
         page = self.paginate_queryset(self.filter_queryset(queryset)) or []

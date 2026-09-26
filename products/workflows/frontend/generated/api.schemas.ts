@@ -1759,7 +1759,7 @@ export interface WorkflowRunTotalsApi {
 }
 
 /**
- * The derived fields a workflow listing shows, shared by the slim summaries and the MCP list.
+ * One workflow list row, without the step graph, step inputs or email bodies.
  */
 export interface HogFlowListRowApi {
     /** Workflow id. */

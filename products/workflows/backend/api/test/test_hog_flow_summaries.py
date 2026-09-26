@@ -374,7 +374,6 @@ class TestHogFlowSummaries(APIBaseTest):
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
         self.organization.save()
-        # An org admin skips object-level checks, so a per-row access query only shows for a member.
         member = User.objects.create_and_join(self.organization, "member@example.com", None)
         membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
         AccessControl.objects.create(team=self.team, resource="hog_flow", access_level="none")

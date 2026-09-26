@@ -83,21 +83,17 @@ class EmailSenderIds:
 
     @property
     def named(self) -> tuple[int, ...]:
-        """Every integration id the `from` value names, primary first."""
         return tuple(dict.fromkeys(i for i in (self.primary, *self.rotation) if i is not None))
 
     @property
     def selectable(self) -> tuple[int, ...]:
-        """The ids a send can go through. Mirrors selectEmailSenderIntegrationId in
-        nodejs/src/cdp/services/messaging/email-sender-selection.ts: a non-empty rotation replaces the
-        primary. Keep the two in sync."""
+        """Mirrors selectEmailSenderIntegrationId in nodejs/src/cdp/services/messaging/email-sender-selection.ts."""
         if self.rotation:
             return self.rotation
         return (self.primary,) if self.primary is not None else ()
 
 
 def parse_email_sender_ids(from_value: Any) -> EmailSenderIds:
-    """The one reader of `from.integrationId` and `from.integrationIds` on an email input value."""
     if not isinstance(from_value, dict):
         return EmailSenderIds(primary=None, rotation=())
     rotation = from_value.get("integrationIds")
@@ -109,7 +105,6 @@ def parse_email_sender_ids(from_value: Any) -> EmailSenderIds:
 
 
 def _sender_integration_ids(from_value: dict) -> set[int]:
-    # Validation checks every id the author named, including a primary the rotation replaces.
     return set(parse_email_sender_ids(from_value).named)
 
 
