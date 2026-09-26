@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
+
+from posthog.dataclasses import frozen
 
 # How each Fastly endpoint is fetched:
 # - "object":           GET returns a single object (e.g. /current_user).
@@ -24,7 +26,7 @@ FastlyEndpointKind = Literal[
 ]
 
 
-@dataclass
+@frozen
 class FastlyEndpointConfig:
     name: str
     path: str
@@ -40,6 +42,9 @@ class FastlyEndpointConfig:
     # the column on a child row that holds its parent's id.
     parent_path: str | None = None
     parent_key: str | None = None
+    # "version_resource_child" only: a truthy field on a parent row that means its members cannot be
+    # listed, so the transport must not request them.
+    skip_parent_flag: str | None = None
 
 
 # Version-scoped resource paths carry `{service_id}` and `{version}` placeholders that the
@@ -111,6 +116,8 @@ FASTLY_ENDPOINTS: dict[str, FastlyEndpointConfig] = {
         kind="version_resource_child",
         parent_path="/service/{service_id}/version/{version}/dictionary",
         parent_key="dictionary_id",
+        # Fastly refuses to list the items of a write-only dictionary.
+        skip_parent_flag="write_only",
         # A dictionary item has no id of its own; its key is unique within its dictionary.
         primary_keys=["service_id", "dictionary_id", "item_key"],
         description="The key/value rows held in each service's edge dictionaries.",

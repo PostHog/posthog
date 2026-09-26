@@ -1,4 +1,3 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
@@ -7,6 +6,8 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -36,15 +37,21 @@ class FastlyRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class FastlyPaginationError(Exception):
+    pass
+
+
+@frozen
 class FastlyResumeConfig:
     # Next page URL for the paginated top-level `services` list.
     next_url: str | None = None
     # Bookmark for fan-out endpoints: the service we were processing when state was saved. On resume
     # we restart at this service and re-yield its rows (merge dedupes on the primary key).
     service_id: str | None = None
-    # Opaque next-page cursor for the /billing/v3 endpoints.
+    # Opaque next-page cursor for the /billing/v3 endpoints, with the request it continues. A cursor
+    # only continues the request that produced it, and the usage metrics window moves with the month.
     cursor: str | None = None
+    cursor_request: str | None = None
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -125,6 +132,9 @@ def _iter_linked_pages(
         next_url = _next_page_url(response)
         if not next_url:
             return
+        # A next link that points at the page just read would loop forever and re-yield its rows.
+        if next_url == url:
+            raise FastlyPaginationError(f"Fastly returned an unchanged next page link for {url}")
         url = next_url
 
 
@@ -139,6 +149,10 @@ def _next_cursor(payload: dict[str, Any]) -> str | None:
         return None
     cursor = meta.get("next_cursor")
     return cursor if isinstance(cursor, str) and cursor else None
+
+
+def _request_fingerprint(path: str, params: dict[str, Any]) -> str:
+    return _build_url(path, dict(sorted(params.items())))
 
 
 def _usage_metrics_window(today: datetime | None = None) -> dict[str, str]:
@@ -323,6 +337,9 @@ def _get_version_resource_child_rows(
         parents = _get_version_scoped_rows(session, config, service_id, parent_path, headers, logger)
 
         for parent in parents:
+            if config.skip_parent_flag and parent.get(config.skip_parent_flag):
+                continue
+
             parent_id = parent.get("id")
             if not parent_id:
                 continue
@@ -350,9 +367,12 @@ def _iter_billing_pages(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[FastlyResumeConfig],
 ) -> Iterator[dict[str, Any]]:
+    request = _request_fingerprint(path, params)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    cursor = resume.cursor if resume is not None else None
-    if cursor:
+
+    cursor = None
+    if resume is not None and resume.cursor and resume.cursor_request == request:
+        cursor = resume.cursor
         logger.debug(f"Fastly: resuming {path} from cursor")
 
     while True:
@@ -364,11 +384,15 @@ def _iter_billing_pages(
 
         yield payload
 
-        cursor = _next_cursor(payload)
-        if not cursor:
+        next_cursor = _next_cursor(payload)
+        if not next_cursor:
             return
+        # A cursor that repeats the one just sent would loop forever and re-yield the same page.
+        if next_cursor == cursor:
+            raise FastlyPaginationError(f"Fastly returned an unchanged cursor for {path}")
+        cursor = next_cursor
         # Saved AFTER yielding so a crash re-yields the last page rather than skipping it.
-        resumable_source_manager.save_state(FastlyResumeConfig(cursor=cursor))
+        resumable_source_manager.save_state(FastlyResumeConfig(cursor=cursor, cursor_request=request))
 
 
 def _get_billing_list_rows(

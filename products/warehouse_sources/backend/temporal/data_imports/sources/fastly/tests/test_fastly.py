@@ -10,6 +10,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly import fastly
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fastly import (
     FASTLY_BASE_URL,
+    FastlyPaginationError,
     FastlyResumeConfig,
     FastlyRetryableError,
     _active_version_number,
@@ -423,6 +424,31 @@ class TestGetRowsVersionResourceChildFanOut:
         assert [row["id"] for row in rows] == ["E1", "E2"]
         assert [s.service_id for s in manager.saved] == ["S1", "S2"]
 
+    def test_write_only_dictionary_is_not_requested(self) -> None:
+        # Fastly refuses to list the items of a write-only dictionary, which would abort the sync.
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
+            f"{FASTLY_BASE_URL}/service/S1/version": [{"number": 1, "active": True}],
+            f"{FASTLY_BASE_URL}/service/S1/version/1/dictionary": [
+                {"id": "D1", "write_only": True},
+                {"id": "D2", "write_only": False},
+            ],
+            f"{FASTLY_BASE_URL}/service/S1/dictionary/D2/items?per_page=100": [{"item_key": "a"}],
+        }
+        rows = _collect("dictionary_items", _FakeResumableManager(), pages)
+        assert [row["dictionary_id"] for row in rows] == ["D2"]
+
+    def test_repeated_next_link_stops_instead_of_looping(self) -> None:
+        self_referencing = f"{FASTLY_BASE_URL}/service/S1/acl/A1/entries?per_page=100"
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
+            f"{FASTLY_BASE_URL}/service/S1/version": [{"number": 1, "active": True}],
+            f"{FASTLY_BASE_URL}/service/S1/version/1/acl": [{"id": "A1"}],
+            self_referencing: ([{"id": "E1"}], self_referencing),
+        }
+        with pytest.raises(FastlyPaginationError):
+            _collect("acl_entries", _FakeResumableManager(), pages)
+
     def test_parent_without_an_id_is_skipped(self) -> None:
         pages = {
             f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
@@ -457,8 +483,25 @@ class TestGetRowsBillingList:
                 "meta": {},
             },
         }
-        manager = _FakeResumableManager(FastlyResumeConfig(cursor="CUR2"))
+        manager = _FakeResumableManager(
+            FastlyResumeConfig(cursor="CUR2", cursor_request="/billing/v3/invoices?limit=200")
+        )
         assert _collect("invoices", manager, pages) == [{"invoice_id": "2"}]
+
+    def test_repeated_cursor_stops_instead_of_looping(self) -> None:
+        # A cursor pointing back at the page just read would re-fetch and re-yield it forever.
+        pages = {
+            f"{FASTLY_BASE_URL}/billing/v3/invoices?limit=200": {
+                "data": [{"invoice_id": "1"}],
+                "meta": {"next_cursor": "CUR2"},
+            },
+            f"{FASTLY_BASE_URL}/billing/v3/invoices?limit=200&cursor=CUR2": {
+                "data": [{"invoice_id": "2"}],
+                "meta": {"next_cursor": "CUR2"},
+            },
+        }
+        with pytest.raises(FastlyPaginationError):
+            _collect("invoices", _FakeResumableManager(), pages)
 
     def test_non_dict_payload_yields_nothing(self) -> None:
         pages: dict[str, Any] = {f"{FASTLY_BASE_URL}/billing/v3/invoices?limit=200": []}
@@ -493,6 +536,22 @@ class TestGetRowsBillingUsageMetrics:
 
         assert [row["service_id"] for row in rows] == ["S1", "S2"]
         assert [s.cursor for s in manager.saved] == ["CUR2"]
+
+    def test_cursor_saved_under_a_different_window_is_discarded(self) -> None:
+        # A run resuming after the UTC month rolls over computes a new window. Fastly only continues
+        # the request that produced the cursor, so the stale one has to be dropped.
+        window = _usage_metrics_window()
+        first = (
+            f"{FASTLY_BASE_URL}/billing/v3/service-usage-metrics"
+            f"?start_month={window['start_month']}&end_month={window['end_month']}"
+        )
+        pages = {
+            first: {"data": {"usage_type": "Bandwidth", "details": [{"service_id": "S1"}], "meta": {}}},
+        }
+        manager = _FakeResumableManager(
+            FastlyResumeConfig(cursor="STALE", cursor_request="/billing/v3/service-usage-metrics?end_month=1999-01")
+        )
+        assert _collect("billing_usage_metrics", manager, pages) == [{"usage_type": "Bandwidth", "service_id": "S1"}]
 
 
 class TestFastlySourceResponse:
