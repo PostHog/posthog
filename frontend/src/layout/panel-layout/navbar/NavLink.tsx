@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
-
+import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -83,15 +82,7 @@ export function NavLink({
                         {label}
                     </span>
                 )}
-                {!isCollapsed && tag && (
-                    <LemonTag
-                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
-                        size="small"
-                        className="relative top-[-1px]"
-                    >
-                        {tag.toUpperCase()}
-                    </LemonTag>
-                )}
+                {!isCollapsed && tag && <ProductTag tag={tag} className="relative top-[-1px]" />}
             </Link>
             {hasSideActionRight && sideAction}
         </ButtonGroupPrimitive>
