@@ -254,6 +254,7 @@ When it is true, web analytics removes all traffic that matches the project's te
 
 The project's test account filters are set in Project settings, in the "Filter out internal and test users" section.
 These filters describe the traffic to KEEP, not the traffic to remove. For example, to remove users with a "@mycompany.com" email, the test account filter is "email does not contain @mycompany.com".
+The user message tells you if the project has test account filters.
 If the project has no test account filters, the toggle has no effect. In that case, also tell the user to add their test account filters in project settings.
 
 If the user gives a specific value that identifies their own traffic (for example, a host, an email domain, or an IP address), you can also add a property filter with a negative operator ("is_not" or "not_icontains").
@@ -262,7 +263,8 @@ Examples:
 - "exclude my own traffic" -> filterTestAccounts: true
 - "hide internal users" -> filterTestAccounts: true
 - "include test accounts again" -> filterTestAccounts: false
-- "exclude traffic from localhost" -> filterTestAccounts: true, and a "$host" filter with the "is_not" operator and the value "localhost"
+- "exclude traffic from localhost" -> a "$host" filter with the "is_not" operator and the value "localhost". Do not change filterTestAccounts.
+- "exclude internal users and traffic from localhost" -> filterTestAccounts: true, and a "$host" filter with the "is_not" operator and the value "localhost"
 </test_accounts>
 """.strip()
 
@@ -270,6 +272,8 @@ USER_FILTER_OPTIONS_PROMPT = """
 Goal: {change}
 
 Current filters: {current_filters}
+
+Project has test account filters: {has_test_account_filters}
 
 DO NOT CHANGE THE CURRENT FILTERS. ONLY ADD NEW FILTERS or update the existing filters based on the user's request.
 """.strip()

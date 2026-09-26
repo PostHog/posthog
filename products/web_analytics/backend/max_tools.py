@@ -245,7 +245,11 @@ class FilterWebAnalyticsTool(MaxTool):
     async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
         graph = WebAnalyticsFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
-        user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
+        user_prompt = USER_FILTER_OPTIONS_PROMPT.format(
+            change=change,
+            current_filters=pretty_filters,
+            has_test_account_filters="yes" if self._team.test_account_filters else "no",
+        )
         graph_context = {
             "change": user_prompt,
             "output": None,

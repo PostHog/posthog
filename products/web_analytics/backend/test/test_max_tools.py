@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseDestroyTablesMixin,
@@ -195,7 +197,7 @@ class TestWebAnalyticsAssistantFilters(APIBaseTest):
 
 class TestFilterWebAnalyticsTool(APIBaseTest):
     async def test_keeps_page_filters_including_test_account_toggle_when_agent_asks_for_help(self):
-        current_filters = {
+        current_filters: dict[str, Any] = {
             "date_from": "-7d",
             "date_to": None,
             "properties": [],
