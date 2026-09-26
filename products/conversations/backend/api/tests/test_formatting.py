@@ -404,6 +404,17 @@ class TestSlackFormatting(SimpleTestCase):
             ("escaped_punctuation_unescaped", "e\\.g\\. query\\-time \\(v2\\)", "e.g. query-time (v2)"),
             ("escaped_syntax_not_emphasis", "2 \\* 3 \\* 4", "2 * 3 * 4"),
             ("backslash_outside_escape_set_kept", "path C:\\\\Users", "path C:\\Users"),
+            (
+                "link_url_keeps_nested_parens",
+                "[here](https://ph.test/sql#q=SELECT%20count(toString(a))%20FROM%20(b))",
+                "<https://ph.test/sql#q=SELECT%20count(toString(a))%20FROM%20(b)|here>",
+            ),
+            (
+                "image_url_keeps_nested_parens",
+                "![chart](https://ph.test/i/chart(1).png)",
+                "<https://ph.test/i/chart(1).png|chart>",
+            ),
+            ("unterminated_link_stays_literal", "[here](https://ph.test", "[here](https://ph.test"),
         ]
     )
     def test_outbound_mrkdwn_conversion(self, _name: str, markdown: str, expected: str) -> None:
