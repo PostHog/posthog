@@ -80,7 +80,12 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
+from posthog.permissions import (
+    TeamSecretTokenPermission,
+    get_authenticator_scopes,
+    is_scout_sandbox_request,
+    is_service_auth,
+)
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -1292,6 +1297,19 @@ class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessS
     error = serializers.CharField(help_text="Why the usage dashboard operation failed.")
 
 
+class FeatureFlagLinkedProductTourSerializer(serializers.ModelSerializer):
+    id = serializers.UUIDField(read_only=True, help_text="ID of the product tour that runs on this flag.")
+    name = serializers.CharField(read_only=True, help_text="Name of the product tour that runs on this flag.")
+
+    class Meta:
+        model = ProductTour
+        fields = ["id", "name"]
+        read_only_fields = fields
+
+
+SCOUT_ACTIVE_FLAG_DELETE_ERROR = "Disable the flag and wait for any required approval before a scout deletes it."
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1318,6 +1336,9 @@ class FeatureFlagSerializer(
     experiment_set_metadata = serializers.SerializerMethodField()
     surveys: serializers.SerializerMethodField = serializers.SerializerMethodField()
     features: serializers.SerializerMethodField = serializers.SerializerMethodField()
+    product_tours = serializers.SerializerMethodField(
+        help_text="Unarchived product tours that run on this flag, through either the tour's linked flag or its internal targeting flag."
+    )
     usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(  # ty: ignore[invalid-assignment]
         read_only=True,
         allow_null=True,
@@ -1374,6 +1395,7 @@ class FeatureFlagSerializer(
             "experiment_set_metadata",
             "surveys",
             "features",
+            "product_tours",
             "can_edit",
             "tags",
             "evaluation_contexts",
@@ -1418,6 +1440,17 @@ class FeatureFlagSerializer(
         from products.early_access_features.backend.api import MinimalEarlyAccessFeatureSerializer
 
         return MinimalEarlyAccessFeatureSerializer(feature_flag.features, many=True).data
+
+    @extend_schema_field(FeatureFlagLinkedProductTourSerializer(many=True))
+    def get_product_tours(self, feature_flag: FeatureFlag) -> list[dict]:
+        # A tour can name the same flag in both columns, so merge on id rather than concatenating.
+        tours = {
+            tour.id: tour
+            for relation in ("product_tours_linked_flag", "product_tours_internal_targeting_flag")
+            for tour in getattr(feature_flag, relation).all()
+        }
+        ordered = sorted(tours.values(), key=lambda tour: str(tour.id))
+        return list(FeatureFlagLinkedProductTourSerializer(ordered, many=True).data)
 
     def get_surveys(self, feature_flag: FeatureFlag) -> dict:
         from products.surveys.backend.api.survey import SurveyAPISerializer
@@ -1495,6 +1528,13 @@ class FeatureFlagSerializer(
         request = self.context.get("request")
         if not request:
             return attrs
+
+        if (
+            attrs.get("deleted")
+            and is_scout_sandbox_request(request)
+            and (attrs.get("active", True) if self.instance is None else self.instance.active or attrs.get("active"))
+        ):
+            raise serializers.ValidationError({"deleted": SCOUT_ACTIVE_FLAG_DELETE_ERROR})
 
         # Note: for creation_context, we use initial_data since it's metadata not part of the model
         creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
@@ -3994,7 +4034,15 @@ class FeatureFlagViewSet(
             Prefetch(
                 "features",
                 queryset=EarlyAccessFeature.objects.select_related("assigned_user", "assigned_role"),
-            )
+            ),
+            Prefetch(
+                "product_tours_linked_flag",
+                queryset=ProductTour.objects.only("id", "name", "linked_flag_id"),
+            ),
+            Prefetch(
+                "product_tours_internal_targeting_flag",
+                queryset=ProductTour.objects.only("id", "name", "internal_targeting_flag_id"),
+            ),
         )
 
         # Prefetch evaluation contexts to avoid N+1 queries when serializing.
@@ -5136,6 +5184,7 @@ class FeatureFlagViewSet(
         dependent_flags_map = find_dependent_flags_batch(flags_list)
 
         deleted = []
+        scout_caller = is_scout_sandbox_request(request)
         errors = []
 
         # Add errors for invalid or missing IDs (only for ID-based deletion)
@@ -5161,6 +5210,10 @@ class FeatureFlagViewSet(
 
         for flag in flags_list:
             flag_id = flag.id
+
+            if flag.active and scout_caller:
+                errors.append({"id": flag_id, "key": flag.key, "reason": SCOUT_ACTIVE_FLAG_DELETE_ERROR})
+                continue
 
             # Check for linked early access features
             if len(list(flag.features.all())) > 0:
@@ -5259,11 +5312,19 @@ class FeatureFlagViewSet(
             with transaction.atomic():
                 if flags_to_delete_normal:
                     normal_ids = [f.id for f in flags_to_delete_normal]
-                    FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id).update(
+                    normal_flags = FeatureFlag.objects.filter(id__in=normal_ids, team_id=team_id)
+                    if scout_caller:
+                        # The active state above was read before this transaction opened, so
+                        # without the predicate a concurrent enable lets the delete through on a
+                        # flag that serves again.
+                        normal_flags = normal_flags.filter(active=False)
+                    updated = normal_flags.update(
                         deleted=True,
                         last_modified_by=current_user,
                         updated_at=now_timestamp,
                     )
+                    if scout_caller and updated != len(normal_ids):
+                        raise serializers.ValidationError(SCOUT_ACTIVE_FLAG_DELETE_ERROR)
 
                 # Flags with soft-deleted experiments need key rename - use bulk_update
                 # to update all flags in a single query with per-flag key values
