@@ -11,12 +11,12 @@ from products.revenue_analytics.backend.warehouse_view_sync import sync_revenue_
 from products.warehouse_sources.backend.facade.hooks import RevenueViewSyncInput
 
 
-def _make_sync_input() -> RevenueViewSyncInput:
+def _make_sync_input(schema_name: str = "Charge") -> RevenueViewSyncInput:
     return RevenueViewSyncInput(
         team_id=1,
         source_id=uuid4(),
         source_type=SUPPORTED_SOURCES[0],
-        schema_name="Charge",
+        schema_name=schema_name,
     )
 
 
@@ -65,3 +65,31 @@ class TestWarehouseViewSync:
         sync_revenue_analytics_views(_make_sync_input())
 
         managed_viewset.sync_views.assert_called_once_with()
+
+    @parameterized.expand(
+        [
+            ("charge", "Charge", True),
+            ("customer", "Customer", True),
+            ("invoice", "Invoice", True),
+            ("product", "Product", True),
+            ("subscription", "Subscription", True),
+            ("refund", "Refund", False),
+            ("balance_transaction", "BalanceTransaction", False),
+        ]
+    )
+    @patch("products.revenue_analytics.backend.warehouse_view_sync.list_revenue_source_settings")
+    @patch("products.revenue_analytics.backend.warehouse_view_sync.DataWarehouseManagedViewSet")
+    def test_syncs_only_for_schemas_the_views_read(
+        self,
+        _name: str,
+        schema_name: str,
+        should_sync: bool,
+        mock_viewset: MagicMock,
+        mock_sources: MagicMock,
+    ) -> None:
+        mock_sources.return_value = [MagicMock(deleted=False, enabled=True)]
+        managed_viewset = mock_viewset.objects.filter.return_value.first.return_value
+
+        sync_revenue_analytics_views(_make_sync_input(schema_name))
+
+        assert managed_viewset.sync_views.called is should_sync
