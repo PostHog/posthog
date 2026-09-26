@@ -223,12 +223,13 @@ class TestEightBallAPI(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert b"million events" not in response.content
 
-    def test_read_scope_is_enough(self, _embed, _ff) -> None:
+    def test_api_key_cannot_ask_the_magic_eight_ball(self, _embed, _ff) -> None:
         key = self.create_personal_api_key_with_scopes(["business_knowledge:read"])
         self.client.logout()
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
 
-        with patch(DECIDE, return_value=_decision("Yes")):
+        with patch(DECIDE) as decide:
             response = self.client.post(self.url, {"question": "Is our pricing usage based?"}, format="json")
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        decide.assert_not_called()

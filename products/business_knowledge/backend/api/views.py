@@ -12,6 +12,7 @@ from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import exceptions, status, viewsets
+from rest_framework.authentication import SessionAuthentication
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import IsAuthenticated
@@ -616,11 +617,11 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         methods=["post"],
         url_path="eight_ball",
         pagination_class=None,
-        # A POST, but it only reads knowledge, so the read scope is the right one.
-        required_scopes=["business_knowledge:read"],
     )
     def eight_ball(self, request: Request, **kwargs) -> Response:
         """Answer a product question like a magic 8 ball, from this project's business knowledge."""
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            raise exceptions.PermissionDenied("The magic 8 ball is available only in the web app.")
         serializer = EightBallQuestionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         try:
