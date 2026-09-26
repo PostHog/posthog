@@ -29,9 +29,9 @@ from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 from posthog.hogql.errors import QueryError
 
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
-from posthog.models import Organization, SessionRecording, User
+from posthog.models import Organization, PersonalAPIKey, SessionRecording, User
 from posthog.models.team import Team
-from posthog.models.utils import uuid7
+from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
@@ -1665,8 +1665,46 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "bulk_recordings_deleted",
             team_id=self.team.id,
             deleted_count=2,
+            expired_deleted_count=0,
             total_requested=2,
         )
+
+    @parameterized.expand(
+        [
+            ("write_scope", "session_recording:write", status.HTTP_200_OK),
+            ("read_scope", "session_recording:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    @patch(
+        "posthog.session_recordings.session_recording_api.SessionRecordingViewSet._delete_via_recording_api",
+        return_value=[],
+    )
+    def test_bulk_delete_with_personal_api_key(
+        self, _name: str, scope: str, expected_status: int, _mock_delete_via_recording_api
+    ) -> None:
+        create_person(team=self.team, distinct_ids=["user1"], properties={"email": "test@example.com"})
+        session_id = "bulk_delete_personal_api_key"
+        self.produce_replay_summary("user1", session_id, now() - relativedelta(days=1))
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=[scope],
+            scoped_teams=[self.team.pk],
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": [session_id]},
+            headers={"authorization": f"Bearer {personal_api_key}"},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_200_OK:
+            assert response.json()["deleted_count"] == 1
 
     def test_bulk_delete_doesnt_leak_teams(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -1936,6 +1974,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "90d",
                 15,
                 "Regression test: recordings older than 7 days should be found with 90 day retention",
+            ),
+            (
+                "recordings_past_retention_expiry",
+                "30d",
+                120,
+                "Recordings past their 90 day retention expiry must still be found and shredded",
             ),
         ]
     )

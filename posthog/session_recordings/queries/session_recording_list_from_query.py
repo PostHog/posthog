@@ -151,6 +151,8 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         # For callers that evaluate negative filters themselves against the fetched rows.
         skip_negative_blocklists: bool = False,
         bypass_date_window_for_session_ids: bool = False,
+        # Deletion must reach recordings past their retention expiry, or they are never shredded.
+        include_expired_for_session_ids: bool = False,
         user: User | None = None,
         events_sample_factor: float | None = None,
         events_timestamp_floor: datetime | None = None,
@@ -168,6 +170,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._resolve_group_properties = resolve_group_properties
         self.events_subqueries_sampled = False
         self._bypass_date_window_for_session_ids = bypass_date_window_for_session_ids
+        self._include_expired_for_session_ids = include_expired_for_session_ids
         # TRICKY: we need to make sure we init test account filters only once,
         # otherwise we'll end up with a lot of duplicated test account filters in the query
         expanded_query = query.model_copy(deep=True)
@@ -818,19 +821,30 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
     @tracer.start_as_current_span("SessionRecordingListFromQuery._having_predicates")
     def _having_predicates(self) -> ast.Expr | None:
-        exprs: list[ast.Expr] = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.GtEq,
-                left=ast.Field(chain=["expiry_time"]),
-                right=ast.Constant(value=datetime.now(UTC)),
-            ),
-            # Exclude deleted recordings (crypto shredding)
+        exprs: list[ast.Expr] = []
+
+        include_expired = (
+            self._include_expired_for_session_ids
+            and isinstance(self._query.session_ids, list)
+            and len(self._query.session_ids) > 0
+        )
+        if not include_expired:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["expiry_time"]),
+                    right=ast.Constant(value=datetime.now(UTC)),
+                )
+            )
+
+        # Exclude deleted recordings (crypto shredding)
+        exprs.append(
             ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
                 left=ast.Call(name="max", args=[ast.Field(chain=["s", "is_deleted"])]),
                 right=ast.Constant(value=0),
-            ),
-        ]
+            )
+        )
 
         # `having_predicates` holds always-apply constraints (duration control, caller eligibility
         # baselines), so they're AND'd regardless of the user's operand.
