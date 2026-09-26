@@ -24,6 +24,8 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.exceptions import QueryConcurrencyThrottled
 from posthog.models import Element, Organization, PropertyDefinition, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -1028,6 +1030,15 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/events/?limit=50000").json()
         assert len(response["results"]) == 2
+
+    def test_concurrency_limit_returns_429_with_retry_after(self):
+        raw = "Exceeded maximum concurrency limit: 2 for key: events_list:query:per-team:1 and task: abc"
+        with patch("posthog.api.event.LegacyEventsListQuery.run", side_effect=ConcurrencyLimitExceeded(raw)):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/")
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response["Retry-After"] == "2"
+        assert response.json()["detail"] == QueryConcurrencyThrottled.default_detail
 
     @patch("posthog.api.event.get_persons_mapped_by_distinct_id")
     def test_list_without_include_person_skips_person_lookup(self, mock_get_persons):
