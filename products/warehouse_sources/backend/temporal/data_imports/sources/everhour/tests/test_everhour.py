@@ -10,9 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.e
     EVERHOUR_BASE_URL,
     EverhourResumeConfig,
     _build_initial_urls,
+    _date_window,
     _format_date,
     _parent_project_id,
-    _time_records_window,
     _with_query,
     everhour_source,
     get_rows,
@@ -67,23 +67,38 @@ class TestFormatDate:
         assert _format_date(value) == expected
 
 
-class TestTimeRecordsWindow:
+class TestDateWindow:
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_first_sync_spans_all_history(self) -> None:
-        window = _time_records_window(should_use_incremental_field=True, db_incremental_field_last_value=None)
+        window = _date_window(
+            EVERHOUR_ENDPOINTS["time_records"], should_use_incremental_field=True, db_incremental_field_last_value=None
+        )
         assert window == {"from": EARLIEST_FROM_DATE, "to": "2026-06-15"}
 
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_full_refresh_spans_all_history(self) -> None:
-        window = _time_records_window(should_use_incremental_field=False, db_incremental_field_last_value=None)
+        window = _date_window(
+            EVERHOUR_ENDPOINTS["time_records"], should_use_incremental_field=False, db_incremental_field_last_value=None
+        )
         assert window == {"from": EARLIEST_FROM_DATE, "to": "2026-06-15"}
 
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_incremental_floors_from_to_watermark_day(self) -> None:
-        window = _time_records_window(
-            should_use_incremental_field=True, db_incremental_field_last_value=date(2026, 5, 1)
+        window = _date_window(
+            EVERHOUR_ENDPOINTS["time_records"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 5, 1),
         )
         assert window == {"from": "2026-05-01", "to": "2026-06-15"}
+
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_assignments_window_reaches_into_the_future(self) -> None:
+        # Resource-planner rows are scheduled ahead of today; a `to` of today would drop all of them.
+        window = _date_window(
+            EVERHOUR_ENDPOINTS["assignments"], should_use_incremental_field=False, db_incremental_field_last_value=None
+        )
+        assert window["from"] == EARLIEST_FROM_DATE
+        assert window["to"] > "2030-01-01"
 
 
 class TestParentProjectId:
@@ -126,7 +141,9 @@ class TestBuildInitialUrls:
 
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_time_records_bakes_in_date_window(self) -> None:
-        window = _time_records_window(should_use_incremental_field=True, db_incremental_field_last_value=None)
+        window = _date_window(
+            EVERHOUR_ENDPOINTS["time_records"], should_use_incremental_field=True, db_incremental_field_last_value=None
+        )
         urls = _build_initial_urls(EVERHOUR_ENDPOINTS["time_records"], window, {}, mock.MagicMock(), mock.MagicMock())
         assert len(urls) == 1
         assert "limit=50" in urls[0]
@@ -250,6 +267,23 @@ class TestGetRows:
 
         assert batches == []
         manager.save_state.assert_not_called()
+
+    @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
+    @mock.patch(f"{EVERHOUR_MODULE}._build_initial_urls")
+    @mock.patch(f"{EVERHOUR_MODULE}._fetch_page")
+    def test_rows_without_an_id_paginate_on_their_own_key(
+        self, mock_fetch: mock.MagicMock, mock_build_urls: mock.MagicMock, _mock_session: mock.MagicMock
+    ) -> None:
+        # Timecards carry no `id`, so the pagination guard has to key on (user, date) instead.
+        mock_build_urls.return_value = [f"{EVERHOUR_BASE_URL}/timecards?limit=100"]
+        first_page = [{"user": u, "date": "2026-06-01", "workTime": 3600} for u in range(100)]
+        mock_fetch.side_effect = [first_page, [{"user": 0, "date": "2026-06-02", "workTime": 3600}]]
+
+        manager = _make_manager()
+        rows = [row for batch in get_rows("key", "timecards", mock.MagicMock(), manager) for row in batch]
+
+        assert len(rows) == 101
+        assert "offset=100" in mock_fetch.call_args_list[1].args[0]
 
     @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
     @mock.patch(f"{EVERHOUR_MODULE}._build_initial_urls")

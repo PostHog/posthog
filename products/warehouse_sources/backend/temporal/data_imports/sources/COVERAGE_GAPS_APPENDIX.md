@@ -2938,14 +2938,14 @@ Note: The Redoc page embeds the full OpenAPI document. Its entire GET surface is
 
 ## Everhour — gaps
 
-Today (5): `clients`, `projects`, `tasks`, `time_records`, `users`
+Today (9): `assignments`, `clients`, `expenses`, `invoices`, `projects`, `tasks`, `time_records`, `timecards`, `users`
 
 Diffed against: <https://everhour.docs.apiary.io/api-description-document>
 
-- [ ] `GET /invoices, GET /invoices/{id}` — client billing documents and line items; the revenue side of tracked time (high)
-- [ ] `GET /expenses` — project cost records that pair with time_records for margin analysis (high)
-- [ ] `GET /timecards, GET /users/{user_id}/timecards` — clock-in/clock-out attendance records, distinct from time_records (high)
-- [ ] `GET /resource-planner/assignments` — scheduled/planned work per user, project and task - planned vs actual (high)
+- [x] `GET /invoices, GET /invoices/{id}` — client billing documents and line items; the revenue side of tracked time (high)
+- [x] `GET /expenses` — project cost records that pair with time_records for margin analysis (high)
+- [x] `GET /timecards, GET /users/{user_id}/timecards` — clock-in/clock-out attendance records, distinct from time_records (high)
+- [x] `GET /resource-planner/assignments` — scheduled/planned work per user, project and task - planned vs actual (high)
 - [ ] `GET /expenses/categories` — lookup table resolving the category id carried on every expense (high)
 - [ ] `GET /timesheets, GET /users/{user_id}/timesheets` — weekly timesheet approval state and transitions (medium)
 - [ ] `GET /resource-planner/time-off-types` — lookup resolving time-off type ids on assignments/allocations (medium)
