@@ -5,12 +5,14 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
 
+import { getSidebarProduct } from '../../ProjectTree/defaultTree'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
 import { CustomizeSidebarModal } from './CustomizeSidebarModal'
 import { NavProductRow } from './NavProductRow'
 import { PRODUCTS_STARRED_TREE_KEY, navProductsTabLogic } from './navProductsTabLogic'
+import { NavProductTooltip } from './NavProductTooltip'
 
 export function NavTabProducts(): JSX.Element {
     const { pinnedItems, groupedItems, allProductsVisible, allProductsCollapsible } = useValues(navProductsTabLogic)
@@ -54,6 +56,10 @@ export function NavTabProducts(): JSX.Element {
                                 logicKey={PRODUCTS_STARRED_TREE_KEY}
                                 onlyTree
                                 showShortcutHelp={false}
+                                renderItemTooltip={(treeItem) => {
+                                    const product = getSidebarProduct(treeItem.record?.href)
+                                    return product ? <NavProductTooltip item={product} /> : undefined
+                                }}
                             />
                         </div>
                     </section>

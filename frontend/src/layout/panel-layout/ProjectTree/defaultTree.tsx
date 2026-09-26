@@ -606,6 +606,24 @@ export const getDefaultTreeData = (): FileSystemImport[] =>
     [...getTreeItemsMetadata()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+let sidebarProductsByHref: Map<string, FileSystemImport> | undefined
+
+/** The sidebar product an href points to, so a starred link to it shows that product's current name and icon. */
+export function getSidebarProduct(href: string | undefined): FileSystemImport | undefined {
+    if (!href) {
+        return undefined
+    }
+    if (!sidebarProductsByHref) {
+        sidebarProductsByHref = new Map()
+        for (const item of [...getDefaultTreeProducts(), ...getDefaultTreeData()]) {
+            if (item.href && item.iconType && !sidebarProductsByHref.has(item.href)) {
+                sidebarProductsByHref.set(item.href, item)
+            }
+        }
+    }
+    return sidebarProductsByHref.get(href)
+}
+
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 

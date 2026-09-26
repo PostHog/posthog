@@ -51,6 +51,10 @@ const starred: FileSystemEntry[] = [
     { id: 'star-2', path: 'Overview', type: 'dashboard', ref: '1', href: '/dashboard/1' },
     { id: 'star-3', path: 'Product research', type: 'folder', ref: 'Product research' },
     { id: 'star-4', path: 'Ideas', type: 'folder', ref: 'Product research/Ideas' },
+    { id: 'star-5', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' },
+    // Starred before the rename, so the saved path still holds the old name.
+    { id: 'star-6', path: 'LLM analytics', type: 'llm_analytics', href: '/ai-observability/dashboard' },
+    { id: 'star-7', path: 'AI gateway', type: 'ai_gateway', href: '/ai-gateway' },
 ]
 
 function SidebarStory({
