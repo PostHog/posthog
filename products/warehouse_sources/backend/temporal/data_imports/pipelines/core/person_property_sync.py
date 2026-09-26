@@ -31,7 +31,8 @@ from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Q
+from django.db.models import BigIntegerField
+from django.db.models.functions import Coalesce
 
 import structlog
 import pyarrow.parquet as pq
@@ -457,9 +458,12 @@ def _reconcile_property_definitions(
         definition_type = PropertyDefinition.Type.GROUP
         group_type_index = source.group_type_index
 
-    # Property definitions are unique and read by effective project. Include legacy rows whose
-    # project_id is null so the conflict-safe insert and the final stamp address the same identity.
-    query = PropertyDefinition.objects.filter(Q(project_id=project_id) | Q(project_id__isnull=True, team_id=project_id))
+    # Property definitions are unique and read by effective project, so the conflict-safe insert and the final
+    # stamp address the same identity. The COALESCE also covers legacy rows whose project_id is null, and it matches
+    # the unique index, which an OR of the two columns does not.
+    query = PropertyDefinition.objects.alias(
+        effective_project_id=Coalesce("project_id", "team_id", output_field=BigIntegerField())
+    ).filter(effective_project_id=project_id)
     if source.target == _GROUP_TARGET:
         # Group propdefs are keyed per group type, so the index predicate is mandatory.
         query = query.filter(type=PropertyDefinition.Type.GROUP, group_type_index=source.group_type_index)
