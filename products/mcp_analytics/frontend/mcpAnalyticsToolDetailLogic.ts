@@ -39,6 +39,8 @@ export interface ToolSummary {
     p95_ms: number | null
     users: number
     conversations: number
+    total_calls: number
+    total_conversations: number
 }
 
 export interface DescriptionRevision {
@@ -453,6 +455,8 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                         p95_ms: row.p95_ms,
                         users: row.users,
                         conversations: row.conversations,
+                        total_calls: row.total_calls,
+                        total_conversations: row.total_conversations,
                     }
                 },
             },
@@ -628,6 +632,7 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
                         r.errors,
                         r.error_rate_pct,
                         r.sessions,
+                        r.harness_sessions ?? null,
                     ])
                 },
             },

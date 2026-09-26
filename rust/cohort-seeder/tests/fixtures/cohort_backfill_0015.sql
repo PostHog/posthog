@@ -1,7 +1,8 @@
 -- Snapshot pinned to
--- products/cohorts/backend/migrations/0012_cohortbackfillchunk_next_attempt_at_and_more.py, the last
+-- products/cohorts/backend/migrations/0015_cohortbackfillchunk_claimable_after_and_more.py, the last
 -- migration that changed this DDL. 0010 alters only `marker_watch`'s help_text, which emits no SQL,
--- and 0011 touches posthog_cohort columns this projection does not carry.
+-- 0011 touches posthog_cohort columns this projection does not carry, and 0013 and 0014 emit none
+-- for these tables.
 -- External Team/Cohort foreign keys are omitted so the contract test stays schema-local.
 --
 -- Nothing enforces this snapshot against Django. No test diffs it with `sqlmigrate`, and the
@@ -69,6 +70,8 @@ CREATE TABLE cohort_backfill_chunks (
     person_range_hi uuid,
     attempts integer NOT NULL DEFAULT 0,
     next_attempt_at timestamptz,
+    -- 0015 trailing-day claim hold.
+    claimable_after timestamptz,
     last_error text NOT NULL DEFAULT '',
     tiles_produced bigint NOT NULL DEFAULT 0,
     -- 0012 scan-volume columns. The DEFAULT is the contract `plan_chunks` leans on: it inserts an

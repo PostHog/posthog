@@ -84,6 +84,18 @@ class AppleSearchAdsCredentials:
     ad_account_id: Optional[str] = None
 
 
+@frozen
+class AppleAdAccount:
+    """One ad account the configured API client can read, for the connect form's picker."""
+
+    id: str
+    name: Optional[str] = None
+
+    @property
+    def label(self) -> str:
+        return f"{self.id} ({self.name})" if self.name else self.id
+
+
 @dataclasses.dataclass(frozen=True)
 class AppleSearchAdsResumeConfig:
     # Offset into the current page set.
@@ -306,7 +318,7 @@ def validate_credentials(
     missing = missing_context_id(credentials, api_version)
     if missing is not None:
         if api_version == APPLE_ADS_API_VERSION_V1:
-            return False, _blank_ad_account_message(_readable_ad_accounts(client, api_version))
+            return False, _blank_ad_account_message(readable_ad_accounts(client, api_version))
         return False, missing
 
     # The campaign list is the cheapest account-scoped read: it exercises the access token
@@ -332,10 +344,13 @@ def validate_credentials(
     return False, f"The Apple Ads API returned an unexpected status code: {status}"
 
 
-def _readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> Optional[list[tuple[str, Optional[str]]]]:
-    """Ad accounts these credentials can read as ``(id, name)`` pairs, or None when the lookup fails.
+def readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> Optional[list[AppleAdAccount]]:
+    """The ad accounts these credentials can read, or None when the lookup itself failed.
 
-    Best effort. The ACL lookup carries no context id, so it works before one is entered.
+    Best effort, and never raises: the ACL lookup carries no context id, so it works before one
+    is entered. Both callers have something better to say than the lookup's own error, and both
+    need to tell "the lookup failed" apart from "it found nothing" — the connect message names a
+    different next step for each, and the picker keeps its free-text field either way.
     """
     if api_version != APPLE_ADS_API_VERSION_V1:
         return None
@@ -349,13 +364,13 @@ def _readable_ad_accounts(client: AppleSearchAdsClient, api_version: str) -> Opt
     except (requests.RequestException, ValueError):
         return None
 
-    accounts: list[tuple[str, Optional[str]]] = []
+    accounts: list[AppleAdAccount] = []
     for account in flatten_acl_rows(page_rows(payload, config, api_version)):
         account_id = account.get("id")
         if account_id is None:
             continue
         name = account.get("name")
-        accounts.append((str(account_id), str(name) if name else None))
+        accounts.append(AppleAdAccount(id=str(account_id), name=str(name) if name else None))
     return accounts
 
 
@@ -364,7 +379,7 @@ _AD_ACCOUNT_SCOPING = (
 )
 
 
-def _blank_ad_account_message(accounts: Optional[list[tuple[str, Optional[str]]]]) -> str:
+def _blank_ad_account_message(accounts: Optional[list[AppleAdAccount]]) -> str:
     if accounts is None:
         return (
             "Enter the ad account ID. PostHog could not list the ad accounts these credentials can "
@@ -376,10 +391,10 @@ def _blank_ad_account_message(accounts: Optional[list[tuple[str, Optional[str]]]
             "These credentials cannot read any ad account yet. Give the API user the API Account "
             "Read Only role for the ad account in Apple Ads, then connect again."
         )
-    named = ", ".join(f"{account_id} ({name})" if name else account_id for account_id, name in accounts)
+    named = ", ".join(account.label for account in accounts)
     if len(accounts) == 1:
         return (
-            f"These credentials can read one ad account: {named}. Enter {accounts[0][0]} in Ad "
+            f"These credentials can read one ad account: {named}. Enter {accounts[0].id} in Ad "
             f"account ID and connect again. {_AD_ACCOUNT_SCOPING}"
         )
     return (
