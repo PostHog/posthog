@@ -182,13 +182,8 @@ pub async fn build_components(
         .expect("failed to create redis client"),
     );
 
-    // With GLOBAL_RATE_LIMIT_REDIS_URL set, each global limiter gets its own
-    // client to the dedicated rate-limiter Redis; without it, both reuse the
-    // shared client. Each client owns its own connections, and each limiter
-    // drives its own tick loop against them under a per-command timeout, so
-    // sharing would let a slow drain on either limiter eat the other's budget. Key prefixes already keep their counts apart; this keeps
-    // their pipelines apart too. Neither is built unless its limiter is on, so
-    // a deployment running neither opens no connection.
+    // With GLOBAL_RATE_LIMIT_REDIS_URL set, each limiter gets its own client so a slow
+    // drain on one cannot eat the other's timeout budget; without it, both share the main client.
     let ai_byte_limit_enabled = ai_byte_limit_per_second(&config) > 0;
     let rate_limiter_redis = if config.global_rate_limit_enabled {
         Some(

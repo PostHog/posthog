@@ -158,10 +158,8 @@ impl GlobalRateLimiter {
                 min_sync_floor: config.global_rate_limit_min_sync_floor,
                 redis_key_prefix: &prefix,
                 metrics_scope: &metrics_scope,
-                // The token-only limiter is not wired to the dynamic refresh
-                // source. (The hierarchical resolver is still set, but its token
-                // fallback never fires for bare token keys, which have no
-                // `:distinct_id` suffix.)
+                // No dynamic source for the token-only limiter; its resolver's token
+                // fallback never fires for bare token keys.
                 enable_dynamic_source: false,
                 dry_run: config.global_rate_limit_dry_run,
             },
@@ -236,10 +234,8 @@ impl GlobalRateLimiter {
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
         spec: LimiterSpec<'_>,
     ) -> anyhow::Result<Self> {
-        // A zero window breaks the limiter. The epoch math divides by it, so the
-        // background task panics on its first tick and no read ever lands. Each
-        // pod then limits keys on its own count alone, and the AI budget, which is
-        // zero, limits every cached request. Refuse to boot instead.
+        // A zero window panics the background task on its first tick, so no read ever
+        // lands and pods limit on local counts alone. Refuse to boot instead.
         if spec.window_secs == 0 {
             anyhow::bail!(
                 "invalid configuration: {} must be greater than 0 (limiter {}); \

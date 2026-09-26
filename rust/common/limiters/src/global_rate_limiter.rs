@@ -203,29 +203,15 @@ pub struct GlobalRateLimiterConfig {
     pub local_cache_max_entries: u64,
     /// Capacity of the mpsc channel for async global cache updates
     pub channel_capacity: usize,
-    /// Minimum effective level before a key is worth a Redis round trip.
-    ///
-    /// A key far below its threshold cannot be limited no matter what the other
-    /// nodes report, so syncing it buys nothing and costs two Redis keys per
-    /// sync. With an unbounded key space (e.g. keyed on distinct_id) the
-    /// one-shot keys dominate, so this floor is what keeps the pipeline sized to
-    /// the keys that can actually be enforced rather than to total traffic.
-    ///
-    /// The level is per-node, so the ceiling on a safe value is
-    /// `global_threshold / node_count` -- above that, a key sitting exactly at
-    /// the threshold but spread evenly across the fleet would sync only after its
-    /// unwindowed local count reached the floor, more than a window late. Keep well under that: the saving is dominated by
-    /// the single-event keys, so a small floor captures nearly all of it.
-    ///
-    /// Set to 0 to sync every key, restoring the pre-floor behavior.
+    /// Minimum local level before a key earns a Redis read, which keeps one-shot keys off
+    /// the pipeline; `0` reads every key. Keep it well under `global_threshold / node_count`,
+    /// or a key at its limit spread across the fleet is read more than a window late.
     pub min_sync_floor: u64,
     /// Wall-clock time reads to an instance must keep failing before its keys stop
     /// limiting on this node's own counts. `None` uses `window_interval`; `Some(ZERO)` disables.
     pub max_read_outage: Option<Duration>,
-    /// Maximum keys drained from `pending_sync` per tick. The remainder stays
-    /// queued for the next tick, so a backlog degrades into staleness instead of
-    /// a tick loop that overruns its own interval. The same bound caps the write
-    /// entries sent per tick.
+    /// Max keys read, and max write entries sent, per tick. The rest wait, so a backlog
+    /// becomes staleness instead of a tick that overruns its interval.
     pub max_sync_keys_per_tick: usize,
     /// Maximum Redis keys per individual command. Reads cost two keys per entity
     /// (current + previous epoch), so an entity chunk is half this. Bounds how
@@ -235,12 +221,8 @@ pub struct GlobalRateLimiterConfig {
     /// How many chunked commands may be in flight at once against one instance.
     /// Trades tick wall-clock against instantaneous Redis load.
     pub max_concurrent_commands: usize,
-    /// Maximum distinct (key, epoch) entries held in the deferred write batch.
-    /// Merges into existing entries are always accepted (they add no memory);
-    /// at the cap, updates for new keys are dropped and counted. Without this,
-    /// unique-key inflow faster than the per-tick drain grows the batch without
-    /// bound -- the update channel's capacity does not help, because the
-    /// receiver moves entries into this map between ticks.
+    /// Max distinct `(key, epoch)` entries buffered for writing; at the cap, updates for new
+    /// keys drop and are counted. The channel's capacity does not bound this map.
     pub max_write_batch_entries: usize,
     /// Maximum keys held in the pending-sync set. At the cap, new sync
     /// requests are dropped and counted; the key's next request re-queues it
@@ -511,8 +493,7 @@ fn instance_index(key: &str, instances: usize) -> usize {
     (hasher.finish() as usize) % instances
 }
 
-/// Select a Redis client from the pool by a stable hash of the key, modulo the pool size.
-/// Returns (client_ref, index) tuple for metric tagging.
+/// The client that owns `key`, and its index for metric labels.
 fn select_redis_client(
     key: &str,
     clients: &[Arc<dyn Client + Send + Sync>],
@@ -862,19 +843,8 @@ impl GlobalRateLimiterImpl {
         }
     }
 
-    /// True when `level` sits below the sync floor for this key's threshold,
-    /// meaning a Redis round trip cannot change any enforcement decision.
-    /// Records the skip so the saving is visible next to `cache_counts_total`.
-    ///
-    /// The configured floor is capped at 1% of the key's own threshold. The
-    /// floor is a per-node level, so a fleet of N nodes can hide at most
-    /// N * floor events from enforcement; the cap keeps that bypass under N% of
-    /// the threshold for any threshold of 100 or more. Without it, a custom threshold
-    /// far below the global one (the exact keys overrides exist to clamp) could
-    /// sit entirely below a floor tuned for the global threshold and never
-    /// sync, making the override unenforceable.
-    ///
-    /// A configured floor of 0 disables the check entirely.
+    /// True, and counted, when `level` is below this key's floor, so a read cannot change the
+    /// decision. The floor is capped at 1% of the threshold to keep low custom limits enforceable.
     fn sync_floor_blocks(&self, level: f64, threshold: u64) -> bool {
         if self.config.min_sync_floor == 0 {
             return false;
@@ -1179,12 +1149,8 @@ impl GlobalRateLimiterImpl {
             .increment(purged as u64);
         }
 
-        // Bound the write drain the same way. The deferred remainder stays in
-        // `write_batch`, where new arrivals merge into it by (key, epoch). It lands
-        // in the same epoch key a few ticks late, unless its epoch ages out first
-        // and the purge above drops it.
-        // Without the bound, a high-cardinality burst produces a write batch
-        // whose waves consume the whole tick before reads run.
+        // Bound the write drain too, or a burst's write waves eat the whole tick before reads.
+        // The rest stays batched and lands a few ticks late, unless the purge above drops it.
         let writes: HashMap<(String, i64), u64> =
             if write_batch.len() <= config.max_sync_keys_per_tick {
                 std::mem::take(write_batch)
@@ -1604,11 +1570,8 @@ impl GlobalRateLimiterImpl {
                 }
             }
 
-            // estimated_count from Redis already includes the events this node
-            // wrote. Reset local_pending to avoid double-counting. Events whose
-            // write has not landed yet drop out of the local estimate. They appear
-            // in a later read once the write lands, unless their epoch ages out
-            // first and the tick purges them.
+            // Redis already holds this node's written events, so reset local_pending to avoid
+            // double-counting. Events whose write has not landed drop out until a later read.
             cache.insert(
                 key.clone(),
                 CacheEntry {
