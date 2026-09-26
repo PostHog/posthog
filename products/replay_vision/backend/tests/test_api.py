@@ -4740,10 +4740,14 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         # feed (weighted-score and jev-shadow arms), and the jev arm must rank on the cached
         # probabilities alone, with unjudged and judged-low rows in the recency filler tier.
         scanner = self._create_scanner(name="m")
-        jev_high = self._succeeded_observation(scanner, "jev-high", 40, self._monitor_result("no"))
+        jev_high_result = self._monitor_result("no")
+        jev_high_result["model_output"]["notability_reason"] = "The user paid twice for one order."
+        jev_high = self._succeeded_observation(scanner, "jev-high", 40, jev_high_result)
         self._succeeded_observation(scanner, "signal", 20, self._monitor_result("no", signals=2))
         jev_low = self._succeeded_observation(scanner, "jev-low", 10, self._monitor_result("yes"))
-        store_watch_ranks(self.team.id, scanner.id, {str(jev_high.id): 0.95, str(jev_low.id): 0.2}, "jevk5-fp8-0.2")
+        store_watch_ranks(
+            self.team.id, scanner.id, {str(jev_high.id), str(jev_low.id)}, {str(jev_high.id): 0.95}, "jevk5-fp8-0.2"
+        )
 
         ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
         for mode in ("weighted-score", "jev-shadow"):
@@ -4768,7 +4772,14 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             [item["observation"]["session_id"] for item in items],
             ["jev-high", "jev-low", "signal"],
         )
-        self.assertEqual(items[0]["reason"], {"kind": "jev_watchable", "jev_probability": 0.95})
+        self.assertEqual(
+            items[0]["reason"],
+            {
+                "kind": "jev_watchable",
+                "jev_probability": 0.95,
+                "notability_reason": "The user paid twice for one order.",
+            },
+        )
         self.assertEqual(items[1]["reason"], {"kind": "unviewed_recent"})
         self.assertEqual(items[2]["reason"], {"kind": "unviewed_recent"})
 
@@ -4782,7 +4793,9 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         )
         for index in range(100):
             self._succeeded_observation(scanner, f"routine-{index}", index + 1, self._monitor_result("no"))
-        store_watch_ranks(self.team.id, scanner.id, {str(old_interesting.id): 0.9}, "jevk5-fp8-0.2")
+        store_watch_ranks(
+            self.team.id, scanner.id, {str(old_interesting.id)}, {str(old_interesting.id): 0.9}, "jevk5-fp8-0.2"
+        )
 
         ranker = "products.replay_vision.backend.api.scanners.watch_feed_ranker"
         with patch(ranker, return_value="weighted-score"):

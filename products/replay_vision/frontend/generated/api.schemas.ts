@@ -2696,7 +2696,7 @@ export interface WatchFeedReasonApi {
      */
     jev_probability?: number | null
     /**
-     * The scan's own sentence naming why the session is worth watching. Present only on the `notable` reason kind, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
+     * The scan's own sentence naming why the session is worth watching. Present on the `notable` and `jev_watchable` reason kinds when the scan wrote one, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
      * @nullable
      */
     notability_reason?: string | null
