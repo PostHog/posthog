@@ -13,6 +13,7 @@ from django.db.models import F
 from django.utils import timezone
 
 import posthoganalytics
+from asgiref.sync import sync_to_async
 from croniter import CroniterError, croniter
 
 from posthog.dataclasses import frozen
@@ -30,7 +31,11 @@ from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import canonical_skill_names, sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    canonical_config_write_scopes_for,
+    canonical_skill_names,
+    sync_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import (
     DEFAULT_MAX_RUNTIME_S,
     FAILURE_STREAK_MAX_RUNS,
@@ -280,15 +285,23 @@ async def arun_signals_scout(
     if user_id is None:
         user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
         if user_id is not None and _granted_write_scopes(config):
-            # The grant was approved for the person the runs act as. The team fallback is a member
-            # who never approved it, so this run holds only the fleet posture. Cleared in memory
-            # only: the runner never saves the config row, so the grant is back the moment the
-            # author's identity resolves again.
-            logger.info(
-                "signals_scout: withholding write access, acting user is the team fallback",
-                extra={"team_id": team_id, "skill_name": skill.name, "user_id": user_id},
-            )
-            config.write_scopes = []
+            # A person's grant was approved for the person the runs act as, and the team fallback never approved it.
+            # The grant a canonical scout declares on disk (`scout-write-scopes`) is the exception: PostHog approved
+            # it with the skill, and a pristine canonical scout has no author to resolve. Cleared in memory only.
+            declared: set[str] = set()
+            if skill.origin == "canonical":
+                # Reads the skill fleet from disk on a cold cache, so keep it off the event loop.
+                declared = set(
+                    await sync_to_async(canonical_config_write_scopes_for, thread_sensitive=False)(skill.name)
+                )
+            stored = config.write_scopes if isinstance(config.write_scopes, list) else []
+            kept = sorted(declared & {scope for scope in stored if isinstance(scope, str)})
+            if kept != sorted(set(stored)):
+                logger.info(
+                    "signals_scout: withholding write access, acting user is the team fallback",
+                    extra={"team_id": team_id, "skill_name": skill.name, "user_id": user_id, "kept": kept},
+                )
+            config.write_scopes = kept
     if user_id is None:
         logger.info(
             "signals_scout: skipping run, no active user to act as for team",

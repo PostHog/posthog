@@ -9,8 +9,8 @@ from posthog.models.utils import UUIDTModel
 class HogFlowOptimisation(TeamScopedRootMixin, UUIDTModel):
     """One row per workflow whose owner asked PostHog to suggest improvements to it.
 
-    `enabled` is the opt-in: no row, or a disabled one, means nothing reads the workflow, so a
-    producer costs nothing for workflows nobody asked about. Turning it off keeps the row, so
+    `enabled` is the opt-in: no row, or a disabled one, means no suggestion can be filed for the
+    workflow, and the producer's work list leaves it out. Turning it off keeps the row, so
     "tried it and turned it off" stays answerable - that is the question a rollout has to answer,
     and a deleted row cannot.
 

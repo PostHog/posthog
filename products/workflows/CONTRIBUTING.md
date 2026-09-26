@@ -316,9 +316,10 @@ The versioned series is always keyed by the **flow**, even where the version-agn
 Batch and broadcast runs put the run id in `app_source_id` so per-run views group by the run, but a per-version rollup has to key on the flow itself — otherwise every run of a broadcast mints a fresh key and its versions never aggregate.
 So `hog_flow` reads stay exactly as they are, and `hog_flow_version` is always `<flow id>/<version>`.
 
-Nothing reads the versioned series yet.
-`/metrics` and `/metrics/totals` always return the version-agnostic one, and adding a filter to them is the natural next step.
-Until then, query it directly in HogQL, where the table is exposed as `app_metrics` (the HogQL name maps to the `app_metrics2` table; raw ClickHouse separately has a deprecated v1 table literally named `app_metrics`):
+`/metrics` and `/metrics/totals` read the versioned series when you pass `?version=<n>`, and the version-agnostic one otherwise.
+Because batch and broadcast runs key the version-agnostic rows on the run, a version's numbers are not a subset of the unversioned read: compare versions with each other.
+Any other metrics endpoint answers `?version=` with a 400, since nothing mirrors hog function metrics per version.
+To query the series directly, HogQL exposes the table as `app_metrics` (the HogQL name maps to the `app_metrics2` table; raw ClickHouse separately has a deprecated v1 table literally named `app_metrics`):
 
 ```sql
 SELECT metric_name, sum(count)

@@ -232,6 +232,7 @@ export class ToolDomainExtractor {
         'ship',
         'show',
         'start',
+        'suggest',
         'test',
         'transfer',
         'unarchive',

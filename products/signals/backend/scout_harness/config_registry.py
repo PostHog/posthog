@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
     SCOUT_SKILL_CATEGORY,
     canonical_config_tags_for,
+    canonical_config_write_scopes_for,
     canonical_deprecation_for,
     canonical_display_name_for,
     canonical_skill_names,
@@ -313,6 +314,11 @@ def register_missing_configs(
         # before the scout declared a label has no way to acquire one otherwise.
         if name in canonical_names and (canonical_display_name := canonical_display_name_for(name)):
             defaults["display_name"] = canonical_display_name
+        # Likewise the write grant a canonical scout declares (`scout-write-scopes`): seeded once, so
+        # a person who later narrows it in settings keeps it narrowed. Mint time intersects it
+        # against the allowlist again, so a scope removed from the allowlist stops reaching runs.
+        if name in canonical_names and (canonical_scopes := canonical_config_write_scopes_for(name)):
+            defaults["write_scopes"] = list(canonical_scopes)
         # The schema's presence is what switches the structured-output channel on, so a measurement
         # scout records from its first run. Backfilled onto existing rows below, like the label.
         if name in canonical_names and (canonical_schema := canonical_structured_output_schema_for(name)):
