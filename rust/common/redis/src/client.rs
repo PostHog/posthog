@@ -37,6 +37,12 @@ pub struct RedisClient {
 /// Minimum time between reconnect attempts (see `RedisClient::heal_connection`).
 const HEAL_COOLDOWN: Duration = Duration::from_secs(5);
 
+/// Whether a failed first connection is worth deferring. Only a network failure can clear
+/// up; bad credentials or a bad database would never heal, so they must fail startup.
+fn may_recover(err: &RedisError) -> bool {
+    err.is_io_error()
+}
+
 impl RedisClient {
     /// Current connection handle. Cheap: one atomic load plus a
     /// `MultiplexedConnection` clone (an mpsc sender clone).
@@ -195,12 +201,9 @@ impl RedisClient {
         Ok(client)
     }
 
-    /// Like `with_config`, but a first connection that fails does not fail
-    /// construction. The client starts without a connection, and every command
-    /// returns an unrecoverable error until `heal()` connects it.
-    ///
-    /// For a caller that can run without this Redis and already heals on
-    /// unrecoverable errors. Invalid configuration still returns an error.
+    /// Like `with_config`, but a network failure on the first connection is deferred:
+    /// commands fail as unrecoverable until `heal()` connects. Only for callers that heal
+    /// on unrecoverable errors; configuration, auth, and database errors still fail.
     pub async fn with_config_or_defer(
         addr: String,
         compression: CompressionConfig,
@@ -217,10 +220,11 @@ impl RedisClient {
         )?;
         match client.connect().await {
             Ok(connection) => client.connection.store(Some(Arc::new(connection))),
-            Err(e) => warn!(
+            Err(e) if may_recover(&e) => warn!(
                 error = %e,
                 "Redis unreachable at startup; the client connects on its first heal"
             ),
+            Err(e) => return Err(e.into()),
         }
         Ok(client)
     }
@@ -1040,6 +1044,45 @@ mod tests {
             }
         }
 
+        #[test]
+        fn test_only_network_failures_defer_the_first_connection() {
+            // (case, error, defers). The last two are what redis-rs returns at connect.
+            let cases: [(&str, RedisError, bool); 5] = [
+                (
+                    "refused",
+                    std::io::Error::from(std::io::ErrorKind::ConnectionRefused).into(),
+                    true,
+                ),
+                (
+                    "timed out",
+                    std::io::Error::from(std::io::ErrorKind::TimedOut).into(),
+                    true,
+                ),
+                (
+                    "dns",
+                    std::io::Error::other("failed to lookup address").into(),
+                    true,
+                ),
+                (
+                    "wrong password",
+                    (redis::ErrorKind::AuthenticationFailed, "auth").into(),
+                    false,
+                ),
+                (
+                    "bad database",
+                    (redis::ErrorKind::ResponseError, "select").into(),
+                    false,
+                ),
+            ];
+            for (case, err, defers) in cases {
+                assert_eq!(
+                    may_recover(&err),
+                    defers,
+                    "{case}: only a failure that can clear up may defer startup"
+                );
+            }
+        }
+
         #[tokio::test]
         async fn test_or_defer_starts_disconnected_when_redis_is_unreachable() {
             // Nothing listens on port 1, so the connection is refused at once.
@@ -1577,6 +1620,52 @@ mod integration_tests {
             client.set("k".to_string(), "v".to_string()).await.is_ok(),
             "the first heal after Redis returns must connect the client"
         );
+    }
+
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_or_defer_still_fails_on_bad_credentials_or_database() {
+        let container = GenericImage::new("redis", "7-alpine")
+            .with_exposed_port(6379.tcp())
+            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+            .with_cmd(["redis-server", "--requirepass", "right"])
+            .start()
+            .await
+            .unwrap();
+        let host = container.get_host().await.unwrap();
+        let port = container.get_host_port_ipv4(6379).await.unwrap();
+        let build = |url: String| {
+            RedisClient::with_config_or_defer(
+                url,
+                CompressionConfig::disabled(),
+                RedisValueFormat::Utf8,
+                Some(Duration::from_millis(1000)),
+                Some(Duration::from_millis(2000)),
+            )
+        };
+
+        // The readiness banner can land before the socket accepts, so wait for the right password.
+        let mut ready = false;
+        for _ in 0..20 {
+            if let Ok(c) = build(format!("redis://:right@{host}:{port}")).await {
+                if c.set("probe".to_string(), "1".to_string()).await.is_ok() {
+                    ready = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(ready, "redis container never became ready");
+
+        for (case, url) in [
+            ("wrong password", format!("redis://:wrong@{host}:{port}")),
+            ("bad database", format!("redis://:right@{host}:{port}/99")),
+        ] {
+            assert!(
+                build(url).await.is_err(),
+                "{case}: a failure that can never heal must stop startup, not defer it"
+            );
+        }
     }
 
     #[tokio::test]

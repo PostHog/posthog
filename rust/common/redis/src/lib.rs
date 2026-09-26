@@ -49,9 +49,8 @@ impl From<std::string::FromUtf8Error> for CustomRedisError {
 }
 
 impl CustomRedisError {
-    /// The error a client returns before its first connection lands. It maps to
-    /// `RetryMethod::Reconnect`, so it counts as unrecoverable, and callers that
-    /// heal on unrecoverable errors are the ones that connect the client.
+    /// Returned before a deferred client's first connection. It counts as unrecoverable,
+    /// so callers that heal on it are what connect the client.
     pub fn not_connected() -> Self {
         CustomRedisError::from(redis::RedisError::from(std::io::Error::new(
             std::io::ErrorKind::NotConnected,
