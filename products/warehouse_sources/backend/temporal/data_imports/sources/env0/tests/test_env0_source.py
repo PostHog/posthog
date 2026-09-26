@@ -39,13 +39,15 @@ class TestEnv0Source:
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
         incremental = {schema.name for schema in schemas if schema.supports_incremental}
-        # Only deployments expose env0's server-side fromDate/toDate window.
-        assert incremental == {"deployments"}
+        # Only the deployments walk accepts env0's server-side fromDate/toDate window, either for
+        # the deployments table itself or to bound the parent walk behind deployment resources.
+        assert incremental == {"deployments", "deployment_resources"}
 
     def test_incremental_schemas_advertise_their_fields(self):
         schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
         assert schemas["deployments"].incremental_fields == INCREMENTAL_FIELDS["deployments"]
+        assert schemas["deployment_resources"].incremental_fields == INCREMENTAL_FIELDS["deployment_resources"]
         assert schemas["environments"].incremental_fields == []
         assert schemas["environments"].supports_append is False
 

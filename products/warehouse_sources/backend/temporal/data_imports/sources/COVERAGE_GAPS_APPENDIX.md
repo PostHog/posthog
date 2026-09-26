@@ -2855,14 +2855,15 @@ Note: The docs URL serves the raw OpenAPI 3.1 JSON directly. The v2 API GET surf
 
 ## Env0 — gaps
 
-Today (7): `deployments`, `environment_costs`, `environments`, `organizations`, `projects`, `teams`, `templates`
+Today (12): `deployment_resources`, `deployments`, `drift_causes`, `environment_costs`, `environments`, `organization_costs`, `organization_users`, `organizations`, `projects`, `project_costs`, `teams`, `templates`
 
 Diffed against: <https://docs.envzero.com/llms.txt>
 
-- [ ] `cost/get-costs-for-a-project and cost/get-costs-for-an-organization` — project- and org-level cost rollups; only per-environment cost is synced today (high)
-- [ ] `environments/list-deployment-resources` — the resources a deployment created or changed — the analytical detail behind each deployment row (high)
-- [ ] `environments/get-a-drifted-resources-events (and find-deployment-drift-status)` — drift detection events, one of env0's headline signals and absent from the current tables (high)
-- [ ] `organization/list-users` — lookup resolving the user ids stamped on deployments, environments and role assignments (high)
+- [x] `cost/get-costs-for-a-project and cost/get-costs-for-an-organization` — project- and org-level cost rollups; only per-environment cost is synced today (high)
+- [x] `environments/list-deployment-resources` — the resources a deployment created or changed — the analytical detail behind each deployment row (high)
+- [x] `drift/get-drift-causes` — drift causes detected across an organization, with the environments each one affects (high)
+- [ ] `environments/get-a-drifted-resources-events (and find-deployment-drift-status)` — drift detection events, one of env0's headline signals and absent from the current tables (high). Not syncable: `get-a-drifted-resources-events` is keyed on a cloud `resourceId`/`resourceType` pair that no listing endpoint enumerates, and `find-deployment-drift-status` is a per-deployment point lookup returning a copy of a deployment log the `deployments` table already carries (including `driftDetected` and `driftCause`). `drift/get-drift-causes` covers the drift signal instead.
+- [x] `organization/list-users` — lookup resolving the user ids stamped on deployments, environments and role assignments (high)
 - [ ] `roles/get-user-role-assignments and roles/get-team-role-assignments (+ roles/get-all-roles)` — membership and permission mapping between users, teams and projects (medium)
 - [ ] `deployment-logs/find-all-steps-by-deployment-id` — per-step timing and status within a deployment, needed for duration and failure-stage analysis (medium)
 - [ ] `cost/get-a-projects-budget and cost/get-projects-budget-summary-of-the-current-period` — budget targets to compare actual spend against (medium)

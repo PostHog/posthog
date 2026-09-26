@@ -1,20 +1,23 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from datetime import timedelta
 from typing import Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
-Env0EndpointScope = Literal["root", "organization", "environment"]
+Env0EndpointScope = Literal["root", "organization", "project", "environment", "deployment"]
 
 
-@dataclass
+@frozen
 class Env0EndpointConfig:
     name: str
-    # Path template; `{parent_id}` is replaced with the fan-out parent's id (organization or
-    # environment, per `scope`).
+    # Path template; `{parent_id}` is replaced with the fan-out parent's id (organization,
+    # project, environment or deployment, per `scope`).
     path: str
-    # "root" endpoints are called once; "organization"/"environment" endpoints fan out one
-    # request chain per parent resource.
+    # "root" endpoints are called once; every other scope fans out one request chain per
+    # parent resource of that kind, walking organizations -> projects / environments ->
+    # deployments to enumerate the parents.
     scope: Env0EndpointScope = "root"
     # env0's core list endpoints are mostly unpaginated JSON arrays; only environments,
     # deployments, and teams document limit/offset pagination.
@@ -37,13 +40,18 @@ class Env0EndpointConfig:
     strip_fields: tuple[str, ...] = ()
     # Endpoint supports env0's server-side fromDate/toDate window (must be passed together).
     supports_date_window: bool = False
-    # When set, each row gets the fan-out parent's id injected under this column so the
-    # primary key stays unique table-wide.
-    inject_parent_id_field: Optional[str] = None
+    # Fan-out parent fields copied onto each row, mapped to the column they land in. The
+    # parent id keeps the primary key unique table-wide; a parent timestamp gives a child with
+    # no time field of its own an incremental cursor.
+    inject_parent_fields: dict[str, str] = field(default_factory=dict)
+    # Nested object lifted into the row root, for endpoints that bury the row's identity one
+    # level down (organization users wrap everything but role and status under "user").
+    flatten_field: Optional[str] = None
     # Safety overlap subtracted from the incremental watermark on every run, re-pulling a
     # window that merge dedupes on the primary key. Deployments mutate after creation
     # (status/finishedAt land when the run completes), so re-pulling the last day refreshes
-    # rows first fetched mid-run.
+    # rows first fetched mid-run. On a "deployment"-scoped endpoint the window bounds the
+    # deployments parent walk rather than the child request.
     incremental_lookback: Optional[timedelta] = None
 
 
@@ -114,7 +122,66 @@ ENV0_ENDPOINTS: dict[str, Env0EndpointConfig] = {
         # range, so the widest window with daily grain is the best full-refresh shape.
         params={"timespan": "YEAR", "granularity": "DAILY"},
         primary_keys=["environment_id", "date"],
-        inject_parent_id_field="environment_id",
+        inject_parent_fields={"id": "environment_id"},
+    ),
+    "project_costs": Env0EndpointConfig(
+        name="project_costs",
+        path="/costs/projects/{parent_id}",
+        scope="project",
+        params={"timespan": "YEAR", "granularity": "DAILY"},
+        primary_keys=["project_id", "date"],
+        inject_parent_fields={"id": "project_id"},
+    ),
+    "organization_costs": Env0EndpointConfig(
+        name="organization_costs",
+        path="/costs",
+        scope="organization",
+        org_id_param="organizationId",
+        params={"timespan": "YEAR", "granularity": "DAILY"},
+        # Returns {"costDataPoints": [...], "errors": [...], "staleProjectIds": [...]}; only the
+        # data points are rows. One point per date and groupKey (the project the cost rolls up to).
+        data_key="costDataPoints",
+        primary_keys=["organization_id", "date", "groupKey"],
+        inject_parent_fields={"id": "organization_id"},
+    ),
+    "organization_users": Env0EndpointConfig(
+        name="organization_users",
+        path="/organizations/{parent_id}/users",
+        scope="organization",
+        # API keys act as deployment initiators too, so including them makes this a complete
+        # lookup for the user ids stamped on deployments and environments.
+        params={"includeApiKeys": "true"},
+        flatten_field="user",
+        primary_keys=["organization_id", "user_id"],
+        inject_parent_fields={"id": "organization_id"},
+    ),
+    "drift_causes": Env0EndpointConfig(
+        name="drift_causes",
+        path="/drift-causes",
+        scope="organization",
+        org_id_param="organizationId",
+        data_key="causes",
+        primary_keys=["organization_id", "causeId"],
+        inject_parent_fields={"id": "organization_id"},
+    ),
+    "deployment_resources": Env0EndpointConfig(
+        name="deployment_resources",
+        path="/environments/deployments/{parent_id}/resources",
+        scope="deployment",
+        # Resources carry no id or timestamp of their own; the row is addressed by the Terraform
+        # address parts within its deployment, and dated by the deployment that produced it.
+        primary_keys=["deployment_id", "mode", "moduleName", "type", "name"],
+        inject_parent_fields={"id": "deployment_id", "startedAt": "deployment_started_at"},
+        supports_date_window=True,
+        incremental_lookback=timedelta(hours=24),
+        incremental_fields=[
+            {
+                "label": "deployment_started_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "deployment_started_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
     ),
 }
 
