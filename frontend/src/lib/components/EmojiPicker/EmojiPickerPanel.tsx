@@ -6,6 +6,8 @@ import {
     EmojiPickerListRowProps,
 } from 'frimousse'
 
+import { EmojiPickerSuggestions } from './EmojiPickerSuggestions'
+
 // frimousse fetches `<emojibaseUrl>/<locale>/data.json` and `messages.json`, and the URL defaults to
 // cdn.jsdelivr.net. The app's connect-src does not allow that CDN, and frimousse has no error state, so a
 // refused fetch leaves the picker on "Loading…". The build copies the pinned emojibase-data files to this
@@ -70,7 +72,7 @@ export function EmojiPickerPanel({
                     Loading…
                 </EmojiPicker.Loading>
                 <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
-                    No emoji found.
+                    {({ search }) => <EmojiPickerSuggestions query={search} onEmojiSelect={onEmojiSelect} />}
                 </EmojiPicker.Empty>
                 <EmojiPicker.List
                     className="select-none pb-1.5"

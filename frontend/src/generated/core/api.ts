@@ -22,6 +22,8 @@ import type {
     DataDeletionRequestsListParams,
     DomainsListParams,
     DomainsScimLogsRetrieveParams,
+    EmojiSearchRequestApi,
+    EmojiSearchResponseApi,
     EnterprisePropertyDefinitionApi,
     EventIngestionRestrictionApi,
     ExportedAssetApi,
@@ -1560,6 +1562,26 @@ export const dataDeletionRequestsPreviewCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataDeletionRequestInputApi),
+    })
+}
+
+export const getEmojiSearchSuggestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/emoji_search/suggest/`
+}
+
+/**
+ * @summary Suggest emojis for an unmatched search
+ */
+export const emojiSearchSuggestCreate = async (
+    projectId: string,
+    emojiSearchRequestApi: EmojiSearchRequestApi,
+    options?: RequestInit
+): Promise<EmojiSearchResponseApi> => {
+    return apiMutator<EmojiSearchResponseApi>(getEmojiSearchSuggestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emojiSearchRequestApi),
     })
 }
 

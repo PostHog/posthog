@@ -35715,6 +35715,26 @@ export namespace Schemas {
       idempotent_replay: boolean;
     }
 
+    export interface EmojiSearchRequest {
+      /**
+         * Search text that had no direct emoji match.
+         * @maxLength 64
+         */
+      query: string;
+    }
+
+    export interface EmojiSuggestion {
+      /** The suggested emoji character. */
+      emoji: string;
+      /** The emoji's English name. */
+      label: string;
+    }
+
+    export interface EmojiSearchResponse {
+      /** Related emojis, or an empty list. */
+      suggestions: EmojiSuggestion[];
+    }
+
     export interface EndExperiment {
       /** The conclusion of the experiment.
        *

@@ -702,6 +702,18 @@ export const DataDeletionRequestsPreviewCreateBody = /* @__PURE__ */ zod.object(
         .describe('Variables referenced by the HogQL query.'),
 })
 
+/**
+ * @summary Suggest emojis for an unmatched search
+ */
+export const emojiSearchSuggestCreateBodyQueryMax = 64
+
+export const EmojiSearchSuggestCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(emojiSearchSuggestCreateBodyQueryMax)
+        .describe('Search text that had no direct emoji match.'),
+})
+
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),
