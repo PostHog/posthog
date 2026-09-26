@@ -354,7 +354,6 @@ DEFAULT_SURVEY_APPEARANCE = {
     "ratingButtonColor": "white",
     "ratingButtonActiveColor": "black",
     "borderColor": "#c9c6c6",
-    "placeholder": "Start typing...",
     "whiteLabel": False,
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
