@@ -1658,7 +1658,7 @@ export interface SyncFrequencyBoundsApi {
 export interface DataWarehouseSavedQueryApi {
     readonly id: string
     /** @nullable */
-    deleted?: boolean | null
+    readonly deleted: boolean | null
     /**
      * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
      * @maxLength 128
@@ -1724,12 +1724,12 @@ export interface DataWarehouseSavedQueryApi {
      */
     readonly latest_history_id: string | null
     /**
-     * If true, skip column inference and validation. For saving drafts.
+     * If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.
      * @nullable
      */
     soft_update?: boolean | null
     /**
-     * Optional DAG to place this view into
+     * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
      * @nullable
      */
     dag_id?: string | null
@@ -1787,7 +1787,7 @@ export type PatchedDataWarehouseSavedQueryApiSuspended = { [key: string]: SavedQ
 export interface PatchedDataWarehouseSavedQueryApi {
     readonly id?: string
     /** @nullable */
-    deleted?: boolean | null
+    readonly deleted?: boolean | null
     /**
      * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
      * @maxLength 128
@@ -1853,12 +1853,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
      */
     readonly latest_history_id?: string | null
     /**
-     * If true, skip column inference and validation. For saving drafts.
+     * If true, skip column inference and external table discovery. On update, also skip the query revision conflict check. Query validation and revision updates still run.
      * @nullable
      */
     soft_update?: boolean | null
     /**
-     * Optional DAG to place this view into
+     * DAG in this project to place the view into. Null uses the default DAG. Managed DAGs are not allowed.
      * @nullable
      */
     dag_id?: string | null
