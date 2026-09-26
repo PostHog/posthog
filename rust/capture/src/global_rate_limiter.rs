@@ -158,9 +158,8 @@ impl GlobalRateLimiter {
                 min_sync_floor: config.global_rate_limit_min_sync_floor,
                 redis_key_prefix: &prefix,
                 metrics_scope: &metrics_scope,
-                // The token-only limiter is not wired to the dynamic refresh
-                // source. (The hierarchical resolver is still set but is a no-op
-                // for bare token keys, which have no `:distinct_id` suffix.)
+                // No dynamic source for the token-only limiter; its resolver's token
+                // fallback never fires for bare token keys.
                 enable_dynamic_source: false,
                 dry_run: config.global_rate_limit_dry_run,
             },
@@ -174,15 +173,15 @@ impl GlobalRateLimiter {
     /// events/window elsewhere caps bytes/window here. Callers pass an event's
     /// serialized size as the count.
     ///
-    /// Budgets are configured in bytes/second and scaled to the window, so the
-    /// knob keeps the same meaning whatever `GLOBAL_RATE_LIMIT_WINDOW_INTERVAL_SECS`
-    /// is set to.
+    /// Budgets are configured in bytes/second and scaled to the AI byte window
+    /// (see `ai_byte_limit_window`), so the knob keeps its meaning whatever that
+    /// window is set to.
     pub fn new_ai_bytes(
         config: &Config,
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
     ) -> anyhow::Result<Self> {
-        // `build` refuses to boot on a zero window, so this scaling never
-        // divides a budget down to nothing.
+        // `build` refuses to boot on a zero window, so this scaling never makes
+        // the budget zero.
         let (window_secs, window_env_var) = ai_byte_limit_window(config);
         let metrics_scope = format!("{}_ai_bytes", config.capture_mode.as_tag());
         Self::build(
@@ -235,10 +234,8 @@ impl GlobalRateLimiter {
         redis_instances: Vec<Arc<dyn Client + Send + Sync>>,
         spec: LimiterSpec<'_>,
     ) -> anyhow::Result<Self> {
-        // `leak_rate_for` divides the threshold by the window, so a zero window
-        // gives every bucket an infinite leak rate and the limiter admits
-        // everything. That is the opposite of what an operator setting a limit
-        // asked for, and it fails silently, so refuse to boot on it.
+        // A zero window panics the background task on its first tick, so no read ever
+        // lands and pods limit on local counts alone. Refuse to boot instead.
         if spec.window_secs == 0 {
             anyhow::bail!(
                 "invalid configuration: {} must be greater than 0 (limiter {}); \
@@ -374,7 +371,7 @@ impl GlobalRateLimiter {
             // No custom override for this key: enforce the global threshold.
             EvalResult::NotApplicable => self.is_global_key_limited(key, count).await,
             EvalResult::Limited(response) => Some(response),
-            // Allowed / FailOpen on a key that HAS a custom override: not limited,
+            // Allowed on a key that HAS a custom override: not limited,
             // and we must not re-check it against the global threshold.
             _ => None,
         };
@@ -1064,15 +1061,15 @@ mod tests {
 
     #[tokio::test]
     async fn test_static_csv_seed_resolves_hierarchically() {
-        // Gap fix vs master: a static-CSV token-level override (dynamic source
-        // OFF) now applies to that token's token:distinct_id keys too, because
-        // the hierarchical resolver is always set — not just on the dynamic path.
+        // A static-CSV token-level override (dynamic source off) applies to that
+        // token's token:distinct_id keys too, because capture always sets the
+        // hierarchical resolver.
         let limiter = GlobalRateLimiter::for_test_hierarchical_seeded(Some("phc_seed=7"));
 
         assert!(limiter.is_custom_key("phc_seed"), "exact token override");
         assert!(
             limiter.is_custom_key("phc_seed:any_user"),
-            "token override must apply to token:distinct_id (master only did exact match)"
+            "token override must apply to token:distinct_id"
         );
         assert!(
             !limiter.is_custom_key("other_tok:any_user"),
