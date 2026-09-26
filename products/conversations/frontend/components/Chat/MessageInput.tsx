@@ -1,15 +1,22 @@
 import { JSONContent } from '@tiptap/core'
+import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import { conversationsSendOnEnterLogic } from '../../scenes/settings/conversationsSendOnEnterLogic'
 import type { TicketChannel, TicketStatus } from '../../types'
 import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
 import { SupportEditor, serializeToMarkdown } from '../Editor'
+
+/** How the send was triggered, so Enter adoption is measurable after the shortcut rolls out. */
+type SendMethod = 'enter' | 'mod_enter' | 'button'
 
 export interface MessageInputProps {
     onSendMessage: (
@@ -89,6 +96,7 @@ export function MessageInput({
     threadId,
     composerPrefillAt = 0,
 }: MessageInputProps): JSX.Element {
+    const { sendOnEnter } = useValues(conversationsSendOnEnterLogic)
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
@@ -183,8 +191,8 @@ export function MessageInput({
     const showChannelLogo = !isPrivate && !isEditing && hasReplyChannelBranding(channel)
     const sendVerb = isEditing ? 'Save' : isPrivate ? 'Attach' : 'Send'
 
-    const handleSubmit = (statusAfterSend?: TicketStatus): void => {
-        // These guard the Cmd+Enter path, which bypasses the disabled button.
+    const handleSubmit = (sendMethod: SendMethod, statusAfterSend?: TicketStatus): void => {
+        // These guard the keyboard path, which bypasses the disabled button.
         if (sendDisabledReason || (replyDisabledReason && !isPrivate && !isEditing)) {
             return
         }
@@ -195,6 +203,11 @@ export function MessageInput({
             const richContent = editorRef.current.getJSON()
             const content = serializeToMarkdown(richContent)
             const doSend = (): void => {
+                posthog.capture('support reply submitted', {
+                    send_method: sendMethod,
+                    is_private: isPrivate,
+                    is_editing: isEditing,
+                })
                 onSendMessage(
                     content,
                     richContent,
@@ -301,7 +314,8 @@ export function MessageInput({
                     }
                 }}
                 onUpdate={handleUpdate}
-                onPressCmdEnter={() => handleSubmit()}
+                onSubmitShortcut={handleSubmit}
+                submitOnEnter={sendOnEnter}
                 onUploadingChange={setIsUploading}
                 disabled={messageSending || !!sendDisabledReason}
                 minRows={minRows}
@@ -365,7 +379,7 @@ export function MessageInput({
                     )}
                     <LemonButton
                         type="primary"
-                        onClick={() => handleSubmit()}
+                        onClick={() => handleSubmit('button')}
                         loading={messageSending}
                         disabledReason={sendBlockedReason}
                         sideAction={
@@ -381,7 +395,7 @@ export function MessageInput({
                                                   key={option.value}
                                                   fullWidth
                                                   size="small"
-                                                  onClick={() => handleSubmit(option.value)}
+                                                  onClick={() => handleSubmit('button', option.value)}
                                               >
                                                   {`${sendVerb} and set ${option.statusLabel}`}
                                               </LemonButton>
@@ -405,6 +419,18 @@ export function MessageInput({
                         )}
                     </LemonButton>
                 </div>
+            </div>
+            <div className="flex justify-end mt-1 text-xs text-secondary">
+                {sendOnEnter ? (
+                    <span>
+                        <KeyboardShortcut enter minimal /> to send, <KeyboardShortcut shift enter minimal /> for a new
+                        line
+                    </span>
+                ) : (
+                    <span>
+                        <KeyboardShortcut command enter minimal /> to send
+                    </span>
+                )}
             </div>
         </div>
     )

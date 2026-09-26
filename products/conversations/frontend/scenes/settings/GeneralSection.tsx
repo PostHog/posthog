@@ -13,6 +13,7 @@ import { AuthorizedDomains } from './AuthorizedDomains'
 import { ChannelsSection } from './ChannelsSection'
 import { DraftModeSection } from './DraftModeSection'
 import { SecretApiKeySection } from './SecretApiKeySection'
+import { SendShortcutSection } from './SendShortcutSection'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 export function GeneralSection(): JSX.Element {
@@ -172,6 +173,7 @@ export function GeneralSection(): JSX.Element {
                     </SceneSection>
                     <SecretApiKeySection />
                     <DraftModeSection />
+                    <SendShortcutSection />
                 </>
             )}
         </>
