@@ -13,7 +13,7 @@ from typing import Literal, get_args
 # The MCP `OAUTH_SCOPES_SUPPORTED` list at
 # `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
 # `get_scope_descriptions()` below via `bin/build-mcp-oauth-scopes.py`. Run
-# `hogli build:openapi` to regenerate after editing this file.
+# `hogli build:projections` to regenerate after editing this file.
 APIScopeObject = Literal[
     "action",
     "access_control",

@@ -130,6 +130,10 @@ jobs:
                         - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
                         - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
                         - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
+                        # Same for the task model catalog and the MCP OAuth scopes
+                        - 'products/tasks/frontend/modelCatalog.generated.ts'
+                        - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
+                        - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -319,19 +323,14 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
-            # Calls the generator directly because this job installs neither pnpm nor
-            # node_modules. Keep the step after "Install Python dependencies": importing
-            # posthog.taxonomy.taxonomy pulls in Django via posthog/__init__.py, so the
-            # generator needs the full synced dependency set, not just stdlib.
-            - name: Check if the taxonomy JSON is up to date
+            # Every projection generator is Python, so this job needs neither pnpm nor
+            # node_modules. Keep the step after "Install Python dependencies": the taxonomy
+            # and object-tag generators import posthog/__init__.py, which pulls in Django,
+            # so they need the full synced dependency set, not just stdlib.
+            - name: Check if the generated projections are up to date
               shell: bash
               run: |
-                  python3 bin/build-taxonomy-json.py --check
-
-            - name: Check if the generated object-tag registries are up to date
-              shell: bash
-              run: |
-                  python3 bin/build-object-tags-registry.py --check
+                  ./bin/hogli lint:projections
 
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.

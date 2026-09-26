@@ -491,6 +491,15 @@ build:
     build:object-tags:
         bin_script: build-object-tags-registry.py
         description: Generate the agent object-tag kind registry for TypeScript consumers
+    build:projections:
+        steps:
+            - build:taxonomy-json
+            - build:object-tags
+            - build:task-model-catalog
+            - build:mcp-oauth-scopes
+        description: 'Regenerate every checked-in projection of a Python module that
+            the OpenAPI flow does not carry (taxonomy, object tags, task model catalog,
+            MCP OAuth scopes). Needs no dev stack'
     build:bot-definitions:
         cmd: python livestream/bot/generate_definitions.py
         description: Generate livestream bot definitions JSON from bot_definitions.py
@@ -534,7 +543,7 @@ build:
     build:openapi-mcp-tools:
         cmd: pnpm --filter=@posthog/mcp run generate-tools
         description: Generate MCP tool handlers from YAML definitions + Orval schemas
-    build:openapi-mcp-scopes:
+    build:mcp-oauth-scopes:
         bin_script: build-mcp-oauth-scopes.py
         description: Generate OAUTH_SCOPES_SUPPORTED for the MCP protected-resource
             metadata from posthog/scopes.py
@@ -557,7 +566,7 @@ build:
             - build:widget-types
             - cmd: |
                   log_dir=$(mktemp -d)
-                  generator_names=(frontend_types mcp_types mcp_tools task_catalog exec_docs)
+                  generator_names=(frontend_types mcp_types mcp_tools exec_docs)
                   generator_pids=()
                   generator_statuses=()
                   setsid hogli build:openapi-types >"$log_dir/frontend_types.log" 2>&1 &
@@ -565,8 +574,6 @@ build:
                   setsid hogli build:openapi-mcp-types >"$log_dir/mcp_types.log" 2>&1 &
                   generator_pids+=("$!")
                   setsid sh -c 'hogli build:openapi-mcp && exec hogli build:openapi-mcp-tools' >"$log_dir/mcp_tools.log" 2>&1 &
-                  generator_pids+=("$!")
-                  setsid hogli build:task-model-catalog >"$log_dir/task_catalog.log" 2>&1 &
                   generator_pids+=("$!")
                   setsid hogli build:openapi-exec-docs >"$log_dir/exec_docs.log" 2>&1 &
                   generator_pids+=("$!")
@@ -599,7 +606,6 @@ build:
                   rm -rf "$log_dir"
                   trap - INT TERM
                   exit "$generation_status"
-            - build:openapi-mcp-scopes
             - build:openapi-cli-agent-scopes
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
@@ -898,6 +904,14 @@ quality:
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
+    lint:projections:
+        steps:
+            - cmd: python bin/build-taxonomy-json.py --check
+            - cmd: python bin/build-object-tags-registry.py --check
+            - cmd: python products/tasks/scripts/build_model_catalog.py --check
+            - cmd: python bin/build-mcp-oauth-scopes.py --check
+        description: Fail when a checked-in projection is out of date with its Python
+            source. Fix with hogli build:projections
     lint:api-ratchet:
         click: hogli_commands.api_ratchet:cmd_lint_api_ratchet
         description: Block new frontend/src/lib/api.ts path methods that a generated client already covers
