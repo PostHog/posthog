@@ -261,6 +261,7 @@ the row lists both.
 | easypost                         | HTTP                        | requests                                                        | ✅                          |
 | easypromos                       | HTTP                        | requests                                                        | ✅                          |
 | ecb_data_portal                  | HTTP                        | requests                                                        | ✅                          |
+| electricity_maps                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | elevenlabs                       | HTTP                        | requests                                                        | ✅                          |
 | eppo                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | etsy                             | HTTP                        | requests                                                        | ✅                          |
@@ -1006,7 +1007,6 @@ doesn't conflict with concurrent PRs.
 - dwolla
 - e2b
 - ebay
-- electricity_maps
 - eloqua
 - emarsys
 - embrace
