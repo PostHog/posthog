@@ -7,12 +7,14 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import SessionAuthentication
 from posthog.emoji_search.match import suggest_emojis
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 
@@ -48,10 +50,18 @@ class EmojiSearchDailyThrottle(UserRateThrottle):
     rate = "3000/day"
 
 
+class EmojiSearchSessionPermission(BasePermission):
+    message = "Emoji suggestions are available only in the web app."
+
+    def has_permission(self, request: Request, view: viewsets.GenericViewSet) -> bool:
+        return isinstance(request.successful_authenticator, SessionAuthentication)
+
+
 @extend_schema(extensions={"x-product": "core"})
 class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = EmojiSearchRequestSerializer
+    permission_classes = [EmojiSearchSessionPermission]
     throttle_classes = [EmojiSearchThrottle, EmojiSearchDailyThrottle]
 
     @validated_request(
