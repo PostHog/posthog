@@ -146,6 +146,18 @@ describe('experimentActivityDescriber', () => {
                 after: ['uuid-b', 'uuid-a'],
                 described: true,
             },
+            {
+                name: 'a metric the array never listed dragged ahead of a listed one',
+                before: ['uuid-a'],
+                after: ['uuid-b', 'uuid-a'],
+                described: true,
+            },
+            {
+                name: 'repeated entries dropped without moving anything',
+                before: ['uuid-a', 'uuid-a', 'uuid-b'],
+                after: ['uuid-a', 'uuid-b'],
+                described: false,
+            },
         ])('$name: reorder described=$described', ({ before, after, described }) => {
             const result = experimentActivityDescriber(
                 baseLogItem({
