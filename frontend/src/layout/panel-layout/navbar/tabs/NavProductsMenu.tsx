@@ -3,10 +3,10 @@ import { useActions } from 'kea'
 import { IconEllipsis, IconGear } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { navAppsTabLogic } from './navAppsTabLogic'
+import { navProductsTabLogic } from './navProductsTabLogic'
 
-export function NavAppsMenu(): JSX.Element {
-    const { setConfigureStarredOpen } = useActions(navAppsTabLogic)
+export function NavProductsMenu(): JSX.Element {
+    const { setConfigureStarredOpen } = useActions(navProductsTabLogic)
 
     return (
         <LemonMenu

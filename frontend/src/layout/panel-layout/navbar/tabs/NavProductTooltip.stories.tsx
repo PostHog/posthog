@@ -1,10 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { NavAppTooltip } from './NavAppTooltip'
+import { NavProductTooltip } from './NavProductTooltip'
 
-const meta: Meta<typeof NavAppTooltip> = {
-    title: 'Layout/Apps/App tooltip',
-    component: NavAppTooltip,
+const meta: Meta<typeof NavProductTooltip> = {
+    title: 'Layout/Products/Product tooltip',
+    component: NavProductTooltip,
     decorators: [
         (Story) => (
             <div className="Tooltip bg-[var(--color-bg-surface-tooltip)] rounded p-2 w-fit">
@@ -14,7 +14,7 @@ const meta: Meta<typeof NavAppTooltip> = {
     ],
 }
 export default meta
-type Story = StoryObj<typeof NavAppTooltip>
+type Story = StoryObj<typeof NavProductTooltip>
 export const SQL: Story = { args: { item: { path: 'SQL editor', sceneKey: 'SQLEditor' } } }
 export const Replay: Story = { args: { item: { path: 'Session replay', sceneKey: 'Replay' } } }
 export const Group: Story = { args: { item: { path: 'Companies', iconType: 'group' } } }

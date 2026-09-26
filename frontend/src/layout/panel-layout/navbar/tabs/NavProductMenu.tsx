@@ -12,7 +12,7 @@ import { ReplayTabs } from '~/types'
 
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 
-export function NavAppMenu({ product }: { product: string }): JSX.Element {
+export function NavProductMenu({ product }: { product: string }): JSX.Element {
     const { treeItemsNew } = useValues(projectTreeDataLogic)
     const { pinnedDashboards, dashboardsLoading, loadDashboardsFailed } = useValues(dashboardsModel)
     const { loadDashboardsIfNeeded, loadDashboards } = useActions(dashboardsModel)

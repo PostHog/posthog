@@ -813,7 +813,7 @@ function SearchStatus(): JSX.Element {
         }
         if (filteredItems.length > 0) {
             if (!searchValue.trim()) {
-                return 'Recents and tools'
+                return 'Recents and products'
             }
             return `${filteredItems.length} result${filteredItems.length === 1 ? '' : 's'}`
         }
