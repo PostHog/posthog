@@ -121,7 +121,7 @@ describe('utils', () => {
         })
 
         it('leaves the structured payload whole for the UI app that renders it', () => {
-            const projected = withTextProjection(listResult, fields)
+            const projected = withTextProjection(listResult, fields, { dateRange: { date_from: '-7d' } })
 
             expect(projected.results[0]).toEqual(listResult.results[0])
             expect(Object.keys(projected)).toEqual(['count', 'results'])

@@ -1005,8 +1005,14 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const informationalWrapper = config.response?.informational_wrapper
     // The text projection wraps last, so it can name the `_posthogUrl` each row picked up from enrichment.
     const textInclude = config.response?.text_include
+    const textParams = config.response?.text_include_params
+    const projectionParams = textParams?.length
+        ? `, pickResponseFields(params, [${textParams.map((f) => `'${f}'`).join(', ')}])`
+        : ''
     const projected = (expr: string): string =>
-        textInclude?.length ? `withTextProjection(${expr}, [${textInclude.map((f) => `'${f}'`).join(', ')}])` : expr
+        textInclude?.length
+            ? `withTextProjection(${expr}, [${textInclude.map((f) => `'${f}'`).join(', ')}]${projectionParams})`
+            : expr
     const wrapped = (expr: string): string => {
         const notedExpression = noted(expr)
         const purposeArgument = informationalWrapper?.purpose ? `, ${JSON.stringify(informationalWrapper.purpose)}` : ''
@@ -1285,6 +1291,7 @@ function generateToolCode(
         hasQuery ||
         composition.pathParamNames.length > 0 ||
         enrichUsesParams ||
+        !!config.response?.text_include_params?.length ||
         !!selectableExtension
     const paramsName = paramsUsed ? 'params' : '_params'
 
@@ -1322,6 +1329,7 @@ function generateToolCode(
                     ...responseFilter.helperImports,
                     config.response?.informational_wrapper && 'withInformationalResponse',
                     config.response?.text_include?.length && 'withTextProjection',
+                    config.response?.text_include_params?.length && 'pickResponseFields',
                 ].filter((value): value is string => !!value)
             ),
         }
@@ -1359,6 +1367,7 @@ const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultTy
                 ...responseFilter.helperImports,
                 config.response?.informational_wrapper && 'withInformationalResponse',
                 config.response?.text_include?.length && 'withTextProjection',
+                config.response?.text_include_params?.length && 'pickResponseFields',
             ].filter((value): value is string => !!value)
         ),
     }
@@ -1666,6 +1675,7 @@ ${handlerBody}    },
                 ...responseFilter.helperImports,
                 config.response?.informational_wrapper && 'withInformationalResponse',
                 config.response?.text_include?.length && 'withTextProjection',
+                config.response?.text_include_params?.length && 'pickResponseFields',
             ].filter((value): value is string => !!value)
         ),
     }

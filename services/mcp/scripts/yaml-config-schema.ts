@@ -221,6 +221,8 @@ export const ToolConfigSchema = z
                  * for JSON output.
                  */
                 text_include: z.array(z.string()).optional(),
+                /** Request fields to carry alongside projected rows, such as the query's date range. */
+                text_include_params: z.array(z.string()).min(1).optional(),
                 /** Wrap user-authored response data in an explicit informational-only tag boundary. */
                 informational_wrapper: z
                     .object({
@@ -240,6 +242,9 @@ export const ToolConfigSchema = z
             .refine((data) => !(data.text_include?.length && data.informational_wrapper), {
                 message:
                     'response.text_include and response.informational_wrapper both own the text channel — pick one',
+            })
+            .refine((data) => !data.text_include_params || !!data.text_include?.length, {
+                message: 'response.text_include_params requires response.text_include',
             })
             .optional(),
         /**

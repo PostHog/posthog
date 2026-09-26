@@ -1,5 +1,10 @@
 import { formatResponse } from '@/lib/response'
-import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_INFORMATIONAL_RESPONSE_KEY, type Context } from '@/tools/types'
+import {
+    POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
+    POSTHOG_INFORMATIONAL_RESPONSE_KEY,
+    POSTHOG_TEXT_PROJECTION_KEY,
+    type Context,
+} from '@/tools/types'
 
 /**
  * Adds a _posthogUrl field to a result. For object results it's a sibling field; for raw
@@ -104,7 +109,7 @@ const TEXT_PROJECTION_NOTE =
  * `withInformationalResponse` fences its own. The informational key itself is deliberately not set: it
  * would make a JSON caller read the projection instead of the full rows.
  */
-export function withTextProjection<T>(result: T, fields: string[]): T {
+export function withTextProjection<T>(result: T, fields: string[], request?: Record<string, unknown>): T {
     if (result === null || typeof result !== 'object') {
         return result
     }
@@ -114,12 +119,17 @@ export function withTextProjection<T>(result: T, fields: string[]): T {
         return result
     }
     const wrappedResult = { ...source }
+    Object.defineProperty(wrappedResult, POSTHOG_TEXT_PROJECTION_KEY, { value: true, enumerable: false })
     let formattedResult: string | undefined
     Object.defineProperty(wrappedResult, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, {
         enumerable: false,
         get: () => {
             if (formattedResult === undefined) {
-                const projection = { ...source, results: rows.map((item) => pickResponseFields(item, fields)) }
+                const projection = {
+                    ...source,
+                    ...(request ? { request } : {}),
+                    results: rows.map((item) => pickResponseFields(item, fields)),
+                }
                 // Only the angle brackets are escaped: a row cannot close the tag without them, and
                 // escaping `&` as well would mangle the query strings in the URLs a row exists to carry.
                 const fenced = formatResponse(projection).replace(
