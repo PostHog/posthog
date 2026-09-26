@@ -190,6 +190,9 @@ function summarizeSubagentRun(
       ? `Ran ${count}, ${view.counts.failed} failed`
       : `Ran ${count}`;
   }
+  if (view.counts.running > 0) {
+    return `Running ${count}`;
+  }
   return `Ran ${count}, ${formatStoppedCounts(view)}`;
 }
 
