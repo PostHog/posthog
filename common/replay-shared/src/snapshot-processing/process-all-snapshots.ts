@@ -1,7 +1,12 @@
 import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
-import { SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
+import {
+    KEYBOARD_PARENT_ID,
+    NAVIGATION_BAR_PARENT_ID,
+    SCREENSHOT_ATTRIBUTE,
+    STATUS_BAR_PARENT_ID,
+} from '../mobile/transformer/transformers'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import {
     EncodedRecordingSnapshot,
@@ -61,6 +66,92 @@ function extractImgNodeFromMobileIncremental(snapshot: RecordingSnapshot): any |
 
 function isLikelyMobileScreenshot(snapshot: RecordingSnapshot): boolean {
     return extractImgNodeFromMobileIncremental(snapshot) !== undefined
+}
+
+type ScreenshotFrame = {
+    imgId: number
+    src: string
+    // every img attribute except src and id, so a frame with a new size or position does not match
+    layout: string
+}
+
+// the fixed containers that makeFullEvent always adds to the body, empty when the frame has no keyboard or bars
+const EMPTY_PLACEHOLDER_IDS = new Set([KEYBOARD_PARENT_ID, NAVIGATION_BAR_PARENT_ID, STATUS_BAR_PARENT_ID])
+
+// incremental sources that change the rendered document, so the next screenshot frame must rebuild it
+const DOCUMENT_CHANGING_SOURCES = new Set<IncrementalSource>([
+    IncrementalSource.Mutation,
+    IncrementalSource.StyleSheetRule,
+    IncrementalSource.StyleDeclaration,
+    IncrementalSource.AdoptedStyleSheet,
+    IncrementalSource.CanvasMutation,
+    IncrementalSource.Font,
+])
+
+function findChildElement(node: unknown, tagName: string): Record<string, any> | undefined {
+    if (!isObject(node) || !Array.isArray(node.childNodes)) {
+        return undefined
+    }
+    return node.childNodes.find((child: unknown) => isObject(child) && child.tagName === tagName)
+}
+
+/**
+ * Returns the screenshot when a transformed mobile full snapshot shows nothing but one screenshot.
+ */
+function extractScreenshotOnlyFrame(snapshot: fullSnapshotEvent): ScreenshotFrame | undefined {
+    const body = findChildElement(findChildElement(snapshot.data.node, 'html'), 'body')
+    if (!body || !Array.isArray(body.childNodes)) {
+        return undefined
+    }
+    const screenshots = body.childNodes.filter(
+        (child: any) => child?.tagName === 'img' && child.attributes?.[SCREENSHOT_ATTRIBUTE]
+    )
+    if (screenshots.length !== 1) {
+        return undefined
+    }
+    const img = screenshots[0]
+    const otherNodesAreEmptyPlaceholders = body.childNodes.every(
+        (child: any) =>
+            child === img ||
+            (EMPTY_PLACEHOLDER_IDS.has(child?.id) && Array.isArray(child.childNodes) && child.childNodes.length === 0)
+    )
+    if (!otherNodesAreEmptyPlaceholders || typeof img.id !== 'number' || typeof img.attributes.src !== 'string') {
+        return undefined
+    }
+    const { src, 'data-rrweb-id': _rrwebId, ...layoutAttributes } = img.attributes
+    return { imgId: img.id, src, layout: JSON.stringify(layoutAttributes) }
+}
+
+function createScreenshotFrameMutation(
+    snapshot: RecordingSnapshot,
+    previousFrame: ScreenshotFrame,
+    src: string
+): RecordingSnapshot {
+    return {
+        type: EventType.IncrementalSnapshot,
+        timestamp: snapshot.timestamp,
+        windowId: snapshot.windowId,
+        data: {
+            source: IncrementalSource.Mutation,
+            texts: [],
+            removes: [],
+            adds: [],
+            attributes: [{ id: previousFrame.imgId, attributes: { src, [SCREENSHOT_ATTRIBUTE]: 'true' } }],
+        },
+    }
+}
+
+/**
+ * True for a mutation that shows the next frame of a screenshot-mode mobile recording.
+ */
+export function isScreenshotFrameMutation(event: eventWithTime): boolean {
+    return (
+        event.type === EventType.IncrementalSnapshot &&
+        isObject(event.data) &&
+        event.data.source === IncrementalSource.Mutation &&
+        Array.isArray(event.data.attributes) &&
+        event.data.attributes.some((mutation) => !!mutation?.attributes?.[SCREENSHOT_ATTRIBUTE])
+    )
 }
 
 function createMinimalFullSnapshot(windowId: number | undefined, timestamp: number, imgNode?: any): RecordingSnapshot {
@@ -128,6 +219,7 @@ export async function processAllSnapshots(
         previousTimestamp: null,
         seenHashes: new Set<number>(),
         sourceHadViewportGap: false,
+        screenshotFrameByWindow: {},
     }
 
     // Reset each pass: any source with a gap was left uncached, so it re-processes below and
@@ -160,6 +252,8 @@ export async function processAllSnapshots(
 
         context.sourceResult = []
         context.sourceHadViewportGap = false
+        // Each source keeps its first frame as a full snapshot, because playback can start from any loaded source
+        context.screenshotFrameByWindow = {}
         const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
         context.seenHashes = new Set<number>()
         const pushPatchedMeta = createPushPatchedMeta(
@@ -216,6 +310,8 @@ type ProcessSnapshotContext = {
     seenHashes: Set<number>
     // Set when a meta patch failed because no viewport was available for the current source
     sourceHadViewportGap: boolean
+    // The screenshot on screen per window, when the last DOM change was a screenshot-only full snapshot
+    screenshotFrameByWindow: Record<number, ScreenshotFrame>
 }
 
 function createPushPatchedMeta(
@@ -353,6 +449,13 @@ function processSnapshot(
         }
     }
 
+    if (
+        snapshot.type === EventType.IncrementalSnapshot &&
+        (!isObject(snapshot.data) || DOCUMENT_CHANGING_SOURCES.has(snapshot.data.source))
+    ) {
+        delete context.screenshotFrameByWindow[windowId]
+    }
+
     if (snapshot.type === EventType.FullSnapshot) {
         const fullSnapshot = snapshot as RecordingSnapshot & fullSnapshotEvent & eventWithTime
 
@@ -370,6 +473,24 @@ function processSnapshot(
                 })
             })
             return
+        }
+
+        // Mobile SDKs in screenshot mode send every frame as a full snapshot. rrweb rebuilds the document for
+        // each full snapshot, and the page is blank until the new image decodes. When the layout does not change,
+        // swap the src of the image on screen instead: the browser shows the old image until the new one decodes.
+        const screenshotFrame = extractScreenshotOnlyFrame(fullSnapshot)
+        const previousFrame = context.screenshotFrameByWindow[windowId]
+        if (screenshotFrame && previousFrame && screenshotFrame.layout === previousFrame.layout) {
+            const frameMutation = createScreenshotFrameMutation(snapshot, previousFrame, screenshotFrame.src)
+            context.result.push(frameMutation)
+            context.sourceResult.push(frameMutation)
+            context.previousTimestamp = currentTimestamp
+            return
+        }
+        if (screenshotFrame) {
+            context.screenshotFrameByWindow[windowId] = screenshotFrame
+        } else {
+            delete context.screenshotFrameByWindow[windowId]
         }
 
         context.seenFullByWindow[snapshot.windowId] = true
