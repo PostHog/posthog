@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
@@ -5,12 +7,15 @@ from langchain_core.agents import AgentAction
 from parameterized import parameterized
 from pydantic import BaseModel
 
-from posthog.schema import AssistantToolCall
+from posthog.schema import ActorsPropertyTaxonomyQuery, AssistantToolCall
+
+from posthog.models import Team
 
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit, TaxonomyToolNotFoundError
 from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool
+from ee.hogai.chat_agent.taxonomy.virtual_properties import PropertyDefinitionOrVirtual
 
 
 class DummyToolkit(TaxonomyAgentToolkit):
@@ -322,6 +327,41 @@ class TestTaxonomyAgentToolkit(BaseTest):
         self.assertIn("<name>plan_tier</name>", result.result)
         # Sanitization collapses the newline so a description can't break out of its line.
         self.assertIn("<description>Subscription tier of the account</description>", result.result)
+
+    @parameterized.expand(
+        [
+            (
+                "entity_lookup",
+                lambda toolkit: vars(TaxonomyAgentToolkit)["_get_definitions_for_entity"].func(
+                    toolkit, "event", ["sibling_tier"], ActorsPropertyTaxonomyQuery(properties=["sibling_tier"])
+                ),
+            ),
+            (
+                "event_or_action_lookup",
+                lambda toolkit: vars(TaxonomyAgentToolkit)["_get_definitions_for_event_or_action"].func(
+                    toolkit, ["sibling_tier"]
+                ),
+            ),
+        ]
+    )
+    def test_property_definitions_resolve_across_sibling_environments(
+        self, _name: str, lookup: Callable[[TaxonomyAgentToolkit], dict[str, PropertyDefinitionOrVirtual]]
+    ) -> None:
+        # Both lookups are `database_sync_to_async(thread_sensitive=False)`, which runs them on another thread and
+        # connection. The wrapper's `.func` runs them on the test's connection, the only one that sees its rows.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.EVENT,
+            name="sibling_tier",
+            property_type="String",
+        )
+
+        definition = lookup(self.toolkit)["sibling_tier"]
+
+        assert isinstance(definition, PropertyDefinition)
+        self.assertEqual(definition.property_type, "String")
 
     @patch("ee.hogai.chat_agent.taxonomy.toolkit.restricted_property_names")
     async def test_retrieve_multiple_entity_property_values_hides_restricted(self, mock_restricted):

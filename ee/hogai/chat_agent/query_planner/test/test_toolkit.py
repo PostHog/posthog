@@ -3,13 +3,18 @@ from textwrap import dedent
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
 from parameterized import parameterized
 
-from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
+from posthog.schema import (
+    ActorsPropertyTaxonomyResponse,
+    CachedActorsPropertyTaxonomyQueryResponse,
+    CachedEventTaxonomyQueryResponse,
+    EventTaxonomyItem,
+)
 
 from posthog.models import Team
 from posthog.models.group.util import create_group
@@ -547,6 +552,61 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert toolkit.retrieve_event_or_action_property_values("event1", "$virt_is_bot") == "true, false"
+
+    @patch.object(DummyToolkit, "_retrieve_event_or_action_taxonomy")
+    def test_retrieve_event_or_action_property_values_resolves_sibling_environment_definitions(
+        self, mock_retrieve: MagicMock
+    ) -> None:
+        # The stored definition decides the formatting: found as a String the value is quoted, not found
+        # the toolkit reports the property as missing from the taxonomy.
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.EVENT,
+            name="sibling_tier",
+            property_type=PropertyType.String,
+        )
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_retrieve.return_value = (
+            CachedEventTaxonomyQueryResponse(
+                cache_key="test",
+                is_cached=True,
+                last_refresh=now,
+                next_allowed_client_refresh=now,
+                results=[EventTaxonomyItem(property="sibling_tier", sample_count=1, sample_values=["gold"])],
+                timezone="UTC",
+            ),
+            "event event1",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        self.assertEqual(toolkit.retrieve_event_or_action_property_values("event1", "sibling_tier"), '"gold"')
+
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_resolves_sibling_environment_definitions(
+        self, mock_runner_class: MagicMock
+    ) -> None:
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            team=sibling,
+            project=self.team.project,
+            type=PropertyDefinition.Type.PERSON,
+            name="sibling_tier",
+            property_type=PropertyType.String,
+        )
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[ActorsPropertyTaxonomyResponse(sample_count=1, sample_values=["gold"])],
+            timezone="UTC",
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        self.assertEqual(toolkit.retrieve_entity_property_values("person", "sibling_tier"), '"gold"')
 
     def test_retrieve_event_or_action_properties_when_actions_exist_but_action_id_incorrect(self):
         toolkit = DummyToolkit(self.team, self.user)
