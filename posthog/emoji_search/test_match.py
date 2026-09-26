@@ -47,8 +47,42 @@ class TestSuggestEmojis(SimpleTestCase):
                 assert len(question.criteria) <= 16
                 candidates.update(key for key in question.criteria if key != "none")
         assert candidates == set(catalog.emojis)
-        largest_subgroups = sorted(catalog.subgroups, key=lambda key: -len(catalog.subgroups[key].emoji_keys))[:3]
-        assert len(build_emoji_questions(catalog, largest_subgroups)) <= 32
+
+    @patch("posthog.emoji_search.match.build_system_one_client")
+    def test_five_largest_subgroups_are_searched_within_request_limit(self, build_client) -> None:
+        cache.clear()
+        catalog = load_catalog()
+        largest_subgroups = sorted(catalog.subgroups, key=lambda key: -len(catalog.subgroups[key].emoji_keys))[:5]
+        selected_labels = {catalog.subgroups[key].label for key in largest_subgroups}
+
+        def decide(*, state, questions):
+            if "subgroup" in next(iter(questions)):
+                answers = {}
+                for question_id, question in questions.items():
+                    probabilities = dict.fromkeys(question.criteria, 0.01)
+                    probabilities["none"] = 0.05
+                    for key, description in question.criteria.items():
+                        if any(str(description).startswith(label + ":") for label in selected_labels):
+                            probabilities[key] = 0.6
+                    choice = max(probabilities, key=lambda key: probabilities[key])
+                    answers[question_id] = ChoiceAnswer(
+                        choice=choice, confidence=probabilities[choice], probabilities=probabilities
+                    )
+                return SystemOneResult(model="jevk5-0.2", answers=answers, input_tokens=100)
+            return answer_questions(questions, ())
+
+        build_client.return_value.decide.side_effect = decide
+        suggest_emojis("five largest groups", team_id=3)
+
+        calls = build_client.return_value.decide.call_args_list
+        assert len(calls) == 3
+        assert all(len(call.kwargs["questions"]) <= 32 for call in calls)
+        searched_emojis = {
+            key for call in calls[1:] for question in call.kwargs["questions"].values() for key in question.criteria
+        }
+        assert searched_emojis - {"none"} == {
+            key for subgroup in largest_subgroups for key in catalog.subgroups[subgroup].emoji_keys
+        }
 
     @patch("posthog.emoji_search.match.build_system_one_client")
     def test_jurassic_park_suggests_dinosaurs_and_rides(self, build_client) -> None:

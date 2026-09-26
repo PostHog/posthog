@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
 
-import { emojiSearchSuggestCreate } from '~/generated/core/api'
+import { emojiSearchSuggestRetrieve } from '~/generated/core/api'
 import { EmojiSuggestionApi } from '~/generated/core/api.schemas'
 
 type EmojiSuggestionsLogicProps = {
@@ -35,7 +35,7 @@ export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
             const controller = new AbortController()
             const timeout = window.setTimeout(() => controller.abort(), 2500)
             try {
-                const response = await emojiSearchSuggestCreate(
+                const response = await emojiSearchSuggestRetrieve(
                     String(props.projectId),
                     { query: props.query },
                     { signal: controller.signal }

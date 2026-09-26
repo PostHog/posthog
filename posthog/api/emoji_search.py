@@ -1,5 +1,7 @@
 from typing import Any
 
+from django.utils.cache import patch_vary_headers
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -45,17 +47,22 @@ class EmojiSearchViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [EmojiSearchThrottle]
 
     @validated_request(
-        request_serializer=EmojiSearchRequestSerializer,
+        query_serializer=EmojiSearchRequestSerializer,
         responses={
             200: OpenApiResponse(response=EmojiSearchResponseSerializer, description="Suggested emojis."),
             503: OpenApiResponse(description="The decision model is unavailable."),
         },
         summary="Suggest emojis for an unmatched search",
     )
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["GET"])
     def suggest(self, request: Request, **kwargs: Any) -> Response:
         try:
-            suggestions = suggest_emojis(request.validated_data["query"], team_id=self.team_id)
+            suggestions = suggest_emojis(request.validated_query_data["query"], team_id=self.team_id)
         except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
             raise EmojiSearchUnavailable() from error
-        return Response(EmojiSearchResponseSerializer({"suggestions": suggestions}).data)
+        response = Response(
+            EmojiSearchResponseSerializer({"suggestions": suggestions}).data,
+            headers={"Cache-Control": "private, max-age=604800"},
+        )
+        patch_vary_headers(response, ["Cookie", "Authorization"])
+        return response

@@ -3867,14 +3867,6 @@ export interface DataDeletionPreviewApi {
     readonly count: number
 }
 
-export interface EmojiSearchRequestApi {
-    /**
-     * Search text that had no direct emoji match.
-     * @maxLength 64
-     */
-    query: string
-}
-
 export interface EmojiSuggestionApi {
     /** The suggested emoji character. */
     emoji: string
@@ -5647,6 +5639,11 @@ export type DataDeletionRequestsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EmojiSearchSuggestRetrieveParams = {
+    /** Search text that had no direct emoji match. */
+    query: string
 }
 
 export type ExportsListParams = {

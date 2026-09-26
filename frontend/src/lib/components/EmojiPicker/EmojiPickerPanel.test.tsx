@@ -6,12 +6,12 @@ import emojibaseMessages from 'emojibase-data/en/messages.json'
 
 import { projectLogic } from 'scenes/projectLogic'
 
-import { emojiSearchSuggestCreate } from '~/generated/core/api'
+import { emojiSearchSuggestRetrieve } from '~/generated/core/api'
 import { initKeaTests } from '~/test/init'
 
 import { EmojiPickerPanel } from './EmojiPickerPanel'
 
-jest.mock('~/generated/core/api', () => ({ emojiSearchSuggestCreate: jest.fn() }))
+jest.mock('~/generated/core/api', () => ({ emojiSearchSuggestRetrieve: jest.fn() }))
 
 // The two files the build copies to /static/emoji. Any other URL, such as the frimousse CDN default,
 // has no same-origin copy and the app's connect-src refuses it, so the mock refuses it too.
@@ -28,7 +28,7 @@ describe('EmojiPickerPanel', () => {
         initKeaTests()
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 1, name: 'Test project' } as any)
-        jest.mocked(emojiSearchSuggestCreate).mockReset()
+        jest.mocked(emojiSearchSuggestRetrieve).mockReset()
         // frimousse caches the data in localStorage and skips the fetch on a hit.
         localStorage.clear()
         sessionStorage.clear()
@@ -61,14 +61,14 @@ describe('EmojiPickerPanel', () => {
     })
 
     it('offers related emojis when the normal search has no result', async () => {
-        jest.mocked(emojiSearchSuggestCreate).mockResolvedValue({
+        jest.mocked(emojiSearchSuggestRetrieve).mockResolvedValue({
             suggestions: [{ emoji: '🦖', label: 'T-Rex' }],
         })
         const onEmojiSelect = jest.fn()
         render(<EmojiPickerPanel initialSearch="jurassic park" onEmojiSelect={onEmojiSelect} />)
 
         await waitFor(() =>
-            expect(emojiSearchSuggestCreate).toHaveBeenCalledWith(
+            expect(emojiSearchSuggestRetrieve).toHaveBeenCalledWith(
                 '1',
                 { query: 'jurassic park' },
                 { signal: expect.any(AbortSignal) }

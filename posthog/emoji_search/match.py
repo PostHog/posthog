@@ -1,5 +1,6 @@
 import json
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -8,10 +9,10 @@ from django.core.cache import cache
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion
-from posthog.llm.system_one_client import build_system_one_client
+from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client
 
 MODEL = "posthog/hogference/jevk5-fp8-0.2"
-CACHE_SECONDS = 24 * 60 * 60
+CACHE_SECONDS = 30 * 24 * 60 * 60
 OPTIONS_PER_QUESTION = 15
 
 
@@ -115,7 +116,7 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
         return []
 
     catalog = load_catalog()
-    cache_key = f"emoji_search:v2:{team_id}:{hashlib.sha256(query.lower().encode()).hexdigest()}"
+    cache_key = f"emoji_search:v3:{team_id}:{hashlib.sha256(query.lower().encode()).hexdigest()}"
     cached = cache.get(cache_key)
     if isinstance(cached, str):
         try:
@@ -133,13 +134,23 @@ def suggest_emojis(query: str, *, team_id: int) -> list[EmojiSuggestion]:
     subgroup_scores = _ranked_probabilities(
         subgroup_result.answers, {f"s{subgroup_id}" for subgroup_id in catalog.subgroups}
     )
-    subgroup_ids = [key[1:] for key in sorted(subgroup_scores, key=lambda key: -subgroup_scores[key])[:3]]
+    subgroup_ids = [key[1:] for key in sorted(subgroup_scores, key=lambda key: -subgroup_scores[key])[:5]]
     if not subgroup_ids:
         cache.set(cache_key, "[]", CACHE_SECONDS)
         return []
 
-    emoji_result = client.decide(state=state, questions=build_emoji_questions(catalog, subgroup_ids))
-    emoji_scores = _ranked_probabilities(emoji_result.answers, set(catalog.emojis))
+    emoji_questions = list(build_emoji_questions(catalog, subgroup_ids).items())
+    batches = [
+        dict(emoji_questions[index : index + GATEWAY_MAX_QUESTIONS])
+        for index in range(0, len(emoji_questions), GATEWAY_MAX_QUESTIONS)
+    ]
+    with ThreadPoolExecutor(max_workers=len(batches)) as executor:
+        results = list(executor.map(lambda questions: client.decide(state=state, questions=questions), batches))
+    emoji_scores = {
+        key: score
+        for result in results
+        for key, score in _ranked_probabilities(result.answers, set(catalog.emojis)).items()
+    }
     keys = sorted(
         emoji_scores,
         key=lambda key: -emoji_scores[key] * subgroup_scores[f"s{catalog.emojis[key].subgroup}"],
