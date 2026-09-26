@@ -389,10 +389,11 @@ export function HogFunctionFilters({
                                             <p className="mb-0">
                                                 This view rebuilds its whole table on every run. A row runs this
                                                 destination again only if its values changed since the last run. If a
-                                                filter uses the current time, such as now(), every row runs it again
-                                                each time. In a view with more than 200,000 rows, the rows past that
-                                                limit run it again each time. Set the view to update incrementally to
-                                                avoid this.{' '}
+                                                filter uses the current time, such as now(), every row reaches the
+                                                filter again each time, and the rows that match run this destination. In
+                                                a view with more than 200,000 rows, the rows past that limit run it
+                                                again each time. Set the view to update incrementally to avoid
+                                                this.{' '}
                                                 <Link
                                                     to={urls.sqlEditor({ view_id: selectedFullRefreshView.id })}
                                                     target="_blank"

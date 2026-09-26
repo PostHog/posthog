@@ -29,7 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp
     EmittedRowStore,
     emitted_rows_key,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer import (
+    CDPProducer,
+    reads_the_clock,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
     ObjectStoreConfigurationError,
 )
@@ -1392,6 +1395,35 @@ async def test_an_unchanged_view_row_repeats_only_for_a_filter_that_reads_the_cl
     await _produce_staged_rows(_view_producer_for(view), rows)
 
     assert await _produce_staged_rows(_view_producer_for(view), rows) == (rows if repeats else [])
+
+
+@pytest.mark.parametrize(
+    "config,expected",
+    [
+        ({"bytecode": ["_H", 1, 2, "now", 0, 2, "toUnixTimestamp", 1]}, True),
+        ({"filters": {"bytecode": ["_H", 1, 2, "today", 0]}}, True),
+        # A filter value is data, not a call, even when it looks like the CALL_GLOBAL opcode pair.
+        ({"properties": [{"key": "tags", "value": [2, "now"]}], "bytecode": ["_H", 1, 29]}, False),
+    ],
+    ids=["bytecode calls now", "nested trigger bytecode", "filter value that looks like a call"],
+)
+def test_reads_the_clock(config, expected):
+    assert reads_the_clock(config) is expected
+
+
+@pytest.mark.asyncio
+async def test_view_subscriber_filter_lookup_failure_stays_retryable():
+    # The same PostHog-side database failure should_run reclassifies must not reach the source's
+    # error classification unwrapped from this lookup either.
+    producer = CDPProducer.for_view(team_id=1, saved_query_id="view_1", job_id="job", logger=mock.AsyncMock())
+    producer._table_name_cache = "my_view"
+
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.HogFunction.objects"
+    ) as mock_hog_function_objects:
+        mock_hog_function_objects.filter.side_effect = DjangoOperationalError("[Errno -2] Name or service not known")
+        with pytest.raises(PostHogInternalDatabaseError):
+            await producer._should_suppress_repeats()
 
 
 @pytest.mark.parametrize(

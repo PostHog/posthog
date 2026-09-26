@@ -71,17 +71,29 @@ TRIGGER_SOURCE_BY_KIND: dict[TableKind, str] = {
 CLOCK_FUNCTIONS = frozenset({"now", "today", "yesterday"})
 
 
+def _bytecode_calls_the_clock(bytecode: list[typing.Any]) -> bool:
+    if any(
+        op == Operation.CALL_GLOBAL and isinstance(name, str) and name in CLOCK_FUNCTIONS
+        for op, name in pairwise(bytecode)
+    ):
+        return True
+    return any(_bytecode_calls_the_clock(item) for item in bytecode if isinstance(item, list))
+
+
 def reads_the_clock(config: object) -> bool:
-    """Whether any compiled bytecode inside `config` calls a function whose result depends on the time."""
+    """Whether any compiled `bytecode` field inside `config` calls a function whose result depends on the time.
+
+    Only `bytecode` fields are read, because a filter value such as `[2, "now"]` is not a call.
+    """
     if isinstance(config, dict):
-        return any(reads_the_clock(value) for value in config.values())
+        return any(
+            _bytecode_calls_the_clock(value)
+            if key == "bytecode" and isinstance(value, list)
+            else reads_the_clock(value)
+            for key, value in config.items()
+        )
     if isinstance(config, list):
-        if any(
-            op == Operation.CALL_GLOBAL and isinstance(name, str) and name in CLOCK_FUNCTIONS
-            for op, name in pairwise(config)
-        ):
-            return True
-        return any(reads_the_clock(item) for item in config if isinstance(item, dict | list))
+        return any(reads_the_clock(item) for item in config)
     return False
 
 
@@ -275,8 +287,14 @@ class CDPProducer:
 
         @database_sync_to_async_pool
         def _check() -> bool:
-            filters = self._subscribed_hog_functions(dot_notated_table_name).values_list("filters", flat=True)
-            triggers = self._subscribed_hog_flows(dot_notated_table_name).values_list("trigger", flat=True)
+            try:
+                filters = list(self._subscribed_hog_functions(dot_notated_table_name).values_list("filters", flat=True))
+                triggers = list(self._subscribed_hog_flows(dot_notated_table_name).values_list("trigger", flat=True))
+            except (DjangoOperationalError, OSError) as e:
+                # Same reclassification as should_run: a PostHog database failure must stay retryable.
+                raise PostHogInternalDatabaseError(
+                    "Failed to check hog function/workflow filters in PostHog's database"
+                ) from e
             return not any(reads_the_clock(config) for config in [*filters, *triggers])
 
         self._suppress_repeats_cache = await _check()
