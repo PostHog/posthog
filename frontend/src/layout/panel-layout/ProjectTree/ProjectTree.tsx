@@ -73,6 +73,8 @@ interface ProjectTreeBaseProps {
      * the tree inside a larger surface uses this to report the click in that surface's own terms.
      */
     onItemClicked?: (item: TreeDataItem | undefined) => void
+    /** Replaces the tree's own tooltip, so a caller can match the tooltips of the rows around the tree. */
+    renderItemTooltip?: (item: TreeDataItem) => ReactNode | undefined
     /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
     isActiveInPanel?: boolean
 }
@@ -498,6 +500,9 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 )
             }}
             renderItemTooltip={(item) => {
+                if (props.renderItemTooltip) {
+                    return props.renderItemTooltip(item)
+                }
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
                 if (
