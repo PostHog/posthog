@@ -57,6 +57,10 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     ReplayVisionGeminiCleanupSweepWorkflow,
     sweep_gemini_files_activity,
 )
+from products.replay_vision.backend.temporal.jev_watch_rank import (
+    ReplayVisionJevWatchRankWorkflow,
+    judge_watch_ranks_activity,
+)
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
@@ -81,6 +85,7 @@ WORKFLOWS = [
     RefreshScannerEstimatesWorkflow,
     RefreshSearchSuggestionsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
+    ReplayVisionJevWatchRankWorkflow,
     SweepScannerWorkflow,
     VisionAlertCheckWorkflow,
 ]
@@ -133,6 +138,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     reap_childless_inline_scanners_activity,
     reap_orphaned_observations_activity,
     sweep_gemini_files_activity,
+    judge_watch_ranks_activity,
     list_stale_search_suggestions_activity,
     refresh_scanner_search_suggestions_activity,
 ]
