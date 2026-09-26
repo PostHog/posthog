@@ -39,6 +39,7 @@ import { getNextDeliveryDate } from './nextDeliveryDate'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
 import type { SubscriptionLogicProps } from './subscriptionLogic'
+import { SubscriptionSummarySetting } from './SubscriptionSummarySetting'
 import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 import {
     frequencyOptionsPlural,
@@ -639,29 +640,7 @@ function SubscriptionSettingsStep({
         <div className="mt-6 flex flex-col gap-2">
             <LemonLabel>Advanced settings</LemonLabel>
             {dataProcessingAccepted && subscription.resource_type !== SubscriptionResourceTypes.AiPrompt ? (
-                <LemonField name="summary_enabled">
-                    {({ value, onChange }) => (
-                        <LemonSwitch
-                            checked={value}
-                            onChange={onChange}
-                            disabledReason={
-                                summaryQuota?.at_limit && !value
-                                    ? `Plan limit reached (${summaryQuota.limit} active AI summaries)`
-                                    : undefined
-                            }
-                            bordered
-                            fullWidth
-                            label={
-                                <div className="flex flex-col gap-1 py-1">
-                                    <div className="leading-tight">Include an automatic AI summary</div>
-                                    <div className="text-xs text-secondary font-normal leading-tight">
-                                        Add an AI-written overview of the report to each delivery.
-                                    </div>
-                                </div>
-                            }
-                        />
-                    )}
-                </LemonField>
+                <SubscriptionSummarySetting logicProps={logicProps} />
             ) : null}
             {summaryQuota?.at_limit && !subscription.summary_enabled && summaryQuota.limit !== null ? (
                 <UsageLimitPaywall
