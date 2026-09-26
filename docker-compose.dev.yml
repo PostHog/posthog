@@ -64,6 +64,7 @@ services:
 
                     @capture-logs {
                         path /i/v1/logs
+                        path /i/v1/logs/*
                         path /i/v1/traces
                     }
 
