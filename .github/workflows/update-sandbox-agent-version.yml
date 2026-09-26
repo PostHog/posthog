@@ -142,22 +142,6 @@ jobs:
                     echo "declined_by=${declined_by:-}"
                   } >> "$GITHUB_OUTPUT"
 
-            - name: Wait for npm to serve the version
-              if: steps.state.outputs.action == 'bump'
-              env:
-                  LATEST: ${{ steps.resolve.outputs.latest }}
-              run: |
-                  for attempt in $(seq 1 45); do
-                    if [ "$(npm view "@posthog/agent@${LATEST}" version 2>/dev/null)" = "$LATEST" ]; then
-                      echo "npm serves @posthog/agent@${LATEST}"
-                      exit 0
-                    fi
-                    echo "npm does not serve @posthog/agent@${LATEST} yet (attempt $attempt)"
-                    sleep 20
-                  done
-                  echo "npm did not serve @posthog/agent@${LATEST} within 15 minutes" >&2
-                  exit 1
-
             - name: Bump the pin
               if: steps.state.outputs.action == 'bump'
               env:
@@ -198,18 +182,26 @@ jobs:
                       printf '%s\n' "$commits" | sed -E 's/^([0-9a-f]{40}) (.*)$/- \2 \1/'
                     fi
                     echo
-                    echo "### Dependency changes in the published package"
+                    echo "### Dependency changes"
                     echo
                     deps_ok=true
-                    for v in "$PINNED" "$LATEST"; do
-                      if ! npm view "@posthog/agent@${v}" dependencies --json > "deps-${v}.json" 2>/dev/null; then
+                    for tag in "$from_tag" "$to_tag"; do
+                      catalog=$(gh api "repos/${REPO}/contents/products/desktop/pnpm-workspace.yaml?ref=${tag}" --jq '.content' 2>/dev/null \
+                        | base64 -d | yq -o=json '{"default": (.catalog // {}), "named": (.catalogs // {})}' 2>/dev/null \
+                        || echo '{"default": {}, "named": {}}')
+                      if ! (set -o pipefail; gh api "repos/${REPO}/contents/products/desktop/packages/agent/package.json?ref=${tag}" --jq '.content' 2>/dev/null \
+                          | base64 -d | jq -r --argjson catalog "$catalog" '
+                              .dependencies // {} | to_entries[] | .value as $spec
+                              | (if $spec == "catalog:" or $spec == "catalog:default" then ($catalog.default[.key] // $spec)
+                                 elif ($spec | startswith("catalog:")) then ($catalog.named[$spec[8:]][.key] // $spec)
+                                 else $spec end) as $resolved
+                              | "\(.key) \($resolved)"' | sort > "deps-${tag}.txt"); then
                         deps_ok=false
                       fi
-                      jq -r 'to_entries[] | "\(.key) \(.value)"' "deps-${v}.json" 2>/dev/null | sort > "deps-${v}.txt" || deps_ok=false
                     done
                     if [ "$deps_ok" != true ]; then
-                      echo "_Unavailable: npm did not return the dependencies for both versions._"
-                    elif changed=$(diff "deps-${PINNED}.txt" "deps-${LATEST}.txt" | grep -E '^[<>]'); then
+                      echo "_Unavailable: could not read package.json at both tags._"
+                    elif changed=$(diff "deps-${from_tag}.txt" "deps-${to_tag}.txt" | grep -E '^[<>]'); then
                       echo '```diff'
                       printf '%s\n' "$changed" | sed -E 's/^< /- /; s/^> /+ /'
                       echo '```'
@@ -269,13 +261,13 @@ jobs:
                     cat <<BODY
                   ## Problem
 
-                  The sandbox base image pins \`@posthog/agent\` so a published release reaches production sandboxes only through a commit on \`master\`. That pin is at \`${PINNED}\`; npm now serves \`${LATEST}\`.
+                  The sandbox base image pins \`@posthog/agent\` so a published release reaches production sandboxes only through a commit on \`master\`. That pin is at \`${PINNED}\`; the release published \`${LATEST}\`.
 
                   ## Changes
 
                   - \`Dockerfile.sandbox-base\`: \`AGENT_VERSION\` \`${PINNED}\` to \`${LATEST}\`.
 
-                  The sandbox image workflow builds this image and smokes \`${LATEST}\` on both architectures. This workflow then runs one Claude turn and one Codex turn with that image through the production Go ai-gateway. When both checks pass, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
+                  The sandbox image workflow waits for npm to serve \`${LATEST}\`, builds this image and smokes it on both architectures. This workflow then runs one Claude turn and one Codex turn with that image through the production Go ai-gateway. When both checks pass, the release app approves this PR and adds it to the merge queue. Close it before the queue lands it to keep \`${PINNED}\`. A newer release opens its own PR and closes this one.
 
                   BODY
                     cat delta.md
@@ -355,7 +347,7 @@ jobs:
                   checkName: Sandbox Base Image Smoke
                   ref: ${{ steps.commit.outputs.commit-hash }}
                   timeoutSeconds: '4500'
-                  intervalSeconds: '30'
+                  intervalSeconds: '10'
 
             - name: Stop when the smoke did not pass
               if: steps.state.outputs.action == 'bump' && steps.smoke.outputs.conclusion != 'success'
