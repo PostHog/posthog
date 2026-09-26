@@ -8,6 +8,7 @@ from django.utils.cache import patch_cache_control
 
 from dateutil import parser
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from opentelemetry import trace
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -23,6 +24,8 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
 from . import base
+
+tracer = trace.get_tracer(__name__)
 
 
 class ExternalDataJobSerializers(serializers.ModelSerializer):
@@ -193,7 +196,8 @@ class ExternalDataSourceJobRunsMixin(base.ExternalDataSourceViewSetBase):
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
         # The documented-tables catalog is only consumed by the posthog.com docs build (via the
         # public endpoint) — skipping it here cuts ~40% off an already >1 MB response.
-        configs = build_source_configs(include_tables=False)
+        with tracer.start_as_current_span("warehouse_sources.wizard.catalog"):
+            configs = build_source_configs(include_tables=False)
 
         requested = request.query_params.get("source_type")
         if requested:
