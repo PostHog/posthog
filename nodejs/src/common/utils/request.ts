@@ -360,9 +360,7 @@ function makeSecureDispatcher({
             allowH2,
             requestTls: { allowH2 },
             connectTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS,
-            // The proxy answers a CONNECT only after it reaches the target, and undici does not apply a request's abort
-            // signal before its connection opens. The proxy client's headersTimeout is therefore the only limit on
-            // that wait, so it gets the same budget as a direct connect.
+            // undici ignores the abort signal of a request until the request has a connection. So the proxy client needs its own limit on the wait for a CONNECT answer. This limit is the connect timeout of the direct route.
             clientFactory: (origin, options) =>
                 new Pool(origin, { ...options, headersTimeout: requestConfig.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS }),
         })
