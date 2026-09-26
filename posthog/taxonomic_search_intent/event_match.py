@@ -12,11 +12,13 @@ from concurrent.futures import ThreadPoolExecutor
 
 from django.core.cache import cache
 
+import structlog
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneResult
+from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneRequestFailed, SystemOneResult
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, SystemOneClient, build_system_one_client
 from posthog.models import EventDefinition
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
@@ -30,6 +32,8 @@ from .classify import (
     is_value_shaped,
 )
 from .contracts import EventMatch, EventMatchRequest
+
+logger = structlog.get_logger(__name__)
 
 EVENT_MATCH_FEATURE_FLAG = "taxonomic-filter-event-match"
 # The picker shows a suggestion only above this probability. Tune it from the eval suite, not by feel.
@@ -86,8 +90,31 @@ def _ask(client: SystemOneClient, state: str, names: Sequence[str]) -> SystemOne
     return client.decide(state=state, questions=questions)
 
 
-def _probabilities(team_id: int, query: str) -> dict[str, float]:
-    """The model's probability for every core event. Raises the System One errors."""
+@frozen
+class _ModelAnswers:
+    probabilities: dict[str, float]
+    # False when some requests failed, so the probabilities cover only part of the core events.
+    complete: bool
+
+
+def _ask_chunk(client: SystemOneClient, state: str, names: Sequence[str], team_id: int) -> SystemOneResult | None:
+    """None when this request fails. The failure goes to error tracking and the logs, and the other chunks still count."""
+    try:
+        return _ask(client, state, names)
+    except SystemOneRequestFailed as error:
+        # Only the team and the failure go out: the error message never carries the search text.
+        logger.warning(
+            "taxonomic_event_match_chunk_failed",
+            team_id=team_id,
+            status_code=error.status_code,
+            chunk_size=len(names),
+        )
+        capture_exception(error, {"team_id": team_id, "chunk_size": len(names)})
+        return None
+
+
+def _probabilities(team_id: int, query: str) -> _ModelAnswers:
+    """The model's probability for every core event it answered. Raises the System One errors when no request succeeds."""
     names = list(CORE_EVENT_CANDIDATES)
     # The gateway takes a bounded number of questions per request, so the candidates go out in parallel chunks.
     chunks = [names[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(names), GATEWAY_MAX_QUESTIONS)]
@@ -99,14 +126,18 @@ def _probabilities(team_id: int, query: str) -> dict[str, float]:
     )
     state = event_match_state(query)
     with ThreadPoolExecutor(max_workers=len(chunks), thread_name_prefix="event-match") as executor:
-        results = list(executor.map(lambda chunk: _ask(client, state, chunk), chunks))
+        results = list(executor.map(lambda chunk: _ask_chunk(client, state, chunk, team_id), chunks))
+    if all(result is None for result in results):
+        raise SystemOneRequestFailed("Every event match request failed")
     probabilities: dict[str, float] = {}
     for chunk, result in zip(chunks, results):
+        if result is None:
+            continue
         for index, name in enumerate(chunk):
             answer = result.answers[f"e{index}"]
             if isinstance(answer, NoulAnswer):
                 probabilities[name] = answer.probability
-    return probabilities
+    return _ModelAnswers(probabilities=probabilities, complete=None not in results)
 
 
 def _cache_key(team_id: int, query: str) -> str:
@@ -126,17 +157,18 @@ def likely_core_events(team_id: int, query: str, *, use_cache: bool = True) -> l
                 return _CACHED_MATCHES.validate_json(cached)
             except ValidationError:
                 pass
-    probabilities = _probabilities(team_id, query)
+    answers = _probabilities(team_id, query)
     likely = sorted(
         (
             EventMatch(name=name, label=CORE_EVENT_CANDIDATES[name].label, probability=probability)
-            for name, probability in probabilities.items()
+            for name, probability in answers.probabilities.items()
             if probability >= MATCH_THRESHOLD
         ),
         key=lambda match: match.probability,
         reverse=True,
     )
-    if use_cache:
+    # A partial answer is not cached, so the next search asks again for the events that failed.
+    if use_cache and answers.complete:
         cache.set(key, _CACHED_MATCHES.dump_json(likely).decode(), CACHE_TTL_SECONDS)
     return likely
 

@@ -8,13 +8,14 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.llm.system_one import NoulAnswer, Question, SystemOneResult
+from posthog.llm.system_one import NoulAnswer, Question, SystemOneRequestFailed, SystemOneResult
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS
 from posthog.models import EventDefinition
 from posthog.taxonomic_search_intent.contracts import EventMatch, EventMatchRequest
 from posthog.taxonomic_search_intent.event_match import CORE_EVENT_CANDIDATES, _question, match_core_events
 
 BUILD_CLIENT = "posthog.taxonomic_search_intent.event_match.build_system_one_client"
+CAPTURE = "posthog.taxonomic_search_intent.event_match.capture_exception"
 
 
 LABEL_BY_INSTRUCTIONS = {
@@ -22,10 +23,13 @@ LABEL_BY_INSTRUCTIONS = {
 }
 
 
-def _model_that_believes(probabilities: Mapping[str, float]) -> MagicMock:
+def _model_that_believes(probabilities: Mapping[str, float], failing_label: str | None = None) -> MagicMock:
     client = MagicMock()
 
     def decide(*, state: str, questions: Mapping[str, Question]) -> SystemOneResult:
+        labels = {LABEL_BY_INSTRUCTIONS[question.instructions] for question in questions.values()}
+        if failing_label in labels:
+            raise SystemOneRequestFailed("The ai-gateway was not reached: ReadTimeout")
         answers = {
             question_id: NoulAnswer(probability=probabilities.get(LABEL_BY_INSTRUCTIONS[question.instructions], 0.01))
             for question_id, question in questions.items()
@@ -106,3 +110,27 @@ class TestMatchCoreEvents(BaseTest):
             match_core_events(self._search("  browser   capture ", team_id=second_team_id))
 
         assert build.call_count == expected_requests
+
+    def test_keeps_the_answers_of_the_requests_that_succeed(self) -> None:
+        late_event = list(CORE_EVENT_CANDIDATES)[-1]
+        EventDefinition.objects.create(
+            team=self.team, project_id=self.team.project_id, name=late_event, last_seen_at=timezone.now()
+        )
+        client = _model_that_believes(
+            {"Autocapture": 0.95, CORE_EVENT_CANDIDATES[late_event].label: 0.8}, failing_label="Autocapture"
+        )
+        requests_per_search = -(-len(CORE_EVENT_CANDIDATES) // GATEWAY_MAX_QUESTIONS)
+        with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE) as capture:
+            matches = match_core_events(self._search("browser capture"))
+            match_core_events(self._search("browser capture"))
+
+        assert [match.name for match in matches] == [late_event]
+        assert capture.call_count == 2
+        # A partial answer is not cached, so the second search asks every request again.
+        assert client.decide.call_count == 2 * requests_per_search
+
+    def test_fails_when_every_request_fails(self) -> None:
+        client = MagicMock()
+        client.decide.side_effect = SystemOneRequestFailed("The ai-gateway was not reached: ReadTimeout")
+        with patch(BUILD_CLIENT, return_value=client), patch(CAPTURE), self.assertRaises(SystemOneRequestFailed):
+            match_core_events(self._search("browser capture"))
