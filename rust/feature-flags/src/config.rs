@@ -692,6 +692,16 @@ pub struct Config {
     #[envconfig(from = "LOCAL_EVAL_RATE_LIMITS", default = "")]
     pub flag_definitions_rate_limits: FlagDefinitionsRateLimits,
 
+    // Per-team rate limit for flag definitions requests with an ETag in If-None-Match
+    // (requests per minute). Most of these get a 304, which skips the payload read. They
+    // therefore get their own higher budget. A request whose ETag does not match also
+    // spends the budget for full responses.
+    #[envconfig(
+        from = "FLAG_DEFINITIONS_CONDITIONAL_RATE_PER_MINUTE",
+        default = "6000"
+    )]
+    pub flag_definitions_conditional_rate_per_minute: u32,
+
     // Per-credential rate limit for the remote_config endpoint (requests per minute).
     // Matches Django's RemoteConfigThrottle default of 600/minute. Django's per-project
     // REMOTE_CONFIG_RATE_LIMITS override is not ported: it can't apply to a per-credential
@@ -1134,6 +1144,7 @@ impl Config {
             flags_session_replay_quota_check: false,
             flag_definitions_default_rate_per_minute: 600,
             flag_definitions_rate_limits: FlagDefinitionsRateLimits::default(),
+            flag_definitions_conditional_rate_per_minute: 6000,
             remote_config_default_rate_per_minute: 600,
             rate_limiting_allow_list_teams: RateLimitingAllowList::default(),
             flags_log_bodies_teams: BodyLogTeams::default(),
