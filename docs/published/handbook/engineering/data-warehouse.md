@@ -35,6 +35,20 @@ Cost tiles are unavailable without the currency column; queries with empty histo
 Reported conversions and revenue are zero because the importer currently requests delivery metrics only.
 Ad groups and individual ads are not included in the native integration.
 
+## Amazon Ads in Marketing analytics
+
+Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-amazon-ads` and is off by default.
+Enable the flag for an organization to show the integration and include its data in live and precomputed marketing queries.
+Disable it to stop using the integration in Marketing analytics without deleting the connection or its imported data.
+Data warehouse syncs continue independently of this flag.
+
+Sync `sp_campaigns` and `sp_campaign_reports` to include Sponsored Products campaigns in Marketing analytics.
+Spend uses `cost`, with currency conversion at each report date using `campaign_budget_currency_code`.
+Reported conversions and revenue use the 14-day purchase and sales metrics; the other attribution windows are not added to these totals.
+Sponsored Brands, Sponsored Display, ad groups, and individual ads are not included because the importer does not provide their performance reports.
+
+Monetary tiles require the report date and currency columns; reports without currency can still supply impressions and clicks.
+
 ## Adding a new source
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
