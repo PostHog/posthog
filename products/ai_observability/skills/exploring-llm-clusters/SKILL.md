@@ -78,8 +78,16 @@ Each team can have up to 10 clustering jobs. A job defines:
 - **event_filters** — property filters scoping which items are included
 - **enabled** — whether the job runs on schedule
 
-Default jobs named `"Default - traces"`, `"Default - generations"`, and `"Default - evaluations"` are auto-created
-and disabled when a custom job is created for the same level.
+Default jobs named `"Default - traces"`, `"Default - generations"`, and `"Default - evaluations"` are auto-created.
+They have no event filters, so they cluster all items at their level.
+
+A default job and a custom job can both be enabled for the same level, and both then produce runs.
+The API disables the enabled default job for a level only at the time a user creates a custom job for that level.
+It does not disable a default job that a backfill creates after the custom job, or a default job that a user enables again.
+
+Do not assume which jobs run from their names.
+Call `llma-clustering-job-list` and read the `enabled` field of each job.
+Then filter runs by `job_id` (Step 1), so that you do not mix the results of a default job and a custom job.
 
 ## Workflow: explore clusters
 
