@@ -36,22 +36,16 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import (
-    ExposedHogQLError,
-    NotImplementedError as HogQLNotImplementedError,
-)
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.dataclasses import frozen
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import QueryErrorCategory
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
-
-from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 from ee.hogai.context.insight.format import (
     NULL_MARKER,
@@ -69,7 +63,8 @@ from ee.hogai.context.insight.format import (
     get_boxplot_results,
     is_boxplot_query,
 )
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.context.insight.query_errors import QueryFailure
+from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.query import validate_assistant_query
 from ee.hogai.utils.types.base import AnyAssistantGeneratedQuery, AnyPydanticModelQuery
@@ -338,6 +333,10 @@ class AssistantQueryExecutor:
                 f"{TIMING_LOG_PREFIX} Starting aexecute_query for {query_type} with mode {execution_mode.value}"
             )
 
+        # The id ClickHouse and the async query status share, once the run has one. It is the only
+        # handle a caller can quote back to support, so every failure below reports it when known.
+        query_id: str | None = None
+
         try:
             # Execute the query using PostHog's query processing system
             process_start = time.time()
@@ -383,6 +382,7 @@ class AssistantQueryExecutor:
 
             # Handle async queries that may need polling
             if query_status := response_dict.get("query_status"):
+                query_id = query_status.get("id")
                 if not query_status["complete"]:
                     polling_start = time.time()
                     poll_count = 0
@@ -434,9 +434,15 @@ class AssistantQueryExecutor:
                             logger.error(
                                 f"{TIMING_LOG_PREFIX} Query timeout after {poll_count} polls, {polling_elapsed:.3f}s"
                             )
-                        raise APIException(
-                            "Query hasn't completed in time. It's worth trying again, maybe with a shorter time range."
-                        )
+                        raise QueryFailure(
+                            category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
+                            message=(
+                                "Query hasn't completed in time. It's worth trying again, maybe with a shorter "
+                                "time range."
+                            ),
+                            query_id=query_id,
+                            retries_exhausted=True,
+                        ).to_error()
 
                 # Check for query execution errors before using results
                 if query_status.get("error"):
@@ -447,36 +453,18 @@ class AssistantQueryExecutor:
                 # Use the completed query results
                 response_dict = query_status["results"]
 
-        except (
-            APIException,
-            ExposedHogQLError,
-            HogQLNotImplementedError,
-            ExposedCHQueryError,
-            UserAccessControlError,
-        ) as err:
-            elapsed = time.time() - start_time
-            # Handle known query execution errors with user-friendly messages
-            err_message = str(err)
-            if isinstance(err, APIException):
-                if isinstance(err.detail, dict):
-                    err_message = ", ".join(f"{key}: {value}" for key, value in err.detail.items())
-                elif isinstance(err.detail, list):
-                    err_message = ", ".join(map(str, err.detail))
-            if debug_timing:
-                logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s: {err_message}")
-            raise MaxToolRetryableError(err_message)
+        except MaxToolError:
+            raise
         except Exception as err:
             elapsed = time.time() - start_time
-            # Catch-all for unexpected errors during query execution. Surface the underlying error
-            # text (truncated) so callers can diagnose the failure instead of an opaque message —
-            # e.g. an invalid-UTF-8 encoding error points straight at substringUTF8().
+            # Every failure is diagnosed the same way, so the caller always learns the backend error
+            # category, the correlation id, and whether the cluster was overloaded. Without that an
+            # agent reads a capacity failure or a dropped connection as a broken expression and
+            # rewrites a query that was correct.
+            failure = QueryFailure.diagnose(err, query_id=query_id)
             if debug_timing:
-                logger.exception(f"{TIMING_LOG_PREFIX} Unknown error during query execution after {elapsed:.3f}s")
-            err_message = str(err).strip() or repr(err)
-            max_len = 500
-            if len(err_message) > max_len:
-                err_message = err_message[:max_len] + "… (truncated)"
-            raise Exception(f"There was an unknown error running this query: {err_message}")
+                logger.exception(f"{TIMING_LOG_PREFIX} Query execution failed after {elapsed:.3f}s [{failure.markers}]")
+            raise failure.to_error() from err
 
         # A failed query can come back as a structurally-valid response that carries an `error`
         # field and empty `results` instead of raising — e.g. a direct-SQL adapter statement
@@ -485,7 +473,7 @@ class AssistantQueryExecutor:
         # table, indistinguishable from "zero rows matched". Surface it as an error, mirroring the
         # `query_status.error` check the async-polling branch above already does.
         if isinstance(response_dict, dict) and (error := response_dict.get("error")):
-            raise MaxToolRetryableError(str(error))
+            raise QueryFailure(category=QueryErrorCategory.USER_ERROR, message=str(error), query_id=query_id).to_error()
 
         total_elapsed = time.time() - start_time
         if debug_timing:

@@ -7,7 +7,7 @@ from posthog.schema import ArtifactMessage, AssistantMessage, AssistantToolCallM
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.core.node import AssistantNode
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage
 
@@ -37,8 +37,9 @@ class QueryExecutorNode(AssistantNode):
                 event_source=self.context_manager.event_source,
             )
             formatted_query_result = await context.execute_and_format()
-        except MaxToolRetryableError as err:
-            # Handle known query execution errors (exposed to users)
+        except MaxToolError as err:
+            # Every diagnosed query failure reaches the user as a message. Catching only the
+            # retryable one let a capacity or internal failure escape as an unhandled exception.
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(content=f"There was an error running this query: {str(err)}", id=str(uuid4()))

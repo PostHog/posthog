@@ -1,8 +1,10 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from asgiref.sync import sync_to_async
+from clickhouse_driver.errors import NetworkError
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.schema import (
     ArtifactContentType,
@@ -14,10 +16,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from posthog.exceptions import ClickHouseAtCapacity
+
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.context import AssistantContextManager
+from ee.hogai.tool_errors import MaxToolTransientError
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
@@ -230,3 +235,21 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact_messages)
         self.assertIn("Revenue Trends", artifact_messages.messages[1].content)
+
+    @parameterized.expand(
+        [
+            ("cluster_at_capacity", ClickHouseAtCapacity(), "rate_limited"),
+            ("lost_connection", NetworkError("Connection reset by peer"), "transport"),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    async def test_transient_failure_is_not_sent_to_the_query_rewrite_prompt(
+        self, _name: str, raised: Exception, expected_category: str, mock_process_query: Mock
+    ) -> None:
+        mock_process_query.side_effect = raised
+        tool = await self._create_tool()
+
+        with self.assertRaises(MaxToolTransientError) as context:
+            await tool._arun_impl("SELECT 1", "One", "Select one")
+
+        self.assertIn(f"category={expected_category}", str(context.exception))
