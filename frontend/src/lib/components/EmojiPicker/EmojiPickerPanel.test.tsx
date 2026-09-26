@@ -67,7 +67,13 @@ describe('EmojiPickerPanel', () => {
         const onEmojiSelect = jest.fn()
         render(<EmojiPickerPanel initialSearch="jurassic park" onEmojiSelect={onEmojiSelect} />)
 
-        await waitFor(() => expect(emojiSearchSuggestCreate).toHaveBeenCalledWith('1', { query: 'jurassic park' }))
+        await waitFor(() =>
+            expect(emojiSearchSuggestCreate).toHaveBeenCalledWith(
+                '1',
+                { query: 'jurassic park' },
+                { signal: expect.any(AbortSignal) }
+            )
+        )
         screen.getByRole('button', { name: 'T-Rex' }).click()
         expect(onEmojiSelect).toHaveBeenCalledWith('🦖')
     })
