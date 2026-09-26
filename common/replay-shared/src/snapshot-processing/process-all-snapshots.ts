@@ -1,7 +1,12 @@
 import { EventType, eventWithTime, fullSnapshotEvent, IncrementalSource } from 'posthog-js/rrweb-types'
 
 import { transformEventToWeb } from '../mobile'
-import { SCREENSHOT_ATTRIBUTE } from '../mobile/transformer/transformers'
+import {
+    KEYBOARD_PARENT_ID,
+    NAVIGATION_BAR_PARENT_ID,
+    SCREENSHOT_ATTRIBUTE,
+    STATUS_BAR_PARENT_ID,
+} from '../mobile/transformer/transformers'
 import { noOpTelemetry, ReplayTelemetry } from '../telemetry'
 import {
     EncodedRecordingSnapshot,
@@ -70,6 +75,19 @@ type ScreenshotFrame = {
     layout: string
 }
 
+// the fixed containers that makeFullEvent always adds to the body, empty when the frame has no keyboard or bars
+const EMPTY_PLACEHOLDER_IDS = new Set([KEYBOARD_PARENT_ID, NAVIGATION_BAR_PARENT_ID, STATUS_BAR_PARENT_ID])
+
+// incremental sources that change the rendered document, so the next screenshot frame must rebuild it
+const DOCUMENT_CHANGING_SOURCES = new Set<IncrementalSource>([
+    IncrementalSource.Mutation,
+    IncrementalSource.StyleSheetRule,
+    IncrementalSource.StyleDeclaration,
+    IncrementalSource.AdoptedStyleSheet,
+    IncrementalSource.CanvasMutation,
+    IncrementalSource.Font,
+])
+
 function findChildElement(node: unknown, tagName: string): Record<string, any> | undefined {
     if (!isObject(node) || !Array.isArray(node.childNodes)) {
         return undefined
@@ -92,10 +110,14 @@ function extractScreenshotOnlyFrame(snapshot: fullSnapshotEvent): ScreenshotFram
         return undefined
     }
     const img = screenshots[0]
-    const otherNodesAreEmpty = body.childNodes.every(
-        (child: any) => child === img || (Array.isArray(child?.childNodes) && child.childNodes.length === 0)
+    const otherNodesAreEmptyPlaceholders = body.childNodes.every(
+        (child: any) =>
+            child === img ||
+            (EMPTY_PLACEHOLDER_IDS.has(child?.id) &&
+                Array.isArray(child.childNodes) &&
+                child.childNodes.length === 0)
     )
-    if (!otherNodesAreEmpty || typeof img.id !== 'number' || typeof img.attributes.src !== 'string') {
+    if (!otherNodesAreEmptyPlaceholders || typeof img.id !== 'number' || typeof img.attributes.src !== 'string') {
         return undefined
     }
     const { src, 'data-rrweb-id': _rrwebId, ...layoutAttributes } = img.attributes
@@ -127,8 +149,10 @@ function createScreenshotFrameMutation(
 export function isScreenshotFrameMutation(event: eventWithTime): boolean {
     return (
         event.type === EventType.IncrementalSnapshot &&
+        isObject(event.data) &&
         event.data.source === IncrementalSource.Mutation &&
-        event.data.attributes.some((mutation) => !!mutation.attributes[SCREENSHOT_ATTRIBUTE])
+        Array.isArray(event.data.attributes) &&
+        event.data.attributes.some((mutation) => !!mutation?.attributes?.[SCREENSHOT_ATTRIBUTE])
     )
 }
 
@@ -427,7 +451,10 @@ function processSnapshot(
         }
     }
 
-    if (snapshot.type === EventType.IncrementalSnapshot && snapshot.data.source === IncrementalSource.Mutation) {
+    if (
+        snapshot.type === EventType.IncrementalSnapshot &&
+        (!isObject(snapshot.data) || DOCUMENT_CHANGING_SOURCES.has(snapshot.data.source))
+    ) {
         delete context.screenshotFrameByWindow[windowId]
     }
 

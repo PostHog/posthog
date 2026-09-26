@@ -1206,6 +1206,30 @@ describe('process all snapshots', () => {
                     screenshotFullSnapshot(2000, 11, 'data:image/webp;base64,second'),
                 ],
             ],
+            [
+                'a stylesheet rule changed the page between frames',
+                [
+                    screenshotFullSnapshot(1000, 10, 'data:image/webp;base64,first'),
+                    { type: 3, timestamp: 1500, data: { source: 8, id: 1, adds: [{ rule: 'img { opacity: 0.5 }' }] } },
+                    screenshotFullSnapshot(2000, 11, 'data:image/webp;base64,second'),
+                ],
+            ],
+            [
+                'the frames hold another image beside the screenshot',
+                [1000, 2000].map((timestamp) => {
+                    const frame = screenshotFullSnapshot(timestamp, 10, `data:image/webp;base64,${timestamp}`)
+                    frame.data.wireframes.push({
+                        id: 20,
+                        type: 'image',
+                        base64: `data:image/png;base64,icon${timestamp}`,
+                        width: 32,
+                        height: 32,
+                        x: 0,
+                        y: 0,
+                    })
+                    return frame
+                }),
+            ],
         ])('keeps the full snapshot when %s', async (_, data) => {
             const results = await process(data)
 
