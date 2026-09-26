@@ -392,8 +392,7 @@ export function HogFunctionFilters({
                                                 filter uses the current time, such as now(), every row reaches the
                                                 filter again each time, and the rows that match run this destination. In
                                                 a view with more than 200,000 rows, the rows past that limit run it
-                                                again each time. Set the view to update incrementally to avoid
-                                                this.{' '}
+                                                again each time. Set the view to update incrementally to avoid this.{' '}
                                                 <Link
                                                     to={urls.sqlEditor({ view_id: selectedFullRefreshView.id })}
                                                     target="_blank"
