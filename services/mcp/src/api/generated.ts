@@ -40394,8 +40394,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
@@ -42334,8 +42342,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
@@ -73107,8 +73123,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;

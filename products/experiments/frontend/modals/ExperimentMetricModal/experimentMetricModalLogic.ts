@@ -9,12 +9,10 @@ export const METRIC_CONTEXTS = {
     primary: {
         type: 'primary' as const,
         field: 'metrics' as const,
-        orderingField: 'primary_metrics_ordered_uuids' as const,
     },
     secondary: {
         type: 'secondary' as const,
         field: 'metrics_secondary' as const,
-        orderingField: 'secondary_metrics_ordered_uuids' as const,
     },
 } as const
 
