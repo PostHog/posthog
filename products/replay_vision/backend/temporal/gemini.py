@@ -1,18 +1,32 @@
 """Gemini API key resolution and error classification for Replay Vision."""
 
+import sys
+
 from django.conf import settings
 
 import httpx
 import aiohttp
 from google.genai import types
-from google.genai.errors import APIError
+from google.genai.errors import APIError, UnknownApiResponseError
 
 from products.replay_vision.backend.error_kinds import FailureKind
+
+# CPython refuses to build an int from a string longer than 4,300 digits, and the SDK parses every provider
+# response with `json.loads`, so a model that emits a runaway digit run kills the scan before we see the body.
+# A response is bounded by the model's output-token cap, so this ceiling is far above any answer the provider
+# can return, and a conversion at this length still costs about ten milliseconds.
+_MAX_JSON_INT_DIGITS = 100_000
 
 
 def gemini_api_key() -> str:
     """Replay Vision's dedicated key (own GCP project), falling back to the shared key where unset."""
     return settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
+
+
+def raise_json_int_digit_limit() -> None:
+    """Let the scanner worker parse a provider response that holds a very long number."""
+    if sys.get_int_max_str_digits() < _MAX_JSON_INT_DIGITS:
+        sys.set_int_max_str_digits(_MAX_JSON_INT_DIGITS)
 
 
 # 408 request timeout and 409 conflict join the usual rate-limit/5xx set: all clear on their own.
@@ -37,7 +51,20 @@ def describe_gemini_error(error: BaseException) -> str:
     if isinstance(error, APIError):
         status = f" {error.status}" if error.status else ""
         return f"The AI provider returned HTTP {error.code}{status}"
+    if _is_unreadable_response(error):
+        return "The AI provider returned a response PostHog could not read"
     return f"PostHog could not reach the AI provider ({type(error).__name__})"
+
+
+def _is_unreadable_response(error: BaseException) -> bool:
+    """Whether the provider sent a body the SDK could not turn into JSON.
+
+    The SDK raises `UnknownApiResponseError` for a malformed body, but a number longer than the interpreter's
+    digit limit escapes as a bare `ValueError` from `int()`, which only its message identifies.
+    """
+    return isinstance(error, UnknownApiResponseError) or (
+        type(error) is ValueError and "integer string conversion" in str(error)
+    )
 
 
 def classify_gemini_error(error: BaseException) -> FailureKind | None:
@@ -49,6 +76,10 @@ def classify_gemini_error(error: BaseException) -> FailureKind | None:
     unclassified path rather than claiming to be transient and burning the retry budget.
     """
     if isinstance(error, _PROVIDER_TRANSPORT_ERRORS):
+        return FailureKind.PROVIDER_TRANSIENT
+    # The next draw usually parses, so an unreadable body is transient: it must not reach the user as
+    # `internal_error`, and the cached-run fallback must not re-spend the video tokens on it.
+    if _is_unreadable_response(error):
         return FailureKind.PROVIDER_TRANSIENT
     if not isinstance(error, APIError):
         return None

@@ -262,6 +262,7 @@ from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
+from products.replay_vision.backend.temporal.gemini import raise_json_int_digit_limit
 from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
 from products.review_hog.backend.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
@@ -848,6 +849,9 @@ class Command(BaseCommand):
                 # pod. It logs and continues; scoring activities retry until the
                 # model is fixed.
                 warmup_best_effort()
+
+            if task_queue == settings.REPLAY_VISION_TASK_QUEUE:
+                raise_json_int_digit_limit()
 
             worker = runner.run(
                 create_worker(
