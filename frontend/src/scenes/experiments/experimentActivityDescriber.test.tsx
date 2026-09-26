@@ -121,7 +121,32 @@ describe('experimentActivityDescriber', () => {
             expect(text).not.toContain('shared metric')
         })
 
-        it('does not describe a reorder when the same UUIDs are passed as before/after', () => {
+        it.each([
+            {
+                name: 'the same order',
+                before: ['uuid-a', 'uuid-b'],
+                after: ['uuid-a', 'uuid-b'],
+                described: false,
+            },
+            {
+                name: 'a metric removed without moving the rest',
+                before: ['uuid-a', 'uuid-b', 'uuid-c'],
+                after: ['uuid-a', 'uuid-b'],
+                described: false,
+            },
+            {
+                name: 'a metric added without moving the rest',
+                before: ['uuid-a', 'uuid-b'],
+                after: ['uuid-a', 'uuid-b', 'uuid-c'],
+                described: false,
+            },
+            {
+                name: 'a reorder whose before value still lists a removed metric',
+                before: ['uuid-a', 'uuid-b', 'uuid-c'],
+                after: ['uuid-b', 'uuid-a'],
+                described: true,
+            },
+        ])('$name: reorder described=$described', ({ before, after, described }) => {
             const result = experimentActivityDescriber(
                 baseLogItem({
                     activity: 'updated',
@@ -132,8 +157,8 @@ describe('experimentActivityDescriber', () => {
                                 type: ActivityScope.EXPERIMENT,
                                 action: 'changed',
                                 field: 'primary_metrics_ordered_uuids',
-                                before: ['uuid-a', 'uuid-b'],
-                                after: ['uuid-a', 'uuid-b'],
+                                before,
+                                after,
                             },
                         ],
                         merge: null,
@@ -141,7 +166,7 @@ describe('experimentActivityDescriber', () => {
                     },
                 })
             )
-            expect(textOf(result)).not.toContain('reordered')
+            expect(textOf(result).includes('reordered')).toBe(described)
         })
     })
 

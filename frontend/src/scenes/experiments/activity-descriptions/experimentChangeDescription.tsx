@@ -108,17 +108,17 @@ function describeExcludedVariantsChange(before: string[] | undefined, after: str
 }
 
 /**
- * Detect a pure metric reorder. Returns the description only when the two
- * arrays contain the same set of UUIDs in a different order — additions,
- * removals, and swaps are described by the `metrics` field matcher instead.
+ * Detect a metric reorder. The ordering array is a display hint, so an add or remove can leave it
+ * out of sync with the metrics. A reorder is a change in the relative order of the uuids present on
+ * both sides; a diff that only adds or drops uuids is described by the `metrics` field matcher instead.
  */
 const describeMetricReorder = (before: unknown, after: unknown, description: string): string | null => {
     const b = (before as string[] | null) ?? []
     const a = (after as string[] | null) ?? []
-    if (equal(b, a) || !equal([...b].sort(), [...a].sort())) {
-        return null
-    }
-    return description
+    const common = new Set(a.filter((uuid) => b.includes(uuid)))
+    const beforeSequence = b.filter((uuid) => common.has(uuid))
+    const afterSequence = a.filter((uuid) => common.has(uuid))
+    return equal(beforeSequence, afterSequence) ? null : description
 }
 
 export const getExperimentChangeDescription = (
