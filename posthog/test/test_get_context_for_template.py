@@ -47,7 +47,11 @@ class TestGetContextForTemplate(APIBaseTest):
             "js_posthog_host": "",
             "js_url": "http://localhost:8234",
             "opt_out_capture": False,
-            "posthog_app_context": {"persisted_feature_flags": ["the_persisted_flags"], "anonymous": False},
+            "posthog_app_context": {
+                "persisted_feature_flags": ["the_persisted_flags"],
+                "anonymous": False,
+                "run_mode": "LOCAL",
+            },
             "posthog_bootstrap": {},
             "posthog_js_uuid_version": "v7",
             "region": None,
