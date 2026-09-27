@@ -24,18 +24,18 @@ class ClassificationMetrics:
     zero on an empty cohort, and a ratio is None only when its denominator is zero.
     """
 
-    threshold: float | None
-    true_positives: int | None
-    false_positives: int | None
-    true_negatives: int | None
-    false_negatives: int | None
-    precision: float | None
-    recall: float | None
-    f1: float | None
-    specificity: float | None
-    accuracy: float | None
-    balanced_accuracy: float | None
-    predicted_positive_rate: float | None
+    threshold: float | None = None
+    true_positives: int | None = None
+    false_positives: int | None = None
+    true_negatives: int | None = None
+    false_negatives: int | None = None
+    precision: float | None = None
+    recall: float | None = None
+    f1: float | None = None
+    specificity: float | None = None
+    accuracy: float | None = None
+    balanced_accuracy: float | None = None
+    predicted_positive_rate: float | None = None
 
     def as_dict(self, prefix: str = "") -> dict[str, int | float | None]:
         return {
@@ -54,20 +54,7 @@ class ClassificationMetrics:
         }
 
 
-UNKNOWN_THRESHOLD = ClassificationMetrics(
-    threshold=None,
-    true_positives=None,
-    false_positives=None,
-    true_negatives=None,
-    false_negatives=None,
-    precision=None,
-    recall=None,
-    f1=None,
-    specificity=None,
-    accuracy=None,
-    balanced_accuracy=None,
-    predicted_positive_rate=None,
-)
+UNKNOWN_THRESHOLD = ClassificationMetrics()
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
