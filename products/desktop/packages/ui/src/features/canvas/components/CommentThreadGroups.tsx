@@ -89,7 +89,7 @@ export function CommentThreadGroups({
               aria-expanded={open}
               title={group.label}
               data-thread-focus="group"
-              className="sticky top-0 z-10 h-8 w-full justify-start gap-1.5 rounded-none border-border border-b bg-muted px-3 hover:bg-muted"
+              className="sticky top-0 z-10 h-8 w-full justify-start gap-1.5 rounded-none border-border/70 border-b bg-background px-3 text-muted-foreground hover:bg-background hover:text-foreground"
               onClick={() => toggle(group.key)}
               onKeyDown={moveThreadFocus}
             >

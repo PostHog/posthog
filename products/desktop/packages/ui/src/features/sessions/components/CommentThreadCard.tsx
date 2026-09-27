@@ -6,6 +6,7 @@ import {
   CheckCircleIcon,
   WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { avatarColor } from "@posthog/core/auth/avatarColor";
 import {
   Avatar,
   AvatarFallback,
@@ -40,26 +41,21 @@ import type { HighlightResolution } from "./commentViewTypes";
 import { adjacentThread, moveThreadFocus } from "./threadListFocus";
 
 const MAX_REPLIES_SHOWN = 2;
-const TEXT_INSET = "pl-8";
+const TEXT_INSET = "pl-7";
 
-function CommentAvatar({
-  entry,
-  size,
-}: {
-  entry: CommentEntry;
-  size: "xs" | "sm";
-}): ReactElement {
+function CommentAvatar({ entry }: { entry: CommentEntry }): ReactElement {
   // A PostHog author keeps the avatar and hue they have everywhere else;
   // a GitHub author only ever comes with a url.
   if (entry.user) {
-    return <UserAvatar user={entry.user} size={size} />;
+    return <UserAvatar user={entry.user} size="xs" />;
   }
+  const color = avatarColor(entry.authorName);
   return (
-    <Avatar size={size}>
+    <Avatar size="xs">
       {entry.avatarUrl && (
         <AvatarImage src={cachedImageUrl(entry.avatarUrl)} alt="" />
       )}
-      <AvatarFallback>
+      <AvatarFallback style={{ backgroundColor: color.bg, color: color.text }}>
         {entry.authorName.slice(0, 2).toUpperCase()}
       </AvatarFallback>
     </Avatar>
@@ -68,20 +64,18 @@ function CommentAvatar({
 
 function CommentBody({
   entry,
-  reply = false,
   actions,
 }: {
   entry: CommentEntry;
-  reply?: boolean;
   actions?: ReactNode;
 }): ReactElement {
   return (
-    <div className={reply ? "mt-2.5" : undefined}>
+    <div>
       <div className="flex min-h-6 items-center gap-2">
-        <span className="flex w-6 shrink-0 justify-center">
-          <CommentAvatar entry={entry} size={reply ? "xs" : "sm"} />
+        <CommentAvatar entry={entry} />
+        <span className="truncate font-medium text-[13px]">
+          {entry.authorName}
         </span>
-        <span className="truncate font-medium text-xs">{entry.authorName}</span>
         <span className="shrink-0 text-muted-foreground text-xs">
           {formatRelativeTimeShort(entry.createdAt)}
         </span>
@@ -152,7 +146,10 @@ export function CommentQuote({
   if (!quote && !version) return null;
   return (
     <span
-      className="flex min-w-0 items-center gap-1.5 border-border border-l-2 pl-2 text-muted-foreground text-xs"
+      className={cn(
+        "flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs",
+        quote && "border-[rgb(250_204_21)] border-l-2 pl-2",
+      )}
       title={quote ?? undefined}
     >
       {version && <span className="shrink-0">{version} ·</span>}
@@ -287,10 +284,8 @@ export function CommentThreadCard({
   return (
     <div
       className={cn(
-        "group/thread relative border-border/70 border-b px-3 pt-2.5 pb-3 transition-colors duration-300 has-[>[data-thread-focus]:focus-visible]:ring-2 has-[>[data-thread-focus]:focus-visible]:ring-ring/50 has-[>[data-thread-focus]:focus-visible]:ring-inset",
-        selected
-          ? "bg-fill-selected before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary"
-          : "hover:bg-fill-hover",
+        "group/thread relative border-border/70 border-b p-3 transition-colors duration-300 has-[>[data-thread-focus]:focus-visible]:ring-2 has-[>[data-thread-focus]:focus-visible]:ring-ring/50 has-[>[data-thread-focus]:focus-visible]:ring-inset",
+        selected ? "bg-fill-selected" : "hover:bg-fill-hover",
         // Inset, so a pane that clips its overflow can't shave the highlight.
         pulsing && "ring-2 ring-primary ring-inset",
       )}
@@ -307,41 +302,39 @@ export function CommentThreadCard({
         onKeyDown={onKeyDown}
       />
       <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
-        {source && (
-          <div className={`${TEXT_INSET} mb-1.5 min-w-0`}>{source}</div>
-        )}
+        {source && <div className="mb-2 min-w-0">{source}</div>}
         {resolution === "orphaned" && (
-          <div
-            className={`${TEXT_INSET} mb-1.5 flex items-center gap-1 text-warning-foreground text-xs`}
-          >
+          <div className="mb-2 flex items-center gap-1 text-warning-foreground text-xs">
             <WarningCircleIcon />
             The highlighted text changed
           </div>
         )}
-        <CommentBody entry={root} actions={actions} />
-        {hiddenReplies > 0 && (
-          <div className={TEXT_INSET}>
-            <Button
-              size="xs"
-              variant="link-muted"
-              className="mt-1.5 px-0"
-              onClick={() => setShowAllReplies(true)}
-            >
-              <CaretRightIcon />
-              Show {hiddenReplies} earlier{" "}
-              {hiddenReplies === 1 ? "reply" : "replies"}
-            </Button>
-          </div>
-        )}
-        {shownReplies.map((entry) => (
-          <CommentBody key={entry.id} entry={entry} reply />
-        ))}
+        <div className="flex flex-col gap-3">
+          <CommentBody entry={root} actions={actions} />
+          {hiddenReplies > 0 && (
+            <div className={TEXT_INSET}>
+              <Button
+                size="xs"
+                variant="link-muted"
+                className="-mt-2 -mb-1 h-5 self-start px-0"
+                onClick={() => setShowAllReplies(true)}
+              >
+                <CaretRightIcon />
+                Show {hiddenReplies} earlier{" "}
+                {hiddenReplies === 1 ? "reply" : "replies"}
+              </Button>
+            </div>
+          )}
+          {shownReplies.map((entry) => (
+            <CommentBody key={entry.id} entry={entry} />
+          ))}
+        </div>
       </div>
       {/* A conversation comment can only be read here and acted on in GitHub;
           dead Reply/Resolve buttons would just discard whatever was typed, so
           it gets a link out instead. */}
       {!canReply && !canResolve && viewHref ? (
-        <div className={`relative ${TEXT_INSET} mt-1.5`}>
+        <div className={`relative ${TEXT_INSET} mt-2`}>
           <Button
             size="xs"
             variant="link-muted"
@@ -355,7 +348,7 @@ export function CommentThreadCard({
       ) : (
         canReply &&
         (replying || selected) && (
-          <div className={`relative ${TEXT_INSET} mt-2.5`}>
+          <div className={`relative ${TEXT_INSET} mt-3`}>
             <CommentComposer
               key={focusComposer ? "focused" : "idle"}
               value={reply}
