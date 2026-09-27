@@ -612,7 +612,7 @@ export function RecordingsUniversalFilterAddFilterPopover({
     // clicking the pill from a closed state opens its menu AND focuses the input (which
     // opens the surrounding popover); the popover portal mounts last and ends up
     // visually on top of the menu.
-    const suffix = !isPopoverVisible ? undefined : <CategoryDropdown onAfterChange={focusInput} />
+    const suffix = !isPopoverVisible ? undefined : <CategoryDropdown onAfterChange={focusInput} joinedToInput />
 
     const closePopover = (): void => {
         setIsPopoverVisible(false)
@@ -634,11 +634,13 @@ export function RecordingsUniversalFilterAddFilterPopover({
             visible={isPopoverVisible}
             onClickOutside={closePopover}
         >
-            <div className="w-full max-w-[600px] shrink grow-0 @container">
+            <div className="w-full max-w-[600px] shrink grow-0">
                 <LemonInput
+                    className="TaxonomicFilter__search-input--with-category @container"
                     type="search"
                     size="small"
                     fullWidth
+                    suffixAfterClear
                     data-attr="replay-filters-add-filter-input"
                     inputRef={inputRef}
                     prefix={<IconSearch />}
