@@ -12,7 +12,7 @@ from posthog.models import Team
 
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     JEV_MODEL,
-    MAX_STATE_CHARS,
+    MAX_STATE_BYTES,
     MAX_TAG_NAME_CHARS,
     MAX_TAGS,
     InsightContext,
@@ -93,12 +93,24 @@ class TestMetadataSuggestions(SimpleTestCase):
         decide = _answer_all(0.95)
         with _jev(decide):
             suggestion = suggest_tags(1, long_context, long_tags)
-        assert all(len(json.dumps(call.kwargs["state"])) <= MAX_STATE_CHARS for call in decide.call_args_list)
+        assert all(
+            len(json.dumps(call.kwargs["state"], ensure_ascii=False).encode("utf-8")) <= MAX_STATE_BYTES
+            for call in decide.call_args_list
+        )
         assert set(suggestion.tags) == set(long_tags)
 
         decide = MagicMock()
         with _jev(decide), self.assertRaises(InsightTooLargeForSuggestions):
-            suggest_tags(1, InsightContext(summary="", description="y" * (MAX_STATE_CHARS + 1)), ["growth"])
+            suggest_tags(1, InsightContext(summary="", description="y" * (MAX_STATE_BYTES + 1)), ["growth"])
+        decide.assert_not_called()
+
+        # A multi-byte character costs several UTF-8 bytes (and several model tokens) per character, so
+        # a character count alone would let this description through while it still overflows the budget.
+        decide = MagicMock()
+        multibyte_description = "字" * (MAX_STATE_BYTES - 200)
+        assert len(multibyte_description) < MAX_STATE_BYTES
+        with _jev(decide), self.assertRaises(InsightTooLargeForSuggestions):
+            suggest_tags(1, InsightContext(summary="", description=multibyte_description), ["growth"])
         decide.assert_not_called()
 
     def test_long_tag_names_sharing_a_prefix_stay_distinguishable_when_clipped(self) -> None:

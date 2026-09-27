@@ -38,12 +38,14 @@ TAG_THRESHOLD = 0.6
 # one suggestion request to 3 gateway calls. The view offers the most used tags first, so increasing
 # MAX_TAGS requires increasing the 3x multiplier. Note: if GATEWAY_MAX_QUESTIONS changes, update this.
 MAX_TAGS = 3 * GATEWAY_MAX_QUESTIONS
-# A tag name holds up to 255 characters, and a full chunk of long names would push the state past MAX_STATE_CHARS.
+# A tag name holds up to 255 characters, and a full chunk of long names would push the state past MAX_STATE_BYTES.
 MAX_TAG_NAME_CHARS = 60
 MAX_SUMMARY_LINE_CHARS = 200
 # Each question is one row of the model's 8,192-token window, and the row repeats the state, so the
-# state stays near 4,000 tokens to leave room for the instructions.
-MAX_STATE_CHARS = 16_000
+# state stays near 4,000 tokens to leave room for the instructions. Measured in UTF-8 bytes rather
+# than characters: non-Latin scripts and emoji can cost several bytes, and several tokens, per
+# character, so a character count lets that text pass here while still overflowing the model's window.
+MAX_STATE_BYTES = 16_000
 
 
 class InsightTooLargeForSuggestions(ValueError):
@@ -123,7 +125,7 @@ def _state(context: InsightContext, tags: Mapping[str, str]) -> dict[str, JsonVa
         },
         "tags": {key: _clip(value, MAX_TAG_NAME_CHARS) for key, value in tags.items()},
     }
-    if len(json.dumps(state, ensure_ascii=False)) > MAX_STATE_CHARS:
+    if len(json.dumps(state, ensure_ascii=False).encode("utf-8")) > MAX_STATE_BYTES:
         raise InsightTooLargeForSuggestions()
     return state
 
