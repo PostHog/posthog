@@ -363,24 +363,36 @@ def _pushdown_table_filter(node: Any, column: str) -> Optional[frozenset[str]]:
 def _schema_split_aliases(
     node: Any, allowed: Optional[frozenset[str]], database: Optional["Database"]
 ) -> dict[str, str]:
-    """Map `<schema>.<name>` to `<name>` for a SQL-standard `table_schema = … AND table_name = …` query.
+    """Map a qualified table name to its bare name for a SQL-standard `table_schema = … AND table_name = …` query.
 
     The catalog names each table by its fully-qualified name (`system.insights`), so the split form
-    matches no row and silently returns nothing. When a bare name is not itself a visible table but
-    `<schema>.<name>` is, the caller reports that table under the bare name so the split form works.
+    matches no row and silently returns nothing. When a bare name is not itself a visible table, the
+    caller reports the visible table with that last name segment in the filtered schema under the
+    bare name. The schema is the classified bucket (`posthog.ai_events` is in `public`), not the name
+    prefix. A bare name that matches more than one table in a schema stays unmatched.
     """
     if allowed is None or database is None:
         return {}
     schemas = _pushdown_table_filter(node, "table_schema")
     if not schemas:
         return {}
-    visible = set(_visible_table_names(database))
-    return {
-        f"{schema}.{name}": name
-        for schema in schemas
-        for name in allowed
-        if name not in visible and f"{schema}.{name}" in visible
-    }
+    visible = _visible_table_names(database)
+    bare_names = allowed.difference(visible)
+    candidates = [name for name in visible if "." in name and name.rsplit(".", 1)[1] in bare_names]
+    if not candidates:
+        return {}
+    warehouse = set(database.get_warehouse_table_names())
+    views = set(database.get_view_names())
+    matches: defaultdict[tuple[str, str], list[str]] = defaultdict(list)
+    for name in candidates:
+        try:
+            table = database.get_table(name)
+        except Exception:
+            continue
+        _, table_schema = _classify_table(name, table, warehouse, views)
+        if table_schema in schemas:
+            matches[(table_schema, name.rsplit(".", 1)[1])].append(name)
+    return {names[0]: bare for (_, bare), names in matches.items() if len(names) == 1}
 
 
 def _relabel_table_names(rows: list[list[Any]], aliases: dict[str, str], indexes: tuple[int, ...]) -> list[list[Any]]:

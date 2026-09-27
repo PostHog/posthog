@@ -350,19 +350,33 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
                 "columns",
                 "SELECT table_schema, table_name, column_name FROM system.information_schema.columns "
                 "WHERE table_schema = 'system' AND table_name = 'insights'",
+                ("system", "insights"),
             ),
             (
                 "tables",
                 "SELECT table_schema, table_name, table_catalog FROM system.information_schema.tables "
                 "WHERE table_schema = 'system' AND table_name IN ('insights', 'events')",
+                ("system", "insights"),
+            ),
+            (
+                "classified_schema_differs_from_prefix",
+                "SELECT table_schema, table_name, column_name FROM system.information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = 'ai_events'",
+                ("public", "ai_events"),
+            ),
+            (
+                "information_schema_bucket",
+                "SELECT table_schema, table_name, column_name FROM system.information_schema.columns "
+                "WHERE table_schema = 'information_schema' AND table_name = 'columns'",
+                ("information_schema", "columns"),
             ),
         ]
     )
-    def test_schema_split_filter_finds_system_tables(self, _name: str, query: str):
+    def test_schema_split_filter_finds_qualified_tables(self, _name: str, query: str, expected: tuple[str, str]):
         response = execute_hogql_query(query, team=self.team, user=self.user)
         rows = response.results or []
         assert rows
-        assert {(row[0], row[1]) for row in rows} == {("system", "insights")}
+        assert {(row[0], row[1]) for row in rows} == {expected}
 
     def test_bare_system_table_name_without_schema_matches_nothing(self):
         response = execute_hogql_query(
