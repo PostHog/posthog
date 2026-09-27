@@ -103,6 +103,12 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * The 400 codes `posthog/hogql/errors.py` sends for a query the user wrote wrong. Keep in sync with
+ * the `code_name` values there.
+ */
+const HOGQL_INPUT_ERROR_CODES: ReadonlySet<string> = new Set(['hogql_syntax_error', 'hogql_query_error'])
+
+/**
  * How each browser engine words a `fetch` that never reached the server. Chromium says "Failed to
  * fetch", WebKit "Load failed", and Gecko "NetworkError when attempting to fetch resource.".
  */
@@ -167,6 +173,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
+ * - 400 `hogql_syntax_error` / `hogql_query_error` — the query the user wrote does not parse or is
+ *   invalid, and the editor shows the error. The fingerprint includes the query text, so each new
+ *   bad query would otherwise open its own issue.
  *
  * Left unreported for a second reason, that there is nothing to fix:
  * - a `fetch` the browser never completed. No request reached us, so no code of ours failed, and
@@ -214,6 +223,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+        return false
+    }
+    if (status === 400 && failure.code != null && HOGQL_INPUT_ERROR_CODES.has(failure.code)) {
         return false
     }
     return !isApprovalRequiredError(failure)

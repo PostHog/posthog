@@ -101,6 +101,8 @@ describe('api-error', () => {
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
+            ['a HogQL syntax error', { status: 400, code: 'hogql_syntax_error' }, false],
+            ['a HogQL query error', { status: 400, code: 'hogql_query_error' }, false],
             // Only the listed codes are excused: a 403 the app does not recover from is still a signal.
             ['a 403 with no code', { status: 403 }, true],
             ['a 409 that is not an approvals gate', { status: 409, data: {} }, true],
