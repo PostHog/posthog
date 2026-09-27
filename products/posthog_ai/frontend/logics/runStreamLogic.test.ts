@@ -1631,6 +1631,32 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
 
+        it.each(['posthog', 'chunk', 'both'])(
+            'does not double a send the agent echoes as %s a turn after the composer drew it',
+            async (format) => {
+                const persisted = notification('_posthog/user_message', { content: 'steer me' })
+                const wire = sessionUpdate({
+                    sessionUpdate: 'user_message_chunk',
+                    content: { type: 'text', text: 'steer me' },
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.pushHumanMessage('steer me')
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'busy' } })
+                    )
+                    // A steered or queued send is picked up in the next turn, so its echo lands past here.
+                    logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                    for (const frame of format === 'both'
+                        ? [persisted, wire]
+                        : [format === 'chunk' ? wire : persisted]) {
+                        logic.actions.ingestAcpFrame(frame)
+                    }
+                }).toFinishAllListeners()
+
+                expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
+            }
+        )
+
         it.each([false, true])(
             'displays a pending first message before logs arrive (readOnly=%s)',
             async (readOnly) => {

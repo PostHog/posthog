@@ -1496,6 +1496,12 @@ export function foldLogToThread(
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
     const rememberedHumanTexts = new Map<string, number>()
+    // Optimistic sends still waiting for the server to echo them. A queued or steering send is echoed
+    // when the agent picks it up, which is a turn later than the bubble the composer drew, so the
+    // pairing outlives the turn it started in.
+    const unechoedSends = new Map<string, number>()
+    // Sends whose echo was paired away in this turn — the same send's second wire form drops with it.
+    let pairedSends = new Set<string>()
     let humanCount = 0
     let bubbleSeq = 0
     let separatorSeq = 0
@@ -1661,11 +1667,17 @@ export function foldLogToThread(
         // The blocks ride only the server echo (the optimistic `_client/human_message` carries the raw
         // text), so push them even when the human text below dedupes against the optimistic render.
         pushContextBlocks(contextBlocks)
-        // The server echoes every user send live. An idle send already rendered it optimistically via
-        // `_client/human_message`; a queue-drained send (dispatched with `addToThread: false`) did not,
-        // so its echo is what surfaces it. Render unless the current turn already shows this message —
-        // which both drops the optimistic-paired echo and dedupes a send echoed in two wire forms.
-        if (currentTurnHasHumanText(items, text)) {
+        // The server echoes every user send live, and the composer has usually drawn that send already.
+        // Drop the echo when this turn shows the message, or when a send of the same text is still
+        // waiting to be echoed — a steered or queued send is picked up a turn after it was drawn, so an
+        // echo landing in a later turn is still that send, not a second one. A send echoed in two wire
+        // forms takes the first branch while its bubble is in view, `pairedSends` after it scrolled past.
+        const unechoed = unechoedSends.get(text) ?? 0
+        if (currentTurnHasHumanText(items, text) || pairedSends.has(text) || unechoed > 0) {
+            if (unechoed > 0) {
+                unechoedSends.set(text, unechoed - 1)
+                pairedSends.add(text)
+            }
             return
         }
         pushHuman(text)
@@ -1741,7 +1753,9 @@ export function foldLogToThread(
         timestamp = !importedRun && !updateMeta?.imported && Number.isFinite(recordedAt) ? recordedAt : undefined
 
         if (method === '_client/human_message') {
-            pushHuman(String(params.content ?? ''), optimisticAttachments(params.attachments))
+            const optimisticText = String(params.content ?? '')
+            pushHuman(optimisticText, optimisticAttachments(params.attachments))
+            unechoedSends.set(optimisticText, (unechoedSends.get(optimisticText) ?? 0) + 1)
             continue
         }
         if (method === '_client/error') {
@@ -1769,6 +1783,7 @@ export function foldLogToThread(
                 ...(traceId && { traceId }),
                 ...(timestamp !== undefined && { startedAt: timestamp }),
             })
+            pairedSends = new Set()
             continue
         }
         if (method === '_posthog/progress') {
