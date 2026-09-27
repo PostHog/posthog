@@ -21,11 +21,11 @@ import { getCustomIcon } from '../../ProjectTree/customIconRegistry'
 import { ProductIconWrapper, iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '../../ProjectTree/utils'
-import { appsItemName } from './appsCatalog'
-import { NavAppMenu } from './NavAppMenu'
-import { NavAppTooltip } from './NavAppTooltip'
+import { NavProductMenu } from './NavProductMenu'
+import { NavProductTooltip } from './NavProductTooltip'
+import { productsItemName } from './productsCatalog'
 
-export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
+export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
     const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { shortcutData, shortcutDataLoading } = useValues(projectTreeDataLogic)
@@ -33,7 +33,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
     const { reportNavItemClicked } = useActions(eventUsageLogic)
     const { showConfigureHomeModal } = useActions(navigationLogic)
     const { uiCustomizationEnabled } = useValues(uiCustomizationLogic)
-    const label = appsItemName(item)
+    const label = productsItemName(item)
     const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
     const shortcut = shortcutData.find((entry) => entry.type !== 'folder' && entry.path === shortcutPath)
     const currentPath = removeProjectIdIfPresent(pathname)
@@ -56,7 +56,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
         onClick: () => (shortcut ? deleteShortcut(shortcut.id) : addShortcutItem(item as FileSystemEntry)),
     }
     const menuItems: LemonMenuItems = [
-        ...(hasProductMenu ? [{ label: () => <NavAppMenu product={item.path} /> }] : []),
+        ...(hasProductMenu ? [{ label: () => <NavProductMenu product={item.path} /> }] : []),
         ...(item.path === 'Home'
             ? [
                   {
@@ -83,8 +83,8 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
     ]
 
     return (
-        <div className="group/app-row relative flex items-center gap-px min-w-0">
-            <Tooltip title={disabledReason || <NavAppTooltip item={item} />} placement="right">
+        <div className="group/product-row relative flex items-center gap-px min-w-0">
+            <Tooltip title={disabledReason || <NavProductTooltip item={item} />} placement="right">
                 <Link
                     to={disabledReason ? undefined : href}
                     disabledReason={disabledReason}
@@ -93,7 +93,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
                         active,
                         disabled: !!disabledReason,
                         className:
-                            'flex-1 min-w-0 -outline-offset-2 group-hover/app-row:pr-7 group-focus-within/app-row:pr-7',
+                            'flex-1 min-w-0 -outline-offset-2 group-hover/product-row:pr-7 group-focus-within/product-row:pr-7',
                     }}
                     data-attr="nav-apps-item"
                     onClick={() => {
@@ -121,7 +121,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
             {menuItems.length === 1 ? (
                 <LemonButton
                     size="xsmall"
-                    className="absolute right-0 opacity-0 group-hover/app-row:opacity-100 group-focus-within/app-row:opacity-100"
+                    className="absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-focus-within/product-row:opacity-100"
                     icon={starAction.icon}
                     tooltip={starAction.label}
                     aria-label={starAction.label}
@@ -133,7 +133,7 @@ export function NavAppRow({ item }: { item: FileSystemImport }): JSX.Element {
                 <LemonMenu placement="right-start" items={menuItems}>
                     <LemonButton
                         size="xsmall"
-                        className="absolute right-0 opacity-0 group-hover/app-row:opacity-100 group-focus-within/app-row:opacity-100"
+                        className="absolute right-0 opacity-0 group-hover/product-row:opacity-100 group-focus-within/product-row:opacity-100"
                         icon={
                             hasProductMenu ? (
                                 item.path === 'Product analytics' ? (

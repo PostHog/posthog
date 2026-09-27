@@ -64,9 +64,9 @@ const descriptions: Record<string, string> = {
 
 /**
  * Tree items whose product has no page on posthog.com/docs yet, so they show no docs link.
- * Every other sidebar tool must have one — `sidebarToolMeta.test.ts` fails when a new tool has neither.
+ * Every other sidebar product must have one — `sidebarProductMeta.test.ts` fails when a new product has neither.
  */
-export const SIDEBAR_TOOLS_WITHOUT_DOCS = new Set<string>([
+export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'AI gateway',
     'Apps',
     'Broadcasts',
@@ -82,13 +82,13 @@ export const SIDEBAR_TOOLS_WITHOUT_DOCS = new Set<string>([
     'Wizard',
 ])
 
-export interface SidebarToolMeta {
+export interface SidebarProductMeta {
     description?: string
     docsHref?: string
 }
 
-/** Shared descriptions for app tooltips and sidebar settings, with docs from the scene config. */
-export function sidebarToolMeta(product: FileSystemImport): SidebarToolMeta {
+/** Description and docs link for a sidebar product, both read from the product's scene config. */
+export function sidebarProductMeta(product: FileSystemImport): SidebarProductMeta {
     // Most tree items name their scene explicitly; the rest are generated with a single-scene list.
     const sceneKey = product.sceneKey ?? (product.sceneKeys?.length === 1 ? product.sceneKeys[0] : undefined)
     const sceneConfig = sceneKey ? sceneConfigurations[sceneKey] : undefined
