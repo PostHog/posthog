@@ -5,10 +5,9 @@ import {
 } from "@phosphor-icons/react";
 import { Button, cn } from "@posthog/quill";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
-import {
-  groupThreadsBySource,
-  type SourceKind,
-  type TaskCommentThread,
+import type {
+  SourceKind,
+  TaskCommentThread,
 } from "@posthog/ui/features/canvas/components/taskCommentThreads";
 import { moveThreadFocus } from "@posthog/ui/features/sessions/components/threadListFocus";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
@@ -51,7 +50,10 @@ export function CommentThreadGroups({
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(
     () => new Set(),
   );
-  const groups = useMemo(() => groupThreadsBySource(threads), [threads]);
+  const groups = useMemo(
+    () => [...Map.groupBy(threads, (thread) => thread.sourceKey).values()],
+    [threads],
+  );
   const revealKey = revealThreadId
     ? threads.find((thread) => thread.id === revealThreadId)?.sourceKey
     : undefined;
@@ -80,17 +82,18 @@ export function CommentThreadGroups({
   return (
     <div data-comment-thread-list>
       {groups.map((group) => {
-        const open = !collapsed.has(group.key);
+        const { sourceKey, sourceLabel, sourceKind } = group[0];
+        const open = !collapsed.has(sourceKey);
         return (
-          <section key={group.key} aria-label={group.label}>
+          <section key={sourceKey} aria-label={sourceLabel}>
             <Button
               variant="default"
               size="sm"
               aria-expanded={open}
-              title={group.label}
+              title={sourceLabel}
               data-thread-focus="group"
               className="sticky top-0 z-10 h-8 w-full justify-start gap-1.5 rounded-none border-border/70 border-b bg-background px-3 text-muted-foreground hover:bg-background hover:text-foreground"
-              onClick={() => toggle(group.key)}
+              onClick={() => toggle(sourceKey)}
               onKeyDown={moveThreadFocus}
             >
               <CaretDownIcon
@@ -99,13 +102,13 @@ export function CommentThreadGroups({
                   !open && "-rotate-90",
                 )}
               />
-              {sourceIcon(group.kind, group.label)}
-              <span className="min-w-0 truncate">{group.label}</span>
+              {sourceIcon(sourceKind, sourceLabel)}
+              <span className="min-w-0 truncate">{sourceLabel}</span>
               <span className="ml-auto shrink-0 pl-2 font-normal text-muted-foreground tabular-nums">
-                {group.threads.length}
+                {group.length}
               </span>
             </Button>
-            {open && group.threads.map(renderThread)}
+            {open && group.map(renderThread)}
           </section>
         );
       })}

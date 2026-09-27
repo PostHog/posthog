@@ -201,7 +201,6 @@ export function CommentThreadCard({
   onResolve: (resolved: boolean) => void | Promise<void>;
 }) {
   const [replying, setReplying] = useState(false);
-  const [focusComposer, setFocusComposer] = useState(false);
   const openButtonRef = useRef<HTMLButtonElement>(null);
   const [reply, setReply] = useState("");
   const [showAllReplies, setShowAllReplies] = useState(false);
@@ -213,13 +212,9 @@ export function CommentThreadCard({
       ? 0
       : replies.length - 1;
   const shownReplies = replies.slice(hiddenReplies);
-  const startReply = () => {
-    setReplying(true);
-    setFocusComposer(true);
-  };
+  const startReply = () => setReplying(true);
   const stopReply = () => {
     setReplying(false);
-    setFocusComposer(false);
     setReply("");
   };
 
@@ -347,22 +342,19 @@ export function CommentThreadCard({
         </div>
       ) : (
         canReply &&
-        (replying || selected) && (
+        (replying || selected || reply) && (
           <div className={`relative ${TEXT_INSET} mt-3`}>
             <CommentComposer
-              key={focusComposer ? "focused" : "idle"}
+              key={replying ? "replying" : "idle"}
               value={reply}
-              onValueChange={(value) => {
-                setReply(value);
-                if (value) setReplying(true);
-              }}
+              onValueChange={setReply}
               onSubmit={async (content, mentions) => {
                 await onReply(content, mentions);
                 stopReply();
                 setShowAllReplies(true);
               }}
               onCancel={
-                replying
+                replying || reply
                   ? () => {
                       stopReply();
                       openButtonRef.current?.focus();
@@ -374,7 +366,7 @@ export function CommentThreadCard({
               rows={1}
               disabled={busy}
               submitLabel="Reply"
-              autoFocus={focusComposer}
+              autoFocus={replying}
               compact
             />
           </div>

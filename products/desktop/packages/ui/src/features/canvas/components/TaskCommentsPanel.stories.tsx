@@ -18,226 +18,151 @@ import {
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 
-const PEOPLE = {
-  ana: {
-    id: 1,
-    uuid: "u-1",
-    email: "ana@example.com",
-    first_name: "Ana",
-    last_name: "Ruiz",
-  },
-  ben: {
-    id: 2,
-    uuid: "u-2",
-    email: "ben@example.com",
-    first_name: "Ben",
-    last_name: "Okafor",
-  },
-  chen: {
-    id: 3,
-    uuid: "u-3",
-    email: "chen@example.com",
-    first_name: "Chen",
-    last_name: "Wei",
-  },
-  dana: {
-    id: 4,
-    uuid: "u-4",
-    email: "dana@example.com",
-    first_name: "Dana",
-    last_name: "Kim",
-  },
-  eli: {
-    id: 5,
-    uuid: "u-5",
-    email: "eli@example.com",
-    first_name: "Eli",
-    last_name: "Park",
-  },
-  you: {
-    id: 6,
-    uuid: "u-6",
-    email: "you@example.com",
-    first_name: "You",
-    last_name: "",
-  },
-};
-type Person = keyof typeof PEOPLE;
-
 const SOURCES = {
-  canvas: { key: "canvas", label: "Q3 retention review", kind: "canvas" },
-  plan: { key: "plan", label: "onboarding-plan.md", kind: "file" },
-  pr: { key: "pr", label: "#812 Fix signup redirect", kind: "pr" },
-  task: { key: "task", label: "This task", kind: "task" },
+  canvas: ["Q3 retention review", "canvas"],
+  plan: ["onboarding-plan.md", "file"],
+  pr: ["#812 Fix signup redirect", "pr"],
+  task: ["This task", "task"],
 } as const;
-type SourceId = keyof typeof SOURCES;
 
-function minutesAgo(minutes: number): string {
-  return new Date(Date.now() - minutes * 60_000).toISOString();
-}
+type DemoThread = TaskCommentThread & { quote?: string; githubOnly?: boolean };
 
 let nextId = 0;
-function entry(person: Person, minutes: number, body: string): CommentEntry {
-  const user = PEOPLE[person];
+function entry(name: string, minutes: number, body: string): CommentEntry {
   nextId += 1;
+  const [first_name, last_name = ""] = name.split(" ");
+  const email = `${first_name.toLowerCase()}@example.com`;
   return {
     id: `entry-${nextId}`,
-    authorName: [user.first_name, user.last_name].filter(Boolean).join(" "),
-    user,
+    authorName: name,
+    user: name.includes("-")
+      ? null
+      : { id: nextId, uuid: email, email, first_name, last_name },
     avatarUrl: null,
-    createdAt: minutesAgo(minutes),
+    createdAt: new Date(Date.now() - minutes * 60_000).toISOString(),
     body,
-    format: "mentions",
+    format: name.includes("-") ? "markdown" : "mentions",
   };
 }
 
-type DemoThread = TaskCommentThread & {
-  quote?: string;
-  githubOnly?: boolean;
-};
-
 function thread(
   id: string,
-  source: SourceId,
+  source: keyof typeof SOURCES,
   entries: CommentEntry[],
   extra: Partial<DemoThread> = {},
 ): DemoThread {
-  const { key, label, kind } = SOURCES[source];
+  const [sourceLabel, sourceKind] = SOURCES[source];
   return {
     id,
-    sourceKey: key,
-    sourceLabel: label,
-    sourceKind: kind,
+    sourceKey: source,
+    sourceLabel,
+    sourceKind,
     entries,
     resolved: false,
-    startedAt: entries[0]?.createdAt ?? minutesAgo(0),
+    startedAt: entries[0].createdAt,
     origin: { kind: "pr-conversation", prUrl: "", url: null },
     ...extra,
   };
 }
 
-function demoThreads(): DemoThread[] {
-  return [
-    thread("t6", "task", [
+const demoThreads = (): DemoThread[] => [
+  thread("t6", "task", [
+    entry("Ben Okafor", 20, "Can someone check the final numbers?"),
+  ]),
+  thread(
+    "t1",
+    "canvas",
+    [
       entry(
-        "ben",
-        20,
-        "Can someone check the final numbers before we share this?",
+        "Ana Ruiz",
+        120,
+        "Is this drop real, or the new cohort definition?",
       ),
-    ]),
-    thread(
-      "t1",
-      "canvas",
-      [
-        entry(
-          "ana",
-          120,
-          "Is this drop real, or is it the new cohort definition? We changed it on the 14th.",
-        ),
-        entry(
-          "ben",
-          60,
-          "It is the definition. I will add an annotation to the chart.",
-        ),
-        entry("ana", 45, "Thanks! Can you also put a note in the summary?"),
-      ],
-      { quote: "Week 4 retention dropped to 31%" },
-    ),
-    thread(
-      "t2",
-      "canvas",
-      [
-        entry(
-          "chen",
-          180,
-          "Can we show this as a bar chart? The table is hard to scan.",
-        ),
-      ],
-      { quote: "Top 5 features by usage" },
-    ),
-    thread(
-      "t3",
-      "plan",
-      [
-        entry(
-          "dana",
-          300,
-          "Should this be day 1? Most drop-off happens in the first 24 hours.",
-        ),
-        entry("eli", 240, "Good point. Day 1 it is."),
-        entry("dana", 238, "Updated the plan."),
-        entry("ben", 180, "Let's check this again after one week of data."),
-        entry("chen", 120, "+1, I will set a reminder."),
-      ],
-      { quote: "Send the welcome email on day 2" },
-    ),
-    thread(
-      "t4",
-      "plan",
-      [
-        entry(
-          "eli",
-          1440,
-          "This section repeats the pricing page. Link to it instead?",
-        ),
-      ],
-      { quote: "Pricing table" },
-    ),
-    thread(
-      "t5",
-      "pr",
-      [
-        {
-          id: "gh-1",
-          authorName: "code-reviewer",
-          user: null,
-          avatarUrl: null,
-          createdAt: minutesAgo(360),
-          body: "The `next` param is not validated here, so an open redirect is possible.",
-          format: "markdown",
-        },
-      ],
-      { githubOnly: true },
-    ),
-    thread(
-      "t7",
-      "canvas",
-      [
-        entry("dana", 2880, "Typo in the title."),
-        entry("chen", 2870, "Fixed."),
-      ],
-      { resolved: true, quote: "Retnetion by plan" },
-    ),
-    thread("t8", "plan", [entry("ana", 4320, "Add an owner for each step?")], {
+      entry(
+        "Ben Okafor",
+        60,
+        "It is the definition. I will annotate the chart.",
+      ),
+      entry("Ana Ruiz", 45, "Thanks! Can you also note it in the summary?"),
+    ],
+    { quote: "Week 4 retention dropped to 31%" },
+  ),
+  thread(
+    "t2",
+    "canvas",
+    [entry("Chen Wei", 180, "Can we show this as a bar chart?")],
+    {
+      quote: "Top 5 features by usage",
+    },
+  ),
+  thread(
+    "t3",
+    "plan",
+    [
+      entry("Dana Kim", 300, "Should this be day 1? Most drop-off is early."),
+      entry("Eli Park", 240, "Good point. Day 1 it is."),
+      entry("Dana Kim", 238, "Updated the plan."),
+      entry("Ben Okafor", 180, "Let's check again after one week of data."),
+      entry("Chen Wei", 120, "+1, I will set a reminder."),
+    ],
+    { quote: "Send the welcome email on day 2" },
+  ),
+  thread(
+    "t4",
+    "plan",
+    [entry("Eli Park", 1440, "This repeats the pricing page. Link it?")],
+    {
+      quote: "Pricing table",
+    },
+  ),
+  thread(
+    "t5",
+    "pr",
+    [entry("code-reviewer", 360, "The `next` param is not validated here.")],
+    {
+      githubOnly: true,
+    },
+  ),
+  thread(
+    "t7",
+    "canvas",
+    [
+      entry("Dana Kim", 2880, "Typo in the title."),
+      entry("Chen Wei", 2870, "Fixed."),
+    ],
+    {
       resolved: true,
-    }),
-  ];
-}
+      quote: "Retnetion by plan",
+    },
+  ),
+  thread(
+    "t8",
+    "plan",
+    [entry("Ana Ruiz", 4320, "Add an owner for each step?")],
+    { resolved: true },
+  ),
+];
 
 function TaskCommentsPanelDemo({ grouped }: { grouped: boolean }) {
   const [threads, setThreads] = useState(() =>
-    grouped
-      ? demoThreads()
-      : demoThreads().filter((t) => t.sourceKey === "canvas"),
+    demoThreads().filter((t) => grouped || t.sourceKey === "canvas"),
   );
   const [stateFilter, setStateFilter] = useState<CommentStateFilter>("open");
   const [sourceFilter, setSourceFilter] = useState(ALL_SOURCES);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
 
-  const inSource = (t: DemoThread) =>
-    sourceFilter === ALL_SOURCES || t.sourceKey === sourceFilter;
-  const scoped = threads.filter(inSource);
+  const inState = (t: DemoThread) =>
+    t.resolved === (stateFilter === "resolved");
+  const scoped = threads.filter(
+    (t) => sourceFilter === ALL_SOURCES || t.sourceKey === sourceFilter,
+  );
   const openCount = scoped.filter((t) => !t.resolved).length;
-  const visible = scoped.filter(
-    (t) => t.resolved === (stateFilter === "resolved"),
-  );
-  const sourceOptions = threadSourceOptions(
-    threads.filter((t) => t.resolved === (stateFilter === "resolved")),
-  );
-
-  const update = (id: string, change: (t: DemoThread) => DemoThread) =>
-    setThreads((current) => current.map((t) => (t.id === id ? change(t) : t)));
+  const sourceOptions = threadSourceOptions(threads.filter(inState));
+  const update = (id: string, change: Partial<DemoThread>) =>
+    setThreads((current) =>
+      current.map((t) => (t.id === id ? { ...t, ...change } : t)),
+    );
 
   return (
     <div className="flex h-[720px] w-[360px] flex-col overflow-hidden rounded-lg border border-border bg-background">
@@ -262,7 +187,7 @@ function TaskCommentsPanelDemo({ grouped }: { grouped: boolean }) {
       />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <CommentThreadGroups
-          threads={visible}
+          threads={scoped.filter(inState)}
           grouped={grouped}
           renderThread={(t) => {
             const demo = t as DemoThread;
@@ -283,14 +208,11 @@ function TaskCommentsPanelDemo({ grouped }: { grouped: boolean }) {
                 viewHref={demo.githubOnly ? "https://github.com" : undefined}
                 onSelect={() => setSelectedId(demo.id)}
                 onReply={(content) =>
-                  update(demo.id, (current) => ({
-                    ...current,
-                    entries: [...current.entries, entry("you", 0, content)],
-                  }))
+                  update(demo.id, {
+                    entries: [...demo.entries, entry("You", 0, content)],
+                  })
                 }
-                onResolve={(resolved) =>
-                  update(demo.id, (current) => ({ ...current, resolved }))
-                }
+                onResolve={(resolved) => update(demo.id, { resolved })}
               />
             );
           }}
@@ -304,7 +226,7 @@ function TaskCommentsPanelDemo({ grouped }: { grouped: boolean }) {
             const id = `new-${Date.now()}`;
             setThreads((current) => [
               thread(id, grouped ? "task" : "canvas", [
-                entry("you", 0, content),
+                entry("You", 0, content),
               ]),
               ...current,
             ]);

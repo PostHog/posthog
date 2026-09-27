@@ -196,33 +196,6 @@ export function byNewestThread(
 }
 
 export type SourceKind = TaskCommentThread["sourceKind"];
-export type ThreadSourceGroup = {
-  key: string;
-  label: string;
-  kind: SourceKind;
-  threads: TaskCommentThread[];
-};
-
-export function groupThreadsBySource(
-  threads: TaskCommentThread[],
-): ThreadSourceGroup[] {
-  const groups = new Map<string, ThreadSourceGroup>();
-  for (const thread of threads) {
-    const group = groups.get(thread.sourceKey);
-    if (group) {
-      group.threads.push(thread);
-    } else {
-      groups.set(thread.sourceKey, {
-        key: thread.sourceKey,
-        label: thread.sourceLabel,
-        kind: thread.sourceKind,
-        threads: [thread],
-      });
-    }
-  }
-  return [...groups.values()];
-}
-
 export type ThreadSourceOption = {
   key: string;
   label: string;
