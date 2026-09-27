@@ -67,6 +67,7 @@ from products.feature_flags.backend.api.feature_flag import (
     _flag_write_source,
     parse_created_by_ids,
 )
+from products.feature_flags.backend.blast_radius_flag_deps import MAX_DEPENDENCY_DEPTH
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     flag_payload_codec,
@@ -9901,7 +9902,202 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
 
-    def test_user_blast_radius_with_flag_dependency(self):
+    @parameterized.expand(
+        [
+            (
+                "false_when_the_flag_is_on_for_everyone",
+                {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                False,
+                0,
+            ),
+            (
+                "true_when_the_flag_is_on_for_everyone",
+                {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                True,
+                10,
+            ),
+            ("string_true_is_a_variant_name", {"groups": [{"properties": [], "rollout_percentage": 100}]}, "true", 0),
+            ("true_scales_by_rollout", {"groups": [{"properties": [], "rollout_percentage": 10}]}, True, 1),
+            ("null_rollout_means_everyone", {"groups": [{"properties": [], "rollout_percentage": None}]}, True, 10),
+            (
+                "true_follows_targeting",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+                True,
+                4,
+            ),
+            (
+                "false_is_the_complement_of_targeting",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+                False,
+                6,
+            ),
+            (
+                # Max over the sets gives 6; a sum would give 7 and the first set alone 4.
+                "shared_rollout_hash_takes_the_widest_admitting_set",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "group",
+                                    "type": "person",
+                                    "value": ["0", "1", "2", "3", "4"],
+                                    "operator": "exact",
+                                }
+                            ],
+                            "rollout_percentage": 20,
+                        },
+                        {"properties": [], "rollout_percentage": 60},
+                    ]
+                },
+                True,
+                6,
+            ),
+            (
+                "variant_splits_by_variant_rollout",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 30},
+                            {"key": "test", "rollout_percentage": 70},
+                        ]
+                    },
+                },
+                "control",
+                3,
+            ),
+            (
+                "pinned_variant_wins_for_its_set",
+                {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "group", "type": "person", "value": ["0", "1"], "operator": "exact"}
+                            ],
+                            "rollout_percentage": 100,
+                            "variant": "control",
+                        },
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+                "control",
+                6,
+            ),
+            (
+                "unknown_variant_is_never_served",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+                "missing-variant",
+                0,
+            ),
+            (
+                # Set 1 pins control and admits 60%; set 2 wins only the 60% to 80% slice, split 50/50.
+                "variant_slices_follow_partial_rollouts",
+                {
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 60, "variant": "control"},
+                        {"properties": [], "rollout_percentage": 80},
+                    ],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+                "test",
+                1,
+            ),
+            (
+                "group_aggregated_dependency_stays_neutral",
+                {"groups": [{"properties": [], "rollout_percentage": 100}], "aggregation_group_type_index": 0},
+                False,
+                10,
+            ),
+            (
+                # Saved flags carry the index on each set and None at the flag level.
+                "group_aggregated_set_stays_neutral",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 30, "aggregation_group_type_index": 0}],
+                    "aggregation_group_type_index": None,
+                },
+                True,
+                10,
+            ),
+            (
+                "holdout_groups_stay_neutral",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "holdout_groups": [{"properties": [], "rollout_percentage": 10}],
+                },
+                False,
+                10,
+            ),
+            (
+                "feature_enrollment_stays_neutral",
+                {"groups": [{"properties": [], "rollout_percentage": 0}], "feature_enrollment": True},
+                True,
+                10,
+            ),
+            (
+                "holdout_stays_neutral",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "holdout": {"id": 1, "exclusion_percentage": 10},
+                },
+                False,
+                10,
+            ),
+            (
+                "super_groups_stay_neutral",
+                {
+                    "groups": [{"properties": [], "rollout_percentage": 0}],
+                    "super_groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                True,
+                10,
+            ),
+            (
+                "early_exit_stays_neutral",
+                {"groups": [{"properties": [], "rollout_percentage": 10}], "early_exit": True},
+                True,
+                10,
+            ),
+        ]
+    )
+    def test_user_blast_radius_with_flag_dependency(self, _name, filters, value, expected_affected):
         for i in range(10):
             _create_person(
                 team_id=self.team.pk,
@@ -9913,10 +10109,9 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             key="dependency-flag",
             created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            filters=filters,
         )
 
-        # Flag dependencies can't be evaluated in HogQL, so they are neutral for the estimate
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
@@ -9925,7 +10120,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                         {
                             "key": str(dependency_flag.pk),
                             "type": "flag",
-                            "value": False,
+                            "value": value,
                             "operator": "flag_evaluates_to",
                         }
                     ],
@@ -9935,7 +10130,433 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertLessEqual({"affected": 10, "total": 10}.items(), response.json().items())
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    @parameterized.expand(
+        [
+            # A disabled dependency is pre-seeded false, so `false` still matches everyone. A missing,
+            # deleted or non-v1 dependency makes the dependent flag false whatever the condition asks.
+            ("inactive_flag", {"active": False}, "id", True, 0),
+            ("inactive_flag_negated", {"active": False}, "id", False, 10),
+            ("deleted_flag", {"deleted": True}, "id", True, 0),
+            ("deleted_flag_negated", {"deleted": True}, "id", False, 0),
+            ("missing_flag", {}, "missing", True, 0),
+            ("missing_flag_negated", {}, "missing", False, 0),
+            ("v2_config_flag_negated", {"filters": {"version": 2, "rules": []}}, "id", False, 0),
+            ("key_reference_never_resolves", {}, "key", True, 0),
+        ]
+    )
+    def test_user_blast_radius_with_unresolvable_flag_dependency(
+        self, _name, flag_kwargs, reference, value, expected_affected
+    ):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        dependency_flag = FeatureFlag.objects.create(
+            **{
+                "team": self.team,
+                "key": "dependency-flag",
+                "created_by": self.user,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+                **flag_kwargs,
+            }
+        )
+        key = {"id": str(dependency_flag.pk), "key": dependency_flag.key, "missing": "999999999"}[reference]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": key, "type": "flag", "value": value, "operator": "flag_evaluates_to"}],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    @parameterized.expand(
+        [
+            ("live_cohort", False, 3),
+            # The dependency's broken targeting is not the caller's input, so it sizes neutrally.
+            ("hard_deleted_cohort", True, 10),
+        ]
+    )
+    def test_user_blast_radius_with_cohort_targeted_flag_dependency(self, _name, delete_cohort, expected_affected):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {"properties": [{"key": "group", "type": "person", "value": ["0", "1", "2"], "operator": "exact"}]}
+            ],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}], "rollout_percentage": 100}
+                ]
+            },
+        )
+        if delete_cohort:
+            Cohort.objects.filter(pk=cohort.pk).delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": str(dependency_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_a_cycle_through_a_variant(self):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        # A needs B, B needs A=control at 50%, and the condition asks for A=true. The enclosing
+        # `true` does not settle a variant, so the cycle guard is what stops the recursion.
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_a.pk), "type": "flag", "value": "control", "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 50,
+                    }
+                ]
+            },
+        )
+        flag_a.filters["groups"][0]["properties"].append(
+            {"key": str(flag_b.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+        )
+        flag_a.save()
+        expected_affected = 5
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": str(flag_a.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_falls_back_when_the_dependency_budget_runs_out(self):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        half = FeatureFlag.objects.create(
+            team=self.team,
+            key="half",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
+        )
+        two_fifths = FeatureFlag.objects.create(
+            team=self.team,
+            key="two-fifths",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 40}]},
+        )
+        # A partially expanded weight would size one dependency and ignore the other.
+        expected_affected = 10
+
+        with patch("products.feature_flags.backend.blast_radius_flag_deps.MAX_DEPENDENCY_NODES", 1):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                {
+                    "condition": {
+                        "properties": [
+                            {"key": str(half.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": str(two_fifths.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                },
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_falls_back_past_the_dependency_depth(self):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        # A chain one longer than the cap, ending in a flag that targets four persons. Sizing part
+        # of it would report 4; the whole weight is neutral instead.
+        head = FeatureFlag.objects.create(
+            team=self.team,
+            key="leaf",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        for level in range(MAX_DEPENDENCY_DEPTH + 1):
+            head = FeatureFlag.objects.create(
+                team=self.team,
+                key=f"level-{level}",
+                created_by=self.user,
+                filters={
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": str(head.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            )
+        expected_affected = 10
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": str(head.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_a_dependency_of_many_condition_sets(self):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        # One running max per set as nested calls would exceed the recursion limit and return a 500.
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 1}] * 399
+                + [{"properties": [], "rollout_percentage": 100}]
+            },
+        )
+        expected_affected = 10
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": str(dependency_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    @parameterized.expand(
+        [
+            ("nested_dependency", False, 2),
+            # The enclosing `true` settles the repeated flag, so a cycle stops there instead of recursing until a 500.
+            ("cyclic_dependency", True, 2),
+        ]
+    )
+    def test_user_blast_radius_with_nested_flag_dependency(self, _name, cyclic, expected_affected):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        root_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="root-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "group", "type": "person", "value": ["0", "1", "2", "3"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        middle_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="middle-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(root_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 50,
+                    }
+                ]
+            },
+        )
+        if cyclic:
+            root_flag.filters["groups"][0]["properties"].append(
+                {"key": str(middle_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+            )
+            root_flag.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": str(middle_flag.pk), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    @parameterized.expand(
+        [
+            # The flags service evaluates a flag once, so repeats do not compound and contradictions never match.
+            ("repeated_dependency_counts_once", [("half", True), ("half", True)], 5),
+            ("contradictory_values_never_match", [("half", True), ("half", False)], 0),
+            ("independent_dependencies_multiply", [("half", True), ("two_fifths", True)], 2),
+            # needs_half depends on half, so requesting both is one draw of half, not two.
+            ("transitive_dependency_counts_once", [("half", True), ("needs_half", True)], 5),
+            ("transitive_contradiction_never_matches", [("half", False), ("needs_half", True)], 0),
+            # With split fixed to true, its control variant is conditional on that draw: 0.5 * 0.4.
+            ("variant_given_true_is_conditional", [("split", True), ("needs_split_control", True)], 2),
+            # split=control stays the narrower value down the chain, so the deeper split=test contradicts it.
+            (
+                "deeper_variant_contradiction_never_matches",
+                [("split", "control"), ("needs_split_true_and_test", True)],
+                0,
+            ),
+        ]
+    )
+    def test_user_blast_radius_with_several_flag_dependencies(self, _name, dependencies, expected_affected):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        flags: dict[str, FeatureFlag] = {}
+
+        def create(key: str, properties: list[dict], rollout: int, multivariate: Optional[dict] = None) -> None:
+            flags[key] = FeatureFlag.objects.create(
+                team=self.team,
+                key=key,
+                created_by=self.user,
+                filters={
+                    "groups": [{"properties": properties, "rollout_percentage": rollout}],
+                    "multivariate": multivariate,
+                },
+            )
+
+        def depends_on(key: str, value: Any) -> dict:
+            return {"key": str(flags[key].pk), "type": "flag", "value": value, "operator": "flag_evaluates_to"}
+
+        create("half", [], 50)
+        create("two_fifths", [], 40)
+        create("needs_half", [depends_on("half", True)], 100)
+        create(
+            "split",
+            [],
+            50,
+            {"variants": [{"key": "control", "rollout_percentage": 40}, {"key": "test", "rollout_percentage": 60}]},
+        )
+        create("needs_split_control", [depends_on("split", "control")], 100)
+        create("needs_split_test", [depends_on("split", "test")], 100)
+        create("needs_split_true_and_test", [depends_on("split", True), depends_on("needs_split_test", True)], 100)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [depends_on(key, value) for key, value in dependencies],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_flag_dependency_in_an_or_group_stays_neutral(self):
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 0}]},
+        )
+        expected_affected = 10
+
+        # The flags service cannot evaluate an OR condition, so the weight does not apply and the
+        # flag's 0% must not zero out the persons the other branch matches.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": str(dependency_flag.pk),
+                                "type": "flag",
+                                "value": True,
+                                "operator": "flag_evaluates_to",
+                            },
+                            {"key": "group", "type": "person", "value": ["0", "1", "2"], "operator": "exact"},
+                        ],
+                    },
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": expected_affected, "total": 10}.items(), response.json().items())
 
     def test_user_blast_radius_with_flag_dependency_and_person_property(self):
         for i in range(10):
@@ -9949,10 +10570,10 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             key="dependency-flag",
             created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            filters={"groups": [{"properties": [], "rollout_percentage": 50}]},
         )
 
-        # The flag dependency is ignored, but the person property filter still applies
+        # The person property filter keeps 4 persons and the 50% dependency halves them
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {
@@ -9977,7 +10598,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertLessEqual({"affected": 4, "total": 10}.items(), response.json().items())
+        self.assertLessEqual({"affected": 2, "total": 10}.items(), response.json().items())
 
     def test_user_blast_radius_with_groups_and_flag_dependency(self):
         create_group_type_mapping_without_created_at(

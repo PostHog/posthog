@@ -81,6 +81,7 @@ from products.replay_vision.backend.search import (
     parse_date_bound,
     query_vector_for,
     search_observations,
+    warm_query_vectors,
 )
 from products.replay_vision.backend.search_suggestions import (
     MAX_SUGGESTED_QUERIES,
@@ -1449,6 +1450,10 @@ class ObservationSearchResponseSerializer(serializers.Serializer):
         help_text="True when more matches may exist beyond `results`, so the response is a top slice "
         "rather than everything that matched."
     )
+    reranked = serializers.BooleanField(
+        help_text="True when a relevance model reordered the top results after the embedding match. False when "
+        "the results are in embedding distance order, for example because the model did not answer in time."
+    )
 
 
 class SearchSuggestionsQuerySerializer(serializers.Serializer):
@@ -1548,15 +1553,6 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
                 "to search Replay Vision observations.",
                 code=AI_CONSENT_REQUIRED_CODE,
             )
-        try:
-            query_vector = query_vector_for(self.team, validated["q"])
-        except requests.RequestException as error:
-            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
-            # request is a bug on our side, not retryable, and should surface as a 500.
-            if not is_transient_embedding_error(error):
-                raise
-            logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
-            raise EmbeddingUnavailableError()
         filters = ObservationSearchFilters.from_raw(
             verdict=_csv_values(validated.get("verdict")),
             tags=_csv_values(validated.get("tags")),
@@ -1566,15 +1562,25 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             date_to=validated.get("date_to"),
             timezone_info=self.team.timezone_info,
         )
-        response = search_observations(
-            self.team,
-            self.user_access_control,
-            scanner_ids,
-            query_vector,
-            validated["limit"],
-            filters,
-        )
-        return self._search_response(response.results, truncated=response.truncated)
+        team, query = self.team, validated["q"]
+        try:
+            response = search_observations(
+                self.team,
+                self.user_access_control,
+                scanner_ids,
+                lambda: query_vector_for(team, query),
+                validated["limit"],
+                filters,
+                rerank_query=validated["q"],
+            )
+        except requests.RequestException as error:
+            # The embedding worker is unreachable, slow, or failing, so the caller can retry. A rejected
+            # request is a bug on our side, not retryable, and should surface as a 500.
+            if not is_transient_embedding_error(error):
+                raise
+            logger.warning("replay_vision.observation_search.embedding_failed", team_id=self.team_id, exc_info=True)
+            raise EmbeddingUnavailableError()
+        return self._search_response(response.results, truncated=response.truncated, reranked=response.reranked)
 
     @extend_schema(
         parameters=[SearchSuggestionsQuerySerializer],
@@ -1608,13 +1614,20 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         params = SearchSuggestionsQuerySerializer(data=request.data)
         params.is_valid(raise_exception=True)
         scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        sources = scope_sources(self.team_id, scanner_ids)
         # The same rows that a view shows are the ones it marks as wanted.
-        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in scope_sources(self.team_id, scanner_ids)])
+        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in sources])
+        # A suggestion is a likely next search, so its vector is cached before anyone clicks it. The phrases
+        # derive from recordings, so they reach the embedding service only with AI data processing on.
+        if is_ai_data_processing_approved(self.team.id):
+            warm_query_vectors(self.team, merge_suggestions([stored for _, stored in sources]))
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def _search_response(self, results: list[ObservationSearchResult], truncated: bool = False) -> Response:
+    def _search_response(
+        self, results: list[ObservationSearchResult], truncated: bool = False, reranked: bool = False
+    ) -> Response:
         serializer = ObservationSearchResponseSerializer(
-            {"results": results, "truncated": truncated}, context=self.get_serializer_context()
+            {"results": results, "truncated": truncated, "reranked": reranked}, context=self.get_serializer_context()
         )
         return Response(serializer.data)
 

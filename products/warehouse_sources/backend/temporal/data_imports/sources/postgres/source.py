@@ -294,11 +294,16 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
 # down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
 # replace it with concrete guidance on both the validate and sync paths.
 _SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
-_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+_SSH_GATEWAY_UNREACHABLE_GUIDANCE = (
     "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
     "Check that the SSH host and port point to a reachable SSH server (not the database port), that "
-    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
+    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall"
 )
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}."
+# The sync path classifies this non-retryable, which switches the schema off, so the customer has
+# to turn it back on once the bastion is reachable again — the setup path has no sync to re-enable.
+# Mirrors `_SSH_HANDSHAKE_EOF_ERROR` below, the same gateway-configuration class.
+_SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, then re-enable the sync."
 
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
 # fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
@@ -868,7 +873,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
-            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_MESSAGE,
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE,
             # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
             # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
             # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
