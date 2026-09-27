@@ -17,6 +17,8 @@ export interface ChartTheme {
     crosshairColor?: string
     /** Canvas dash pattern (e.g. `[3, 3]`) for the hover crosshair. Solid when omitted. */
     crosshairDashPattern?: number[]
+    /** Default color of a `goal` reference line that sets no color of its own. */
+    goalLineColor?: string
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string

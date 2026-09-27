@@ -33,7 +33,7 @@ export const DEFAULT_CHART_COLORS: readonly string[] = [
 
 // Shares of the host's ink color. There is no token for these: the graph tokens carry no dash
 // pattern, and `--color-graph-axis-line` is one value doing both the grid and the axis line.
-const INK_SHARE = { grid: 6, axisLine: 35, crosshair: 22 } as const
+const INK_SHARE = { grid: 6, axisLine: 35, crosshair: 22, goalLine: 50 } as const
 
 const DASH_PATTERN: readonly number[] = [3, 3]
 
@@ -60,7 +60,7 @@ function readCssVar(style: CSSStyleDeclaration, name: string): string | undefine
 }
 
 /**
- * Grid, axis-line and crosshair styling as a partial theme. {@link themeFromCssVars} already
+ * Grid, axis-line, crosshair and goal-line styling as a partial theme. {@link themeFromCssVars} already
  * includes it — call this directly only when a host reads the palette through its own token reader
  * and wants the same styling on top.
  */
@@ -77,6 +77,7 @@ export function themeDefaultsFromCssVars(options: ThemeFromCssOptions = {}): Par
         gridColor: inkShare(foreground, INK_SHARE.grid) ?? readCssVar(style, '--color-graph-axis-line'),
         axisLineColor: inkShare(foreground, INK_SHARE.axisLine),
         crosshairColor: inkShare(foreground, INK_SHARE.crosshair) ?? readCssVar(style, '--color-graph-crosshair'),
+        goalLineColor: inkShare(foreground, INK_SHARE.goalLine),
     }
 }
 

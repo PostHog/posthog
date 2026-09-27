@@ -285,6 +285,19 @@ describe('ReferenceLine', () => {
             expect(line.style.borderTopColor).toBe(color)
         })
 
+        it.each([
+            ['goal line without a color uses the theme goal color', undefined, undefined, 'rgb(1, 2, 3)'],
+            ['explicit color wins over the theme goal color', undefined, '#ff8800', '#ff8800'],
+            ['alert line ignores the theme goal color', 'alert' as const, undefined, '#db3707'],
+        ])('%s', (_name, variant, color, expected) => {
+            const themed = { ...CONTEXT, theme: { ...CONTEXT.theme, goalLineColor: 'rgb(1, 2, 3)' } }
+            const { container } = renderInChart(
+                <ReferenceLine value={50} variant={variant} style={color ? { color } : undefined} />,
+                themed
+            )
+            expect(lineDiv(container, 'top')!.style.borderTopColor).toBe(expected)
+        })
+
         it('renders a var(...) color without throwing (browser-resolved at runtime)', () => {
             const { container } = renderInChart(<ReferenceLine value={50} style={{ color: 'var(--danger)' }} />)
             const line = lineDiv(container, 'top')

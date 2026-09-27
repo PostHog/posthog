@@ -19,7 +19,8 @@ Prop docs live on each component's props interface under `overlays/`.
 
 ### `ReferenceLine` / `ReferenceLines`
 
-Variants: `goal` (dashed grey), `alert` (dashed red), `marker` (solid thin).
+Variants: `goal` (dashed, in `theme.goalLineColor` or grey), `alert` (dashed red), `marker` (solid thin).
+The theme helpers set `goalLineColor` as a share of the host's `--foreground`, so an uncolored goal line stays visible on light and dark themes.
 A numeric line reveals its value on hover of the line itself (via a wider invisible hit area) or of its label, appended as `label: value` when it has a label and shown alone when it does not.
 `showValueOnHover: false` turns that off and removes the hit area, for a line whose caption already states the number or that should not react to the pointer.
 A vertical line resolves x through `scales.x(label)`, so it can only sit on a label.
