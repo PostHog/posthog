@@ -12,10 +12,8 @@ import { isChunkLoadError, isGenericNetworkTypeError, markAsChunkLoadError } fro
  * no subject, so it matches an ordinary bug in a module's top-level code just as well. It stays
  * out: classifying one of those would reload the page instead of reporting the bug.
  */
-const MINIFIED_MODULE_EVALUATION_MESSAGES = [
-    /^[A-Za-z_$] is not a function$/,
-    /^can't access property "[^"]+", [A-Za-z_$] is (undefined|null)$/,
-]
+const MINIFIED_MODULE_EVALUATION_PATTERN =
+    /^[A-Za-z_$] is not a function$|^can't access property "[^"]+", [A-Za-z_$] is (undefined|null)$/
 
 function isMinifiedModuleEvaluationError(error: unknown): boolean {
     if (!error || typeof error !== 'object') {
@@ -25,7 +23,7 @@ function isMinifiedModuleEvaluationError(error: unknown): boolean {
     if (name !== 'TypeError' || typeof message !== 'string') {
         return false
     }
-    return MINIFIED_MODULE_EVALUATION_MESSAGES.some((pattern) => pattern.test(message))
+    return MINIFIED_MODULE_EVALUATION_PATTERN.test(message)
 }
 
 /**
