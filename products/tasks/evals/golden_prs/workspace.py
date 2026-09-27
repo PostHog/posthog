@@ -28,16 +28,27 @@ REPO_LOCATION_VARS = (
 
 GIT_TIMEOUT_SECONDS = 120
 
+# A fixed pointer to the baseline commit, independent of HEAD, so a commit the agent makes in
+# `workdir` (against instructions) cannot move the commit `candidate_diff` scores against.
+BASELINE_REF = "refs/golden-eval/baseline"
 
-def _repo_git_env() -> dict[str, str]:
-    return {key: value for key, value in os.environ.items() if key not in REPO_LOCATION_VARS} | COMMIT_IDENTITY
+# Withheld from any Git subprocess that stages agent-controlled content, so a clean/smudge
+# filter the agent configured in .gitattributes/.git/config has nothing to exfiltrate.
+SECRET_ENV_VARS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "GITHUB_TOKEN")
 
 
-def _git(cwd: Path, *args: str, check: bool = True, input: str | None = None) -> subprocess.CompletedProcess[str]:
+def _repo_git_env(*, deny_secrets: bool = False) -> dict[str, str]:
+    denied = REPO_LOCATION_VARS + (SECRET_ENV_VARS if deny_secrets else ())
+    return {key: value for key, value in os.environ.items() if key not in denied} | COMMIT_IDENTITY
+
+
+def _git(
+    cwd: Path, *args: str, check: bool = True, input: str | None = None, deny_secrets: bool = False
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", *args],
         cwd=cwd,
-        env=_repo_git_env(),
+        env=_repo_git_env(deny_secrets=deny_secrets),
         input=input,
         capture_output=True,
         text=True,
@@ -75,22 +86,29 @@ def _restore_export_ignored_files(repo: Path, ref: str, workdir: Path) -> None:
     checking the export-ignore attribute per file, also catches a directory-level rule (like
     `.github/ export-ignore`) that `git check-attr` does not report on the files underneath it.
     """
-    tracked = _git(repo, "ls-tree", "-r", "--name-only", ref).stdout.splitlines()
-    for path in tracked:
+    entries = _git(repo, "ls-tree", "-r", ref).stdout.splitlines()
+    for entry in entries:
+        meta, path = entry.split("\t", 1)
+        mode, _obj_type, _blob_sha = meta.split()
         target = workdir / path
-        if target.exists():
+        # A symlink the archive extracted counts as present even when its target does not exist.
+        if target.exists(follow_symlinks=False):
             continue
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(
-            subprocess.run(
-                ["git", "show", f"{ref}:{path}"],
-                cwd=repo,
-                env=_repo_git_env(),
-                capture_output=True,
-                check=True,
-                timeout=GIT_TIMEOUT_SECONDS,
-            ).stdout
-        )
+        content = subprocess.run(
+            ["git", "show", f"{ref}:{path}"],
+            cwd=repo,
+            env=_repo_git_env(),
+            capture_output=True,
+            check=True,
+            timeout=GIT_TIMEOUT_SECONDS,
+        ).stdout
+        if mode == "120000":
+            target.symlink_to(content.decode())
+        else:
+            target.write_bytes(content)
+            if mode == "100755":
+                target.chmod(target.stat().st_mode | 0o111)
 
 
 @contextmanager
@@ -106,27 +124,42 @@ def checkout_parent(repo: Path, pr: GoldenPR) -> Iterator[Path]:
     try:
         archive = subprocess.Popen(["git", "archive", pr.parent_sha], cwd=repo, stdout=subprocess.PIPE)
         try:
-            tar_result = subprocess.run(["tar", "-x", "-C", workdir], stdin=archive.stdout, check=False)
-        finally:
-            if archive.stdout:
-                archive.stdout.close()
-            archive_returncode = archive.wait()
+            try:
+                tar_result = subprocess.run(
+                    ["tar", "-x", "-C", workdir], stdin=archive.stdout, check=False, timeout=GIT_TIMEOUT_SECONDS
+                )
+            finally:
+                if archive.stdout:
+                    archive.stdout.close()
+            archive_returncode = archive.wait(timeout=GIT_TIMEOUT_SECONDS)
+        except subprocess.TimeoutExpired:
+            archive.kill()
+            archive.wait()
+            raise
         if tar_result.returncode != 0:
             raise subprocess.CalledProcessError(tar_result.returncode, "tar")
         if archive_returncode != 0:
             raise subprocess.CalledProcessError(archive_returncode, "git archive")
         _restore_export_ignored_files(repo, pr.parent_sha, workdir)
         _git(workdir, "init", "-q")
-        _git(workdir, "add", "-A")
+        # Forced: the parent tree can hold a file (like `.envrc`) that a `.gitignore` restored a
+        # moment ago now matches, and a plain `add -A` would silently drop it from the baseline.
+        _git(workdir, "add", "-f", "-A")
         # Plumbing rather than `git commit`, so a commit hook or signing policy on the host cannot interfere.
         tree = _git(workdir, "write-tree").stdout.strip()
         commit = _git(workdir, "commit-tree", tree, "-m", "baseline").stdout.strip()
         _git(workdir, "update-ref", "HEAD", commit)
+        # A ref an agent commit can't move, so candidate_diff can still score against the true
+        # parent state even if the agent committed its changes despite being told not to.
+        _git(workdir, "update-ref", BASELINE_REF, commit)
         yield workdir
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
 
 def candidate_diff(workdir: Path) -> str:
-    _git(workdir, "add", "-A")
+    _git(workdir, "add", "-A", deny_secrets=True)
+    baseline = _git(workdir, "rev-parse", "--verify", "--quiet", BASELINE_REF, check=False)
+    if baseline.returncode == 0:
+        return _diff(workdir, "--cached", BASELINE_REF)
     return _diff(workdir, "--cached")

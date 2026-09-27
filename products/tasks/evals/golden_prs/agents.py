@@ -79,6 +79,9 @@ def agent_failure(run: AgentRun) -> str | None:
 
 
 def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_seconds: int) -> AgentRun:
+    # Read before the agent runs: a failing version probe after a completed run would otherwise
+    # raise past the point where the caller collects the diff and log, discarding both.
+    version = agent_version(runtime)
     started = time.monotonic()
     timed_out = False
     try:
@@ -99,7 +102,7 @@ def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_
     return AgentRun(
         runtime=runtime,
         model=model,
-        agent_version=agent_version(runtime),
+        agent_version=version,
         exit_code=exit_code,
         timed_out=timed_out,
         duration_seconds=round(time.monotonic() - started, 1),
