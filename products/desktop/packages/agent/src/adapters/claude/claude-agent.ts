@@ -3238,12 +3238,20 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     this.session = session;
     this.sessionId = sessionId;
 
+    const requestedModel =
+      meta?.model || settingsManager.getSettings().model || undefined;
+
     if (isResume) {
+      const resumeStartedAt = Date.now();
+      let initializationPhase = initialization.phase;
+      let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
       // Resume must block on initialization to validate the session is still alive.
       // For stale sessions this throws (e.g. "No conversation found").
       try {
         const result = await initialization.wait(q.initializationResult());
         if (result.result === "timeout") {
+          initializationPhase = result.phase;
+          timeoutMs = result.timeoutMs;
           throw new RequestError(
             -32603,
             `Session ${result.phase === "setup_hooks" ? "setup hooks" : forkSession ? "fork" : "resumption"} timed out after ${result.timeoutMs}ms`,
@@ -3265,12 +3273,26 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ) {
           throw RequestError.resourceNotFound(sessionId);
         }
+        const transcriptBytes = await fs.promises
+          .stat(getSessionJsonlPath(resume ?? sessionId, cwd))
+          .then(
+            (stats) => stats.size,
+            () => null,
+          );
         startupLogger.error(
           forkSession ? "Session fork failed" : "Session resumption failed",
           {
             sessionId,
             taskId,
             taskRunId: meta?.taskRunId,
+            initializationPhase,
+            timeoutMs,
+            initMs: Date.now() - resumeStartedAt,
+            transcriptBytes,
+            requestedModel: requestedModel ?? null,
+            gatewayConfigured: Boolean(
+              this.options?.gatewayEnv?.anthropicBaseUrl,
+            ),
             errorDetail: serializeError(err),
           },
         );
@@ -3284,8 +3306,6 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const initPromise = !isResume
       ? initialization.wait(q.initializationResult())
       : undefined;
-    const requestedModel =
-      meta?.model || settingsManager.getSettings().model || undefined;
 
     const [rawModelOptions] = await Promise.all([
       this.getModelConfigOptions(
