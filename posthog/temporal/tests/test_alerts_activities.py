@@ -16,7 +16,7 @@ from django.db import OperationalError, connection, transaction
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
-from clickhouse_driver.errors import NetworkError, SocketTimeoutError
+from clickhouse_driver.errors import NetworkError, ServerException, SocketTimeoutError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
@@ -32,7 +32,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.errors import CHQueryErrorQueryWasCancelled, wrap_clickhouse_query_error
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -1060,6 +1060,32 @@ class TestEvaluateAlert:
         assert refreshed.enabled is True
         mock_capture.assert_not_called()
         mock_notify.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (386, "DB::Exception: There is no supertype for types String, UInt8. Stack trace: ..."),
+            (349, "DB::Exception: Cannot convert NULL value to non-Nullable type. Stack trace: ..."),
+        ],
+    )
+    async def test_user_safe_clickhouse_error_records_error_without_capturing(
+        self, alert_with_user, code, message
+    ) -> None:
+        error = wrap_clickhouse_query_error(ServerException(message, code=code))
+        with (
+            patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=error),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            result = await ActivityEnvironment().run(
+                evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
+            )
+
+        assert result.new_state == AlertState.ERRORED
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.error == {"message": str(error)}
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is True
+        mock_capture.assert_not_called()
 
     @pytest.mark.parametrize(
         "rows,has_more,sql_limit,expected_error,expect_disabled",
