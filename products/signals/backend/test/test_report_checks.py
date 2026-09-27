@@ -1488,11 +1488,14 @@ class TestScoutCheckTools(APIBaseTest):
         assert [summary.check_id for summary in listed] == [written.check_id]
 
     def test_cancelling_stops_the_check_and_refuses_a_second_cancel(self) -> None:
-        written = self._create()
+        written = self._create(kind=SignalReportCheck.Kind.AGENT, config={"instructions": "Re-read the issue."})
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=written.check_id).update(
+            status=SignalReportCheck.Status.ACTIVE, dispatched_at=timezone.now()
+        )
 
         cancelled = cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 
-        assert cancelled.status == SignalReportCheck.Status.CANCELLED
+        assert (cancelled.status, cancelled.waiting_on_run) == (SignalReportCheck.Status.CANCELLED, False)
         with self.assertRaises(InvalidCheckWriteError):
             cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 

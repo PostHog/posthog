@@ -234,7 +234,8 @@ def _summarize(
         next_run_at=check.next_run_at,
         last_outcome=check.last_outcome,
         run_state=_run_state(check, report_status, dispatched_run_id, now or timezone.now()),
-        waiting_on_run=check.dispatched_at is not None,
+        # Cancel and expiry leave `dispatched_at` set, so only an open check can still owe a run.
+        waiting_on_run=check.status == SignalReportCheck.Status.ACTIVE and check.dispatched_at is not None,
         dispatched_run_id=dispatched_run_id,
         dispatched_at=check.dispatched_at,
     )
