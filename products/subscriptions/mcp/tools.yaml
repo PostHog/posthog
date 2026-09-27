@@ -160,10 +160,22 @@ tools:
         description: >
             List the team's subscriptions. Use `search` to filter by title, insight name (including the auto-generated
             name of an unnamed insight), dashboard name, or prompt text. Prompt subscriptions match both their `title`
-            and `prompt` text.
+            and `prompt` text. Results are paginated (default 20 per page). Use `limit` and `offset` to page through
+            them. Each row's `created_by` is trimmed to `{id, email}`.
+        param_overrides:
+            limit:
+                description: Number of subscriptions to return per page (default 20).
+                default: 20
         response:
             exclude:
                 - invite_message
+                - created_by.uuid
+                - created_by.distinct_id
+                - created_by.first_name
+                - created_by.last_name
+                - created_by.is_email_verified
+                - created_by.hedgehog_config
+                - created_by.role_at_organization
     subscriptions-partial-update:
         operation: subscriptions_partial_update
         enabled: true

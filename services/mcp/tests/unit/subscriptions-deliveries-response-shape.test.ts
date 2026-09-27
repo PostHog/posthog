@@ -32,7 +32,38 @@ const aiDelivery = (id: string): Record<string, unknown> => ({
     error: null,
 })
 
-describe('subscriptions deliveries response shape', () => {
+describe('subscriptions response shape', () => {
+    it('list pages 20 rows by default and trims created_by to id and email', async () => {
+        const request = vi.fn().mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [
+                {
+                    id: 1,
+                    title: 'Weekly',
+                    created_by: {
+                        id: 7,
+                        uuid: 'u-1',
+                        distinct_id: 'd-1',
+                        first_name: 'Test',
+                        last_name: 'User',
+                        email: 'user@example.com',
+                        is_email_verified: true,
+                        role_at_organization: 'engineering',
+                        hedgehog_config: { skin: 'default', accessories: ['beret'] },
+                    },
+                },
+            ],
+        })
+        const tool = GENERATED_TOOLS['subscriptions-list']!()
+
+        const result = await tool.handler(createMockContext(request), tool.schema.parse({}))
+
+        expect(request.mock.calls[0]![0].query.limit).toBe(20)
+        expect((result as any).results[0].created_by).toEqual({ id: 7, email: 'user@example.com' })
+    })
+
     it('list strips the AI report prompt and report content from every row', async () => {
         const request = vi.fn().mockResolvedValue({
             results: [aiDelivery('d1'), aiDelivery('d2')],
