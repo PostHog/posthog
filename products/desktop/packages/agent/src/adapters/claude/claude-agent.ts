@@ -3243,15 +3243,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     if (isResume) {
       const resumeStartedAt = Date.now();
-      let initializationPhase = initialization.phase;
-      let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
       // Resume must block on initialization to validate the session is still alive.
       // For stale sessions this throws (e.g. "No conversation found").
       try {
         const result = await initialization.wait(q.initializationResult());
         if (result.result === "timeout") {
-          initializationPhase = result.phase;
-          timeoutMs = result.timeoutMs;
           throw new RequestError(
             -32603,
             `Session ${result.phase === "setup_hooks" ? "setup hooks" : forkSession ? "fork" : "resumption"} timed out after ${result.timeoutMs}ms`,
@@ -3285,8 +3281,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             sessionId,
             taskId,
             taskRunId: meta?.taskRunId,
-            initializationPhase,
-            timeoutMs,
+            initializationPhase: initialization.phase,
+            timeoutMs: initialization.timeoutMs,
             initMs: Date.now() - resumeStartedAt,
             transcriptBytes,
             requestedModel: requestedModel ?? null,

@@ -8,6 +8,7 @@ import {
 import type { HookInput, Options } from "@anthropic-ai/claude-agent-sdk";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_GATEWAY_MODEL } from "../../gateway-models";
+import { getSessionJsonlPath } from "./session/jsonl-hydration";
 
 type SdkQueryHandle = {
   interrupt: ReturnType<typeof vi.fn>;
@@ -506,8 +507,15 @@ describe("ClaudeAcpAgent session creation", () => {
         nextInitPromise = new Promise(() => {});
         const agent = makeAgent();
         const errorSpy = vi.spyOn(agent.logger, "error");
+        const sessionId = "0197a000-0000-7000-8000-0000000000fd";
+        const transcript = '{"type":"user","message":"test"}\n';
+        if (kind === "resume") {
+          const transcriptPath = getSessionJsonlPath(sessionId, cwd);
+          mkdirSync(path.dirname(transcriptPath), { recursive: true });
+          writeFileSync(transcriptPath, transcript);
+        }
         const params = {
-          sessionId: "0197a000-0000-7000-8000-0000000000fd",
+          sessionId,
           cwd,
           mcpServers: [],
           _meta: {
@@ -539,6 +547,9 @@ describe("ClaudeAcpAgent session creation", () => {
             initMs: expect.any(Number),
             requestedModel: "claude-opus-5",
             gatewayConfigured: false,
+            ...(kind === "resume"
+              ? { transcriptBytes: Buffer.byteLength(transcript) }
+              : {}),
             errorDetail: expect.objectContaining({ message }),
           }),
         );
