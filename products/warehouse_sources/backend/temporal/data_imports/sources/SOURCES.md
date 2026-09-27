@@ -69,6 +69,7 @@ the row lists both.
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
+| amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
 | apify_dataset                    | HTTP                        | requests                                                        | ✅                          |
@@ -850,7 +851,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- amplemarket
 - anodot_cost
 - anomalo
 - anvil
