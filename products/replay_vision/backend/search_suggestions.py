@@ -324,7 +324,7 @@ def refresh_team_suggestions(team: Team) -> bool:
         )
     )
     source_ids = [str(scanner.id) for scanner in scanners]
-    if ReplayScanner.objects.filter(id__in=source_ids).count() < len(source_ids):
+    if ReplayScanner.objects.filter(team_id=team.id, id__in=source_ids).count() < len(source_ids):
         # A source was deleted during the model call, and its delete already cleared the team's phrases.
         TeamReplayVisionConfig.objects.filter(pk=team.id).update(search_suggestions_generated_at=timezone.now())
         return False
