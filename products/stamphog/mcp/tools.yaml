@@ -63,6 +63,12 @@ tools:
             or by `merged` (true/false) to separate open work from merged history. Each entry includes the repository,
             author, head branch, merge state, and diff size (additions/deletions/changed_files) once merged.
         feature_flag: stamphog
+    stamphog-repo-configs-add-repository:
+        operation: stamphog_repo_configs_add_repository_create
+        enabled: false
+    stamphog-repo-configs-available-repositories:
+        operation: stamphog_repo_configs_available_repositories_retrieve
+        enabled: false
     stamphog-repo-configs-create:
         operation: stamphog_repo_configs_create
         enabled: false

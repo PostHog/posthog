@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 import httpx
+from pydantic import ValidationError
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
 
@@ -16,6 +17,7 @@ from products.ml_inference.backend.facade.contracts import (
     DecisionGatewayUnreachableError,
     DecisionQuestion,
     DecisionRequest,
+    JsonValue,
     NoulAnswer,
     ScoreAnswer,
 )
@@ -25,14 +27,14 @@ from products.ml_inference.backend.logic import decisions
 GATEWAY = {"AI_GATEWAY_URL": "https://gateway.example.com/v1", "AI_GATEWAY_API_KEY": "phs_test"}
 
 ANSWERS: dict[str, Any] = {
-    "model": "kev-latest",
+    "model": "jevk5-0.2",
     "answers": {
         "urgent": {"noul": 0.91},
         "route": {"choice": "billing", "confidence": 0.6, "probabilities": {"billing": 0.7, "bug": 0.3}},
         "mood": {"score": 2.5, "confidence": 0.4, "probabilities": {"1": 0.2, "2": 0.3, "3": 0.5}, "legend": {}},
     },
     "usage": {"input_tokens": 772, "output_tokens": 0},
-    "latency_ms": 31,
+    "latency_ms": 41.25,
 }
 
 
@@ -47,8 +49,21 @@ QUESTIONS = {
 }
 
 
-def _request() -> DecisionRequest:
-    return DecisionRequest(team_id=42, state="ticket text", questions=QUESTIONS)
+def _request(
+    *,
+    state: JsonValue = "ticket text",
+    ai_product: str = "ml_inference",
+    trace_id: str | None = None,
+    properties: dict[str, str] | None = None,
+) -> DecisionRequest:
+    return DecisionRequest(
+        team_id=42,
+        state=state,
+        questions=QUESTIONS,
+        ai_product=ai_product,
+        trace_id=trace_id,
+        properties=properties,
+    )
 
 
 def test_a_request_refuses_more_questions_than_the_cap() -> None:
@@ -57,12 +72,34 @@ def test_a_request_refuses_more_questions_than_the_cap() -> None:
         DecisionRequest(team_id=1, state="text", questions={f"q{i}": question for i in range(33)})
 
 
+def test_a_request_refuses_non_json_state() -> None:
+    state: Any = {"created_at": object()}
+    with pytest.raises(ValidationError):
+        DecisionRequest(team_id=1, state=state, questions=QUESTIONS)
+
+
+@pytest.mark.parametrize(
+    "criteria",
+    [{str(i): "m" for i in range(17)}, [str(i) for i in range(17)]],
+    ids=["choice", "score"],
+)
+def test_a_question_refuses_more_options_than_the_model_has_letters(criteria: dict[str, str] | list[str]) -> None:
+    question_type = DecisionQuestionType.CHOICE if isinstance(criteria, dict) else DecisionQuestionType.SCORE
+    with pytest.raises(ValueError, match="at most 16 options"):
+        DecisionQuestion(type=question_type, instructions="?", criteria=criteria)
+
+
 class TestDecide:
     @pytest.mark.parametrize(
-        "gateway_url",
-        ["https://gateway.example.com/v1", "https://gateway.example.com/v1/"],
+        "gateway_url,state,ai_product",
+        [
+            ("https://gateway.example.com/v1", "ticket text", "ml_inference"),
+            ("https://gateway.example.com/v1/", {"policy": "rules", "record": "ticket text"}, "signals"),
+        ],
     )
-    def test_posts_to_the_decision_route_off_the_gateway_origin(self, gateway_url: str) -> None:
+    def test_posts_to_the_decision_route_off_the_gateway_origin(
+        self, gateway_url: str, state: JsonValue, ai_product: str
+    ) -> None:
         seen: list[httpx.Request] = []
 
         def handler(request: httpx.Request) -> httpx.Response:
@@ -70,20 +107,33 @@ class TestDecide:
             return httpx.Response(200, json=ANSWERS)
 
         with override_settings(AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY="phs_test"):
-            result = decisions.decide(_request(), transport=httpx.MockTransport(handler))
+            result = decisions.decide(
+                _request(
+                    state=state,
+                    ai_product=ai_product,
+                    trace_id="decision-1",
+                    properties={"signals_decision_id": "decision-1", "ai_stage": "signal_safety"},
+                ),
+                transport=httpx.MockTransport(handler),
+            )
 
         assert [str(request.url) for request in seen] == ["https://gateway.example.com/v1/systemone"]
         request = seen[0]
         assert request.headers["Authorization"] == "Bearer phs_test"
-        assert json.loads(request.headers["X-PostHog-Properties"]) == {"ai_product": "ml_inference"}
+        assert json.loads(request.headers["X-PostHog-Properties"]) == {
+            "ai_product": ai_product,
+            "signals_decision_id": "decision-1",
+            "ai_stage": "signal_safety",
+        }
+        assert request.headers["X-PostHog-Trace-Id"] == "decision-1"
         assert request.headers["X-PostHog-Distinct-Id"] == "team-42"
         body = json.loads(request.content)
-        assert body["model"] == "posthog/posthog/decision-4b"
-        assert body["state"] == "ticket text"
+        assert body["model"] == "posthog/hogference/jevk5-fp8-0.2"
+        assert body["state"] == state
         assert body["questions"]["urgent"] == {"type": "noul", "instructions": "Is it urgent?"}
         assert body["questions"]["route"]["criteria"] == {"billing": "money", "bug": "broken"}
         assert result.input_tokens == 772
-        assert result.latency_ms == 31
+        assert result.latency_ms == 41.25
 
     def test_parses_every_answer_type(self) -> None:
         result = decisions.parse_result(ANSWERS, QUESTIONS)
@@ -101,9 +151,9 @@ class TestDecide:
         [
             {},
             [],
-            {"model": "kev-latest", "answers": {}, "usage": {}},
-            {"model": "kev-latest", "answers": {"q": {"verdict": "maybe"}}, "usage": {"input_tokens": 1}},
-            {"model": "kev-latest", "answers": {"q": "yes"}, "usage": {"input_tokens": 1}},
+            {"model": "jevk5-0.2", "answers": {}, "usage": {}},
+            {"model": "jevk5-0.2", "answers": {"q": {"verdict": "maybe"}}, "usage": {"input_tokens": 1}},
+            {"model": "jevk5-0.2", "answers": {"q": "yes"}, "usage": {"input_tokens": 1}},
             {**ANSWERS, "answers": {**ANSWERS["answers"], "extra": {"noul": 0.5}}},
             {**ANSWERS, "answers": {k: v for k, v in ANSWERS["answers"].items() if k != "mood"}},
             {**ANSWERS, "answers": {**ANSWERS["answers"], "urgent": {"noul": 0.9, "choice": "billing"}}},
@@ -145,7 +195,7 @@ class TestDecide:
 
         with override_settings(AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY="phs_test"):
             if allowed:
-                assert decisions.decide(_request(), transport=transport).model == "kev-latest"
+                assert decisions.decide(_request(), transport=transport).model == "jevk5-0.2"
             else:
                 with pytest.raises(GatewayNotConfiguredError):
                     decisions.decide(_request(), transport=transport)
