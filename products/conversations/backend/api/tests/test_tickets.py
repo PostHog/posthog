@@ -702,6 +702,7 @@ class TestTicketAPI(APIBaseTest):
             ("anonymous_name", {"anonymous_traits": {"name": "Alice Wonder"}}, "alice"),
             ("anonymous_email", {"anonymous_traits": {"email": "bob@example.com"}}, "bob@example"),
             ("email_subject", {"email_subject": "Billing issue", "channel_source": Channel.EMAIL}, "billing"),
+            ("query_shorter_than_trigram", {"anonymous_traits": {"name": "Al Wonder"}}, "al"),
         ]
     )
     def test_search_by_field(self, mock_on_commit, _name, field_overrides, query):
@@ -723,6 +724,27 @@ class TestTicketAPI(APIBaseTest):
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search=API+integration")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))
+
+    @parameterized.expand([("trigram_path", "zebra"), ("short_query_path", "ze")])
+    def test_search_skips_comment_with_malformed_item_id(self, mock_on_commit, _name, query):
+        malformed = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="zebra question",
+        )
+        Comment.objects.filter(pk=malformed.pk).update(item_id="not-a-uuid")
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="zebra question",
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/?search={query}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["id"], str(self.ticket.id))

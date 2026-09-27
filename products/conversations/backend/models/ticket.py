@@ -1,6 +1,9 @@
 from typing import TYPE_CHECKING
 
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import Upper
 
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDTModel
@@ -209,6 +212,20 @@ class Ticket(Taggable, UUIDTModel):
                 models.F("created_at").desc(),
                 name="posthog_con_compose_dedupe_idx",
                 condition=models.Q(channel_source="email"),
+            ),
+            # Free-text search: trigram indexes over the exact UPPER(...) expressions that
+            # icontains emits, so a search probes these instead of every ticket in the team.
+            GinIndex(
+                OpClass(Upper(KeyTextTransform("name", "anonymous_traits")), name="gin_trgm_ops"),
+                name="posthog_con_trait_name_trgm",
+            ),
+            GinIndex(
+                OpClass(Upper(KeyTextTransform("email", "anonymous_traits")), name="gin_trgm_ops"),
+                name="posthog_con_trait_email_trgm",
+            ),
+            GinIndex(
+                OpClass(Upper("email_subject"), name="gin_trgm_ops"),
+                name="posthog_con_subject_trgm",
             ),
         ]
         constraints = [
