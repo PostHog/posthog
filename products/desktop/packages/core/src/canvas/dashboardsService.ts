@@ -39,9 +39,6 @@ import {
   ProjectApiError,
 } from "./projectApiClient";
 
-// The state endpoint's largest page.
-const CANVAS_STATE_PAGE_SIZE = 100;
-
 // A canvas as the PostHog canvases API returns it.
 interface ApiCanvas {
   id: string;
@@ -436,44 +433,31 @@ export class DashboardsService {
   }
 
   // The canvas's readable ph.state entries: shared ones plus the caller's own
-  // user-scoped ones. Optionally narrowed to one scope. Reads page by page, so
-  // no single response has to carry every stored value.
+  // user-scoped ones. Optionally narrowed to one scope.
   async listState(input: {
     id: string;
     scope?: CanvasStateScope;
   }): Promise<CanvasStateEntry[]> {
-    const entries: CanvasStateEntry[] = [];
-    let offset = 0;
-    for (;;) {
-      const params = new URLSearchParams({
-        limit: String(CANVAS_STATE_PAGE_SIZE),
-        offset: String(offset),
-      });
-      if (input.scope) params.set("scope", input.scope);
-      const body = await this.api.json<{
-        entries: Array<{
-          scope: CanvasStateScope;
-          key: string;
-          value: unknown;
-          updated_at: string;
-        }>;
-        next_offset: number | null;
-        complete: boolean;
-      }>(
-        `canvases/${encodeURIComponent(input.id)}/state/?${params}`,
-        "read canvas state",
-      );
-      for (const entry of body.entries) {
-        entries.push({
-          scope: entry.scope,
-          key: entry.key,
-          value: entry.value,
-          updatedAt: entry.updated_at,
-        });
-      }
-      if (body.complete || body.next_offset === null) return entries;
-      offset = body.next_offset;
-    }
+    const suffix = input.scope
+      ? `?scope=${encodeURIComponent(input.scope)}`
+      : "";
+    const body = await this.api.json<{
+      entries: Array<{
+        scope: CanvasStateScope;
+        key: string;
+        value: unknown;
+        updated_at: string;
+      }>;
+    }>(
+      `canvases/${encodeURIComponent(input.id)}/state/${suffix}`,
+      "read canvas state",
+    );
+    return body.entries.map((entry) => ({
+      scope: entry.scope,
+      key: entry.key,
+      value: entry.value,
+      updatedAt: entry.updated_at,
+    }));
   }
 
   // Write one ph.state key; a null value deletes it (the 204 path).

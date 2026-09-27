@@ -74,7 +74,12 @@ def visible_canvas_summaries(
     ids = list(canvas_ids)
     if not ids:
         return {}
-    canvases = _visible_canvases(team_id, user_id).filter(id__in=ids).select_related("channel")
+    canvases = (
+        _visible_canvases(team_id, user_id)
+        .filter(id__in=ids)
+        .select_related("channel")
+        .only("id", "name", "channel_id", "channel__name")
+    )
     return {str(canvas.id): _summary(canvas) for canvas in canvases}
 
 

@@ -460,8 +460,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     def _paginated(self, request: Request, fetch: Callable[[int, int], Any], count: int) -> Response:
         """The standard limit/offset envelope around one facade page."""
         paginator = cast(LimitOffsetPagination, self.paginator)
+        limit = paginator.get_limit(request)
         # The default page size always applies, so there is always a limit.
-        limit = paginator.get_limit(request) or count
+        if limit is None:
+            limit = count
         offset = paginator.get_offset(request)
         paginator.request = request
         paginator.limit = limit

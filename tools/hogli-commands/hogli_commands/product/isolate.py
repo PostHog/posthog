@@ -272,38 +272,24 @@ def rewrite_paths(text: str, renames: dict[str, str]) -> str:
 def _args_span(text: str, open_idx: int) -> int | None:
     """Index just past the ``)`` that balances the ``(`` at ``text[open_idx]``.
 
-    Counts nesting and skips string literals and comments, so decorator args
-    that contain their own parens (``expires=timedelta(hours=1)``) are matched
-    whole instead of being truncated at the first ``)``, and a trailing
-    comment containing a stray paren (``# (for compatibility``) can't defeat
-    the balance count either. Returns None if the parens never balance.
+    Uses the Python tokenizer, so parens inside string literals (triple-quoted
+    ones too) and inside comments do not count, and decorator args that contain
+    their own parens (``expires=timedelta(hours=1)``) are matched whole instead
+    of being truncated at the first ``)``. Returns None if the parens never balance.
     """
+    source = text[open_idx:]
+    line_starts = [0, *(match.end() for match in re.finditer("\n", source))]
     depth = 0
-    quote: str | None = None
-    in_comment = False
-    i = open_idx
-    while i < len(text):
-        ch = text[i]
-        if in_comment:
-            if ch == "\n":
-                in_comment = False
-        elif quote is not None:
-            if ch == "\\":
-                i += 2
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type != tokenize.OP or tok.string not in "()":
                 continue
-            if ch == quote:
-                quote = None
-        elif ch == "#":
-            in_comment = True
-        elif ch in "\"'":
-            quote = ch
-        elif ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
+            depth += 1 if tok.string == "(" else -1
             if depth == 0:
-                return i + 1
-        i += 1
+                row, col = tok.end
+                return open_idx + line_starts[row - 1] + col
+    except (tokenize.TokenError, SyntaxError):
+        return None
     return None
 
 
