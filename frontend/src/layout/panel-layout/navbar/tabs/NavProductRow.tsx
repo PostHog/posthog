@@ -19,7 +19,7 @@ import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { getCustomIcon } from '../../ProjectTree/customIconRegistry'
 import { ProductIconWrapper, iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
-import { joinPath, splitPath } from '../../ProjectTree/utils'
+import { findProductShortcut } from '../../ProjectTree/utils'
 import { NavProductMenu } from './NavProductMenu'
 import { navProductsTabLogic } from './navProductsTabLogic'
 import { NavProductTooltip } from './NavProductTooltip'
@@ -33,8 +33,7 @@ export function NavProductRow({ item, pinned = false }: { item: FileSystemImport
     const { reportNavItemClicked } = useActions(eventUsageLogic)
     const { setCustomizeSidebarOpen } = useActions(navProductsTabLogic)
     const label = productsItemName(item)
-    const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
-    const shortcut = shortcutData.find((entry) => entry.type !== 'folder' && entry.path === shortcutPath)
+    const shortcut = findProductShortcut(item, shortcutData)
     const currentPath = removeProjectIdIfPresent(pathname)
     const href = item.href ?? ''
     const active =

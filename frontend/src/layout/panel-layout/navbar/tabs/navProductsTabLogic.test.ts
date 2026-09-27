@@ -143,11 +143,12 @@ describe('navProductsTabLogic', () => {
         const existing = [
             { id: 'folder', path: 'Feature flags', type: 'folder', ref: 'Feature flags' },
             { id: 'file', path: 'Feature flags', type: 'insight', ref: 'insight-1', href: '/insights/insight-1' },
-            { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
+            { id: 'analytics', path: 'Insights', type: 'product_analytics', href: '/insights' },
         ]
         projectTreeDataLogic.actions.loadShortcutsSuccess(existing)
         navProductsTabLogic.actions.setSearch('no matches')
         expect(navProductsTabLogic.values.starredProductIds['Feature flags']).toBeUndefined()
+        expect(navProductsTabLogic.values.starredProductIds['Product analytics']).toBe('analytics')
 
         await expectLogic(navProductsTabLogic, () => {
             navProductsTabLogic.actions.setProductStarred('Feature flags', true)

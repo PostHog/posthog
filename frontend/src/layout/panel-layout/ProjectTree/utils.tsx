@@ -481,6 +481,20 @@ export function joinPath(path: string[]): string {
     return path.map(escapePath).join('/')
 }
 
+// A product shortcut keeps the path it had when starred, so a renamed product only matches it by href.
+export function findProductShortcut(
+    item: Pick<FileSystemImport, 'path' | 'href'>,
+    shortcuts: FileSystemEntry[]
+): FileSystemEntry | undefined {
+    const shortcutPath = joinPath(splitPath(item.path).slice(-1))
+    return shortcuts.find(
+        (entry) =>
+            entry.type !== 'folder' &&
+            !entry.ref &&
+            (entry.path === shortcutPath || (!!item.href && entry.href === item.href))
+    )
+}
+
 export function escapePath(path: string): string {
     return path.replace(/\\/g, '\\\\').replace(/\//g, '\\/')
 }

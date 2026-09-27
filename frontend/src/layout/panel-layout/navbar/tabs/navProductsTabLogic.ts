@@ -12,7 +12,7 @@ import { ActivityTab } from '~/types'
 import { getDefaultTreeData, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
-import { joinPath, splitPath } from '../../ProjectTree/utils'
+import { findProductShortcut } from '../../ProjectTree/utils'
 import {
     POPULAR_CATEGORY,
     POPULAR_PRODUCT_PATHS,
@@ -250,10 +250,7 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
             (items: FileSystemImport[], shortcuts: FileSystemEntry[]): Record<string, string> => {
                 const ids: Record<string, string> = {}
                 for (const item of items) {
-                    const shortcutPath = joinPath(splitPath(item.path).slice(-1))
-                    const shortcut = shortcuts.find(
-                        (entry) => entry.type !== 'folder' && !entry.ref && entry.path === shortcutPath
-                    )
+                    const shortcut = findProductShortcut(item, shortcuts)
                     if (shortcut) {
                         ids[item.path] = shortcut.id
                     }
