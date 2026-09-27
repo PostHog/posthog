@@ -82,6 +82,30 @@ describe('executeSqlHandler', () => {
         ])
     })
 
+    it('masks credential query parameters in failed call errors', async () => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue(
+                new Response(
+                    JSON.stringify({
+                        success: false,
+                        content:
+                            'Tool failed: Cannot parse input: https://example.com/callback?code=fake-auth-code&lang=en',
+                    })
+                )
+            )
+        )
+        const context = {
+            api: new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' }),
+            stateManager: { getProjectId: vi.fn().mockResolvedValue(2) },
+        } as unknown as Context
+        const params = { query: 'SELECT _toInt64(properties.$current_url) FROM events', truncate: true }
+
+        await expect(executeSqlHandler(context, params)).rejects.toMatchObject({
+            message: 'Tool failed: Cannot parse input: https://example.com/callback?code=[REDACTED]&lang=en',
+        })
+    })
+
     // The catalog disclosure the metric-discovery prompt asks for has to have a field to
     // live in, and it has to stay on this side of the wire: the endpoint takes no such
     // argument, and the sentence is bookkeeping rather than part of the query.

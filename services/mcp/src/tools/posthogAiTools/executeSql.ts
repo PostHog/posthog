@@ -24,11 +24,11 @@ export const executeSqlHandler: ToolBase<typeof schema, ExecuteSqlResult>['handl
         ...(params.sendRawQuery !== undefined && { sendRawQuery: params.sendRawQuery }),
     })
 
+    const content = redactUrlCredentials(result.content)
     if (!result.success) {
-        throw new Error(result.content)
+        throw new Error(content)
     }
 
-    const content = redactUrlCredentials(result.content)
     return result.structured_content
         ? {
               ...result.structured_content,
