@@ -241,7 +241,6 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                 suggestsSwitch: intent.suggests_switch,
                 wouldPromote: canPromote,
                 shown: values.variant === 'banner' ? !!values.suggestedSwitch : promoted,
-                // The server's redacted copy, so an email, URL, path, id or token never reaches analytics.
                 query: intent.model_query ?? undefined,
             })
         },
