@@ -249,10 +249,14 @@ export function sankeyHitAt(
         if (cursor.x < startX || cursor.x > endX || endX <= startX) {
             continue
         }
+        const halfWidth = Math.max(link.width, 1) / 2
+        if (cursor.y < Math.min(link.y0, link.y1) - halfWidth || cursor.y > Math.max(link.y0, link.y1) + halfWidth) {
+            continue
+        }
         const t = solveBezierT(startX, endX, cursor.x)
         const centerY = bezierY(link.y0, link.y1, t)
         const distance = Math.abs(cursor.y - centerY)
-        if (distance <= Math.max(link.width, 1) / 2 && (!best || distance < best.distance)) {
+        if (distance <= halfWidth && (!best || distance < best.distance)) {
             best = { index: i, distance }
         }
     }
