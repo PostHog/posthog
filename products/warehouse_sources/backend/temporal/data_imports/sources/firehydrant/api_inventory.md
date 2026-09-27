@@ -37,6 +37,25 @@ Source: <https://docs.firehydrant.com/reference/firehydrant-api> and the officia
 | scheduled_maintenances   | `/v1/scheduled_maintenances`    | id          | created_at                      |
 | task_lists               | `/v1/task_lists`                | id          | created_at                      |
 | checklist_templates      | `/v1/checklist_templates`       | id          | created_at                      |
+| schedules                | `/v1/schedules`                 | id          | — (no created_at)               |
+
+## Fan-out endpoints implemented
+
+Walked once per parent row, through the shared dependent-resource helper. The parent id is injected
+into each child row and forms part of the primary key, because FireHydrant only documents the child
+ids as unique within their parent.
+
+| Schema name              | Path                                        | Parent    | Primary key         | Partition key |
+| ------------------------ | ------------------------------------------- | --------- | ------------------- | ------------- |
+| incident_milestones      | `/v1/incidents/{incident_id}/milestones`    | incidents | incident_id, id     | created_at    |
+| incident_tasks           | `/v1/incidents/{incident_id}/tasks`         | incidents | incident_id, id     | created_at    |
+| team_escalation_policies | `/v1/teams/{team_id}/escalation_policies`   | teams     | team_id, id         | —             |
+
+`/v1/incidents/{incident_id}/milestones` is the one paginated endpoint whose spec entry lists no
+`page` / `per_page` params, though it returns the same paginated envelope as its siblings. The spec
+also leaves the escalation policies response body empty, as it does for 100+ other FireHydrant
+endpoints; transport reads the standard `data` envelope either way and degrades to zero rows if the
+endpoint answers differently.
 
 ## Future enhancements
 
