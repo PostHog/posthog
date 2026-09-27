@@ -85,6 +85,7 @@ from products.replay_vision.backend.search import (
 )
 from products.replay_vision.backend.search_suggestions import (
     MAX_SUGGESTED_QUERIES,
+    cross_scanner_suggestions,
     merge_suggestions,
     scope_sources,
     stamp_search_viewed,
@@ -1597,8 +1598,11 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect."""
         params = SearchSuggestionsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
-        queries = merge_suggestions([stored for _, stored in scope_sources(self.team_id, scanner_ids)])
+        scanner_id = params.validated_data.get("scanner_id")
+        scanner_ids = self._searchable_scanner_ids(scanner_id)
+        queries = (cross_scanner_suggestions(self.team_id, scanner_ids) if scanner_id is None else None) or (
+            merge_suggestions([stored for _, stored in scope_sources(self.team_id, scanner_ids)])
+        )
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
     @extend_schema(request=SearchSuggestionsQuerySerializer, responses={204: None})

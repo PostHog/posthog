@@ -271,10 +271,13 @@ def replay_vision_distinct_id(team_id: int) -> str:
 SEARCH_SUGGESTIONS_WORKFLOW_NAME = "replay-vision-refresh-search-suggestions"
 SEARCH_SUGGESTIONS_WORKFLOW_ID = "replay-vision-search-suggestions-refresher"
 SEARCH_SUGGESTIONS_SCHEDULE_ID = "replay-vision-search-suggestions-refresher-schedule"
-SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(hours=1)
-SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=50)
-SEARCH_SUGGESTIONS_MAX_PER_RUN = 200
-SEARCH_SUGGESTIONS_MAX_PER_DAY = 2000
-SEARCH_SUGGESTIONS_CONCURRENCY = 4
+# Short, so a new scanner or team has phrases minutes after its first observations land.
+SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(minutes=10)
+SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
+SEARCH_SUGGESTIONS_MAX_PER_RUN = 300
+# Backstop against a bug that makes every scope look stale. Sized for every active scanner and team refreshing
+# each REFRESH_INTERVAL, at a fraction of a cent per call.
+SEARCH_SUGGESTIONS_MAX_PER_DAY = 40_000
+SEARCH_SUGGESTIONS_CONCURRENCY = 8
 LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=60)
-REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=90)
+REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=180)

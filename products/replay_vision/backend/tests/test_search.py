@@ -23,6 +23,7 @@ from products.replay_vision.backend.search import (
     ObservationSearchFilters,
     fetch_ranked_observations,
     parse_date_bound,
+    phrase_match_counts,
     query_vector_for,
     rank_observations,
     warm_query_vectors,
@@ -139,6 +140,7 @@ class TestRankObservationsQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(matches[0].matched_content, "user wanted to check out")
         self.assertAlmostEqual(matches[0].distance, 0.0, places=5)
         self.assertEqual(len(matches[1].matched_content), 1500)
+        self.assertEqual(phrase_match_counts(self.team, [scanner_id], [vector(1.0, 0.0), vector(-1.0, 0.0)]), [2, 1])
 
     @parameterized.expand(
         [
