@@ -845,3 +845,97 @@ export const EmptyEventsWithStaleToggle: Story = {
         },
     },
 }
+
+// The decision model answers "person properties" for a search of "email" in every search intent story.
+const searchIntentPersonPropertiesMock = mswDecorator({
+    post: {
+        '/api/projects/:team_id/taxonomic_search_intent/classify/': () => [
+            200,
+            {
+                group_type: 'person_properties',
+                confidence: 0.9,
+                is_confident: true,
+                suggests_switch: true,
+                method: 'model',
+            },
+        ],
+    },
+})
+
+const SEARCH_INTENT_GROUP_TYPES = [
+    TaxonomicFilterGroupType.SuggestedFilters,
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.SessionProperties,
+]
+
+function SearchIntentStoryRender({
+    args,
+    tab,
+}: {
+    args: TaxonomicFilterProps
+    tab: TaxonomicFilterGroupType
+}): JSX.Element {
+    const logicKey = args.taxonomicFilterLogicKey as string
+    const { setActiveTab, setSearchQuery } = useActions(
+        taxonomicFilterLogic({ ...args, taxonomicFilterLogicKey: logicKey })
+    )
+    useOnMountEffect(() => {
+        setActiveTab(tab)
+        setSearchQuery('email')
+    })
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+
+/** Banner arm: a search that belongs in another tab gets a suggestion to switch to it. */
+export const SearchIntentSuggestsAnotherTab: Story = {
+    render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.EventProperties} />,
+    args: { taxonomicFilterLogicKey: 'search-intent-banner', taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES },
+    decorators: [searchIntentPersonPropertiesMock],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'banner' },
+        testOptions: { waitForSelector: '[data-attr="taxonomic-search-intent-switch"]' },
+    },
+}
+
+/** Banner arm in a narrow scene: the switch button stacks under the question. */
+export const SearchIntentSuggestsAnotherTabNarrow: Story = {
+    render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.EventProperties} />,
+    args: {
+        taxonomicFilterLogicKey: 'search-intent-banner-narrow',
+        taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES,
+        width: 360,
+    },
+    decorators: [searchIntentPersonPropertiesMock],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'banner' },
+        // LemonBanner renders the action twice and hides the wide copy at this width, so wait for the narrow copy.
+        testOptions: { waitForSelector: '[data-attr="taxonomic-search-intent-switch"].LemonButton--full-width' },
+    },
+}
+
+/** Control arm: the same answer arrives, and the "All" list keeps its usual group order. */
+export const SearchIntentControlKeepsOrder: Story = {
+    render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.SuggestedFilters} />,
+    args: { taxonomicFilterLogicKey: 'search-intent-control', taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES },
+    decorators: [searchIntentPersonPropertiesMock],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'control' },
+        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+    },
+}
+
+/** Promote arm: the predicted group moves to the top of the "All" list before the results show. */
+export const SearchIntentPromotesGroup: Story = {
+    render: (args) => <SearchIntentStoryRender args={args} tab={TaxonomicFilterGroupType.SuggestedFilters} />,
+    args: { taxonomicFilterLogicKey: 'search-intent-promote', taxonomicGroupTypes: SEARCH_INTENT_GROUP_TYPES },
+    decorators: [searchIntentPersonPropertiesMock],
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_SEARCH_INTENT]: 'promote' },
+        testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+    },
+}

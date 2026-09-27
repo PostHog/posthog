@@ -47,6 +47,15 @@ _HOST_UNREACHABLE_MARKERS = (
     "enetunreach",
 )
 
+# A managed provider (observed on Neon) refuses PostHog's IP address, either because it isn't on the
+# project's IP allow list or because the project blocks public access. Deterministic until the
+# customer changes that network policy. Mirrors the non-retryable treatment on the batch path
+# (PostgresSource.get_non_retryable_errors).
+_IP_NOT_ALLOWED_MARKERS = (
+    "is not allowed to connect to this endpoint",
+    "access this endpoint from a blocked network",
+)
+
 # A managed provider (observed on Neon) blocks the connection once the account or project has
 # exceeded a usage quota, reporting a plain libpq ERROR rather than a connection failure. Mirrors
 # the non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors's
@@ -125,12 +134,24 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         return CDCErrorCategory.PERMISSION_DENIED
 
     if isinstance(exc, psycopg.OperationalError):
+        if any(marker in message for marker in _IP_NOT_ALLOWED_MARKERS):
+            return CDCErrorCategory.HOST_UNREACHABLE
         if any(marker in message for marker in _SSL_REQUIRED_MARKERS):
             return CDCErrorCategory.SSL_REQUIRED
         if any(marker in message for marker in _HOST_UNREACHABLE_MARKERS):
             return CDCErrorCategory.HOST_UNREACHABLE
         if _QUOTA_EXCEEDED_MARKER in message:
             return CDCErrorCategory.QUOTA_EXCEEDED
+        # psycopg raises ConnectionTimeout only from connect() itself, and the reader already
+        # retries it in-process first (stream_reader._open_streaming_connection wraps every
+        # connect in _connect_with_dropped_retry, which widens its predicate to connect-time
+        # timeouts). Reaching here means every one of those reconnects also timed out — a
+        # persistently unreachable host, not a one-off blip — so treat it like the other
+        # unreachable-host markers above instead of retrying the same wall forever. Mirrors the
+        # non-retryable treatment on the batch path (PostgresSource.get_non_retryable_errors's
+        # "connection timeout expired" entry).
+        if isinstance(exc, psycopg.errors.ConnectionTimeout):
+            return CDCErrorCategory.HOST_UNREACHABLE
         return CDCErrorCategory.CONNECTION_FAILED
 
     return None
