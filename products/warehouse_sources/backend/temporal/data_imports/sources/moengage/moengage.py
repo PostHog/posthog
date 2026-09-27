@@ -288,6 +288,7 @@ def _iter_report_days(
     build_resource: Callable[[date], Any],
     days: list[date],
     save_checkpoint: Callable[[date], None],
+    clear_checkpoint: Callable[[], None],
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield every day's pages in ascending day order, checkpointing once a day is fully yielded.
 
@@ -298,6 +299,9 @@ def _iter_report_days(
         yield from build_resource(day)
         if index + 1 < len(days):
             save_checkpoint(days[index + 1])
+
+    # The walk finished: leaving the last checkpoint would make a later attempt resume mid-stream.
+    clear_checkpoint()
 
 
 def _client_config(data_center: str, workspace_id: str, api_key: str) -> ClientConfig:
@@ -366,6 +370,10 @@ def moengage_source(
         def save_search_checkpoint(state: Optional[dict[str, Any]]) -> None:
             if state and state.get("page"):
                 resumable_source_manager.save_state(MoEngageResumeConfig(search_state=state))
+            else:
+                # The walk finished: leaving the last checkpoint would make a later attempt resume
+                # mid-stream.
+                resumable_source_manager.clear_state()
 
         resource = rest_api_resource(
             campaigns_config,
@@ -442,7 +450,9 @@ def moengage_source(
         def save_day_checkpoint(next_day: date) -> None:
             resumable_source_manager.save_state(MoEngageResumeConfig(report_day_state={"start": next_day.isoformat()}))
 
-        items = partial(_iter_report_days, build_day_resource, days, save_day_checkpoint)
+        items = partial(
+            _iter_report_days, build_day_resource, days, save_day_checkpoint, resumable_source_manager.clear_state
+        )
 
     return SourceResponse(
         name=endpoint,
