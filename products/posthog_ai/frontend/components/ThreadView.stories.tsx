@@ -194,13 +194,12 @@ export const MessageFooters: Story = {
     args: { streamKey: 'synthetic-message-footers' },
     parameters: {
         mockDate: '2024-03-11T14:05:00Z',
-        pseudo: { hover: ['[data-message-type="human"]'] },
     },
     render: ({ streamKey }) => {
         useEffect(() => {
             const logic = runStreamLogic({ streamKey })
             const unmount = logic.mount()
-            // The logic keeps its state across the strict-mode effect rerun, and human messages do not dedupe.
+            // Human messages do not dedupe, and strict mode reruns this effect.
             if (logic.values.threadItems.length === 0) {
                 for (const entry of MESSAGE_FOOTER_ENTRIES) {
                     logic.actions.ingestAcpFrame(entry, 'replay')

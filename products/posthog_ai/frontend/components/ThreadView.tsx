@@ -54,18 +54,6 @@ function estimateThreadItemHeight(item: ThreadDisplayItem): number {
     return THREAD_ITEM_HEIGHT_ESTIMATES[item.type] ?? 56
 }
 
-/** Reports hover on an answer row to its turn, so the turn trailer can reveal while any part of the answer is hovered. */
-function wrapInTurnHover(store: TurnHoverStore, turnId: string | undefined, content: JSX.Element): JSX.Element {
-    if (!turnId) {
-        return content
-    }
-    return (
-        <div onMouseEnter={() => store.enter(turnId)} onMouseLeave={() => store.leave(turnId)}>
-            {content}
-        </div>
-    )
-}
-
 interface ThreadViewProps {
     scrollRestorationKey?: string
     /**
@@ -145,13 +133,12 @@ export function ThreadView({
         [threadItems]
     )
     // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
-    const turnTrailers = useMemo(
-        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
-        [threadItems, renderTurnTrailer]
-    )
-    const turnMembership = useMemo(
-        () => (renderTurnTrailer ? mapRowsToTurnSeparator(displayItems) : null),
-        [displayItems, renderTurnTrailer]
+    const turns = useMemo(
+        () =>
+            renderTurnTrailer
+                ? { trailers: computeTurnTrailers(threadItems), rowTurnIds: mapRowsToTurnSeparator(displayItems) }
+                : null,
+        [threadItems, displayItems, renderTurnTrailer]
     )
     const [turnHoverStore] = useState(() => new TurnHoverStore())
 
@@ -216,9 +203,7 @@ export function ThreadView({
                 const isLast = index === displayItems.length - 1
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
-                        {wrapInTurnHover(
-                            turnHoverStore,
-                            turnMembership?.get(item.id),
+                        <TurnReveal store={turnHoverStore} turnId={turns?.rowTurnIds.get(item.id)}>
                             <ThreadActivityGroup
                                 group={item}
                                 toolInvocations={toolInvocations}
@@ -236,12 +221,12 @@ export function ThreadView({
                                     />
                                 )}
                             />
-                        )}
+                        </TurnReveal>
                     </VirtualizedThread.Row>
                 )
             }
             if (item.type === 'turn_separator' && renderTurnTrailer) {
-                const trailer = turnTrailers?.get(item.id)
+                const trailer = turns?.trailers.get(item.id)
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
                         {trailer ? (
@@ -254,9 +239,7 @@ export function ThreadView({
             }
             return (
                 <VirtualizedThread.Row className={rowClassName}>
-                    {wrapInTurnHover(
-                        turnHoverStore,
-                        turnMembership?.get(item.id),
+                    <TurnReveal store={turnHoverStore} turnId={turns?.rowTurnIds.get(item.id)}>
                         <ThreadRow
                             item={item}
                             isLast={index === displayItems.length - 1}
@@ -266,7 +249,7 @@ export function ThreadView({
                             turnCancelled={turnCancelled}
                             runEnded={runEnded}
                         />
-                    )}
+                    </TurnReveal>
                 </VirtualizedThread.Row>
             )
         },
@@ -278,8 +261,7 @@ export function ThreadView({
             turnCancelled,
             rowClassName,
             renderTurnTrailer,
-            turnTrailers,
-            turnMembership,
+            turns,
             turnHoverStore,
             pendingPermissionRequest,
             currentRunStatus,

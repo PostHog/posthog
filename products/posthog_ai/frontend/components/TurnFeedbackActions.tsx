@@ -6,7 +6,6 @@ import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumb
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { stripMarkdown } from 'lib/utils/markdown'
 
@@ -104,12 +103,10 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
                 )}
                 {timestamp !== undefined && (
                     <TZLabel
-                        time={dayjs(timestamp)}
+                        time={new Date(timestamp).toISOString()}
                         className={clsx(
-                            'text-xs text-muted ml-1 transition-opacity',
-                            turnHovered
-                                ? 'opacity-100'
-                                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                            'text-xs text-muted ml-1 transition-opacity group-focus-within:opacity-100',
+                            !turnHovered && 'opacity-0'
                         )}
                     />
                 )}

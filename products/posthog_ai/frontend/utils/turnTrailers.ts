@@ -58,10 +58,7 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
     return trailers
 }
 
-/**
- * Maps each answer-side row id to the id of the `turn_separator` that closes its turn. Human messages keep
- * their own footer, and rows of an unfinished turn have no separator yet, so neither gets an entry.
- */
+/** Human messages keep their own footer, and rows of an unfinished turn have no separator yet, so neither gets an entry. */
 export function mapRowsToTurnSeparator(items: ReadonlyArray<{ id: string; type: string }>): Map<string, string> {
     const membership = new Map<string, string>()
     let pending: string[] = []

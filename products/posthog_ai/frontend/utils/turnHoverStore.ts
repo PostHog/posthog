@@ -1,11 +1,7 @@
 /** The pointer crosses the gap between two rows of the same turn. The delay stops the reveal from flickering there. */
 const LEAVE_DELAY_MS = 100
 
-/**
- * Tracks which completed turn the pointer is over. A turn renders as several virtualized rows, so a CSS
- * `group-hover` cannot span it. Subscribers compare against their own turn id, so only the trailer whose
- * state changes re-renders.
- */
+/** A turn renders as several virtualized rows, so CSS `group-hover` cannot span it and `useState` would re-render every row. */
 export class TurnHoverStore {
     private hoveredTurnId: string | null = null
     private clearTimer: ReturnType<typeof setTimeout> | null = null
@@ -25,14 +21,9 @@ export class TurnHoverStore {
         this.setHoveredTurnId(turnId)
     }
 
-    leave(turnId: string): void {
+    leave(): void {
         this.cancelClear()
-        this.clearTimer = setTimeout(() => {
-            this.clearTimer = null
-            if (this.hoveredTurnId === turnId) {
-                this.setHoveredTurnId(null)
-            }
-        }, LEAVE_DELAY_MS)
+        this.clearTimer = setTimeout(() => this.setHoveredTurnId(null), LEAVE_DELAY_MS)
     }
 
     private cancelClear(): void {
