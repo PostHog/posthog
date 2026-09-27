@@ -40,10 +40,6 @@
       "types": "./dist/feedback-context.d.ts",
       "import": "./dist/feedback-context.js"
     },
-    "./screen-capture": {
-      "types": "./dist/screen-capture.d.ts",
-      "import": "./dist/screen-capture.js"
-    },
     "./task-browser": {
       "types": "./dist/task-browser.d.ts",
       "import": "./dist/task-browser.js"

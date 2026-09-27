@@ -11,7 +11,6 @@ export default defineConfig({
     "src/clipboard.ts",
     "src/file-icon.ts",
     "src/feedback-context.ts",
-    "src/screen-capture.ts",
     "src/task-browser.ts",
     "src/secure-storage.ts",
     "src/main-window.ts",

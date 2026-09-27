@@ -71,10 +71,6 @@
     "./product-engineer-prompt": {
       "types": "./dist/product-engineer-prompt.d.ts",
       "import": "./dist/product-engineer-prompt.js"
-    },
-    "./screenshot-area": {
-      "types": "./dist/screenshot-area.d.ts",
-      "import": "./dist/screenshot-area.js"
     }
   },
   "scripts": {
