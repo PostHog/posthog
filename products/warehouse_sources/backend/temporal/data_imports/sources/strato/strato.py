@@ -25,6 +25,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.strato.set
     StratoEndpointConfig,
 )
 
+# Connect/read timeout for import requests. Unset means requests never time out, which would let
+# a stalled STRATO host block an import worker indefinitely (the ten-second timeout on
+# /ping_auth in validate_credentials below is separate and does not apply here).
+REQUEST_TIMEOUT_SECONDS = 30.0
+
 
 def _client_config(api_token: str) -> ClientConfig:
     return {
@@ -37,6 +42,13 @@ def _client_config(api_token: str) -> ClientConfig:
         # the nonstandard `X-TOKEN` header would ride along to whatever host a 3xx points at. Refuse
         # to follow redirects so the token never leaves scp-api.strato.de.
         "allow_redirects": False,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+        # Server rows carry `first_password` and user rows carry a nested `api.key`; both are
+        # credentials scrubbed by the data maps below, but only after the response is received.
+        # The name-based sample scrubber doesn't specifically guarantee those field names, so
+        # disable HTTP sample capture for this client rather than rely on it. Requests are still
+        # metered and logged.
+        "capture": False,
     }
 
 

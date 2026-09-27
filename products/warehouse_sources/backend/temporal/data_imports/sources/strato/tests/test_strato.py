@@ -117,7 +117,7 @@ class TestSecretScrubbing:
         data_map = get_resource("Servers")["data_map"]
         assert data_map is not None
 
-        row = data_map({"id": "srv1", "name": "web-1", "first_password": "hunter2"})
+        row = cast(dict[str, Any], data_map({"id": "srv1", "name": "web-1", "first_password": "hunter2"}))
 
         assert "first_password" not in row
         assert row["id"] == "srv1"
@@ -127,7 +127,10 @@ class TestSecretScrubbing:
         data_map = get_resource("Users")["data_map"]
         assert data_map is not None
 
-        row = data_map({"id": "u1", "api": {"active": True, "key": "secret-token", "allowed_ips": ["1.2.3.4"]}})
+        row = cast(
+            dict[str, Any],
+            data_map({"id": "u1", "api": {"active": True, "key": "secret-token", "allowed_ips": ["1.2.3.4"]}}),
+        )
 
         assert row["api"] == {"active": True, "allowed_ips": ["1.2.3.4"]}
 
