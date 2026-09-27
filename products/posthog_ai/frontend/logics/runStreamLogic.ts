@@ -1496,15 +1496,13 @@ export function foldLogToThread(
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
     const rememberedHumanTexts = new Map<string, number>()
-    // Optimistic sends still waiting for the server to echo them. A queued or steering send is echoed
-    // when the agent picks it up, which is a turn later than the bubble the composer drew, so the
-    // pairing outlives the turn it started in.
-    const unechoedSends = new Map<string, number>()
-    // Sends whose echo was paired away in this turn — the same send's second wire form drops with it.
-    let pairedSends = new Set<string>()
-    // Every placeholder a send drew. The ones still here at the end are the sends the agent has not
-    // picked up, and they belong at the foot of the thread rather than wherever the log put them.
-    const placeholderIds = new Set<string>()
+    // Placeholders the composer drew for sends the agent has not taken up, oldest first per text. A
+    // queued or steering send is echoed only when the agent takes it up, which is a turn later than
+    // the bubble, so the pairing outlives that turn. Text is the whole key because a client echo
+    // carries no id, and the queue keeps repeated sends of one text in order.
+    const waitingPlaceholders = new Map<string, string[]>()
+    // Sends this turn already paired, so the same send's second wire form takes no further placeholder.
+    const pairedSends = new Set<string>()
     let humanCount = 0
     let bubbleSeq = 0
     let separatorSeq = 0
@@ -1523,24 +1521,32 @@ export function foldLogToThread(
     let bufferedAttachments: ThreadAttachment[] = []
 
     /**
-     * `headTurn` puts the message at the top of the turn it belongs to, where a wire turn always
-     * starts. A send the agent has not picked up yet heads nothing — it waits at the foot of the
-     * thread, below the answer still streaming, until its echo moves it into the turn it opens.
+     * A wire turn opens with its message, so `atTurnStart` is the default. A send the agent has not
+     * taken up opens nothing and waits at the foot of the thread instead. `reuseId` keeps the row
+     * React already rendered when an echo takes a placeholder's place.
      */
-    const pushHuman = (text: string, attachments: ThreadAttachment[] = [], headTurn = true): string => {
+    const pushHuman = (
+        text: string,
+        attachments: ThreadAttachment[] = [],
+        placement: { atTurnStart?: boolean; reuseId?: string } = {}
+    ): string => {
         if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
             pendingMessageSeen = true
         }
         const carried = [...attachments, ...bufferedAttachments]
         const item: ThreadItem = {
-            id: `human-${humanCount++}`,
+            id: placement.reuseId ?? `human-${humanCount++}`,
             type: 'human_message',
             text,
             complete: true,
             ...(carried.length > 0 && { attachments: carried }),
             ...(timestamp !== undefined && { startedAt: timestamp }),
         }
-        items = headTurn ? insertHumanMessageAtTurnStart(items, item) : [...items, item]
+        if (placement.atTurnStart === false) {
+            items.push(item)
+        } else {
+            items = insertHumanMessageAtTurnStart(items, item)
+        }
         bufferedAttachments = []
         return item.id
     }
@@ -1669,32 +1675,14 @@ export function foldLogToThread(
         }
     }
 
-    /** The placeholder this send drew is now the agent's message, so it stops waiting. */
-    const settlePlaceholder = (text: string): void => {
-        for (let index = items.length - 1; index >= 0; index--) {
-            const item = items[index]
-            if (item.type === 'human_message' && item.text === text && placeholderIds.has(item.id)) {
-                placeholderIds.delete(item.id)
-                return
-            }
+    /** The oldest send of this text the agent has not taken up, which is the one it takes up next. */
+    const takeWaitingPlaceholder = (text: string): string | undefined => {
+        const waiting = waitingPlaceholders.get(text)
+        const id = waiting?.shift()
+        if (waiting && waiting.length === 0) {
+            waitingPlaceholders.delete(text)
         }
-    }
-
-    /**
-     * Drop the placeholder a send drew before the agent picked it up, handing its attachment
-     * previews to the echo that takes its place.
-     */
-    const takeWaitingPlaceholder = (text: string): ThreadAttachment[] => {
-        const currentTurnStart = items.findLastIndex((item) => item.type === 'turn_separator') + 1
-        for (let index = currentTurnStart - 1; index >= 0; index--) {
-            const item = items[index]
-            if (item.type === 'human_message' && item.text === text) {
-                placeholderIds.delete(item.id)
-                items = [...items.slice(0, index), ...items.slice(index + 1)]
-                return item.attachments ?? []
-            }
-        }
-        return []
+        return id
     }
 
     const renderLiveHuman = (rawText: string): void => {
@@ -1705,28 +1693,33 @@ export function foldLogToThread(
         // The blocks ride only the server echo (the optimistic `_client/human_message` carries the raw
         // text), so push them even when the human text below dedupes against the optimistic render.
         pushContextBlocks(contextBlocks)
-        // The server echoes every user send live, and the composer usually drew that send already as a
-        // placeholder. The echo is what says the agent picked the message up, so it replaces the
-        // placeholder: the row leaves the foot of the thread and renders at the head of the turn it
-        // opens. While the placeholder is in this turn it is already in the right place, so the echo
-        // drops instead. A send echoed in two wire forms is placed by the first; the second drops
-        // against `pairedSends`.
-        const unechoed = unechoedSends.get(text) ?? 0
-        if (currentTurnHasHumanText(items, text) || pairedSends.has(text)) {
-            if (unechoed > 0) {
-                unechoedSends.set(text, unechoed - 1)
-                pairedSends.add(text)
-                settlePlaceholder(text)
+        // A send echoed in two wire forms is one send: the first form places it, the second takes no
+        // further placeholder.
+        if (pairedSends.has(text)) {
+            return
+        }
+        // The echo says the agent took the send up, so it is what places the message: the placeholder
+        // leaves the foot of the thread and the message renders at the head of the turn it opens,
+        // keeping the attachment previews the placeholder carried. A placeholder already inside this
+        // turn is where it belongs, so it stays put.
+        const waitingId = takeWaitingPlaceholder(text)
+        if (waitingId !== undefined) {
+            pairedSends.add(text)
+            const index = items.findIndex((item) => item.id === waitingId)
+            const currentTurnStart = items.findLastIndex((item) => item.type === 'turn_separator') + 1
+            if (index === -1 || index >= currentTurnStart) {
+                return
             }
+            const [placeholder] = items.splice(index, 1)
+            pushHuman(text, placeholder.attachments ?? [], { reuseId: placeholder.id })
             return
         }
-        if (unechoed === 0) {
-            pushHuman(text)
+        // No send of ours is waiting — a drained queue from another tab, or a replayed turn the
+        // current turn already shows.
+        if (currentTurnHasHumanText(items, text)) {
             return
         }
-        unechoedSends.set(text, unechoed - 1)
-        pairedSends.add(text)
-        pushHuman(text, takeWaitingPlaceholder(text))
+        pushHuman(text)
     }
 
     const handleToolCallUpdate = (
@@ -1800,8 +1793,9 @@ export function foldLogToThread(
 
         if (method === '_client/human_message') {
             const optimisticText = String(params.content ?? '')
-            placeholderIds.add(pushHuman(optimisticText, optimisticAttachments(params.attachments), false))
-            unechoedSends.set(optimisticText, (unechoedSends.get(optimisticText) ?? 0) + 1)
+            const waiting = waitingPlaceholders.get(optimisticText) ?? []
+            waiting.push(pushHuman(optimisticText, optimisticAttachments(params.attachments), { atTurnStart: false }))
+            waitingPlaceholders.set(optimisticText, waiting)
             continue
         }
         if (method === '_client/error') {
@@ -1829,7 +1823,7 @@ export function foldLogToThread(
                 ...(traceId && { traceId }),
                 ...(timestamp !== undefined && { startedAt: timestamp }),
             })
-            pairedSends = new Set()
+            pairedSends.clear()
             continue
         }
         if (method === '_posthog/progress') {
@@ -2047,13 +2041,19 @@ export function foldLogToThread(
         }
     }
 
-    // A send still waiting to be picked up sits below everything that has landed, in send order,
-    // however much arrived after the composer drew it.
-    if (placeholderIds.size > 0) {
-        const waiting = items.filter((item) => placeholderIds.has(item.id))
-        if (waiting.length > 0 && items[items.length - 1] !== waiting[waiting.length - 1]) {
-            items = [...items.filter((item) => !placeholderIds.has(item.id)), ...waiting]
+    // A send the agent has not taken up sits below everything that has landed, in send order, however
+    // much arrived after the composer drew it.
+    if (waitingPlaceholders.size > 0) {
+        const stillWaiting = new Set<string>()
+        for (const ids of waitingPlaceholders.values()) {
+            ids.forEach((id) => stillWaiting.add(id))
         }
+        const landed: ThreadItem[] = []
+        const waiting: ThreadItem[] = []
+        for (const item of items) {
+            ;(stillWaiting.has(item.id) ? waiting : landed).push(item)
+        }
+        items = [...landed, ...waiting]
     }
 
     if (options.pendingMessage && !pendingMessageSeen) {

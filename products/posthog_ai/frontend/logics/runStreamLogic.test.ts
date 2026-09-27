@@ -1161,6 +1161,22 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
         })
 
+        it('sinks a waiting send that later frames landed on top of', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('first')
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'chatter' } })
+                )
+                logic.actions.pushHumanMessage('second')
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['chatter', 'first', 'second'])
+        })
+
         it('keeps sends the agent has not taken up yet at the foot of the thread, in send order', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -1708,6 +1724,31 @@ describe('runStreamLogic', () => {
                 'second ahead',
                 'answer to second',
             ])
+        })
+
+        it('takes up the older of two waiting sends that read the same, and leaves the other waiting', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.pushHumanMessage('same words')
+                logic.actions.pushHumanMessage('same words')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                // One send, echoed in both wire forms — the second form must not take the other send.
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'same words' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'user_message_chunk',
+                        content: { type: 'text', text: 'same words' },
+                    })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['same words', 'answer', 'same words'])
         })
 
         it.each(['posthog', 'chunk', 'both'])(
