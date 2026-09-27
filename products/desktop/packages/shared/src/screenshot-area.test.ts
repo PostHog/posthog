@@ -35,9 +35,21 @@ describe("screenshotArea", () => {
     );
   });
 
-  it("gives no area for a hidden webview", () => {
+  it.each([
+    { name: "a hidden webview", element: rect(0, 0, 10, 10), width: 0 },
+    {
+      name: "an element right of the page",
+      element: rect(1300, 400, 40, 20),
+      width: 1200,
+    },
+    {
+      name: "an element above the page",
+      element: rect(500, -80, 40, 20),
+      width: 1200,
+    },
+  ])("gives no area for $name", ({ element, width }) => {
     expect(
-      screenshotArea(rect(0, 0, 10, 10), { width: 0, height: 0 }),
+      screenshotArea(element, { width, height: width === 0 ? 0 : 800 }),
     ).toBeNull();
   });
 });
