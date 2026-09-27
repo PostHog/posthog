@@ -4,12 +4,20 @@ import { screenshotArea } from "@posthog/shared/screenshot-area";
 const ACCENT = "#f54e00";
 const PIN_SIZE = 22;
 
+export type CaptureBounds = {
+  top: number;
+  left: number;
+  right: number;
+  bottom: number;
+};
+
 export type SelectionAnchor = {
   top: number;
   endX: number;
   bottom: number;
   startX?: number;
   startTop?: number;
+  bounds?: CaptureBounds;
 };
 
 function loadImage(src: string): Promise<HTMLImageElement> {
@@ -68,16 +76,29 @@ export async function captureSelectionScreenshot(
   capture: IScreenCapture,
   anchor: SelectionAnchor,
 ): Promise<string | null> {
-  const area = screenshotArea(
+  const bounds = {
+    left: Math.max(0, anchor.bounds?.left ?? 0),
+    top: Math.max(0, anchor.bounds?.top ?? 0),
+    right: Math.min(
+      window.innerWidth,
+      anchor.bounds?.right ?? window.innerWidth,
+    ),
+    bottom: Math.min(
+      window.innerHeight,
+      anchor.bounds?.bottom ?? window.innerHeight,
+    ),
+  };
+  const local = screenshotArea(
     {
-      top: Math.min(anchor.startTop ?? anchor.top, anchor.top),
-      bottom: anchor.bottom,
-      left: Math.min(anchor.startX ?? anchor.endX, anchor.endX),
-      right: Math.max(anchor.startX ?? anchor.endX, anchor.endX),
+      top: Math.min(anchor.startTop ?? anchor.top, anchor.top) - bounds.top,
+      bottom: anchor.bottom - bounds.top,
+      left: Math.min(anchor.startX ?? anchor.endX, anchor.endX) - bounds.left,
+      right: Math.max(anchor.startX ?? anchor.endX, anchor.endX) - bounds.left,
     },
-    { width: window.innerWidth, height: window.innerHeight },
+    { width: bounds.right - bounds.left, height: bounds.bottom - bounds.top },
   );
-  if (!area) return null;
+  if (!local) return null;
+  const area = { ...local, x: local.x + bounds.left, y: local.y + bounds.top };
   try {
     const dataUrl = await capture.captureRegion(area);
     if (!dataUrl) return null;

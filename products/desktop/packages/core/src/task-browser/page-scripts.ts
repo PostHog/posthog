@@ -25,6 +25,14 @@ const clean = (text, max) => {
   const value = (text || "").replace(/\\s+/g, " ").trim();
   return value.length > max ? value.slice(0, max - 1) + "…" : value;
 };
+const formOf = (element) => element.form ?? element.closest?.("form") ?? null;
+const formFields = (form) => [...form.elements].filter((field) => field.matches("input,select,textarea"));
+const isPayment = (field) => /cc-|card|cvc|cvv|iban|expiry|exp-/i.test((field.getAttribute("autocomplete") || "") + " " + (field.name || "") + " " + (field.id || ""));
+const isFilled = (field) => {
+  if (field.type === "checkbox" || field.type === "radio") return field.checked;
+  if (["hidden", "submit", "button", "reset", "image"].includes(field.type)) return false;
+  return typeof field.value === "string" && field.value.length > 0;
+};
 `;
 
 function script(body: string, args: unknown): string {
@@ -36,13 +44,23 @@ export function snapshotScript(maxChars: number): string {
     `
 const INTERACTIVE = "a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch],[role=combobox],[role=textbox],[contenteditable=true],[tabindex]:not([tabindex='-1'])";
 const TEXT = "h1,h2,h3,h4,h5,h6,p,li,td,th,label,dt,dd,figcaption,blockquote";
+for (const [ref, weak] of state.byRef) {
+  if (!weak.deref()) state.byRef.delete(ref);
+}
 const lines = [];
 let size = 0;
+let truncated = false;
 const push = (line) => {
-  if (size > args.maxChars) return false;
-  lines.push(line);
-  size += line.length + 1;
-  return true;
+  const room = args.maxChars - size;
+  if (room <= 0) {
+    truncated = true;
+    return false;
+  }
+  const text = line.length > room ? line.slice(0, room) : line;
+  lines.push(text);
+  size += text.length + 1;
+  if (text.length < line.length) truncated = true;
+  return !truncated;
 };
 push("url: " + location.href);
 push("title: " + clean(document.title, 200));
@@ -75,7 +93,7 @@ for (const element of document.querySelectorAll(INTERACTIVE + "," + TEXT)) {
     if (!push(tag + ": " + text)) break;
   }
 }
-if (size > args.maxChars) lines.push("… snapshot truncated");
+if (truncated) lines.push("… snapshot truncated");
 return lines.join("\\n");
 `,
     { maxChars },
@@ -146,13 +164,12 @@ export function sensitivityScript(ref: string): string {
     `
 const element = elementFor(args.ref);
 if (!element) return null;
-const form = element.closest("form");
-const fields = form ? [...form.querySelectorAll("input,select,textarea")] : [element];
-const isPayment = (field) => /cc-|card|cvc|cvv|iban|expiry|exp-/i.test((field.getAttribute("autocomplete") || "") + " " + (field.name || "") + " " + (field.id || ""));
+const form = formOf(element);
+const fields = form ? formFields(form) : [element];
 const password = fields.some((field) => field.type === "password");
 const payment = fields.some(isPayment);
 const submits = element.matches("button[type=submit],input[type=submit],button:not([type])") && !!form;
-const filled = fields.some((field) => field.type !== "hidden" && field.type !== "submit" && typeof field.value === "string" && field.value.length > 0);
+const filled = fields.some(isFilled);
 const label = clean(element.innerText || element.value || element.getAttribute("aria-label") || "", 80);
 return {
   typesPassword: element instanceof HTMLInputElement && element.type === "password",
@@ -171,14 +188,13 @@ export function focusedFormScript(): string {
   return script(
     `
 const element = document.activeElement;
-const form = element && element.closest ? element.closest("form") : null;
+const form = element ? formOf(element) : null;
 if (!form) return null;
-const fields = [...form.querySelectorAll("input,select,textarea")];
-const isPayment = (field) => /cc-|card|cvc|cvv|iban|expiry|exp-/i.test((field.getAttribute("autocomplete") || "") + " " + (field.name || "") + " " + (field.id || ""));
+const fields = formFields(form);
 return {
   password: fields.some((field) => field.type === "password"),
   payment: fields.some(isPayment),
-  filled: fields.some((field) => field.type !== "hidden" && field.type !== "submit" && typeof field.value === "string" && field.value.length > 0),
+  filled: fields.some(isFilled),
 };
 `,
     {},

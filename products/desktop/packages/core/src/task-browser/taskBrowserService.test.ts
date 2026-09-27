@@ -12,7 +12,13 @@ import { siteDecisionResult, TaskBrowserService } from "./taskBrowserService";
 
 type ScriptCall = (method: string, args: unknown[]) => Promise<unknown>;
 
-function setup(options: { fullCdpAccess?: boolean; form?: unknown } = {}) {
+function setup(
+  options: {
+    fullCdpAccess?: boolean;
+    form?: unknown;
+    startFails?: boolean;
+  } = {},
+) {
   const urls = new Map<number, string>();
   const tabs = {
     isWebview: () => true,
@@ -56,6 +62,7 @@ function setup(options: { fullCdpAccess?: boolean; form?: unknown } = {}) {
   let scriptCall: ScriptCall = async () => undefined;
   const runner: IBrowserScriptRunner = {
     start: (_code, call) => {
+      if (options.startFails) throw new Error("runner window failed");
       scriptCall = call;
       return {
         done: new Promise((resolve) => {
@@ -232,6 +239,16 @@ describe("TaskBrowserService", () => {
     );
     await run.finish();
 
+    expect(service.mayNavigate(1, "https://elsewhere.example/")).toBe(true);
+  });
+
+  it("unblocks page navigation when the code runner fails to start", async () => {
+    const { service, openTab } = setup({ startFails: true });
+    openTab("task-1", "tab-a", 1, "https://example.com/");
+
+    await expect(service.runCode("task-1", "code")).rejects.toThrow(
+      "runner window failed",
+    );
     expect(service.mayNavigate(1, "https://elsewhere.example/")).toBe(true);
   });
 

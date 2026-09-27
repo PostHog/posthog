@@ -21,7 +21,7 @@ export class PausableTimeout {
     this.timer = null;
     this.remaining = Math.max(
       0,
-      this.remaining - (Date.now() - this.startedAt),
+      this.remaining - (performance.now() - this.startedAt),
     );
   }
 
@@ -38,7 +38,7 @@ export class PausableTimeout {
   }
 
   private resume(): void {
-    this.startedAt = Date.now();
+    this.startedAt = performance.now();
     this.timer = setTimeout(() => {
       this.stopped = true;
       this.onTimeout();

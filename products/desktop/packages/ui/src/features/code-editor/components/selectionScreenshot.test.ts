@@ -19,4 +19,41 @@ describe("captureSelectionScreenshot", () => {
     expect(area.y).toBeLessThanOrEqual(200);
     expect(area.y + area.height).toBeGreaterThanOrEqual(318);
   });
+
+  it("keeps the capture inside the frame the selection came from", async () => {
+    const captureRegion = vi.fn(
+      async (_region: CaptureRegion): Promise<string | null> => null,
+    );
+    const bounds = { top: 100, left: 300, right: 800, bottom: 600 };
+
+    await captureSelectionScreenshot(
+      { captureRegion },
+      { top: 310, bottom: 330, endX: 520, bounds },
+    );
+
+    const area = captureRegion.mock.calls[0][0];
+    expect(area.x).toBeGreaterThanOrEqual(bounds.left);
+    expect(area.y).toBeGreaterThanOrEqual(bounds.top);
+    expect(area.x + area.width).toBeLessThanOrEqual(bounds.right);
+    expect(area.y + area.height).toBeLessThanOrEqual(bounds.bottom);
+  });
+
+  it("captures nothing for a selection outside its frame", async () => {
+    const captureRegion = vi.fn(
+      async (_region: CaptureRegion): Promise<string | null> => null,
+    );
+
+    await expect(
+      captureSelectionScreenshot(
+        { captureRegion },
+        {
+          top: 20,
+          bottom: 40,
+          endX: 60,
+          bounds: { top: 100, left: 300, right: 800, bottom: 600 },
+        },
+      ),
+    ).resolves.toBeNull();
+    expect(captureRegion).not.toHaveBeenCalled();
+  });
 });

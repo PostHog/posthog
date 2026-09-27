@@ -1,6 +1,7 @@
 import type { McpRelayExecutor } from "@posthog/core/cloud-task/identifiers";
 import {
   BROWSER_SCRIPT_RUNNER,
+  type BrowserScriptRun,
   type IBrowserScriptRunner,
   type ITaskBrowserSettings,
   type ITaskBrowserTabs,
@@ -256,24 +257,27 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     const context: CallContext = { taskId, images: [] };
     let calls = 0;
     this.activeRuns.set(taskId, (this.activeRuns.get(taskId) ?? 0) + 1);
-    const run = this.runner.start(code, async (method, args) => {
-      calls += 1;
-      if (calls > MAX_CALLS_PER_RUN) {
-        throw new BrowserToolError(
-          `More than ${MAX_CALLS_PER_RUN} browser calls in one run.`,
-        );
-      }
-      return this.call(context, method, args);
-    });
-    const timedOut = new Promise<{ ok: boolean; output: string }>((resolve) => {
-      context.timeout = new PausableTimeout(RUN_TIMEOUT_MS, () =>
-        resolve({
-          ok: false,
-          output: `Error: the code ran longer than ${RUN_TIMEOUT_MS / 1000} s.`,
-        }),
-      );
-    });
+    let run: BrowserScriptRun | undefined;
     try {
+      run = this.runner.start(code, async (method, args) => {
+        calls += 1;
+        if (calls > MAX_CALLS_PER_RUN) {
+          throw new BrowserToolError(
+            `More than ${MAX_CALLS_PER_RUN} browser calls in one run.`,
+          );
+        }
+        return this.call(context, method, args);
+      });
+      const timedOut = new Promise<{ ok: boolean; output: string }>(
+        (resolve) => {
+          context.timeout = new PausableTimeout(RUN_TIMEOUT_MS, () =>
+            resolve({
+              ok: false,
+              output: `Error: the code ran longer than ${RUN_TIMEOUT_MS / 1000} s.`,
+            }),
+          );
+        },
+      );
       const result = await Promise.race([run.done, timedOut]);
       const output =
         result.output.length > MAX_OUTPUT_CHARS
@@ -282,7 +286,7 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
       return { ok: result.ok, output, images: context.images };
     } finally {
       context.timeout?.stop();
-      run.stop();
+      run?.stop();
       this.cancelPrompts(context);
       const active = (this.activeRuns.get(taskId) ?? 1) - 1;
       if (active > 0) this.activeRuns.set(taskId, active);
