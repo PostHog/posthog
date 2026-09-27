@@ -11,6 +11,7 @@ from requests import Request, Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.moengage import (
+    START_DATE_TOO_OLD_ERROR,
     MoEngageResumeConfig,
     MoEngageSearchPaginator,
     MoEngageStatsPaginator,
@@ -18,11 +19,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.m
     _report_days,
     moengage_base_url,
     moengage_source,
+    start_date_error,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.settings import (
     ATTRIBUTION_TYPE,
     DEFAULT_BACKFILL_DAYS,
+    MAX_BACKFILL_DAYS,
     METRIC_TYPE,
     MOENGAGE_DATA_CENTERS,
     REPORT_WINDOW_DAYS,
@@ -326,6 +329,24 @@ class TestReportDays:
         assert days[0] == expected_first
         assert days[-1] == self.TODAY
         assert len(days) == expected_len
+
+
+class TestStartDateError:
+    TODAY = date(2025, 6, 15)
+
+    def test_within_the_cap_is_accepted(self) -> None:
+        assert start_date_error("2025-06-01", today=self.TODAY) is None
+
+    def test_past_the_cap_is_rejected(self) -> None:
+        too_old = (self.TODAY - timedelta(days=MAX_BACKFILL_DAYS + 1)).isoformat()
+
+        assert start_date_error(too_old, today=self.TODAY) == START_DATE_TOO_OLD_ERROR
+
+    def test_the_cap_floor_is_measured_from_today(self) -> None:
+        floor = self.TODAY - timedelta(days=MAX_BACKFILL_DAYS)
+
+        assert start_date_error(floor.isoformat(), today=self.TODAY) is None
+        assert start_date_error((floor - timedelta(days=1)).isoformat(), today=self.TODAY) == START_DATE_TOO_OLD_ERROR
 
 
 class TestMoEngageSourceCampaigns:

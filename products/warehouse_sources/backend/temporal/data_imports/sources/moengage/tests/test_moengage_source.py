@@ -44,6 +44,16 @@ class TestMoEngageValidateCredentials:
         assert message is not None and "YYYY-MM-DD" in message
         mock_validate.assert_not_called()
 
+    def test_rejects_a_start_date_past_the_backfill_cap_without_calling_the_api(self) -> None:
+        # A start date far enough in the past (e.g. 0001-01-01) would otherwise fan out one
+        # request set per day for hundreds of thousands of days.
+        with mock.patch(_VALIDATE) as mock_validate:
+            is_valid, message = MoEngageSource().validate_credentials(_config(start_date="0001-01-01"), team_id=1)
+
+        assert is_valid is False
+        assert message is not None and "years ago" in message
+        mock_validate.assert_not_called()
+
     @pytest.mark.parametrize("start_date", [None, "", "2025-01-01"])
     def test_valid_config_reaches_the_credential_probe(self, start_date: str | None) -> None:
         with mock.patch(_VALIDATE, return_value=(True, None)) as mock_validate:

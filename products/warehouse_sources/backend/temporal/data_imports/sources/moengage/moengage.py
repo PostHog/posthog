@@ -24,12 +24,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.settings import (
     ATTRIBUTION_TYPE,
     DEFAULT_BACKFILL_DAYS,
+    MAX_BACKFILL_DAYS,
     METRIC_TYPE,
     MOENGAGE_DATA_CENTERS,
     MOENGAGE_ENDPOINTS,
     REPORT_WINDOW_DAYS,
     SEARCH_PAGE_SIZE,
     STATS_PAGE_SIZE,
+)
+
+START_DATE_TOO_OLD_ERROR = (
+    f"Start date can't be more than {MAX_BACKFILL_DAYS // 365} years ago. Pick a more recent date."
 )
 
 
@@ -216,6 +221,19 @@ def _stats_body(start_date: date, end_date: date) -> dict[str, Any]:
 def parse_iso_date(value: str) -> date:
     # Accept a bare date or a full timestamp; only the calendar day matters for the fan-out.
     return date.fromisoformat(value.strip()[:10])
+
+
+def start_date_error(start_date: str, today: Optional[date] = None) -> Optional[str]:
+    """Why a configured start date is unusable, or None if it's fine.
+
+    Rejects a date reaching back further than `MAX_BACKFILL_DAYS`: the daily report fans out one
+    request set per calendar day, so an unbounded lookback (e.g. `0001-01-01`) would turn one sync
+    into hundreds of thousands of requests. Syntax is validated separately by the caller.
+    """
+    floor = (today or datetime.now(UTC).date()) - timedelta(days=MAX_BACKFILL_DAYS)
+    if parse_iso_date(start_date) < floor:
+        return START_DATE_TOO_OLD_ERROR
+    return None
 
 
 def _as_date(value: Any) -> date:

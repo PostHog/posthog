@@ -23,6 +23,11 @@ REPORT_WINDOW_DAYS = 30
 # unbounded backfill is not the default.
 DEFAULT_BACKFILL_DAYS = 90
 
+# Ceiling on a configured start date. The daily report fans out one request set per calendar day,
+# so an unbounded lookback (e.g. a start date of 0001-01-01) would turn one sync into hundreds of
+# thousands of requests against the 100-requests-per-minute workspace limit.
+MAX_BACKFILL_DAYS = 5 * 365
+
 # Conversion metrics for a day keep restating as attributions land, so each incremental run
 # re-pulls a trailing window; merge dedupes the overlap on the synthesized `id`.
 DAILY_REPORT_LOOKBACK_SECONDS = 60 * 60 * 24 * 3

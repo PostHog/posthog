@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.m
     MoEngageResumeConfig,
     moengage_source,
     parse_iso_date,
+    start_date_error,
     validate_credentials as validate_moengage_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.settings import (
@@ -114,6 +115,9 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
                 parse_iso_date(config.start_date)
             except ValueError:
                 return False, "Enter the report start date as YYYY-MM-DD, or leave it empty."
+            error = start_date_error(config.start_date)
+            if error is not None:
+                return False, error
         return validate_moengage_credentials(config.data_center, config.workspace_id, config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MoEngageResumeConfig]:
