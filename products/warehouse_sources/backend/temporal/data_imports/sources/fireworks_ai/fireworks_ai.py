@@ -1,6 +1,5 @@
 import re
 import hashlib
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -50,7 +49,7 @@ _USAGE_DIMENSIONS: dict[str, tuple[str, ...]] = {
 }
 
 
-@dataclasses.dataclass
+@frozen
 class FireworksAIResumeConfig:
     # Opaque nextPageToken from the last committed page. The API requires all other params to
     # match the original call, so the transport re-sends the same pageSize alongside it.

@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -46,7 +48,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@frozen
 class FireworksAIEndpointConfig:
     name: str
     # Collection segment under /v1/accounts/{account_id}/, e.g. "supervisedFineTuningJobs".
