@@ -13,6 +13,7 @@ from posthog.models import Team
 from products.product_analytics.backend.presentation.metadata_suggestions import (
     JEV_MODEL,
     MAX_STATE_CHARS,
+    MAX_TAG_NAME_CHARS,
     MAX_TAGS,
     InsightContext,
     InsightTooLargeForSuggestions,
@@ -101,7 +102,7 @@ class TestMetadataSuggestions(SimpleTestCase):
         decide.assert_not_called()
 
     def test_long_tag_names_sharing_a_prefix_stay_distinguishable_when_clipped(self) -> None:
-        shared_prefix = "z" * 57
+        shared_prefix = "z" * (MAX_TAG_NAME_CHARS + 10)
         tags = [shared_prefix + "-v1", shared_prefix + "-v2"]
         decide = _answer_all(0.9)
         with _jev(decide):
