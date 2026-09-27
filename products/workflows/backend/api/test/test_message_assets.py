@@ -16,11 +16,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 def _assert_pagination_with_tied_sent_at(test_case, api_call_func):
-    """Test that pagination with tied sent_at times doesn't repeat or drop rows.
-
-    Batch sends give many rows the same sent_at, so stable ordering via tiebreak
-    is required to avoid repeating or dropping rows at page boundaries.
-    """
+    # Pagination with tied sent_at times must not repeat or drop rows via tiebreak (invocation_id, action_id).
     tied = datetime.now(tz=UTC)
     for invocation_id, action_id in [
         ("inv-1", "step-a"),
