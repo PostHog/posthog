@@ -127,3 +127,60 @@ describe("DashboardsService.file", () => {
     });
   });
 });
+
+describe("DashboardsService.listState", () => {
+  const entry = (key: string) => ({
+    scope: "shared",
+    key,
+    value: key,
+    updated_at: "2026-07-01T00:00:00Z",
+  });
+
+  it("follows next_cursor until the state is complete", async () => {
+    const { api, calls } = fakeApi({
+      "canvases/c1/state/?limit=100&cursor=page-2": {
+        entries: [entry("b")],
+        next_cursor: null,
+        next_offset: null,
+        complete: true,
+      },
+      "canvases/c1/state/?limit=100": {
+        entries: [entry("a")],
+        next_cursor: "page-2",
+        next_offset: null,
+        complete: false,
+      },
+    });
+
+    const entries = await new DashboardsService(api).listState({ id: "c1" });
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "canvases/c1/state/?limit=100",
+      "canvases/c1/state/?limit=100&cursor=page-2",
+    ]);
+    expect(entries.map((row) => row.key)).toEqual(["a", "b"]);
+  });
+
+  it("falls back to next_offset when the server returns no cursor", async () => {
+    const { api, calls } = fakeApi({
+      "canvases/c1/state/?limit=100&offset=100": {
+        entries: [entry("b"), entry("c")],
+        next_offset: null,
+        complete: true,
+      },
+      "canvases/c1/state/?limit=100": {
+        entries: [entry("a"), entry("b")],
+        next_offset: 100,
+        complete: false,
+      },
+    });
+
+    const entries = await new DashboardsService(api).listState({ id: "c1" });
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "canvases/c1/state/?limit=100",
+      "canvases/c1/state/?limit=100&offset=100",
+    ]);
+    expect(entries.map((row) => row.key)).toEqual(["a", "b", "c"]);
+  });
+});
