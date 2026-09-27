@@ -68317,6 +68317,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     */
+    export type TaskClientProvenanceEnum = typeof TaskClientProvenanceEnum[keyof typeof TaskClientProvenanceEnum];
+
+
+    export const TaskClientProvenanceEnum = {
+      PosthogDesktop: 'posthog_desktop',
+    } as const;
+
+    /**
      * @nullable
      */
     export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
@@ -68376,6 +68386,10 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** The client that created the task, or null when a server-side flow or another client created it.
+       *
+       * * `posthog_desktop` - PostHog Desktop */
+      client_provenance?: TaskClientProvenanceEnum | null;
     }
 
     /**
@@ -68440,6 +68454,10 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** The client that created the task, or null when a server-side flow or another client created it.
+       *
+       * * `posthog_desktop` - PostHog Desktop */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
       readonly description_preview: string;
     }
@@ -97650,6 +97668,10 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** The client that created the task, or null when a server-side flow or another client created it.
+       *
+       * * `posthog_desktop` - PostHog Desktop */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** Error returned when the task was created but its first run could not start. */
       run_error?: string;
     }
@@ -98848,6 +98870,10 @@ export namespace Schemas {
          * @nullable
          */
       origin_key?: string | null;
+      /** The client that created the task, or null when a server-side flow or another client created it.
+       *
+       * * `posthog_desktop` - PostHog Desktop */
+      client_provenance?: TaskClientProvenanceEnum | null;
       /** Error returned when the run could not start. */
       run_error?: string;
     }

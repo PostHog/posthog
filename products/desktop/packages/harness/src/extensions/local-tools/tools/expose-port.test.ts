@@ -14,16 +14,29 @@ describe("expose_port tool", () => {
 
   it.each([
     {
-      name: "a cloud run",
+      name: "a cloud run of a desktop task",
       ctx: { cwd: "/repo", taskId: "task", taskRunId: "run" },
-      meta: { environment: "cloud" as const },
+      meta: {
+        environment: "cloud" as const,
+        taskClientProvenance: "posthog_desktop",
+      },
       sandbox: true,
       exposed: true,
     },
     {
+      name: "a cloud run of a task from another client",
+      ctx: { cwd: "/repo", taskId: "task", taskRunId: "run" },
+      meta: { environment: "cloud" as const, taskOriginProduct: "slack" },
+      sandbox: true,
+      exposed: false,
+    },
+    {
       name: "cloud metadata outside a sandbox",
       ctx: { cwd: "/repo", taskId: "task", taskRunId: "run" },
-      meta: { environment: "cloud" as const },
+      meta: {
+        environment: "cloud" as const,
+        taskClientProvenance: "posthog_desktop",
+      },
       sandbox: false,
       exposed: false,
     },

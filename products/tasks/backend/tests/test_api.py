@@ -17093,8 +17093,14 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
         self.assertEqual(response.json(), {"outcome": expected_outcome, "url": expected_url})
         self.assertEqual(response["Cache-Control"], "no-store")
 
-    def test_expose_port_lists_each_port_once_after_the_dev_stack(self):
+    def _desktop_task(self) -> Task:
         task = self.create_task()
+        task.client_provenance = TaskClientProvenance.POSTHOG_DESKTOP
+        task.save(update_fields=["client_provenance"])
+        return task
+
+    def test_expose_port_lists_each_port_once_after_the_dev_stack(self):
+        task = self._desktop_task()
         run = self._create_run(task, self._ready_state())
         url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/expose_port/"
 
@@ -17122,10 +17128,11 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
             ("privileged_port", {"sandbox_id": "sandbox-1"}, 80),
             ("no_sandbox", {}, 3000),
             ("limit_reached", None, 3000),
+            ("task_not_created_in_desktop", {"sandbox_id": "sandbox-1"}, 3000),
         ]
     )
-    def test_expose_port_is_rejected(self, _name, state, port):
-        task = self.create_task()
+    def test_expose_port_is_rejected(self, name, state, port):
+        task = self.create_task() if name == "task_not_created_in_desktop" else self._desktop_task()
         if state is None:
             state = {
                 "sandbox_id": "sandbox-1",

@@ -2,6 +2,7 @@ import { Socket } from "node:net";
 import { networkInterfaces } from "node:os";
 import { z } from "zod";
 import { isCloudRun } from "../cloud-run";
+import { isDesktopTask } from "../desktop-task";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 import {
   createSandboxPosthogClient,
@@ -94,7 +95,8 @@ export const exposePortTool = defineLocalTool({
   alwaysLoad: true,
   isEnabled: (ctx, meta) => {
     const cloud = isCloudRun(undefined);
-    if (!ctx.taskId || (meta?.environment === "cloud" && !cloud)) return false;
+    if (!ctx.taskId || !isDesktopTask(meta)) return false;
+    if (meta?.environment === "cloud" && !cloud) return false;
     return !cloud || !!ctx.taskRunId;
   },
   handler: async (ctx, args): Promise<LocalToolResult> => {

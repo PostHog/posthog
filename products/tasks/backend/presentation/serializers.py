@@ -634,6 +634,12 @@ class TaskSerializer(DataclassSerializer):
             "`desktop_onboarding_session:<user_id>`. Null for tasks people create themselves."
         ),
     )
+    client_provenance = serializers.ChoiceField(
+        choices=tasks_facade.TaskClientProvenance.choices,
+        allow_null=True,
+        required=False,
+        help_text="The client that created the task, or null when a server-side flow or another client created it.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -664,6 +670,7 @@ class TaskSerializer(DataclassSerializer):
             "channel",
             "slack_thread_references",
             "origin_key",
+            "client_provenance",
         ]
 
 

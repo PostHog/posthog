@@ -265,6 +265,7 @@ export type NewSessionMeta = {
   channelMode?: boolean;
   budgetSteer?: { mode?: "publish" | "wrap_up" };
   taskOriginProduct?: string;
+  taskClientProvenance?: string;
   /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
   endRunWhenDone?: boolean;
   /**

@@ -2796,7 +2796,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskRunDetailSerializer, description="Run with the updated exposed ports"),
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
-                description="The port is reserved, the run has no sandbox, or the run exposes the maximum ports",
+                description=(
+                    "The port is reserved, the task was not created in PostHog Desktop, the run has no "
+                    "sandbox, or the run exposes the maximum ports"
+                ),
             ),
             404: OpenApiResponse(description="Run not found"),
         },
@@ -2823,6 +2826,13 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
         if result is None:
             raise NotFound()
+        if result.outcome == "not_desktop_task":
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": "Ports can be exposed only for tasks created in PostHog Desktop."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if result.outcome == "no_sandbox":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "This run has no sandbox to expose a port from."}).data,

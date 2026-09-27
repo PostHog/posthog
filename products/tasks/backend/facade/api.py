@@ -866,6 +866,7 @@ def _task_detail_to_dto(
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=task.origin_key,
+        client_provenance=task.client_provenance,
     )
 
 
@@ -5281,7 +5282,7 @@ def task_run_exposed_ports(state: dict | None) -> list[contracts.TaskRunExposedP
     return ports
 
 
-TaskRunExposePortOutcome = Literal["exposed", "no_sandbox", "limit_reached"]
+TaskRunExposePortOutcome = Literal["exposed", "no_sandbox", "limit_reached", "not_desktop_task"]
 
 
 @frozen
@@ -5303,6 +5304,8 @@ def expose_task_run_port(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
+    if run.task.client_provenance != TaskClientProvenance.POSTHOG_DESKTOP:
+        return TaskRunExposePortResult(outcome="not_desktop_task")
 
     outcome: TaskRunExposePortOutcome = "exposed"
 

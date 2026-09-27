@@ -2353,6 +2353,9 @@ export class AgentServer {
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
       }),
+      ...(preTask?.client_provenance && {
+        taskClientProvenance: preTask.client_provenance,
+      }),
       ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&

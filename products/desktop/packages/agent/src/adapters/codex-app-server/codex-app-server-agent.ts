@@ -193,6 +193,7 @@ type AppServerSessionMeta = {
   spokenNarration?: boolean;
   baseBranch?: string;
   taskOriginProduct?: string;
+  taskClientProvenance?: string;
   endRunWhenDone?: boolean;
   posthogExecPermissionRegex?: string;
   nativeGoal?: NativeGoalState;
@@ -772,6 +773,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       baseBranch: meta.baseBranch,
       peerMessaging: process.env.POSTHOG_AGENT_PEER_MESSAGING === "1",
       taskOriginProduct: meta.taskOriginProduct,
+      taskClientProvenance: meta.taskClientProvenance,
       endRunWhenDone: meta.endRunWhenDone === true,
     };
   }

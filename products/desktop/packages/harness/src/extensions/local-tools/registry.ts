@@ -54,6 +54,8 @@ export interface LocalToolGateMeta {
    */
   peerMessaging?: boolean;
   taskOriginProduct?: string;
+  /** The client that created the task, e.g. `posthog_desktop`. */
+  taskClientProvenance?: string;
   /**
    * Workflow-action opt-in (run state `end_run_when_done`): exposes the `finish`
    * tool to a workflow-origin run, ending it the moment the agent is done.
