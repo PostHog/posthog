@@ -35,16 +35,12 @@ describe('mountSupportRouter', () => {
         expect(unmountRouter).toHaveBeenCalledTimes(1)
     })
 
-    it('unmounts a router that resolves after the caller disposed', async () => {
-        const unmountRouter = jest.fn()
-        mount.mockReturnValue(unmountRouter)
-
+    it('does not mount a router that resolves after the caller disposed', async () => {
         const { unmount, mounted } = mountSupportRouter()
         unmount()
         await mounted
 
-        expect(mount).toHaveBeenCalledTimes(1)
-        expect(unmountRouter).toHaveBeenCalledTimes(1)
+        expect(mount).not.toHaveBeenCalled()
     })
 
     it.each([

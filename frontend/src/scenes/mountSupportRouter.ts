@@ -9,8 +9,8 @@ import { retryImport } from 'lib/utils/retryImport'
  * current chunk, so a chunk-load failure degrades here rather than reloading the page under the
  * user. Any other error is a real bug and still propagates.
  *
- * The import can also outlive the caller. An unmount before it resolves leaves nothing to call the
- * router's own cleanup, so `disposed` makes the late arrival unmount itself.
+ * The import can also outlive the caller. If the caller unmounts before it resolves,
+ * do not mount the router, because mounting can process the current URL.
  *
  * `mounted` is returned so tests can observe both paths; App leaves it floating.
  */
@@ -19,12 +19,10 @@ export function mountSupportRouter(): { unmount: () => void; mounted: Promise<vo
     let unmountRouter: (() => void) | undefined
     const mounted = retryImport(() => import('lib/components/Support/supportRouterLogic'))
         .then(({ supportRouterLogic }) => {
-            const unmountLogic = supportRouterLogic.mount()
             if (disposed) {
-                unmountLogic()
-            } else {
-                unmountRouter = unmountLogic
+                return
             }
+            unmountRouter = supportRouterLogic.mount()
         })
         .catch((error) => {
             if (!isChunkLoadError(error)) {
