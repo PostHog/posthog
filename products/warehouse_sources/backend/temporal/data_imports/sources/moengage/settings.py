@@ -14,6 +14,9 @@ MOENGAGE_DATA_CENTERS = ("01", "02", "03", "04", "05", "06", "101")
 SEARCH_PAGE_SIZE = 15
 STATS_PAGE_SIZE = 10
 
+# Without this, the underlying rest_source client never times out a stalled connection.
+REQUEST_TIMEOUT_SECONDS = 60
+
 # The campaign-stats API rejects a start_date..end_date span wider than 30 days, so the aggregate
 # campaign_report snapshot asks for exactly that trailing window.
 REPORT_WINDOW_DAYS = 30

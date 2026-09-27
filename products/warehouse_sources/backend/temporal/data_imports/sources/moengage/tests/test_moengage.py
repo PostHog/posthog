@@ -232,6 +232,18 @@ class TestMoEngageStatsPaginator:
 
         assert paginator.has_next_page is False
 
+    def test_valid_json_with_the_wrong_shape_raises_instead_of_stopping_silently(self) -> None:
+        # A 200 that parses but isn't the documented stats object (e.g. a bare list) is a broken
+        # contract, not an empty page; treating it as terminal would let a snapshot replace good
+        # data with an incomplete result without ever raising.
+        paginator = MoEngageStatsPaginator()
+        resp = Response()
+        resp.status_code = 200
+        resp._content = b"[]"
+
+        with pytest.raises(ValueError, match="Expected a MoEngage stats object response"):
+            paginator.update_state(resp)
+
 
 class TestExplodeStats:
     DATA = {

@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.s
     MOENGAGE_DATA_CENTERS,
     MOENGAGE_ENDPOINTS,
     REPORT_WINDOW_DAYS,
+    REQUEST_TIMEOUT_SECONDS,
     SEARCH_PAGE_SIZE,
     STATS_PAGE_SIZE,
 )
@@ -129,6 +130,12 @@ class MoEngageStatsPaginator(BasePaginator):
             body = response.json()
         except Exception:
             body = None
+        # A response that fails to parse is treated as terminal, matching the paginator's other
+        # termination signals; a response that parses but isn't the documented object shape (e.g. a
+        # bare list or null) is a broken contract, not an empty page, so it must not be mistaken for
+        # sync completion.
+        if body is not None and not isinstance(body, dict):
+            raise ValueError(f"Expected a MoEngage stats object response, got {type(body).__name__}")
         if not isinstance(body, dict):
             self._has_next_page = False
             return
@@ -307,6 +314,8 @@ def _client_config(data_center: str, workspace_id: str, api_key: str) -> ClientC
             "MOE-APPKEY": workspace_id,
             "Accept": "application/json",
         },
+        # Without this, a stalled MoEngage connection would hold the sync open indefinitely.
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
     }
 
 
