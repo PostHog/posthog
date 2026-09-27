@@ -307,7 +307,6 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
  * ContainerModules without typing their internal bindings).
  */
 export interface RendererBindings {
-  [SCREEN_CAPTURE_SERVICE]: IScreenCapture;
   [CODEX_CLOUD_ACCOUNT_HOST]: CodexCloudAccountHost;
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
@@ -315,6 +314,7 @@ export interface RendererBindings {
   [TRPC_CLIENT]: TRPCClient<TrpcRouter>;
   [HOST_TRPC_CLIENT]: HostTrpcClient;
   [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
+  [SCREEN_CAPTURE_SERVICE]: IScreenCapture;
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;

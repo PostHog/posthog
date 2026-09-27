@@ -332,10 +332,10 @@ import type {
 } from "./tokens";
 
 export interface MainBindings {
-  [SCREEN_CAPTURE_SERVICE]: ElectronScreenCapture;
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // Platform adapters
   [URL_LAUNCHER_SERVICE]: ElectronUrlLauncher;
+  [SCREEN_CAPTURE_SERVICE]: ElectronScreenCapture;
   [STORAGE_PATHS_SERVICE]: ElectronStoragePaths;
   [APP_META_SERVICE]: ElectronAppMeta;
   [DIALOG_SERVICE]: ElectronDialog;
