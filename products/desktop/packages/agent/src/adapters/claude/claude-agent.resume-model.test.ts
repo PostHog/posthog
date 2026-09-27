@@ -550,7 +550,7 @@ describe("ClaudeAcpAgent session creation", () => {
       name: "a new session whose model switch fails",
       kind: "new",
       setModel: () => Promise.reject(new Error("set model boom")),
-      error: "set model boom",
+      error: "Session model switch failed: set model boom",
     },
   ] as const)(
     "rejects and closes the query for $name",
@@ -606,7 +606,9 @@ describe("ClaudeAcpAgent session creation", () => {
       _meta: { taskRunId: "run-set-model-retry" },
     };
 
-    await expect(agent.resumeSession(params)).rejects.toThrow("set model boom");
+    await expect(agent.resumeSession(params)).rejects.toThrow(
+      "Session model switch failed: set model boom",
+    );
 
     nextSetModel = () => Promise.resolve();
     await expect(agent.resumeSession(params)).resolves.toMatchObject({

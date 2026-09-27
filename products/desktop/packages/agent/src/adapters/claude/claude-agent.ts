@@ -2933,7 +2933,21 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     control: Promise<void>,
     errorData: Record<string, unknown>,
   ): Promise<void> {
-    const result = await withTimeout(control, SESSION_VALIDATION_TIMEOUT_MS);
+    let result:
+      | { result: "success"; value: void }
+      | { result: "timeout" };
+    try {
+      result = await withTimeout(control, SESSION_VALIDATION_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof Error) {
+        error.message = `Session ${step} failed: ${error.message}`;
+        throw error;
+      }
+      throw new RequestError(-32603, `Session ${step} failed`, {
+        ...errorData,
+        error,
+      });
+    }
     if (result.result === "timeout") {
       throw new RequestError(
         -32603,
