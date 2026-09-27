@@ -39,20 +39,22 @@ const meta = {
           description: null,
         },
       ]);
-      queryClient.setQueryData(teamSkillsKeys.list(), {
-        available: true,
-        skills: context.parameters.emptySkills
-          ? []
-          : ["pr-shepherd", "check-ci", "review-pr"].map((name) => ({
-              id: name,
-              name,
-              description: "Example team skill",
-              version: 1,
-              updatedAt: "2026-09-01T00:00:00Z",
-              createdByEmail: null,
-              installedLocally: false,
-            })),
-      });
+      if (!context.parameters.loadingSkills) {
+        queryClient.setQueryData(teamSkillsKeys.list(), {
+          available: true,
+          skills: context.parameters.emptySkills
+            ? []
+            : ["pr-shepherd", "check-ci", "review-pr"].map((name) => ({
+                id: name,
+                name,
+                description: "Example team skill",
+                version: 1,
+                updatedAt: "2026-09-01T00:00:00Z",
+                createdByEmail: null,
+                installedLocally: false,
+              })),
+        });
+      }
       return (
         <div className="w-full max-w-[900px]">
           <Story />
@@ -65,6 +67,9 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 export const Draft: Story = {};
+export const DraftLoadingSkills: Story = {
+  parameters: { loadingSkills: true },
+};
 export const DraftWithoutSkills: Story = { parameters: { emptySkills: true } };
 export const DraftWithFailingChecks: Story = { parameters: { failing: true } };
 export const Ready: Story = { parameters: { draft: false } };

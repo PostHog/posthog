@@ -128,6 +128,28 @@ describe("PrSkillMenu", () => {
     ).toHaveAttribute("href", "/settings/skills");
   });
 
+  it.each([true, false])(
+    "shows loading rather than an empty state when no list exists (isLoading: %s)",
+    async (isLoading) => {
+      useTeamSkills.mockReturnValue({
+        data: undefined,
+        isLoading,
+        isError: false,
+      });
+
+      render(<PrSkillMenu prUrl={prUrl} />);
+      await userEvent.click(
+        screen.getByRole("combobox", { name: "Run skill" }),
+      );
+
+      expect(await screen.findByText("Loading team skills…")).toBeVisible();
+      expect(screen.queryByText("No matching skills")).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: "Explore the skills store" }),
+      ).not.toBeInTheDocument();
+    },
+  );
+
   it("does not show removed store skills after the team list loads", async () => {
     usePrSkillUsageStore.getState().recordChoice(scope, "removed-skill");
     useTeamSkills.mockReturnValue({

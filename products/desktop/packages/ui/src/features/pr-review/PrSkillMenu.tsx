@@ -17,6 +17,7 @@ import {
 } from "@posthog/ui/features/auth/store";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useTeamSkills } from "@posthog/ui/features/skills/useTeamSkills";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
@@ -96,11 +97,14 @@ export function PrSkillMenu({ prUrl }: { prUrl: string }) {
       >
         <ComboboxInput placeholder="Search team skills…" />
         <ComboboxEmpty>
-          {isLoading ? (
-            "Loading team skills…"
-          ) : isError ? (
+          {isError ? (
             "Couldn't load team skills"
-          ) : listing?.skills.length === 0 ? (
+          ) : isLoading || !listing ? (
+            <span className="flex items-center gap-2">
+              <Spinner size="sm" aria-hidden="true" />
+              Loading team skills…
+            </span>
+          ) : listing.skills.length === 0 ? (
             <span>
               No team skills yet.{" "}
               <Link
@@ -117,7 +121,7 @@ export function PrSkillMenu({ prUrl }: { prUrl: string }) {
         </ComboboxEmpty>
         <ComboboxList className="max-h-64 overflow-y-auto">
           {(name: string) => (
-            <ComboboxItem key={name} value={name}>
+            <ComboboxItem key={name} value={name} className="!ps-3">
               {name}
             </ComboboxItem>
           )}
