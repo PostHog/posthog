@@ -148,7 +148,11 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                 for (const item of items) {
                     const shortcutPath = joinPath(splitPath(item.path).slice(-1))
                     const shortcut = shortcuts.find(
-                        (entry) => entry.type !== 'folder' && !entry.ref && entry.path === shortcutPath
+                        (entry) =>
+                            entry.type !== 'folder' &&
+                            !entry.ref &&
+                            entry.path === shortcutPath &&
+                            entry.href === item.href
                     )
                     if (shortcut) {
                         ids[item.path] = shortcut.id

@@ -115,7 +115,7 @@ describe('NavProductRow', () => {
             delete: { '/api/environments/:team_id/file_system_shortcut/file-star/': removeFile },
         })
         const { getByLabelText } = render(
-            <NavAppRow item={{ path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }} />
+            <NavProductRow item={{ path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }} />
         )
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
         act(() => projectTreeDataLogic.actions.loadShortcutsSuccess([fileShortcut]))
@@ -126,5 +126,33 @@ describe('NavProductRow', () => {
         await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toEqual([fileShortcut, appShortcut]))
         expect(removeFile).not.toHaveBeenCalled()
+    })
+
+    it('does not treat a different href-only shortcut with the same name as a starred app', async () => {
+        const hrefShortcut = {
+            id: 'href-star',
+            path: 'Feature flags',
+            type: 'feature_flag',
+            href: '/custom/feature-flags',
+        }
+        const appShortcut = { id: 'app-star', path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }
+        const create = jest.fn(() => [201, appShortcut])
+        const removeHrefShortcut = jest.fn(() => [204])
+        useMocks({
+            post: { '/api/environments/:team_id/file_system_shortcut/': create },
+            delete: { '/api/environments/:team_id/file_system_shortcut/href-star/': removeHrefShortcut },
+        })
+        const { getByLabelText } = render(
+            <NavProductRow item={{ path: 'Feature flags', type: 'feature_flag', href: '/feature_flags' }} />
+        )
+        await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
+        act(() => projectTreeDataLogic.actions.loadShortcutsSuccess([hrefShortcut]))
+
+        expect(getByLabelText('Add to starred')).toBeTruthy()
+        fireEvent.click(getByLabelText('Add to starred'))
+
+        await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+        await waitFor(() => expect(projectTreeDataLogic.values.shortcutData).toEqual([hrefShortcut, appShortcut]))
+        expect(removeHrefShortcut).not.toHaveBeenCalled()
     })
 })
