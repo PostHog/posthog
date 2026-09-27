@@ -246,12 +246,16 @@ def provision_home_canvas(team_id: int, user_id: int, channel_id: UUID) -> tuple
         CanvasHomePreference.objects.for_team(team_id).update_or_create(
             team_id=team_id, user=user, defaults={"canvas": canvas}
         )
-    # Starter content is best-effort: an empty home still provisions when
-    # object storage or the seed publish is unavailable.
-    try:
-        seed_home_canvas(canvas, user=user, channel_id=channel_id)
-    except Exception:
-        logger.exception("Failed to seed home canvas", canvas_id=str(canvas.id), team_id=team_id)
+        # Seed before the preference commits, so a concurrent open waits on the
+        # lock and never reads the home before its starter layout exists. The
+        # seed queues its builds on commit. Starter content is best-effort: the
+        # savepoint rolls back a failed seed, and an empty home still provisions
+        # when object storage or the seed publish is unavailable.
+        try:
+            with transaction.atomic():
+                seed_home_canvas(canvas, user=user, channel_id=channel_id)
+        except Exception:
+            logger.exception("Failed to seed home canvas", canvas_id=str(canvas.id), team_id=team_id)
     # Seeding publishes through its own canvas instance, so read the row again for the new head.
     return canvas_record(canvas_row(team_id, canvas.id)), True
 

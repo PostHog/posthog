@@ -55,7 +55,13 @@ def channel_has_canvases(*, team_id: int, channel_id: UUID) -> bool:
 def live_canvas_summary(*, team_id: int, canvas_id: str) -> CanvasSummary | None:
     """The live canvas with this id, without a visibility check."""
     try:
-        canvas = Canvas.objects.for_team(team_id).filter(id=canvas_id, deleted=False).select_related("channel").first()
+        canvas = (
+            Canvas.objects.for_team(team_id)
+            .filter(id=canvas_id, deleted=False)
+            .select_related("channel")
+            .only("id", "name", "channel_id", "channel__name")
+            .first()
+        )
     except (ValueError, ValidationError):
         return None
     return _summary(canvas) if canvas is not None else None
