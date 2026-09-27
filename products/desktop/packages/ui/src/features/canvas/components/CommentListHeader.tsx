@@ -10,10 +10,9 @@ import type { ThreadSourceOption } from "@posthog/ui/features/canvas/components/
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import {
   FilterMenuTrigger,
-  type FilterOption,
   FilterRadioSubMenu,
 } from "@posthog/ui/primitives/FilterMenu";
-import type { ReactElement, ReactNode } from "react";
+import type { ReactElement } from "react";
 
 export const ALL_SOURCES = "all";
 const SOURCE_SEARCH_THRESHOLD = 8;
@@ -31,10 +30,58 @@ export function CommentListHeader({
   openCount: number;
   resolvedCount: number;
   onStateFilterChange: (filter: CommentStateFilter) => void;
-  sourceFilter?: ReactNode;
+  sourceFilter?: {
+    value: string;
+    valueLabel: string;
+    options: readonly ThreadSourceOption[];
+    onChange: (value: string) => void;
+  };
 }): ReactElement {
   return (
-    <ChromeBar inset="even" actions={sourceFilter}>
+    <ChromeBar
+      inset="even"
+      actions={
+        sourceFilter && (
+          <DropdownMenu>
+            <FilterMenuTrigger
+              active={sourceFilter.value !== ALL_SOURCES}
+              label="Filter by source"
+              dataAttr="task-comments-source-filter"
+            />
+            <DropdownMenuContent
+              align="end"
+              side="bottom"
+              sideOffset={6}
+              className="w-64"
+              aria-label="Filter by source"
+            >
+              <FilterRadioSubMenu
+                label="Source"
+                options={[
+                  { value: ALL_SOURCES, label: "All sources" },
+                  ...sourceFilter.options.map((option) => ({
+                    value: option.key,
+                    label: option.label,
+                    icon: (
+                      <SourceIcon kind={option.kind} label={option.label} />
+                    ),
+                  })),
+                ]}
+                value={sourceFilter.value}
+                defaultValue={ALL_SOURCES}
+                valueLabel={sourceFilter.valueLabel}
+                onChange={sourceFilter.onChange}
+                searchPlaceholder={
+                  sourceFilter.options.length > SOURCE_SEARCH_THRESHOLD
+                    ? "Search sources…"
+                    : undefined
+                }
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )
+      }
+    >
       <Tabs
         className="self-stretch"
         value={stateFilter}
@@ -62,56 +109,5 @@ export function CommentListHeader({
         </TabsList>
       </Tabs>
     </ChromeBar>
-  );
-}
-
-export function CommentSourceFilter({
-  value,
-  valueLabel,
-  options,
-  onChange,
-}: {
-  value: string;
-  valueLabel: string;
-  options: readonly ThreadSourceOption[];
-  onChange: (value: string) => void;
-}): ReactElement {
-  const filterOptions: FilterOption<string>[] = [
-    { value: ALL_SOURCES, label: "All sources" },
-    ...options.map((option) => ({
-      value: option.key,
-      label: option.label,
-      icon: <SourceIcon kind={option.kind} label={option.label} />,
-    })),
-  ];
-  return (
-    <DropdownMenu>
-      <FilterMenuTrigger
-        active={value !== ALL_SOURCES}
-        label="Filter by source"
-        dataAttr="task-comments-source-filter"
-      />
-      <DropdownMenuContent
-        align="end"
-        side="bottom"
-        sideOffset={6}
-        className="w-64"
-        aria-label="Filter by source"
-      >
-        <FilterRadioSubMenu
-          label="Source"
-          options={filterOptions}
-          value={value}
-          defaultValue={ALL_SOURCES}
-          valueLabel={valueLabel}
-          onChange={onChange}
-          searchPlaceholder={
-            options.length > SOURCE_SEARCH_THRESHOLD
-              ? "Search sources…"
-              : undefined
-          }
-        />
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

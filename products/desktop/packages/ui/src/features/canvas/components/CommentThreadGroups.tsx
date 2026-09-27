@@ -83,10 +83,6 @@ export function CommentThreadGroups({
       return next;
     });
 
-  if (!grouped) {
-    return <div data-comment-thread-list>{threads.map(renderThread)}</div>;
-  }
-
   return (
     <div data-comment-thread-list>
       {groups.map((group) => {
@@ -94,29 +90,31 @@ export function CommentThreadGroups({
         const open = !collapsed.has(sourceKey);
         return (
           <section key={sourceKey} aria-label={sourceLabel}>
-            <Button
-              variant="default"
-              size="sm"
-              aria-expanded={open}
-              title={sourceLabel}
-              data-thread-focus="group"
-              className="sticky top-0 z-10 h-8 w-full justify-start gap-1.5 rounded-none border-border/70 border-b bg-background px-3 text-muted-foreground hover:bg-background hover:text-foreground"
-              onClick={() => toggle(sourceKey)}
-              onKeyDown={moveThreadFocus}
-            >
-              <CaretDownIcon
-                className={cn(
-                  "shrink-0 text-muted-foreground transition-transform",
-                  !open && "-rotate-90",
-                )}
-              />
-              <SourceIcon kind={sourceKind} label={sourceLabel} />
-              <span className="min-w-0 truncate">{sourceLabel}</span>
-              <span className="ml-auto shrink-0 pl-2 font-normal text-muted-foreground tabular-nums">
-                {group.length}
-              </span>
-            </Button>
-            {open && group.map(renderThread)}
+            {grouped && (
+              <Button
+                variant="default"
+                size="sm"
+                aria-expanded={open}
+                title={sourceLabel}
+                data-thread-focus="group"
+                className="sticky top-0 z-10 h-8 w-full justify-start gap-1.5 rounded-none border-border/70 border-b bg-background px-3 text-muted-foreground hover:bg-background hover:text-foreground"
+                onClick={() => toggle(sourceKey)}
+                onKeyDown={moveThreadFocus}
+              >
+                <CaretDownIcon
+                  className={cn(
+                    "shrink-0 text-muted-foreground transition-transform",
+                    !open && "-rotate-90",
+                  )}
+                />
+                <SourceIcon kind={sourceKind} label={sourceLabel} />
+                <span className="min-w-0 truncate">{sourceLabel}</span>
+                <span className="ml-auto shrink-0 pl-2 font-normal text-muted-foreground tabular-nums">
+                  {group.length}
+                </span>
+              </Button>
+            )}
+            {(open || !grouped) && group.map(renderThread)}
           </section>
         );
       })}

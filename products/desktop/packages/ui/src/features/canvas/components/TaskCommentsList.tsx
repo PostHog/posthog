@@ -17,7 +17,6 @@ import type {
 import {
   ALL_SOURCES,
   CommentListHeader,
-  CommentSourceFilter,
   type CommentStateFilter,
 } from "@posthog/ui/features/canvas/components/CommentListHeader";
 import { CommentThreadGroups } from "@posthog/ui/features/canvas/components/CommentThreadGroups";
@@ -49,10 +48,7 @@ import { usePrCommentsForUrls } from "@posthog/ui/features/pr-review/usePrCommen
 import { usePrReviewThreadsForUrls } from "@posthog/ui/features/pr-review/usePrReviewThreadsForUrls";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
-import {
-  CommentQuote,
-  CommentThreadCard,
-} from "@posthog/ui/features/sessions/components/CommentThreadCard";
+import { CommentThreadCard } from "@posthog/ui/features/sessions/components/CommentThreadCard";
 import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { readCommentContext } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import {
@@ -105,7 +101,20 @@ function CommentReference({
     : null;
   const anchor = context?.anchor;
   const quote = anchor?.kind === "text" ? anchor.quote : null;
-  return <CommentQuote quote={quote} version={version} />;
+  if (!version && !quote) return null;
+  return (
+    <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+      {version && <span className="shrink-0">{version} ·</span>}
+      {quote && (
+        <span
+          className="min-w-0 truncate border-[rgb(250_204_21)] border-l-2 pl-2"
+          title={quote}
+        >
+          {quote}
+        </span>
+      )}
+    </span>
+  );
 }
 
 /**
@@ -554,17 +563,17 @@ export function TaskCommentsList({
         resolvedCount={resolvedCount}
         onStateFilterChange={setStateFilter}
         sourceFilter={
-          !onlySource && (
-            <CommentSourceFilter
-              value={effectiveSourceFilter}
-              valueLabel={sourceLabel}
-              options={sourceOptions}
-              onChange={(value) => {
-                sourceFilterTouched.current = value !== ALL_SOURCES;
-                setSourceFilter(value);
-              }}
-            />
-          )
+          onlySource
+            ? undefined
+            : {
+                value: effectiveSourceFilter,
+                valueLabel: sourceLabel,
+                options: sourceOptions,
+                onChange: (value) => {
+                  sourceFilterTouched.current = value !== ALL_SOURCES;
+                  setSourceFilter(value);
+                },
+              }
         }
       />
       <div ref={threadListRef} className="min-h-0 flex-1 overflow-y-auto">

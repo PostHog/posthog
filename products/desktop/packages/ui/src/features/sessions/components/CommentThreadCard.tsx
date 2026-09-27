@@ -44,25 +44,6 @@ import { adjacentThread, moveThreadFocus } from "./threadListFocus";
 const MAX_REPLIES_SHOWN = 2;
 const TEXT_INSET = "pl-7";
 
-function CommentAvatar({ entry }: { entry: CommentEntry }): ReactElement {
-  // A PostHog author keeps the avatar and hue they have everywhere else;
-  // a GitHub author only ever comes with a url.
-  if (entry.user) {
-    return <UserAvatar user={entry.user} size="xs" />;
-  }
-  const color = avatarColor(entry.authorName);
-  return (
-    <Avatar size="xs">
-      {entry.avatarUrl && (
-        <AvatarImage src={cachedImageUrl(entry.avatarUrl)} alt="" />
-      )}
-      <AvatarFallback style={{ backgroundColor: color.bg, color: color.text }}>
-        {entry.authorName.slice(0, 2).toUpperCase()}
-      </AvatarFallback>
-    </Avatar>
-  );
-}
-
 function CommentBody({
   entry,
   actions,
@@ -70,10 +51,26 @@ function CommentBody({
   entry: CommentEntry;
   actions?: ReactNode;
 }): ReactElement {
+  const color = avatarColor(entry.authorName);
   return (
     <div>
       <div className="flex min-h-6 items-center gap-2">
-        <CommentAvatar entry={entry} />
+        {/* A PostHog author keeps the avatar and hue they have everywhere else;
+            a GitHub author only ever comes with a url. */}
+        {entry.user ? (
+          <UserAvatar user={entry.user} size="xs" />
+        ) : (
+          <Avatar size="xs">
+            {entry.avatarUrl && (
+              <AvatarImage src={cachedImageUrl(entry.avatarUrl)} alt="" />
+            )}
+            <AvatarFallback
+              style={{ backgroundColor: color.bg, color: color.text }}
+            >
+              {entry.authorName.slice(0, 2).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+        )}
         <span className="truncate font-medium text-[13px]">
           {entry.authorName}
         </span>
@@ -134,28 +131,6 @@ function ThreadAction({
         <Kbd>{shortcut}</Kbd>
       </TooltipContent>
     </Tooltip>
-  );
-}
-
-export function CommentQuote({
-  quote,
-  version,
-}: {
-  quote?: string | null;
-  version?: string | null;
-}): ReactElement | null {
-  if (!quote && !version) return null;
-  return (
-    <span
-      className={cn(
-        "flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs",
-        quote && "border-[rgb(250_204_21)] border-l-2 pl-2",
-      )}
-      title={quote ?? undefined}
-    >
-      {version && <span className="shrink-0">{version} ·</span>}
-      {quote && <span className="min-w-0 truncate">{quote}</span>}
-    </span>
   );
 }
 
@@ -223,7 +198,6 @@ export function CommentThreadCard({
       ? 0
       : replies.length - 1;
   const shownReplies = replies.slice(hiddenReplies);
-  const startReply = () => setReplying(true);
   const stopReply = () => {
     setReplying(false);
     setReply("");
@@ -252,7 +226,7 @@ export function CommentThreadCard({
     moveThreadFocus(event);
     if (event.key === "r" && canReply) {
       event.preventDefault();
-      startReply();
+      setReplying(true);
     } else if (event.key === "e" && canResolve && !busy) {
       event.preventDefault();
       focusAfterRemoval.current = adjacentThread(event.currentTarget);
@@ -268,7 +242,11 @@ export function CommentThreadCard({
       )}
     >
       {canReply && (
-        <ThreadAction label="Reply" shortcut="R" onClick={startReply}>
+        <ThreadAction
+          label="Reply"
+          shortcut="R"
+          onClick={() => setReplying(true)}
+        >
           <ArrowBendUpLeftIcon />
         </ThreadAction>
       )}
