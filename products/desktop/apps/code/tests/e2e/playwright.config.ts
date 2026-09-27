@@ -1,5 +1,4 @@
 import { defineConfig } from "@playwright/test";
-import { isTranslated } from "./arch";
 
 const isCI = !!process.env.CI;
 
@@ -9,7 +8,7 @@ export default defineConfig({
   // The update specs need a signed feed; they run only via their dedicated
   // configs (playwright.update*.config.ts), never in the general suite.
   testIgnore: "**/update*.spec.ts",
-  timeout: isTranslated ? 240000 : 60000,
+  timeout: 60000,
   // No retries: Trunk Flaky Tests needs raw pass/fail results to detect flakes.
   retries: 0,
   // Must run serially - Electron app has single instance lock

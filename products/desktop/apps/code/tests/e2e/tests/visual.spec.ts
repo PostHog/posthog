@@ -1,15 +1,14 @@
 import { Jimp } from "jimp";
-import { firstRenderTimeout } from "../arch";
 import { expect, test } from "../fixtures/electron";
 
 test.describe("Visual Stability", () => {
   test("consecutive screenshots are visually identical (no flickering)", async ({
     window,
   }) => {
-    await window.waitForSelector("#root > *", { timeout: firstRenderTimeout });
+    await window.waitForSelector("#root > *", { timeout: 30000 });
     await window
       .locator('[data-testid="app-loading-shell"]')
-      .waitFor({ state: "hidden", timeout: firstRenderTimeout })
+      .waitFor({ state: "hidden", timeout: 30000 })
       .catch(() => {});
 
     // Wait for the app to fully settle (animations, data loading, spinners)

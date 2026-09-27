@@ -1,4 +1,3 @@
-import { firstRenderTimeout } from "../arch";
 import { expect, test } from "../fixtures/electron";
 
 test.describe("Smoke Tests", () => {
@@ -14,11 +13,11 @@ test.describe("Smoke Tests", () => {
   });
 
   test("app renders initial UI (auth or main layout)", async ({ window }) => {
-    await window.waitForSelector("#root > *", { timeout: firstRenderTimeout });
+    await window.waitForSelector("#root > *", { timeout: 30000 });
 
     await window
       .locator('[data-testid="app-loading-shell"]')
-      .waitFor({ state: "hidden", timeout: firstRenderTimeout })
+      .waitFor({ state: "hidden", timeout: 30000 })
       .catch(() => {});
 
     const hasOnboarding = await window
