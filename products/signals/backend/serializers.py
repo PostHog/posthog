@@ -7,8 +7,9 @@ from typing import TYPE_CHECKING, cast
 from django.db.models import TextChoices
 from django.utils import timezone
 
+import structlog
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 from rest_framework.request import Request
 
@@ -20,7 +21,13 @@ from posthog.models.integration import Integration, is_supported_external_issue_
 
 from products.signals.backend import contracts
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
-from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEERING_KEY, STEERING_MAX_LENGTH
+from products.signals.backend.contracts import (
+    DEFAULT_NOT_ACTIONABLE_KEY,
+    SCOPE_CONFIG_KEYS,
+    STEERING_KEY,
+    STEERING_MAX_LENGTH,
+    scope_ids_problem,
+)
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
@@ -42,7 +49,7 @@ if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
 
-from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
+from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, RankingScore
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     GITHUB_LABEL_NAME_MAX_LENGTH,
@@ -78,6 +85,8 @@ from .report_metrics import (
     REPORT_METRIC_VALUE_FORMATS,
 )
 from .tracker_issues import TRACKER_TARGET_REQUIRED_FIELDS, issue_reference, validated_github_repository
+
+logger = structlog.get_logger(__name__)
 
 DEFAULT_SESSION_ANALYSIS_SAMPLE_RATE = 0.1
 
@@ -148,7 +157,11 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "Other sources store these keys without reading them yet; future pipeline stages will consume "
     "the same steering text. "
     "Some sources read additional keys, for example `recording_filters` and `sample_rate` for "
-    "session analysis."
+    "session analysis. "
+    "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
+    "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
+    "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
+    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
 )
 
 
@@ -259,6 +272,14 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     )
             if DEFAULT_NOT_ACTIONABLE_KEY in config and not isinstance(config[DEFAULT_NOT_ACTIONABLE_KEY], bool):
                 raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
+            scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type)) if source_product and source_type else None
+            if scope_key is not None and scope_key in config:
+                problem = scope_ids_problem(config[scope_key])
+                if problem is not None:
+                    raise serializers.ValidationError({"config": f"{scope_key} {problem}"})
+                # Stored stripped: emission matches these ids exactly, so a pasted id with a
+                # stray space would select a scope and then read nothing.
+                config[scope_key] = [scope_id.strip() for scope_id in config[scope_key]]
         if source_product == SignalSourceConfig.SourceProduct.SESSION_REPLAY and config:
             recording_filters = config.get("recording_filters")
             if recording_filters is not None and not isinstance(recording_filters, dict):
@@ -298,6 +319,32 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
 MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
 
 
+_AUTOSTART_BASE_BRANCHES_HELP = (
+    "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
+    "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
+    "(or send {}) to keep targeting the repo default branch."
+)
+
+# The validator below bounds the key count, the key shape and the key length. A DictField publishes
+# only the value constraint, so the key rules are declared here to keep the schema and the validator
+# saying the same thing.
+_AUTOSTART_BASE_BRANCHES_SCHEMA = {
+    "type": "object",
+    "description": _AUTOSTART_BASE_BRANCHES_HELP,
+    "maxProperties": MAX_AUTOSTART_BASE_BRANCH_ENTRIES,
+    "propertyNames": {"pattern": "^[^/]+/[^/]+$", "maxLength": 255},
+    "additionalProperties": {"type": "string", "maxLength": 255},
+}
+
+
+@extend_schema_field(_AUTOSTART_BASE_BRANCHES_SCHEMA)
+class _AutostartBaseBranchesField(serializers.DictField):
+    pass
+
+
+# many=False: the read action is named `list` for routing, but the config is a per-project
+# singleton. Without this drf-spectacular types the response as a paginated list.
+@extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
         queryset=Integration.objects.all(),
@@ -319,14 +366,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "to created GitHub issues."
         ),
     )
-    autostart_base_branches = serializers.DictField(
+    autostart_base_branches = _AutostartBaseBranchesField(
         child=serializers.CharField(max_length=255, allow_blank=True),
         required=False,
-        help_text=(
-            "Per-repository base branch overrides for auto-started inbox PRs, keyed by "
-            "'organization/repository'. The branch is what the auto-PR targets; omit a repo "
-            "(or send {}) to keep targeting the repo default branch."
-        ),
+        help_text=_AUTOSTART_BASE_BRANCHES_HELP,
     )
     max_reports_per_day = serializers.IntegerField(
         required=False,
@@ -1045,6 +1088,24 @@ class ReportMetricListSerializer(ReportMetricSerializer):
     query = None  # type: ignore[assignment]  # removes the inherited field from the list projection
 
 
+class ReportRankingSerializer(serializers.Serializer):
+    served_key = serializers.CharField(
+        help_text="Key of the served model in the scoring pass, as `<model_name>@<model_version>`."
+    )
+    model_name = serializers.CharField(help_text="Feature family of the served model.")
+    model_version = serializers.CharField(help_text="Training partition of the served model, as `YYYY-MM-DD`.")
+    manifest_version = serializers.CharField(help_text="Version of the serving manifest that chose the model.")
+    scored_at = serializers.DateTimeField(help_text="When the scoring sweep scored the report.")
+    scores = serializers.DictField(
+        child=serializers.FloatField(),
+        help_text="Outcome head name to its calibrated probability. Empty when the served model skipped the report.",
+    )
+    readable_heads = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Heads whose holdout AUC the training run could read. Treat scores of other heads with caution.",
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -1161,6 +1222,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "The general view lists every report regardless of this value."
         ),
     )
+    ranking = serializers.SerializerMethodField(
+        help_text=(
+            "The served model's score from the latest ranking score artefact. Staff only: null for "
+            "other users, and null when the report has no score."
+        ),
+    )
     collapsed_note_count = serializers.SerializerMethodField(
         help_text=(
             "How many scout notes this report received beyond the few its work log keeps as entries. "
@@ -1208,6 +1275,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "refund_ineligibility_reason",
             "billing_exempt_reason",
             "channel_id",
+            "ranking",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1326,6 +1394,47 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("repository")
         return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(ReportRankingSerializer(allow_null=True))
+    def get_ranking(self, obj: SignalReport) -> dict | None:
+        request = self.context.get("request")
+        if request is None or not request.user.is_staff:
+            return None
+
+        from products.signals.backend.ranking.model_contract import (  # noqa: PLC0415 — keeps numpy and pandas off the API import path
+            readable_head_names,
+        )
+
+        prefetched = getattr(obj, "prefetched_ranking_score_artefacts", None)
+        if prefetched is not None:
+            art = prefetched[0] if prefetched else None
+        else:
+            art = (
+                obj.artefacts.filter(type=SignalReportArtefact.ArtefactType.RANKING_SCORE)
+                .order_by("-created_at")
+                .first()
+            )
+        if art is None:
+            return None
+        try:
+            score = RankingScore.model_validate_json(art.content)
+            served = score.results[score.served_key]
+            heads = readable_head_names(served.metadata)
+            if not all(isinstance(head, str) and head for head in heads):
+                raise ValueError("readable head names must be non-empty strings")
+            readable_heads = sorted(heads)
+        except (ValueError, KeyError, TypeError, AttributeError):
+            logger.warning("signals.ranking_score.invalid_content", report_id=str(obj.id), artefact_id=str(art.id))
+            return None
+        return {
+            "served_key": score.served_key,
+            "model_name": served.model_name,
+            "model_version": served.model_version,
+            "manifest_version": score.manifest_version,
+            "scored_at": score.scored_at,
+            "scores": served.scores,
+            "readable_heads": readable_heads,
+        }
 
     def get_source_products(self, obj: SignalReport) -> list[str]:
         source_products_map: dict[str, list[str]] | None = self.context.get("source_products_map")
@@ -1982,13 +2091,14 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=False,
         max_length=200,
-        help_text="GitHub login (case-insensitive). Stored lowercased.",
+        help_text="GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.",
     )
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
             "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not "
-            "required. If supplied together with `github_login`, the user's own identity wins."
+            "required. Required unless `github_login` is given. If supplied together with "
+            "`github_login`, the user's own identity wins."
         ),
     )
     github_name = serializers.CharField(
@@ -2014,6 +2124,67 @@ class SuggestedReviewerEntryWriteSerializer(serializers.Serializer):
         return attrs
 
 
+class SuggestedReviewerCommitSerializer(serializers.Serializer):
+    """Commit evidence behind a suggested reviewer."""
+
+    sha = serializers.CharField(help_text="Commit SHA.")
+    url = serializers.CharField(help_text="Link to the commit.")
+    reason = serializers.CharField(allow_blank=True, help_text="Why the commit makes this reviewer relevant.")
+
+
+class SuggestedReviewerEntryReadSerializer(serializers.Serializer):
+    """One reviewer as the read path returns it: the stored entry plus read-time enrichment.
+
+    `source_label`, `explanation` and `user` are computed on read, not stored, so a caller cannot
+    write them.
+    """
+
+    github_login = serializers.CharField(
+        allow_null=True, help_text="GitHub login, lowercased. Null when the reviewer has no linked account."
+    )
+    user_uuid = serializers.CharField(
+        allow_null=True,
+        help_text="PostHog user this entry routes to. Null on entries written before reviewers had one.",
+    )
+    github_name = serializers.CharField(allow_null=True, help_text="Display name, when the writer supplied one.")
+    relevant_commits = SuggestedReviewerCommitSerializer(
+        many=True, help_text="Commits attributed to this reviewer. Empty when the pick came from elsewhere."
+    )
+    reason = serializers.CharField(allow_null=True, help_text="Why this reviewer was chosen.")
+    is_skill_owner = serializers.BooleanField(
+        help_text="True when the scout owner guardrail added the entry rather than commit authorship."
+    )
+    source_skill = serializers.CharField(
+        allow_null=True, help_text="Scout skill whose run wrote the entry. Null when no scout did."
+    )
+    source_label = serializers.CharField(help_text="Where the suggestion came from, for display.")
+    explanation = serializers.CharField(
+        allow_null=True, help_text="One line of evidence for display. Null when there is none to show."
+    )
+    user = _UserSerializer(allow_null=True, help_text="Resolved org member. Null when the entry resolves to nobody.")
+
+
+class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSerializer):
+    """The artefact, for a path that only ever returns a `suggested_reviewers` one.
+
+    `content` is polymorphic on the base serializer, so a generated client types it as unknown.
+    Here the type is fixed, so the entry shape can be declared. Runtime output is unchanged —
+    `get_content` delegates to the base.
+    """
+
+    # The path only returns this one type, so narrowing the discriminator lets a client match on it
+    # instead of the whole artefact enum.
+    type = serializers.ChoiceField(
+        choices=[SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS],
+        read_only=True,
+        help_text="Always `suggested_reviewers` on this path.",
+    )
+
+    @extend_schema_field(SuggestedReviewerEntryReadSerializer(many=True))
+    def get_content(self, obj: SignalReportArtefact) -> dict | list:
+        return super().get_content(obj)
+
+
 class SignalReportArtefactWriteSerializer(serializers.Serializer):
     """PUT body for replacing a `suggested_reviewers` artefact's content.
 
@@ -2023,18 +2194,16 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
 
     MAX_ENTRIES = 10
 
-    content = SuggestedReviewerEntryWriteSerializer(
-        many=True,
+    # ListField rather than the serializer with many=True: drf-spectacular returns early for a
+    # nested many=True serializer, so a cap declared there never reaches the schema as maxItems.
+    content = serializers.ListField(
+        child=SuggestedReviewerEntryWriteSerializer(),
         allow_empty=True,
+        max_length=MAX_ENTRIES,
         help_text=(
             f"Full replacement list of reviewers. Empty list clears the artefact. At most {MAX_ENTRIES} entries."
         ),
     )
-
-    def validate_content(self, value: list[dict]) -> list[dict]:
-        if len(value) > self.MAX_ENTRIES:
-            raise serializers.ValidationError(f"At most {self.MAX_ENTRIES} reviewers may be supplied.")
-        return value
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected
@@ -2121,13 +2290,11 @@ class SignalReportArtefactWriteResponseSerializer(serializers.Serializer):
 
 
 class CommitDiffResponseSerializer(serializers.Serializer):
-    """Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
-    repository default branch."""
+    """Response for the `commit` artefact diff endpoint."""
 
     diff = serializers.CharField(
         read_only=True,
-        help_text="Unified diff (patch) text of the branch against the repository default branch, "
-        "from the GitHub compare API.",
+        help_text="Unified diff (patch) text from the linked pull request or branch comparison.",
     )
     truncated = serializers.BooleanField(
         read_only=True,

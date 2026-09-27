@@ -6548,7 +6548,7 @@ describe("SessionService", () => {
             { value: "low", name: "Low" },
             { value: "medium", name: "Medium" },
             { value: "high", name: "High" },
-            { value: "xhigh", name: "Extra High" },
+            { value: "xhigh", name: "Extra high" },
           ],
         },
       ]);
@@ -7997,10 +7997,9 @@ describe("SessionService", () => {
         const service = getSessionService();
         mockFeatureFlags.isEnabled.mockReturnValue(true);
         if (tokenMissing)
-          vi.spyOn(
-            service,
-            "resolveClaudeCloudModelAccess",
-          ).mockRejectedValueOnce(new Error("Save a Claude token first."));
+          vi.spyOn(service, "resolveCloudModelAccess").mockRejectedValueOnce(
+            new Error("Save a Claude token first."),
+          );
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
           createMockSession({
             isCloud: true,

@@ -3,16 +3,20 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
+from parameterized import parameterized
 from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.salesforce_enrichment.usage_workflow import (
     EnrichPageResult,
+    OrgRegionOutcome,
+    SalesforceAccountRegion,
     SalesforceUsageEnrichmentWorkflow,
     UsageEnrichmentInputs,
     UsageEnrichmentState,
     cache_org_mappings_activity,
+    decide_org_region,
     enrich_org_page_activity,
     prepare_salesforce_update_record,
 )
@@ -109,6 +113,46 @@ class TestPrepareSalesforceUpdateRecord(TestCase):
         assert record["posthog_total_events_30d__c"] == 0
 
 
+class TestDecideOrgRegion(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "fills_empty_region",
+                "US",
+                SalesforceAccountRegion(posthog_org_id="org-a", region=None),
+                OrgRegionOutcome.FILL,
+            ),
+            (
+                "fills_when_stamp_differs_only_in_case_and_spaces",
+                "EU",
+                SalesforceAccountRegion(posthog_org_id=" ORG-A ", region=None),
+                OrgRegionOutcome.FILL,
+            ),
+            (
+                "keeps_matching_region",
+                "US",
+                SalesforceAccountRegion(posthog_org_id="org-a", region="US"),
+                OrgRegionOutcome.MATCHES,
+            ),
+            (
+                "replaces_a_different_region",
+                "US",
+                SalesforceAccountRegion(posthog_org_id="org-a", region="EU"),
+                OrgRegionOutcome.REPLACE,
+            ),
+            (
+                "skips_account_restamped_since_cache",
+                "US",
+                SalesforceAccountRegion(posthog_org_id="org-b", region=None),
+                OrgRegionOutcome.RESTAMPED,
+            ),
+            ("skips_account_gone_since_cache", "US", None, OrgRegionOutcome.RESTAMPED),
+        ]
+    )
+    def test_decide_org_region(self, _name, billing_region, current, expected):
+        assert decide_org_region("org-a", billing_region, current) == expected
+
+
 class TestWorkflowParseInputs(TestCase):
     def test_parse_inputs_valid_json(self):
         inputs = SalesforceUsageEnrichmentWorkflow.parse_inputs(['{"batch_size": 50}'])
@@ -139,6 +183,7 @@ class TestWorkflowParseInputs(TestCase):
 
 
 WORKFLOW_MODULE = "posthog.temporal.salesforce_enrichment.usage_workflow"
+NOT_SENT = "<not sent>"
 
 
 def _cache_missing_activity_error() -> ActivityError:
@@ -221,6 +266,11 @@ class TestCacheOrgMappingsActivity(TestCase):
 
 
 class TestEnrichOrgPageActivity(TestCase):
+    def setUp(self):
+        regions_patcher = patch(f"{WORKFLOW_MODULE}.fetch_org_regions", return_value={})
+        regions_patcher.start()
+        self.addCleanup(regions_patcher.stop)
+
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
     @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
@@ -247,6 +297,149 @@ class TestEnrichOrgPageActivity(TestCase):
         assert result.updated == 2
         assert result.errors == []
         mock_get_page.assert_called_once_with(0, 10000)
+
+    @parameterized.expand(
+        [
+            ("fills_empty_and_replaces_different", None, "US", "EU", 1, 1),
+            ("field_not_writable_yet", "field_not_writable", NOT_SENT, NOT_SENT, 0, 0),
+            ("billing_lookup_fails", "billing_lookup", NOT_SENT, NOT_SENT, 0, 0),
+            ("account_reread_fails", "account_reread", NOT_SENT, NOT_SENT, 0, 0),
+        ]
+    )
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.fetch_org_regions", return_value={"uuid-1": "US", "uuid-2": "EU"})
+    @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_writes_billing_region_and_never_blocks_usage(
+        self,
+        _name,
+        failure,
+        expected_empty_region,
+        expected_different_region,
+        expected_filled,
+        expected_replaced,
+        _mock_close,
+        mock_get_page,
+        mock_sf_client,
+        mock_regions,
+        _mock_heartbeat,
+    ):
+        mock_get_page.return_value = [
+            {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
+            {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
+            {"salesforce_account_id": "001GHI", "posthog_org_id": "uuid-3"},
+        ]
+        if failure == "billing_lookup":
+            mock_regions.side_effect = Exception("duckgres unavailable")
+
+        mock_sf = MagicMock()
+        mock_sf.restful.return_value = {
+            "fields": [{"name": "Posthog_Org_Region__c", "updateable": failure != "field_not_writable"}]
+        }
+        if failure == "account_reread":
+            mock_sf.query_all.side_effect = Exception("Salesforce query failed")
+        mock_sf.query_all.return_value = {
+            "records": [
+                {"Id": "001ABC", "Posthog_Org_ID__c": "uuid-1", "Posthog_Org_Region__c": None},
+                {"Id": "001DEF", "Posthog_Org_ID__c": "uuid-2", "Posthog_Org_Region__c": "US"},
+            ]
+        }
+        mock_sf.bulk.Account.update.return_value = [
+            {"id": "001ABC", "success": True},
+            {"id": "001DEF", "success": True},
+            {"id": "001GHI", "success": True},
+        ]
+        mock_sf_client.return_value = mock_sf
+
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await enrich_org_page_activity(0, 10000, 100)
+
+        sent = {record["Id"]: record for record in mock_sf.bulk.Account.update.call_args[0][0]}
+        assert sent["001ABC"].get("Posthog_Org_Region__c", NOT_SENT) == expected_empty_region
+        assert sent["001DEF"].get("Posthog_Org_Region__c", NOT_SENT) == expected_different_region
+        assert "Posthog_Org_Region__c" not in sent["001GHI"]
+        assert result.updated == 3
+        assert result.regions_filled == expected_filled
+        assert result.regions_replaced == expected_replaced
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.fetch_org_regions", return_value={"uuid-1": "US"})
+    @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_resends_usage_without_region_when_salesforce_rejects_the_record(
+        self, _mock_close, mock_get_page, mock_sf_client, _mock_regions, _mock_heartbeat
+    ):
+        mock_get_page.return_value = [{"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"}]
+
+        mock_sf = MagicMock()
+        mock_sf.restful.return_value = {"fields": [{"name": "Posthog_Org_Region__c", "updateable": True}]}
+        mock_sf.query_all.return_value = {
+            "records": [{"Id": "001ABC", "Posthog_Org_ID__c": "uuid-1", "Posthog_Org_Region__c": None}]
+        }
+        mock_sf.bulk.Account.update.side_effect = [
+            [{"id": None, "success": False, "errors": ["bad value for restricted picklist field"]}],
+            [{"id": "001ABC", "success": True}],
+        ]
+        mock_sf_client.return_value = mock_sf
+
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await enrich_org_page_activity(0, 10000, 100)
+
+        first_attempt, resend = (call.args[0] for call in mock_sf.bulk.Account.update.call_args_list)
+        assert first_attempt[0]["Posthog_Org_Region__c"] == "US"
+        assert "Posthog_Org_Region__c" not in resend[0]
+        assert resend[0]["posthog_total_events_7d__c"] == 0
+        assert result.updated == 1
+        assert result.regions_filled == 0
+
+    @parameterized.expand(
+        [
+            ("resend_raises", Exception("Salesforce timed out"), "Salesforce timed out"),
+            ("resend_rejected", [{"id": None, "success": False, "errors": ["still bad"]}], "rejected 1 Accounts"),
+        ]
+    )
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.Heartbeater")
+    @patch(f"{WORKFLOW_MODULE}.fetch_org_regions", return_value={"uuid-1": "US"})
+    @patch(f"{WORKFLOW_MODULE}.get_salesforce_client")
+    @patch(f"{WORKFLOW_MODULE}.get_org_mappings_page", new_callable=AsyncMock)
+    @patch(f"{WORKFLOW_MODULE}.close_old_connections")
+    async def test_keeps_batch_counts_and_reports_a_failed_resend(
+        self,
+        _name,
+        resend_outcome,
+        expected_error,
+        _mock_close,
+        mock_get_page,
+        mock_sf_client,
+        _mock_regions,
+        _mock_heartbeat,
+    ):
+        mock_get_page.return_value = [
+            {"salesforce_account_id": "001ABC", "posthog_org_id": "uuid-1"},
+            {"salesforce_account_id": "001DEF", "posthog_org_id": "uuid-2"},
+        ]
+
+        mock_sf = MagicMock()
+        mock_sf.restful.return_value = {"fields": [{"name": "Posthog_Org_Region__c", "updateable": True}]}
+        mock_sf.query_all.return_value = {
+            "records": [{"Id": "001ABC", "Posthog_Org_ID__c": "uuid-1", "Posthog_Org_Region__c": None}]
+        }
+        first_attempt = [{"id": None, "success": False, "errors": ["bad value"]}, {"id": "001DEF", "success": True}]
+        mock_sf.bulk.Account.update.side_effect = [first_attempt, resend_outcome]
+        mock_sf_client.return_value = mock_sf
+
+        with patch(f"{WORKFLOW_MODULE}.asyncio.to_thread", side_effect=mock_to_thread):
+            result = await enrich_org_page_activity(0, 10000, 100)
+
+        assert result.processed == 2
+        assert result.updated == 1
+        assert len(result.errors) == 1
+        assert expected_error in result.errors[0]
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.Heartbeater")
@@ -367,18 +560,24 @@ class TestProductionModeContinueAsNew(TestCase):
     @patch(f"{WORKFLOW_MODULE}.workflow")
     async def test_returns_result_on_last_page(self, mock_workflow):
         mock_workflow.execute_activity = AsyncMock(
-            return_value=EnrichPageResult(page_size=5000, processed=5000, updated=4800, errors=[]),
+            return_value=EnrichPageResult(
+                page_size=5000, processed=5000, updated=4800, errors=[], regions_filled=40, regions_replaced=1
+            ),
         )
         mock_workflow.continue_as_new = MagicMock()
 
         wf = SalesforceUsageEnrichmentWorkflow()
-        state = UsageEnrichmentState(page_offset=10000, total_processed=10000, total_updated=9500)
+        state = UsageEnrichmentState(
+            page_offset=10000, total_processed=10000, total_updated=9500, regions_filled=60, regions_replaced=2
+        )
         inputs = UsageEnrichmentInputs(batch_size=100, state=state)
         result = await wf._run_production_mode(inputs)
 
         mock_workflow.continue_as_new.assert_not_called()
         assert result["total_orgs_processed"] == 15000
         assert result["total_orgs_updated"] == 14300
+        assert result["regions_filled"] == 100
+        assert result["regions_replaced"] == 3
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")

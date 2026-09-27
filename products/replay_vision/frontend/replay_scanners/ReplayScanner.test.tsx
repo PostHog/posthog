@@ -15,21 +15,9 @@ const mockImportedTabs: string[] = []
 jest.mock('./components/ScannerOverview', () => ({ ScannerOverview: () => <div>Overview content</div> }))
 jest.mock('./components/ScannerScoutCard', () => ({ ScannerScoutCard: () => null }))
 
-jest.mock('./components/ScannerRunTab', () => {
-    mockImportedTabs.push('On-demand')
-    return { ScannerRunTab: ({ scannerId }: { scannerId: string }) => <div>On-demand content {scannerId}</div> }
-})
-jest.mock('./components/ScannerBackfillsTab', () => {
-    mockImportedTabs.push('Backfills')
-    return { ScannerBackfillsTab: ({ scannerId }: { scannerId: string }) => <div>Backfills content {scannerId}</div> }
-})
-jest.mock('./components/ScannerConfigReadonly', () => {
-    mockImportedTabs.push('Configuration')
-    return {
-        ScannerConfigReadonly: ({ scanner }: { scanner: { id: string } }) => (
-            <div>Configuration content {scanner.id}</div>
-        ),
-    }
+jest.mock('./components/ScannerScanTab', () => {
+    mockImportedTabs.push('Run')
+    return { ScannerScanTab: ({ scannerId }: { scannerId: string }) => <div>Run content {scannerId}</div> }
 })
 jest.mock('./components/ScannerCalibrationTab', () => {
     mockImportedTabs.push('Calibration')
@@ -96,20 +84,26 @@ describe('ReplayScanner', () => {
         expect(observationRequests[0].get('backfill_id')).toBe(backfillId)
         expect(mockImportedTabs).toEqual([])
 
-        const tabs = ['On-demand', 'Backfills', 'Configuration', 'Calibration', 'Scouts', 'Alerts']
-        for (const [index, tab] of tabs.entries()) {
+        const tabKeys: [string, string][] = [
+            ['Run', 'run'],
+            ['Calibration', 'calibration'],
+            ['Scouts', 'scouts'],
+            ['Alerts', 'alerts'],
+        ]
+        const tabs = tabKeys.map(([label]) => label)
+        for (const [index, [tab, key]] of tabKeys.entries()) {
             fireEvent.click(screen.getByText(tab, { exact: true }))
             expect(screen.getByText('Observations', { exact: true })).toBeInTheDocument()
             await screen.findByText(`${tab} content scanner-example`)
             expect(mockImportedTabs).toEqual(tabs.slice(0, index + 1))
-            expect(router.values.searchParams.tab).toBe(tab.toLowerCase())
+            expect(router.values.searchParams.tab).toBe(key)
             expect(logic.values.observationsActive).toBe(false)
         }
 
         fireEvent.click(screen.getByText('Observations', { exact: true }))
         await waitFor(() => expect(logic.values.observationsActive).toBe(true))
-        fireEvent.click(screen.getByText('Configuration', { exact: true }))
-        await screen.findByText('Configuration content scanner-example')
+        fireEvent.click(screen.getByText('Calibration', { exact: true }))
+        await screen.findByText('Calibration content scanner-example')
         expect(logic.values.observationsActive).toBe(false)
         expect(mockImportedTabs).toEqual(tabs)
 

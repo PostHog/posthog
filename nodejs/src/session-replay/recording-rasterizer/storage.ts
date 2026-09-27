@@ -131,7 +131,7 @@ export async function downloadFromS3(bucket: string, key: string, localPath: str
         if (!res.Body) {
             throw new RasterizationError(`S3 object is empty: s3://${bucket}/${key}`, false, 'S3_DOWNLOAD_EMPTY')
         }
-        // Streamed, not buffered: the media worker reads several tens-of-megabytes MP4s at once.
+        // Streamed, not buffered: thumbnail extraction reads several tens-of-megabytes MP4s at once.
         await pipeline(res.Body as Readable, fs.createWriteStream(localPath))
     } catch (err) {
         if (err instanceof RasterizationError) {

@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
-from typing import Generic, Optional, TypeVar
+from typing import Generic, Optional, Protocol, TypeVar, cast
 
 import structlog
 import posthoganalytics
@@ -50,7 +50,9 @@ from products.marketing_analytics.backend.hogql_queries.constants import (
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
     BACKGROUND_WARMING_TRIGGERS,
+    handle_not_ready,
     handle_stale_served,
+    is_on_demand_revalidation,
     marketing_ensure_precomputed,
 )
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
@@ -59,6 +61,7 @@ from .adapters.base import MarketingSourceAdapter, QueryContext
 from .adapters.factory import MarketingSourceFactory
 from .conversion_goal_processor import ConversionGoalProcessor, goal_sums_a_property
 from .conversion_goals_aggregator import ConversionGoalsAggregator
+from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_config import MarketingAnalyticsConfig
 from .utils import build_source_normalization_expr, convert_team_conversion_goals_to_objects, test_account_conditions
 
@@ -79,6 +82,18 @@ logger = structlog.get_logger(__name__)
 
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
 
+
+class PrecomputeMetadataResponse(Protocol):
+    """The precompute-serving fields the conversion-goal responses carry.
+
+    Only the table and aggregated responses declare them; retention and session-breakdown responses
+    don't, and pydantic rejects unknown attributes.
+    """
+
+    precomputeNotReady: Optional[bool]
+    dataComputedAt: Optional[str]
+
+
 # Discriminator column tagging each row in the compare UNION ALL with its period.
 COMPARE_PERIOD_FIELD = "_period"
 COMPARE_PERIOD_CURRENT = "current"
@@ -93,7 +108,7 @@ COSTS_PRECOMPUTE_TTL_SECONDS = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default"
 # Cap for a cost window that materialized zero rows. Short enough that a source which was mid-sync
 # heals the same day, long enough that a genuinely empty window isn't re-scanned on every read.
 # This bounds recomputation, not what a reader sees: the read path serves stale within
-# STALE_WHILE_REVALIDATE_SECONDS, so a $0 window can still be handed back for up to the sum of both.
+# PRECOMPUTE_ONLY_MAX_STALE_SECONDS, so a $0 window can still be handed back for up to the sum of both.
 COSTS_EMPTY_RESULT_TTL_SECONDS = 6 * 60 * 60  # 6 hours
 
 # How far back the cap above applies, measured from the window's end. A warehouse sync that is going
@@ -183,13 +198,30 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Set when any read-path ensure (costs, touchpoints, conversions) was served from
         # expired-within-grace rows rather than rebuilt inline. Reset on each to_query.
         self._precompute_stale: bool = False
+        # Oldest precompute `computed_at` across the read's conversion goals, collected while building the
+        # query. Surfaced on the response as "data as of X". None when nothing precomputed was read.
+        self._precompute_computed_at: Optional[datetime] = None
 
     def calculate(self) -> ResponseType:
         start = time.perf_counter()
         try:
-            response = self._calculate()
+            try:
+                response = self._calculate()
+            except MarketingPrecomputeNotReady as not_ready:
+                # A precomputable goal has no warm window: serve an explicit not-ready response rather than
+                # scan events live. Enqueue a one-off background warm so a cold team outside the rolling warm
+                # set is served on its next visit; the UI shows a "computing" state meanwhile.
+                handle_not_ready(team=self.team, query=not_ready.query or self.query)
+                self._capture_query_event("marketing analytics query not ready", start, error=not_ready)
+                return self._build_not_ready_response()
             if self.limit_context == LimitContext.EXPORT:
                 strip_infinity_sentinels(response)
+            if "precomputeNotReady" in getattr(type(response), "model_fields", {}):
+                precompute_metadata = cast(PrecomputeMetadataResponse, response)
+                precompute_metadata.precomputeNotReady = False
+                precompute_metadata.dataComputedAt = (
+                    self._precompute_computed_at.isoformat() if self._precompute_computed_at else None
+                )
             self._capture_query_event("marketing analytics query performed", start)
             return response
         except Exception as e:
@@ -415,6 +447,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 )
                 s3_fallback_adapters.append(adapter)
                 continue
+            # This source's cost rows are on screen, so their age bounds the response's freshness too.
+            self.note_precompute_computed_at(result.computed_at)
             # The ensure_precomputed call above materialized this source. We read by source, not by
             # result.job_ids, because the `marketing_costs_precomputed` view already collapses each cell to its latest job.
             materialized_source_ids.append(adapter.get_source_id())
@@ -1107,6 +1141,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 self.timings.timings.update(processor.timings.timings)
                 if processor.precompute_stale:
                     self._precompute_stale = True
+                self.note_precompute_computed_at(processor.precompute_computed_at)
 
             if unified_cte:
                 ctes[UNIFIED_CONVERSION_GOALS_CTE_ALIAS] = unified_cte
@@ -1167,12 +1202,36 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if level is not None:
             self.config.drill_down_level = level
 
+    def note_precompute_computed_at(self, computed_at: Optional[datetime]) -> None:
+        """Fold one served precompute's `computed_at` into the read's freshness.
+
+        The oldest across every dataset the response displays — costs, each conversion goal, and the
+        previous period when comparing — bounds how old the numbers on screen can be. Taking anything
+        newer would understate staleness on the freshness badge.
+        """
+        if computed_at is None:
+            return
+        if self._precompute_computed_at is None or computed_at < self._precompute_computed_at:
+            self._precompute_computed_at = computed_at
+
     def to_query(self) -> ast.SelectQuery:
+        try:
+            return self._build_query()
+        except MarketingPrecomputeNotReady as not_ready:
+            # Stamp the query this runner was building, so the read path warms the window that actually
+            # missed. A compare read builds the previous period through a second runner whose date range
+            # is shifted, and the first stamp wins because the raise unwinds straight out of that runner.
+            if not_ready.query is None:
+                not_ready.query = self.query
+            raise
+
+    def _build_query(self) -> ast.SelectQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_base_query"):
             # Reset per build. Any read-path ensure served from expired-within-grace rows flips this, and
             # the read schedules exactly one background revalidation once the query is built.
             self._precompute_stale = False
+            self._precompute_computed_at = None
 
             # Apply drill-down level from query to config
             self._apply_drill_down_level()
@@ -1186,7 +1245,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Build the cost source. When cost precompute is enabled, read the native materialized table
             # (no S3); fall back to the live S3 adapter union if not enabled or jobs aren't ready.
             union_subquery: ast.SelectQuery | ast.SelectSetQuery | None = None
-            if self.config.costs_precomputation_enabled:
+            if self.config.costs_precomputation_enabled and not is_on_demand_revalidation():
                 with self.timings.measure("ma_build_costs_precompute"):
                     try:
                         union_subquery = self._build_costs_from_precompute(self.query_date_range)
@@ -1408,3 +1467,11 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def _calculate(self) -> ResponseType:
         """Execute the query and return results"""
         pass
+
+    def _build_not_ready_response(self) -> ResponseType:
+        """Empty typed response with `precomputeNotReady=True`, for when a goal's window is not warmed.
+
+        Only runners that build conversion-goal CTEs (table, aggregated) can raise
+        `MarketingPrecomputeNotReady`, so only they override this. Others never reach it.
+        """
+        raise NotImplementedError(f"{type(self).__name__} cannot serve a not-ready response")

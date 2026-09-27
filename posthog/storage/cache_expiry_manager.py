@@ -8,6 +8,7 @@ across different HyperCache types (flags, team metadata, etc.).
 from __future__ import annotations
 
 import time
+import random
 from typing import Literal
 
 import structlog
@@ -410,11 +411,25 @@ def _refresh_teams(
     return CacheRefreshCounts(successful=successful, failed=failed, enqueued=enqueued)
 
 
+def _staggered_refresh_ttl(config: HyperCacheManagementConfig) -> int | None:
+    """The band only ever shortens: an entry that outlived `cache_ttl` would break
+    whatever staleness bound that TTL was chosen to enforce.
+    """
+    fraction = config.refresh_ttl_min_fraction
+    if fraction is None:
+        return None
+    cache_ttl = config.hypercache.cache_ttl
+    # The floor is truncated to an int, so a short enough cache_ttl gives a floor of zero.
+    # Redis treats a timeout of zero as expired, so the entry would come due on arrival.
+    floor = max(1, int(cache_ttl * fraction))
+    return random.randint(floor, cache_ttl)
+
+
 def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> RefreshOutcome:
     try:
         if config.route_refresh_fn is not None and config.route_refresh_fn(team.id):
             return "enqueued"
-        return "successful" if config.update_fn(team) else "failed"
+        return "successful" if config.update_fn(team, ttl=_staggered_refresh_ttl(config)) else "failed"
     except Exception as e:
         logger.exception(
             f"Failed to refresh {config.log_prefix[:-1]}",

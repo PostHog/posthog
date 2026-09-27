@@ -18,7 +18,9 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/managed_migrations': ['ManagedMigration', 'managedMigration'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
     },
     urls: {

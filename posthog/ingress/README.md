@@ -232,6 +232,12 @@ The same attribute answers a delivery whose consumers did not accept it, under o
 
 ## Adding a provider
 
+A provider package holds only what is specific to its third party: header names, how it names event types and delivery ids, how its body parses, and the status codes its protocol fixes.
+A need that a second provider could share becomes shared code: a lane in `views.py`, part of `dispatch/`, a scheme or scheme option in `verify/`, or an attribute on `WebhookProvider`.
+`throttle_class`, `retry_status` and the HMAC digest option each started as one provider's need and became shared that way.
+A true one-off stays in the provider, marked with a `# One-off:` comment that says why no other provider needs it.
+Tracing and metrics in a provider package fail CI unless marked, see "Shared mechanisms" in [the egress README](../egress/README.md#shared-mechanisms).
+
 Add a `<provider>/` subpackage with a `provider.py` holding three things (see `github/` for the full shape, `vapi/` for a small one):
 
 - `SPECS` — one `ProviderSpec` per app, naming the event types the app is subscribed to. The registry validates consumers against these.
@@ -243,13 +249,15 @@ Add a `<provider>/` subpackage with a `provider.py` holding three things (see `g
 Add the module to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, so the registry finds its specs and any core consumers.
 
 Then mount the URL where the App registration lives.
-A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, under a `webhooks/<product>/` prefix:
+A product that registered the App declares the path in its own `products/<product>/backend/routes.py`, in a `webhook_urlpatterns` list that core mounts at `webhooks/<product>/`:
 
 ```python
-urlpatterns: list[URLPattern] = [
-    opt_slash_path("webhooks/stamphog/github", build_webhook_view(build_github_provider("stamphog"))),
+webhook_urlpatterns: list[URLPattern] = [
+    opt_slash_path("github", build_webhook_view(build_github_provider("stamphog"))),
 ]
 ```
+
+The route is relative to the mount, so this one serves `/webhooks/stamphog/github`.
 
 An App several products consume has no single owner, so it stays in `posthog/urls.py`.
 The customer-facing GitHub App is the only one today.

@@ -36,7 +36,7 @@
 ## Commits and Pull Requests
 
 - Use [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) for all commit messages and PR titles.
-- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update a relevant existing doc under `docs/` **in the same PR**. If none exists, make no docs change.
+- When a change touches user-facing behavior, an API, a config/setting, or a documented workflow, update an existing doc under `docs/` **whose scope covers that behavior** in the same PR. If none exists, make no docs change and put PR-specific context in the PR description. `project-structure.md` is a high-level directory map; feature behavior, UI controls, command usage, and worktree notes do not belong there.
 - A new `docs/**` file requires a person to request that specific document in the current conversation. Existing related docs, PR checklists, and general docs requirements do not authorize one. Put PR-specific context in the PR description.
 
 ### Commit types
@@ -137,6 +137,8 @@ Examples:
 - CI uploads test results to Trunk Flaky Tests; the `trunk` MCP server in `.mcp.json` queries per-test flakiness on a PR or `master` (authenticate via `/mcp`, or a `TRUNK_API_TOKEN` bearer header when headless) — see `/debugging-ci-failures` and `/fixing-flaky-tests`
 - **A workflow edit reaches every open PR before those branches rebase.** It runs against the PR merged with master, but a companion change — a new dependency, file, or config — only arrives when the branch rebases. A workflow that starts requiring something unrebased branches lack fails every in-flight PR before its tests run. Make the new behavior degrade gracefully, or gate it. This has broken CI repeatedly.
 - Mechanical workflow rules (`timeout-minutes`, concurrency, dispatch budget, path filters, gate hygiene) are enforced by `hogli lint:workflows` and actionlint, which are the source of truth. `/authoring-ci-workflows` explains the reasoning behind each.
+- **A directory of tests that read event properties belongs in `.github/new-events-schema-targets.txt`.** Backend CI reruns the listed paths against the native-JSON events table. A test outside the list runs on the legacy table only. Add the `test-new-events-schema` label when a diff needs the whole backend suite on both tables, such as an event ingestion change or event reads tested outside the list. Label while the PR is a draft, or push again after labeling, because label events do not start Backend CI.
+- **A pull request never publishes a package or release.** `[lint: github-actions-publish-on-pull-request]` A published version is public forever, and a pull request run executes code its author controls. Publish only from a `push` to `master`, a release tag, or a `workflow_dispatch` on `master`. A pull request run only builds and validates, for example with `--dry-run`. The semgrep rule cannot see a publisher inside a reusable workflow, so gate that job in the called workflow too. Never run a publish command by hand from a pull request branch. [`build-hogql-parser-npm.yml`](.github/workflows/build-hogql-parser-npm.yml) is the reference shape.
 
 ## Security
 
@@ -283,7 +285,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-user-facing-copy` — writing or editing any text a user reads (UI labels, tooltips, empty/error states, notifications, docs, support replies), or any code change that adds or changes a visible string
 - `/writing-code-comments` — writing or editing a code comment in any language, or reviewing a diff that adds comments
 - `/writing-pr-descriptions` — writing or editing any PR body, before `gh pr create` or `gh pr edit --body`
-- `/reviewing-with-coderabbit` — before `gh pr create`, and whenever a review of a branch is asked for; when the CLI is unavailable the PR opens without a local pass, never with `/code-review` or review subagents in its place
+- `/reviewing-with-coderabbit` — before `gh pr create`, or when a branch review is requested, check `test -n "${POSTHOG_TASK_RUN_ID:-}" || test -n "${CI:-}"` first. If true, skip the local review without probing `cr`, loading the skill, or announcing the skip. Otherwise invoke the skill and, if a person can answer, offer setup or a skip when `cr` is missing or signed out. Never substitute `/code-review` or review subagents.
 
 **Invoke when in the area:**
 

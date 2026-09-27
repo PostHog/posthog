@@ -24,7 +24,8 @@ tools:
             recent builds with their status (queued/building/ready/failed) and structured diagnostics. A publish queues
             a build; poll this until the build you queued is terminal — `ready` (the live pointer advances) or `failed`
             (fix the error diagnostics and publish again; the last good build stays live). Do not finish a canvas task
-            while its build is still queued or building.
+            while its build is still queued or building. A publish or edit response already carries its build status, so
+            call this only when that status was `queued` or `building`.
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.
@@ -132,13 +133,25 @@ tools:
             idempotent: false
         title: Edit canvas source files
         description: >
-            Publish per-file edits against a canvas's current source, without resending the whole project. Each
-            operation sets a file's complete content, or deletes it when `content` is null.
-            `expected_current_version_id` is REQUIRED (from canvas-source-retrieve; null only for a never-published
-            canvas) — a stale base is rejected with 409 version_conflict; re-read the source, re-apply, and edit again.
-            The edited project is validated first; error diagnostics reject the whole edit atomically. Edits go live
-            like a publish, which is the default way to save a change; stage the complete project as a draft with
-            canvas-draft-create only when the user asked for a draft or a review step.
+            Change an existing canvas by sending only the edits, not the whole project. This is the default way to save
+            a change to a canvas that already has source. Operations apply in order and all or nothing: `str_replace`
+            (replace `old_string` with `new_string` in `path`; copy `old_string` from the file with a few surrounding
+            lines so it matches exactly one place, or set `replace_all`), `write` (a file's complete `content`, for new
+            files or full rewrites), `delete`, and `rename` (to `new_path`). When the change needs a capability the
+            canvas does not declare yet (for example a new `ph.state` scope), also send `capabilities` with the complete
+            new capabilities in the same edit; do not switch to canvas-publish-create for that. Example operation:
+            {"op": "str_replace", "path": "src/canvas.tsx", "old_string": "<CardTitle>Users</CardTitle>", "new_string":
+            "<CardTitle>Daily active users</CardTitle>"}. A 400 lists each failed operation by index: `edit_no_match`
+            shows the closest lines of the file, `edit_ambiguous_match` lists the matching lines. Fix those operations
+            and send the edit again; if a replacement fails twice, `write` the whole file instead.
+            `expected_current_version_id` is REQUIRED (from canvas-source-retrieve, or the `current_version_id` a
+            previous edit returned; null only for a never-published canvas). A stale base is rejected with 409
+            version_conflict: re-read the source and edit again. The edited project is validated, published, and built
+            like canvas-publish-create. The response's `build` carries the build status: `ready` means the build
+            finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
+            canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
+            `queued` or `building`. Stage a draft with canvas-draft-create only when the user asked for a draft or a
+            review step.
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
@@ -291,10 +304,11 @@ tools:
             idempotent: false
         title: Publish canvas source project
         description: >
-            Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build.
-            Publishing goes live immediately and is the default way to save a change, first version or follow-up alike;
-            stage the change with canvas-draft-create only when the user asked for a draft or a review step. The project
-            is validated first — error diagnostics reject the publish (400) and leave the canvas untouched. Pass
+            Publish the COMPLETE source project of a canvas as its new head version and queue a server-side build. Use
+            it for a canvas's first version or to replace the whole project; for a change to an existing canvas, send
+            only the edits with canvas-edit-create. Publishing goes live immediately; stage the change with
+            canvas-draft-create only when the user asked for a draft or a review step. The project is validated first —
+            error diagnostics reject the publish (400) and leave the canvas untouched. Pass
             `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
             version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
             against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare
@@ -302,7 +316,10 @@ tools:
             project that shows PostHog data must make every figure verifiable before publishing: an insight-backed
             metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
             exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog, not on disk —
-            this tool is what saves it.
+            this tool is what saves it. The response's `build` carries the build status: `ready` means the build
+            finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
+            canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
+            `queued` or `building`.
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
@@ -340,11 +357,10 @@ tools:
             idempotent: true
         title: Read canvas source project
         description: >
-            Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas: edit
-            the returned files, then publish the complete project with canvas-publish-create, passing the
-            `current_version_id` you read as `expected_current_version_id` so concurrent edits are not overwritten.
-            Canvases that predate multi-file projects are presented as a synthetic project whose `src/canvas.tsx` holds
-            the React component.
+            Read a canvas's source project and its `current_version_id`. Always call this before editing a canvas, then
+            save the change with canvas-edit-create (send only the edits), passing the `current_version_id` you read as
+            `expected_current_version_id` so concurrent edits are not overwritten. Canvases that predate multi-file
+            projects are presented as a synthetic project whose `src/canvas.tsx` holds the React component.
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.
