@@ -165,8 +165,6 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
         if self._state.adding or self.query != self._original_query or self.query_metadata is None:
             try:
                 self.generate_query_metadata()
-                if "update_fields" in kwargs:
-                    kwargs["update_fields"].append("query_metadata")
             except Exception as e:
                 # log and ignore the error, as this is not critical
                 logger.exception(
@@ -177,6 +175,10 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
                     error=str(e),
                 )
                 capture_exception(e)
+            else:
+                # Django accepts any iterable here, so build a new list instead of mutating the caller's value
+                if kwargs.get("update_fields") is not None:
+                    kwargs["update_fields"] = [*kwargs["update_fields"], "query_metadata"]
         super().save(*args, **kwargs)
 
     def get_analytics_query_kinds(self) -> dict[str, str]:
