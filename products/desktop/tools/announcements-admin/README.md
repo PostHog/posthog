@@ -10,10 +10,10 @@ Live (employee-gated): https://desktop-announcements-admin.hosthog.dev
 ## Auth
 
 "Log in with PostHog" — an OAuth authorization-code + PKCE flow using a
-[client ID metadata document](https://posthog.com/oauth/desktop-announcements-admin/client-metadata.json)
+[client ID metadata document](https://posthog.com/.well-known/oauth/desktop-announcements-admin/client-metadata.json)
 (the `client_id` is that document's URL, so no OAuth app registration and no
 API keys). The document lives in PostHog/posthog.com at
-`static/oauth/desktop-announcements-admin/client-metadata.json`; tokens live in `localStorage` with `feature_flag:read/write` scope and
+`static/.well-known/oauth/desktop-announcements-admin/client-metadata.json`; tokens live in `localStorage` with `feature_flag:read/write` scope and
 renew silently from the refresh token, so login persists across visits.
 
 The deploy origin's callback is baked into `src/config.ts` and the metadata document, so

@@ -62,9 +62,9 @@ KEY_ENV_VARS = ("POSTHOG_PERSONAL_API_KEY", "POSTHOG_AUTH_HEADER")
 
 _CACHE_ROOT = Path.home() / ".config" / "posthog" / "oauth"
 
-# hogli's client metadata document, published from PostHog/posthog.com (static/oauth/hogli/). Its own
+# hogli's client metadata document, published from PostHog/posthog.com (static/.well-known/oauth/hogli/). Its own
 # URL is the client_id, so US, EU, and self-hosted all know hogli as the same client.
-_CLIENT_ID = "https://posthog.com/oauth/hogli/client-metadata.json"
+_CLIENT_ID = "https://posthog.com/.well-known/oauth/hogli/client-metadata.json"
 # The document registers the redirect without a port: RFC 8252 §7.3 requires the server to allow
 # any port on a loopback redirect, so one entry covers whichever ephemeral port we get. 127.0.0.1
 # rather than localhost because django-oauth-toolkit's port exemption lists the literal addresses.

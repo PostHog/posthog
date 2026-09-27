@@ -810,7 +810,7 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("posthog-com", "https://posthog.com/oauth/wizard/client-metadata.json"),
+            ("posthog-com", "https://posthog.com/.well-known/oauth/wizard/client-metadata.json"),
             ("legacy-us", "https://us.posthog.com/api/oauth/wizard/client-metadata"),
             ("legacy-eu", "https://eu.posthog.com/api/oauth/wizard/client-metadata"),
         ]

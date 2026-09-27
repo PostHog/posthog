@@ -47,7 +47,7 @@ def a_terminal() -> Iterator[None]:
         yield
 
 
-_CLIENT_ID = "https://posthog.com/oauth/hogli/client-metadata.json"
+_CLIENT_ID = "https://posthog.com/.well-known/oauth/hogli/client-metadata.json"
 
 
 def _metadata(*scopes: str) -> Any:

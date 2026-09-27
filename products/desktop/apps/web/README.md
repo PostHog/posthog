@@ -112,7 +112,7 @@ as database rows (Django admin → OAuth applications), and they must include:
   or pinned to `:8237`.
 
 A CIMD client (like the first-party documents under
-`https://posthog.com/oauth/<app>/client-metadata.json`) is NOT suitable: CIMD registrations are capped to
+`https://posthog.com/.well-known/oauth/<app>/client-metadata.json`) is NOT suitable: CIMD registrations are capped to
 unprivileged scopes, and Code requires `scope=*` like the desktop app.
 
 ### S3 artifact-bucket CORS — required for attachment uploads
