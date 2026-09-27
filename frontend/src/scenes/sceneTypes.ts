@@ -171,6 +171,7 @@ export enum Scene {
     Skill = 'Skill',
     Skills = 'Skills',
     Coupons = 'Coupons',
+    PipelineOverview = 'PipelineOverview',
     Sources = 'Sources',
     StartupProgram = 'StartupProgram',
     Stamphog = 'Stamphog',

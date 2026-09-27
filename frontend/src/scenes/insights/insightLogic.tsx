@@ -43,6 +43,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -1464,7 +1465,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     logic.actions.addInsight(newInsight)
                 }
                 lemonToast.success('Insight duplicated')
-                redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+                if (redirectToInsight) {
+                    const sidePanel = sidePanelStateLogic.findMounted()
+                    if (sidePanel?.values.modalMode) {
+                        sidePanel.actions.closeSidePanel()
+                    }
+                    router.actions.push(urls.insightEdit(newInsight.short_id))
+                }
             } catch (e: any) {
                 // Nothing downstream reports this: the copy is created by a plain listener rather than
                 // a loader, so without a toast here a failure is indistinguishable from a dead button.
