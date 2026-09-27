@@ -13,6 +13,10 @@ PAGE_SIZE = 250
 ANALYTICS_MAX_IDS = 250
 ANALYTICS_MAX_DATE_RANGE_DAYS = 90
 DEFAULT_LOOKBACK_DAYS = 89
+# A fanned-out analytics request asks for a full batch of ids, every metric column, a full date
+# chunk and (for targeting analytics) several breakdown dimensions at once, so it legitimately
+# takes longer than the default 30s used for lightweight entity/list requests.
+ANALYTICS_REQUEST_TIMEOUT_SECONDS = 60
 
 # Pinterest Ads API v5 analytics columns
 # Full column reference: https://developers.pinterest.com/docs/api/v5/ads-analytics/

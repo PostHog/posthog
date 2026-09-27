@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_
     ANALYTICS_ENDPOINT_PATHS,
     ANALYTICS_ENTITY_SOURCES,
     ANALYTICS_ID_PARAM_NAMES,
+    ANALYTICS_REQUEST_TIMEOUT_SECONDS,
     ENTITY_ENDPOINT_PATHS,
     PINTEREST_ADS_CONFIG,
     TARGETING_ANALYTICS_ENDPOINT_PATHS,
@@ -523,6 +524,9 @@ class TestIterAnalyticsRowsFresh:
         assert yielded[0][0]["currency"] == "USD"
         # Single (batch, chunk) run → no next cursor → no save
         manager.save_state.assert_not_called()
+        # A fanned-out request bundles a full id batch, every metric column and a full date chunk,
+        # so it needs more than the default 30s given to lightweight entity/list requests.
+        assert mock_request.call_args.kwargs["timeout"] == ANALYTICS_REQUEST_TIMEOUT_SECONDS
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
