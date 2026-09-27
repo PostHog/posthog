@@ -37,8 +37,9 @@ const SEARCH_RESULT_LIMIT = 50
 // Client-side paging over the single ranked response. Not in the URL, where the observations table owns `page`.
 export const SEARCH_PAGE_SIZE = 9
 
-// Relative to the best match, because distances are only comparable within one response.
-const TOP_MATCH_MARGIN = 0.05
+export type SearchResultTarget = 'watch' | 'detail'
+
+const TOP_MATCH_COUNT = 3
 // The server's error code when the organization has not allowed AI data processing.
 const AI_CONSENT_REQUIRED_CODE = 'ai_data_processing_not_approved'
 const RECENT_QUERIES_LIMIT = 3
@@ -67,6 +68,7 @@ export interface observationSearchLogicValues {
     pendingSourceObservationId: string | null
     query: string
     recentQueries: string[]
+    reranked: boolean
     results: ObservationSearchResultApi[] | null
     scannerId: string | null
     searchedQuery: string | null
@@ -74,7 +76,7 @@ export interface observationSearchLogicValues {
     sourceObservationId: string | null
     suggestedQueries: string[]
     suggestedQueriesLoading: boolean
-    topMatchDistanceCutoff: number | null
+    topMatchIds: Set<string> | null
     truncated: boolean
     unavailableSessionIds: string[]
     unavailableSessionIdsLoading: boolean
@@ -116,6 +118,13 @@ export interface observationSearchLogicActions {
         suggestedQueries: string[]
         payload?: void
     }
+    resultOpened: (
+        observationId: string,
+        target: SearchResultTarget
+    ) => {
+        observationId: string
+        target: SearchResultTarget
+    }
     search: () => {
         value: true
     }
@@ -133,9 +142,11 @@ export interface observationSearchLogicActions {
         results: ObservationSearchResultApi[],
         query: string,
         truncated: boolean,
-        sourceObservationId?: string | null
+        sourceObservationId?: string | null,
+        reranked?: boolean
     ) => {
         query: string
+        reranked: boolean
         results: ObservationSearchResultApi[]
         sourceObservationId: string | null
         truncated: boolean
@@ -170,7 +181,7 @@ export interface observationSearchLogicMeta {
         pageResults: (results: ObservationSearchResultApi[] | null, page: number) => ObservationSearchResultApi[]
         pageStartIndex: (page: number) => number
         pageEndIndex: (pageStartIndex: number, pageResults: ObservationSearchResultApi[]) => number
-        topMatchDistanceCutoff: (results: ObservationSearchResultApi[] | null) => number | null
+        topMatchIds: (results: ObservationSearchResultApi[] | null) => Set<string> | null
     }
 }
 
@@ -185,7 +196,13 @@ export type observationSearchLogicType = MakeLogicType<
 // The `q` URL parameter still reaches analytics through `$current_url`, as it does for every event on this page.
 function captureSearchOutcome(
     scannerId: string | null,
-    outcome: { succeeded: boolean; result_count?: number; error_status?: number; error_code?: string }
+    outcome: {
+        succeeded: boolean
+        result_count?: number
+        reranked?: boolean
+        error_status?: number
+        error_code?: string
+    }
 ): void {
     posthog.capture('replay vision observation search completed', {
         ...outcome,
@@ -215,13 +232,16 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             results: ObservationSearchResultApi[],
             query: string,
             truncated: boolean,
-            sourceObservationId: string | null = null
+            sourceObservationId: string | null = null,
+            reranked: boolean = false
         ) => ({
             results,
             query,
             truncated,
             sourceObservationId,
+            reranked,
         }),
+        resultOpened: (observationId: string, target: SearchResultTarget) => ({ observationId, target }),
         searchFailure: true,
         clearSearch: true,
     }),
@@ -327,6 +347,13 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 clearSearch: () => false,
             },
         ],
+        reranked: [
+            false,
+            {
+                searchSuccess: (_, { reranked }) => reranked,
+                clearSearch: () => false,
+            },
+        ],
         // Stale confirmations must not tag the next search's results while its own check is in flight.
         unavailableSessionIds: [
             [] as string[],
@@ -415,15 +442,12 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 pageStartIndex + pageResults.length,
         ],
         // Null when the tiers would not separate anything, so a lone tier is never labeled.
-        topMatchDistanceCutoff: [
+        topMatchIds: [
             (s) => [s.results],
-            (results: ObservationSearchResultApi[] | null): number | null => {
-                if (!results || results.length < 2) {
-                    return null
-                }
-                const cutoff = Math.min(...results.map((r) => r.distance)) + TOP_MATCH_MARGIN
-                return results.some((r) => r.distance > cutoff) ? cutoff : null
-            },
+            (results: ObservationSearchResultApi[] | null): Set<string> | null =>
+                results && results.length > TOP_MATCH_COUNT
+                    ? new Set(results.slice(0, TOP_MATCH_COUNT).map((result) => result.observation.id))
+                    : null,
         ],
     }),
 
@@ -453,6 +477,21 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
             actions.checkRecordingAvailability(sessionIds)
         },
         searchSimilar: () => actions.search(),
+        // Rank against `reranked` tells whether the reranked order puts the results people open higher.
+        resultOpened: ({ observationId, target }) => {
+            const index = values.results?.findIndex((result) => result.observation.id === observationId) ?? -1
+            if (index < 0) {
+                return
+            }
+            posthog.capture('replay vision observation search result opened', {
+                rank: index + 1,
+                target,
+                reranked: values.reranked,
+                result_count: values.results?.length ?? 0,
+                scope: values.scannerId ? 'scanner' : 'cross-scanner',
+                similar_search: values.sourceObservationId !== null,
+            })
+        },
         search: async (_, breakpoint) => {
             await breakpoint(SEARCH_COALESCE_MS)
             const query = values.query.trim()
@@ -478,12 +517,13 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 breakpoint()
                 // The source of a "find similar" search is its own nearest neighbour.
                 const results = (response.results ?? []).filter((r) => r.observation.id !== sourceObservationId)
-                captureSearchOutcome(values.scannerId, { succeeded: true, result_count: results.length })
+                const reranked = response.reranked ?? false
+                captureSearchOutcome(values.scannerId, { succeeded: true, result_count: results.length, reranked })
                 // Cleared while in flight: the late response must not refill the card.
                 if (!values.searching) {
                     return
                 }
-                actions.searchSuccess(results, query, response.truncated ?? false, sourceObservationId)
+                actions.searchSuccess(results, query, response.truncated ?? false, sourceObservationId, reranked)
             } catch (error: any) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error
