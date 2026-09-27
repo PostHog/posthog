@@ -291,8 +291,8 @@ tools:
         title: Run dashboard insights
         description: >
             Run all insights on a dashboard and return their results. Uses cached results by default (may be stale); set
-            refresh to 'blocking' for fresh results. Set format to 'optimized' (default) for LLM-friendly text tables or
-            'json' for raw query results. 'optimized' output is bounded so a wide dashboard fits in context: a tile's
+            refresh to 'blocking' for fresh results. Set output_format to 'optimized' (default) for LLM-friendly text
+            tables or 'json' for raw query results. 'optimized' output is bounded so a wide dashboard fits in context: a tile's
             table is held to max_result_chars characters by keeping its header and both ends and dropping rows from the
             middle, held down further by whatever the response has left of its overall budget, and tiles past that
             budget are not run. To fit more of what you need into that budget, in order: pass tile_ids to run only the

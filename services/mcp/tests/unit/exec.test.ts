@@ -1143,6 +1143,17 @@ describe('exec tool', () => {
             }
         )
 
+        it.each(['info dashboard-insights-run', 'schema dashboard-insights-run output_format'])(
+            'keeps the backend output_format parameter in the schema rendered by "%s"',
+            async (command) => {
+                const { name, schema } = GENERATED_TOOL_MAP['dashboard-insights-run']!()
+                const exec = createExec([makeMockTool({ name, schema })])
+                const result = (await exec.handler(mockContext, { command })) as string
+                expect(result).toContain('output_format')
+                expect(result).toMatch(/\\?"enum\\?":\s*\[\\?"json\\?",\s*\\?"optimized\\?"\]/)
+            }
+        )
+
         it('returns raw JSON when output_format:"json" is passed in the call input', async () => {
             const exec = createExec([makeFormatterTool([])])
             const result = (await exec.handler(mockContext, {
