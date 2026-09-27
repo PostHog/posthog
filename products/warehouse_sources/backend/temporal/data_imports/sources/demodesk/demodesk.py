@@ -41,6 +41,10 @@ class DemodeskResumeConfig:
     # v1 endpoints checkpoint a page number, v2 endpoints an opaque cursor; one field is set.
     page: int | None = None
     cursor: str | None = None
+    # `recording_summaries`/`recording_scorecards` fan out over `recordings`; this is the
+    # `build_dependent_resource` checkpoint (which parents finished, where the current one
+    # stopped), mutually exclusive with `page`/`cursor` above.
+    fanout_state: dict[str, Any] | None = None
 
 
 def to_iso8601(value: Any) -> str:
@@ -107,6 +111,10 @@ def demodesk_client_config(api_key: str, api_version: DemodeskApiVersion) -> Cli
         "base_url": BASE_URL,
         "auth": auth,
         "headers": {"Accept": "application/json"},
+        # The v1 `api-key` header isn't stripped by `requests` on a cross-host redirect the way
+        # `Authorization` is, so `allow_redirects=False` is the only thing that keeps either auth
+        # scheme's credential from following a spoofed 3xx off `BASE_URL`.
+        "allow_redirects": False,
     }
 
 
@@ -178,9 +186,21 @@ def _fanout_resource(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool,
     incremental_field_name: str | None,
+    resumable_source_manager: ResumableSourceManager[DemodeskResumeConfig],
 ) -> Resource:
     assert config.fanout is not None
     parent = DEMODESK_ENDPOINTS[config.fanout.parent_name]
+
+    initial_fanout_state: dict[str, Any] | None = None
+    if resumable_source_manager.can_resume():
+        resume_config = resumable_source_manager.load_state()
+        if resume_config is not None:
+            initial_fanout_state = resume_config.fanout_state
+
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(DemodeskResumeConfig(fanout_state=state))
+
     return cast(
         Resource,
         build_dependent_resource(
@@ -205,6 +225,8 @@ def _fanout_resource(
                 "paginator": SinglePagePaginator(),
                 "data_selector": "data",
             },
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=initial_fanout_state,
         ),
     )
 
@@ -230,6 +252,7 @@ def demodesk_source(
             db_incremental_field_last_value,
             should_use_incremental_field,
             incremental_field_name,
+            resumable_source_manager,
         )
 
     rest_config: RESTAPIConfig = {
@@ -273,7 +296,7 @@ def demodesk_source(
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # `/v2/me` is the cheapest authenticated probe: it only confirms the key is genuine, without
     # touching a resource the key may lack visibility into.
-    res = make_tracked_session().get(
+    res = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
         f"{BASE_URL}/v2/me",
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         timeout=10,

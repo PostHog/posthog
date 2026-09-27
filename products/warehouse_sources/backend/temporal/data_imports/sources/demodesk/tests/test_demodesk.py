@@ -315,6 +315,56 @@ class TestDemodeskFanout:
         assert rows[0]["summaryId"] == "s1"
         assert rows[0]["recordingToken"] == "tokB"
 
+    def test_checkpoints_each_completed_parent(self) -> None:
+        capture = RequestCapture(
+            by_url={
+                "/v2/recordings": [
+                    _make_http_response(
+                        {
+                            "data": [{"recordingToken": "tokA"}, {"recordingToken": "tokB"}],
+                            "meta": {"hasNext": False, "limit": 100},
+                        }
+                    )
+                ],
+                "/v2/recordings/tokA/summaries": [_make_http_response({"data": [{"summaryId": "sA"}]})],
+                "/v2/recordings/tokB/summaries": [_make_http_response({"data": [{"summaryId": "sB"}]})],
+            }
+        )
+        manager, rows = _drive("recording_summaries", capture)
+
+        assert [row["summaryId"] for row in rows] == ["sA", "sB"]
+        saved = [call.args[0] for call in manager.save_state.call_args_list]
+        assert saved, "a crash mid fan-out must be able to resume, so each parent has to checkpoint"
+        last_state = saved[-1].fanout_state
+        assert last_state is not None
+        assert last_state["completed"] == ["/v2/recordings/tokA/summaries", "/v2/recordings/tokB/summaries"]
+        assert last_state["current"] is None
+
+    def test_resume_skips_already_completed_parent(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = DemodeskResumeConfig(
+            fanout_state={"completed": ["/v2/recordings/tokA/summaries"], "current": None, "child_state": None}
+        )
+        capture = RequestCapture(
+            by_url={
+                "/v2/recordings": [
+                    _make_http_response(
+                        {
+                            "data": [{"recordingToken": "tokA"}, {"recordingToken": "tokB"}],
+                            "meta": {"hasNext": False, "limit": 100},
+                        }
+                    )
+                ],
+                # No entry for tokA's summaries: a request there would raise StopIteration,
+                # proving a resumed run does not re-fetch an already-completed parent.
+                "/v2/recordings/tokB/summaries": [_make_http_response({"data": [{"summaryId": "sB"}]})],
+            }
+        )
+        _, rows = _drive("recording_summaries", capture, manager)
+
+        assert [row["summaryId"] for row in rows] == ["sB"]
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
