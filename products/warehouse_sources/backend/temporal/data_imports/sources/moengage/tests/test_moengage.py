@@ -101,6 +101,8 @@ def _drive(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
     configured_start_date: str | None = None,
+    last_synced_at: datetime | None = None,
+    db_incremental_field_last_value_before_lookback: Any = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[dict[str, Any]], mock.MagicMock]:
     """Drive ``moengage_source`` with a mocked HTTP session.
 
@@ -135,6 +137,8 @@ def _drive(
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
             configured_start_date=configured_start_date,
+            last_synced_at=last_synced_at,
+            db_incremental_field_last_value_before_lookback=db_incremental_field_last_value_before_lookback,
         )
         rows = [row for page in cast(Iterable[Any], source_response.items()) for row in page]
     return sent_bodies, sent_headers, rows, manager
@@ -314,18 +318,31 @@ class TestReportDays:
     TODAY = date(2025, 6, 15)
 
     @pytest.mark.parametrize(
-        ("watermark", "configured_start", "resume_from", "expected_first", "expected_len"),
+        ("watermark", "configured_start", "resume_from", "previous_sync_floor", "expected_first", "expected_len"),
         [
             # Incremental run continues from the watermark.
-            (date(2025, 6, 13), None, None, date(2025, 6, 13), 3),
+            (date(2025, 6, 13), None, None, None, date(2025, 6, 13), 3),
             # Full refresh starts at the configured start date.
-            (None, date(2025, 6, 10), None, date(2025, 6, 10), 6),
+            (None, date(2025, 6, 10), None, None, date(2025, 6, 10), 6),
             # Full refresh without a start date backfills the default window.
-            (None, None, None, date(2025, 6, 15) - timedelta(days=DEFAULT_BACKFILL_DAYS - 1), DEFAULT_BACKFILL_DAYS),
+            (
+                None,
+                None,
+                None,
+                None,
+                date(2025, 6, 15) - timedelta(days=DEFAULT_BACKFILL_DAYS - 1),
+                DEFAULT_BACKFILL_DAYS,
+            ),
             # A watermark at or past today still re-pulls today rather than requesting the future.
-            (date(2025, 6, 16), None, None, date(2025, 6, 15), 1),
+            (date(2025, 6, 16), None, None, None, date(2025, 6, 15), 1),
             # A resume checkpoint skips the days already yielded.
-            (date(2025, 6, 10), None, date(2025, 6, 14), date(2025, 6, 14), 2),
+            (date(2025, 6, 10), None, date(2025, 6, 14), None, date(2025, 6, 14), 2),
+            # A stale watermark from an idle workspace does not re-scan days the last sync covered.
+            (date(2025, 1, 1), None, None, date(2025, 6, 12), date(2025, 6, 12), 4),
+            # The previous sync never widens the scan past the watermark.
+            (date(2025, 6, 13), None, None, date(2025, 6, 1), date(2025, 6, 13), 3),
+            # A full refresh rebuilds the whole table, so the previous sync does not narrow it.
+            (None, date(2025, 6, 10), None, date(2025, 6, 14), date(2025, 6, 10), 6),
         ],
     )
     def test_resolves_the_requested_days(
@@ -333,10 +350,11 @@ class TestReportDays:
         watermark: date | None,
         configured_start: date | None,
         resume_from: date | None,
+        previous_sync_floor: date | None,
         expected_first: date,
         expected_len: int,
     ) -> None:
-        days = _report_days(watermark, self.TODAY, configured_start, resume_from)
+        days = _report_days(watermark, self.TODAY, configured_start, resume_from, previous_sync_floor)
 
         assert days[0] == expected_first
         assert days[-1] == self.TODAY
@@ -427,6 +445,24 @@ class TestMoEngageSourceDailyReport:
         )
 
         assert [body["start_date"] for body in sent_bodies] == [today.isoformat()]
+
+    def test_incremental_run_starts_at_the_previous_sync_minus_the_applied_lookback(self) -> None:
+        today = datetime.now(UTC).date()
+        stored_watermark = today - timedelta(days=60)
+        last_synced_at = datetime.combine(today - timedelta(days=1), datetime.min.time(), tzinfo=UTC)
+        sent_bodies, _, _, _ = _drive(
+            "daily_campaign_report",
+            [_stats_page(["c1"]) for _ in range(6)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=stored_watermark - timedelta(days=4),
+            db_incremental_field_last_value_before_lookback=stored_watermark,
+            last_synced_at=last_synced_at,
+        )
+
+        # The 4-day lookback the pipeline applied to the watermark applies to the last sync too.
+        assert [body["start_date"] for body in sent_bodies] == [
+            (today - timedelta(days=5 - i)).isoformat() for i in range(6)
+        ]
 
     def test_full_refresh_starts_at_the_configured_date(self) -> None:
         today = datetime.now(UTC).date()

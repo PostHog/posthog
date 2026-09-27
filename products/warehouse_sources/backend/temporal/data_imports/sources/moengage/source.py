@@ -142,6 +142,8 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
             if inputs.should_use_incremental_field
             else None,
             configured_start_date=config.start_date,
+            last_synced_at=inputs.last_synced_at,
+            db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
         )
 
     @property

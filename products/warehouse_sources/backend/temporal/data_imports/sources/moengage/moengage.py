@@ -252,11 +252,32 @@ def _as_date(value: Any) -> date:
     return parse_iso_date(str(value))
 
 
+def _previous_sync_floor(
+    last_synced_at: Optional[datetime],
+    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_last_value_before_lookback: Optional[Any],
+) -> Optional[date]:
+    """First day the previous successful sync leaves to re-read, or None when that is unknown.
+
+    That sync scanned every day up to its own start, so only the lookback the pipeline applied to
+    the watermark needs a re-read, measured back from that start.
+    """
+    if (
+        last_synced_at is None
+        or not isinstance(db_incremental_field_last_value, date)
+        or not isinstance(db_incremental_field_last_value_before_lookback, date)
+    ):
+        return None
+    lookback = db_incremental_field_last_value_before_lookback - db_incremental_field_last_value
+    return _as_date(last_synced_at - lookback)
+
+
 def _report_days(
     db_incremental_field_last_value: Optional[Any],
     today: date,
     configured_start: Optional[date],
     resume_from: Optional[date],
+    previous_sync_floor: Optional[date] = None,
 ) -> list[date]:
     """Resolve the days the daily report requests, oldest first.
 
@@ -266,6 +287,10 @@ def _report_days(
     """
     if db_incremental_field_last_value is not None:
         start = _as_date(db_incremental_field_last_value)
+        # A run that finds no stats writes no rows, so the watermark does not move. Without this
+        # floor, every sync of an idle workspace would re-request each empty day since its last row.
+        if previous_sync_floor is not None:
+            start = max(start, previous_sync_floor)
     else:
         start = configured_start or (today - timedelta(days=DEFAULT_BACKFILL_DAYS - 1))
     if resume_from is not None:
@@ -334,6 +359,8 @@ def moengage_source(
     db_incremental_field_last_value: Optional[Any] = None,
     should_use_incremental_field: bool = False,
     configured_start_date: Optional[str] = None,
+    last_synced_at: Optional[datetime] = None,
+    db_incremental_field_last_value_before_lookback: Optional[Any] = None,
 ) -> SourceResponse:
     endpoint_config = MOENGAGE_ENDPOINTS.get(endpoint)
     if endpoint_config is None:
@@ -414,11 +441,13 @@ def moengage_source(
         # Daily report: the stats API answers one date window per call, so the source fans out one
         # request set per calendar day, oldest first, which keeps rows ascending for the watermark.
         configured_start = parse_iso_date(configured_start_date) if configured_start_date else None
+        watermark = db_incremental_field_last_value if should_use_incremental_field else None
         days = _report_days(
-            db_incremental_field_last_value if should_use_incremental_field else None,
+            watermark,
             today,
             configured_start,
             _resume_day(resume),
+            _previous_sync_floor(last_synced_at, watermark, db_incremental_field_last_value_before_lookback),
         )
         # One tracked session shared by every day's client, so a backfill reuses a single
         # connection pool instead of opening one per day.
