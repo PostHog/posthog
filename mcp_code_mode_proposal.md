@@ -372,7 +372,68 @@ Mitigations:
 
 ## 3. Task runner and warm sandbox integration
 
-_This section is in progress: the audit of the task sandboxes, notebook kernels and HogVM lands in the next commit._
+### 3.1 What already runs code server-side
+
+| Environment                                                                                   | What it runs                                                        | Where                                                                    | Isolation and limits                                                                                                                                                                                                                                                                                                                        | Credentials                                                                                                                                                                                             | Fit for Code Mode                                                                                                                                                 |
+| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tasks sandbox** (`products/tasks/backend/logic/services/{modal,hogland,docker}_sandbox.py`) | Anything: a full Linux box running an agent                         | Modal containers, or Hogland Firecracker microVMs (`hogland_sandbox.py`) | Default 4 CPU / 16 GB / 64 GB, 10 min exec timeout, 6 h hard TTL (`sandbox_config.py`). Modal readiness probe allows up to 45 s. Hogland cold-boots every run and "can take minutes" on a fresh node. agentsh egress policy (`agentsh.py:418-470`) is default-deny with an allowlist, _except_ that `allowed_domains=None` means audit-only | OAuth `pha_` token minted per run: `scoped_teams=[team]`, 6 h expiry, scope preset plus the `internal_run:read` provenance marker (`posthog/temporal/oauth.py`). Injected as `POSTHOG_PERSONAL_API_KEY` | Strong isolation, but seconds to minutes to start and a whole VM per run. Right for long async jobs (PR 10), wrong for an interactive `run`                       |
+| **Warm task runs** (`logic/services/warm.py`)                                                 | A booted sandbox plus an ACP session parked until the first message | Same as above                                                            | Idle for at most `WARM_IDLE_TIMEOUT` = 10 min (`temporal/constants.py:115`). Caps per origin: PostHog AI 2 per user / 10 per org, user-created and signal runs 10 / 100. Quota gate fails closed                                                                                                                                            | Same                                                                                                                                                                                                    | The existing "warm pool" pattern, including the quota and cap model Fast Mode should copy. Still a VM per slot                                                    |
+| **Notebook Python kernels** (`revamped-py-notebooks`)                                         | Python in a long-lived ipykernel                                    | The tasks sandbox substrate, image `posthog-sandbox-notebook`            | One sandbox per (team, notebook, user), 1 h TTL, compute presets from 1/2 to 8/32 CPU/GB. Kernel reused while alive. No egress restriction set                                                                                                                                                                                              | The kernel server keeps the credentials. User code gets data through Arrow files. HMAC command tokens (300 s), data-plane tokens (1 h) scoped to (notebook, team, user)                                 | Proves the "credentials in the host process, code in the child" split. Good prior art for a Python flavor later                                                   |
+| **HogVM** (`common/hogvm/{python,typescript}`, `rust/common/hogvm`)                           | Hog bytecode only                                                   | Django (Python VM), CDP in Node (TS VM), Rust shadow                     | 64 MB, 5 s, 100 async steps by default. In CDP: 5 async steps, 550 ms. `fetch` only through host-mediated `cdpTrackedFetch` with SSRF checks                                                                                                                                                                                                | None in the VM. The host makes the calls                                                                                                                                                                | The right _shape_ (the VM suspends and the host makes each call), but model-written Hog is not realistic. Models write TypeScript and Python well, and Hog poorly |
+| **PostHog AI sandbox routing** (`ee/hogai/sandbox/executor.py`)                               | PostHog AI turns inside task sandboxes                              | Tasks sandbox                                                            | 60 s turn-idle timeout                                                                                                                                                                                                                                                                                                                      | Task OAuth token                                                                                                                                                                                        | Shows how hosted agents reach sandboxes today                                                                                                                     |
+| **In-process JS isolates**                                                                    | none                                                                | n/a                                                                      | No quickjs, isolated-vm, vm2, deno or wasm runtime dependency exists. The only `node:vm` use is client-side in the desktop harness, and `node:vm` is not a security boundary                                                                                                                                                                | n/a                                                                                                                                                                                                     | A new dependency either way                                                                                                                                       |
+
+### 3.2 Where the Code Mode runtime should live
+
+**Inside the Hono MCP pods, as an in-process isolate pool.**
+It should not be a new service, and not the tasks sandbox, for three reasons.
+
+1. **Auth is already solved there.**
+   The Hono process holds the caller's token, region, active project, scopes, feature flags and staff status in `ResolvedState` for this request.
+   A host binding that calls the `exec call` dispatch uses exactly that authority.
+   Nothing is minted, and nothing reaches the isolate.
+   Tenant isolation is the same as for today's `exec call`: every inner call goes through `ApiClient` with the caller's token, and Django enforces team scoping (`TeamScopedRootMixin`, `scoped_teams` on the token).
+   The tasks sandbox, by contrast, must hand a real `pha_` token to code inside the box, and its egress is only as tight as its allowlist.
+2. **Latency.**
+   An isolate context starts in milliseconds.
+   The fastest existing sandbox path, a warm task run, is a parked VM that holds a pool slot for up to 10 minutes.
+   An interactive `run` has to start in well under a second.
+3. **The threat model is smaller.**
+   The code has no syscalls, no network and no filesystem.
+   The only exposed surface is the `ph` bindings, and those re-validate every argument with zod.
+   The worst a malicious or hijacked script can do is what the same model could already do through `exec call`, faster and within budgets, and never on tier C.
+
+Choice of isolate:
+
+| Option                                          | Pros                                                                                          | Cons                                                                                                                                                                                    |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `isolated-vm` (V8 isolates)                     | Fastest, full ES2023, per-isolate memory limit, CPU timeout                                   | Native addon, tied to Node ABI upgrades. A V8 bug is a host escape, so pods need defense in depth: a non-root user and no cloud credentials in the pod env beyond what Hono already has |
+| QuickJS compiled to WASM (`quickjs-emscripten`) | Pure dependency, WASM memory is the boundary, deterministic interrupt handler for CPU budgets | 10–50× slower JS, which is acceptable because runs are I/O-bound on `ph.*` calls. Smaller language surface                                                                              |
+
+Recommendation: QuickJS/WASM for the free tier (safest default, and scripts are I/O-bound), then measure `isolated-vm` for Fast Mode in PR 5.
+Never `node:vm`.
+
+Long runs (over 60 s, or large exports) move to a Temporal workflow on the general-purpose queue that runs the same QuickJS runtime in a worker.
+The worker gets a short-lived token scoped to the caller's team, minted the same way `posthog/temporal/oauth.py` does for tasks.
+Results are stored by reference, never in workflow payloads.
+Only this path needs a minted credential, and the async handle limits it to the run's lifetime.
+
+### 3.3 Client-side vs server-side execution
+
+|                        | Local (client-side): `posthog-cli api run` (PR 9), or the agent's own shell running a script that calls the CLI                                             | Warm server-side isolate in Hono                                                                      |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Available on           | Claude Code, Codex, Cursor, any agent with a shell                                                                                                          | Every MCP client, including Claude web/desktop, Cowork and ChatGPT-style hosts with no code execution |
+| Latency per inner call | Internet round trip from the user's machine to the PostHog API (region-dependent, typically tens to hundreds of ms), in parallel only if the script does it | Intra-cluster call from Hono to Django in the same region. Parallel fan-out is built into the SDK     |
+| Startup                | Node plus CLI start, about 1 s                                                                                                                              | Warm context in milliseconds                                                                          |
+| Auth                   | Personal API key or OAuth token on the user's disk, fully visible to the script and to anything the agent can run                                           | Token stays in Hono. The script never sees it                                                         |
+| Safety controls        | Only as strong as the CLI's gates (`--confirm`, `--dry-run`). The script can bypass the SDK and call the REST API directly with the key                     | Enforced tiers, budgets and the `writes` log. Nothing can bypass the bindings                         |
+| Token use              | The same savings (only the script's printed output enters context), but the agent also spends turns writing files and running shell commands                | Same savings, in one `run` turn                                                                       |
+| PostHog cost           | None beyond API calls                                                                                                                                       | Isolate CPU in Hono pods, which Fast Mode meters                                                      |
+| Data residency         | Data leaves PostHog to the user's machine                                                                                                                   | Raw rows stay in-region. Only `ph.output` leaves                                                      |
+
+Both paths share one generated SDK and one runtime package, so neither forks the tool surface.
+Offer local execution as the free default for shell-capable agents.
+Offer server-side execution everywhere, capped for free and uncapped in Fast Mode.
 
 ---
 
@@ -475,7 +536,7 @@ Suggested sequencing: PRs 1–4 in parallel (weeks 1–2), PR 5 (weeks 2–4), P
 
 Open questions to settle before PR 5:
 
-1. Which isolate: V8 isolates (`isolated-vm`, native addon, fastest) or QuickJS compiled to WASM (pure JS dependency, stronger isolation, slower)? §3 has the evidence for each.
+1. Confirm the §3.2 recommendation (QuickJS/WASM for the free tier, `isolated-vm` measured for Fast Mode) with a perf spike before building the runtime.
 2. Should tier B writes in a run need a dry run first by default, or only past N writes?
 3. Is `mcpConversationId` present on enough traffic to key degradation state, or should the key fall back to `mcpSessionId` + user hash?
 
