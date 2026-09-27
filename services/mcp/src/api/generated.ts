@@ -62058,6 +62058,8 @@ export namespace Schemas {
       results: ObservationSearchResult[];
       /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
       truncated: boolean;
+      /** True when a relevance model reordered the top results after the embedding match. False when the results are in embedding distance order, for example because the model did not answer in time. */
+      reranked: boolean;
     }
 
     /**
