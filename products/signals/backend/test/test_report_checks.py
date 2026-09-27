@@ -841,6 +841,35 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert check.next_run_at > timezone.now() + AGENT_CHECK_RESULT_WINDOW - timedelta(minutes=5)
         assert self._results() == []
 
+    def test_a_dispatched_run_is_listed_on_its_check_and_records_its_verdict(self) -> None:
+        check = self._check()
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
+            run_due_report_checks()
+        assert dispatch.call_args.kwargs["check_id"] == str(check.id)
+
+        (queued,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert (queued.run_state, queued.waiting_on_run, queued.dispatched_run_id) == ("queued", True, None)
+
+        task = Task.objects.create(team=self.team, title="t", description="d")
+        run = SignalScoutRun.objects.create(
+            task_run=TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS),
+            team=self.team,
+            scout_config=self.scout_config,
+            skill_name=FALLBACK_CHECK_SKILL_NAME,
+            skill_version=1,
+            metadata={"check_id": dispatch.call_args.kwargs["check_id"]},
+        )
+        (running,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert (running.run_state, running.dispatched_run_id) == ("running", str(run.id))
+
+        result = record_check_result(
+            team=self.team, run=run, check_id=str(check.id), outcome="passed", explanation="No events since the fix."
+        )
+
+        assert result.check_status == SignalReportCheck.Status.PASSED
+        (closed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert (closed.run_state, closed.waiting_on_run) == (SignalReportCheck.Status.PASSED, False)
+
     def test_the_run_note_carries_the_brief_and_the_resolution_note(self) -> None:
         SignalReportArtefact.append_dismissal(
             team_id=self.team.id,
@@ -1101,8 +1130,9 @@ class TestCheckResultTool(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_run_is_waiting", {"dispatched_at": None}),
+            ("not_due_and_no_run_is_waiting", {"dispatched_at": None}),
             ("already_finished", {"status": SignalReportCheck.Status.CANCELLED}),
+            ("waiting_for_its_report", {"status": SignalReportCheck.Status.PENDING, "dispatched_at": None}),
             ("another_scout_owns_it", {"config": {"instructions": "x", "skill_name": _OTHER_SKILL}}),
             ("the_coordinator_measures_it", {"kind": SignalReportCheck.Kind.METRIC_THRESHOLD}),
         ]
@@ -1116,6 +1146,26 @@ class TestCheckResultTool(APIBaseTest):
         assert not SignalReportArtefact.objects.filter(
             report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
         ).exists()
+
+    @parameterized.expand(
+        [
+            ("due_and_not_dispatched_yet", {"dispatched_at": None, "next_run_at": timezone.now()}, False),
+            (
+                "dispatched_to_this_run_on_a_lane_that_resolves_elsewhere_now",
+                {"config": {"instructions": "x", "skill_name": _OTHER_SKILL}},
+                True,
+            ),
+        ]
+    )
+    def test_a_check_this_run_may_answer_is_recorded(self, _name, overrides, bind_run) -> None:
+        check = self._check(**overrides)
+        if bind_run:
+            self.scout_run.metadata = {"check_id": str(check.id)}
+            self.scout_run.save(update_fields=["metadata"])
+
+        result = self._record(check)
+
+        assert result.check_status == SignalReportCheck.Status.FAILED
 
     def test_another_projects_check_is_not_reachable(self) -> None:
         other_team = self.organization.teams.create(name="Other")

@@ -777,6 +777,25 @@ class ScoutCheckSummarySerializer(serializers.Serializer):
     last_outcome = serializers.CharField(
         allow_null=True, help_text="Verdict of the most recent run; null before the first."
     )
+    run_state = serializers.CharField(
+        help_text=(
+            "Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. "
+            "`scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. "
+            "`queued`: a run was dispatched and has not started. `running`: the dispatched run started and has "
+            "time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches "
+            "again. Any other value is the terminal status."
+        )
+    )
+    waiting_on_run = serializers.BooleanField(
+        help_text="True while an `agent` check waits on a dispatched run to record its verdict."
+    )
+    dispatched_run_id = serializers.UUIDField(
+        allow_null=True,
+        help_text="The scout run the coordinator dispatched for the check, once it started. Null while queued.",
+    )
+    dispatched_at = serializers.DateTimeField(
+        allow_null=True, help_text="When the coordinator last dispatched a run for the check. Null when no run waits."
+    )
 
 
 class FleetFindingsSummarySerializer(serializers.Serializer):

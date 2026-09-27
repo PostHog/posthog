@@ -353,6 +353,7 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
             team_id=canonical_team_id,
             skill_name=skill_name,
             run_note=build_check_run_note(check, config),
+            check_id=str(check.id),
         )
     except WorkflowAlreadyStartedError:
         # Another check on the same lane is still being answered. Theirs finishes, ours goes next
