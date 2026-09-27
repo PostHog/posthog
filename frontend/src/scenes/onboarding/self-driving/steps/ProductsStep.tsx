@@ -8,49 +8,49 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsProducts } from '~/products'
 
 import {
-    ADDITIONAL_TOOL_DETAILS,
+    ADDITIONAL_PRODUCT_DETAILS,
     DOCS_URL_BY_PRODUCT_PATH,
-    ONBOARDING_TOOLS,
+    ONBOARDING_PRODUCTS,
     resolveSetup,
-    toolIconType,
+    productIconType,
 } from '../../shared/useCases'
 import { useCaseSelectionLogic } from '../useCaseSelectionLogic'
 
-export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Element {
+export function ProductsStep({ onContinue }: { onContinue: () => void }): JSX.Element {
     const { selectedUseCase } = useValues(useCaseSelectionLogic)
 
     const setup = resolveSetup(selectedUseCase)
-    const setupTools = setup.tools.map((key) => ONBOARDING_TOOLS[key])
-    const setupProductKeys = new Set(setupTools.map((tool) => tool.productKey))
-    const tools = [
-        ...setupTools.map((tool) => ({
-            productKey: tool.productKey,
-            name: tool.displayName ?? tool.productPath,
-            description: tool.benefit,
-            docsUrl: DOCS_URL_BY_PRODUCT_PATH[tool.productPath],
-            iconType: toolIconType(tool),
+    const setupProducts = setup.products.map((key) => ONBOARDING_PRODUCTS[key])
+    const setupProductKeys = new Set(setupProducts.map((product) => product.productKey))
+    const products = [
+        ...setupProducts.map((product) => ({
+            productKey: product.productKey,
+            name: product.displayName ?? product.productPath,
+            description: product.benefit,
+            docsUrl: DOCS_URL_BY_PRODUCT_PATH[product.productPath],
+            iconType: productIconType(product),
         })),
-        ...(setup.additionalTools ?? [])
+        ...(setup.additionalProducts ?? [])
             .filter((productKey) => !setupProductKeys.has(productKey))
             .map((productKey) => {
                 const productItem = getTreeItemsProducts().find((item) => item.intents?.includes(productKey))
-                const details = ADDITIONAL_TOOL_DETAILS[productKey]
-                const tool = {
+                const details = ADDITIONAL_PRODUCT_DETAILS[productKey]
+                const product = {
                     name: productItem?.path ?? productKey,
                     description: details?.description ?? '',
                 }
                 return {
                     productKey,
-                    name: toSentenceCase(tool.name),
-                    description: tool.description,
-                    docsUrl: details?.docsUrl ?? DOCS_URL_BY_PRODUCT_PATH[tool.name],
+                    name: toSentenceCase(product.name),
+                    description: product.description,
+                    docsUrl: details?.docsUrl ?? DOCS_URL_BY_PRODUCT_PATH[product.name],
                     iconType: productItem?.iconType ?? 'product_analytics',
                 }
             }),
     ]
     // The setup's sidebar extras, resolved the same way the backend populates the sidebar:
-    // through the products registry's `intents`. Tools already shown above are excluded.
-    const shownNames = new Set(tools.map((tool) => tool.name))
+    // through the products registry's `intents`. Products already shown above are excluded.
+    const shownNames = new Set(products.map((product) => product.name))
     const sidebarExtras = getTreeItemsProducts().filter(
         (item) =>
             item.intents?.some((intent) => setup.sidebarExtras.includes(intent)) &&
@@ -61,16 +61,16 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
     return (
         <div className="flex flex-col gap-6 py-1">
             <p className="text-secondary text-center m-0">
-                These tools will feed your agents after setup finishes. You can change them later in settings.
+                These products will feed your agents after setup finishes. You can change them later in settings.
             </p>
             <div className="flex flex-col gap-2">
-                {tools.map((tool) => {
-                    const iconType = tool.iconType
+                {products.map((product) => {
+                    const iconType = product.iconType
                     const colorVar = `var(--color-product-${iconType.replace(/_/g, '-')}-light)`
 
                     return (
                         <div
-                            key={tool.productKey}
+                            key={product.productKey}
                             className="OnboardingProductCard flex items-start gap-4 px-4 rounded-lg"
                         >
                             <div
@@ -82,9 +82,9 @@ export function ToolsStep({ onContinue }: { onContinue: () => void }): JSX.Eleme
                                 </div>
                             </div>
                             <div className="flex-1 flex flex-col gap-1 min-w-0">
-                                <div className="font-semibold text-base">{tool.name}</div>
-                                <div className="text-sm text-secondary text-balance">{tool.description}</div>
-                                <Link to={tool.docsUrl} target="_blank" className="text-sm w-fit">
+                                <div className="font-semibold text-base">{product.name}</div>
+                                <div className="text-sm text-secondary text-balance">{product.description}</div>
+                                <Link to={product.docsUrl} target="_blank" className="text-sm w-fit">
                                     Read the docs
                                 </Link>
                             </div>
