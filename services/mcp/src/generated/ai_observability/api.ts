@@ -568,6 +568,8 @@ export const evaluationsCreateBodyOutputConfigOptionsItemKeyMax = 128
 export const evaluationsCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
 export const evaluationsCreateBodyOutputConfigOptionsItemLabelMax = 256
 
+export const evaluationsCreateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsCreateBodyConditionsItemIdMax = 100
 
 export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
@@ -676,6 +678,7 @@ export const EvaluationsCreateBody = () => zod
                         })
                     )
                     .min(1)
+                    .max(evaluationsCreateBodyOutputConfigOptionsMax)
                     .optional()
                     .describe(
                         'Categorical output options. Keys identify stored results; labels are displayed to users.'
@@ -858,6 +861,8 @@ export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyMax = 128
 export const evaluationsPartialUpdateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
 export const evaluationsPartialUpdateBodyOutputConfigOptionsItemLabelMax = 256
 
+export const evaluationsPartialUpdateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
@@ -968,6 +973,7 @@ export const EvaluationsPartialUpdateBody = () => zod
                         })
                     )
                     .min(1)
+                    .max(evaluationsPartialUpdateBodyOutputConfigOptionsMax)
                     .optional()
                     .describe(
                         'Categorical output options. Keys identify stored results; labels are displayed to users.'
@@ -1153,6 +1159,8 @@ export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyMax = 128
 export const evaluationsTestHogCreateBodyOutputConfigOptionsItemKeyRegExp = new RegExp('^[a-z0-9]+(?:[_-][a-z0-9]+)\*$')
 export const evaluationsTestHogCreateBodyOutputConfigOptionsItemLabelMax = 256
 
+export const evaluationsTestHogCreateBodyOutputConfigOptionsMax = 100
+
 export const evaluationsTestHogCreateBodySampleCountDefault = 5
 export const evaluationsTestHogCreateBodySampleCountMax = 10
 
@@ -1210,6 +1218,7 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                     })
                 )
                 .min(1)
+                .max(evaluationsTestHogCreateBodyOutputConfigOptionsMax)
                 .optional()
                 .describe('Categorical output options. Keys identify stored results; labels are displayed to users.'),
             selection_mode: zod

@@ -127,9 +127,14 @@ export function categoricalEvaluationPassedHogQL(evaluation: Pick<EvaluationConf
     return `hasAll([${categories}], ${EVALUATION_CATEGORIES_HOGQL})`
 }
 
+export const MAX_CATEGORICAL_OPTIONS = 100
+
 export function categoricalOutputConfigError(config: EvaluationOutputConfig): string | null {
     if (!config.options?.length) {
         return 'Add at least one category.'
+    }
+    if (config.options.length > MAX_CATEGORICAL_OPTIONS) {
+        return `Use at most ${MAX_CATEGORICAL_OPTIONS} categories.`
     }
     if (
         config.options.some(

@@ -70,6 +70,7 @@ Creation is gated by `llm-analytics-categorical-evaluations`, disabled by defaul
 Existing evaluations remain editable and continue running when the flag is off.
 
 The output configuration defines `options` as `{key, label}` pairs, `selection_mode` as `single` or `multiple`, and optional `allows_na`.
+Each evaluation supports 1 to 100 categories, enforced by the API and editor.
 Keys must be unique lowercase identifiers; labels are for display.
 Keep keys stable when changing labels so historical results retain their meaning.
 
@@ -88,6 +89,7 @@ Without a rule, results stay ungraded and new reports are unavailable.
 Rule edits reclassify stored results, while each report retains its own configuration snapshot.
 
 The new result property leaves boolean and numeric properties unchanged and needs no property-definition backfill.
+Evaluation clustering excludes numeric and categorical results because its embedding format requires boolean verdicts.
 Deploy all evaluation workers before enabling the flag.
 
 ## Run history and reports

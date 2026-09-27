@@ -5,7 +5,7 @@ import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSelect, Lemon
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { categoricalOutputConfigError } from '../constants'
+import { MAX_CATEGORICAL_OPTIONS, categoricalOutputConfigError } from '../constants'
 import type { EvaluationOutputConfig } from '../types'
 
 export function CategoricalEvaluationConfig({
@@ -87,7 +87,14 @@ export function CategoricalEvaluationConfig({
                         />
                     </div>
                 ))}
-                <LemonButton onClick={() => onChange({ options: [...options, { key: '', label: '' }] })}>
+                <LemonButton
+                    disabledReason={
+                        options.length >= MAX_CATEGORICAL_OPTIONS
+                            ? `You can add up to ${MAX_CATEGORICAL_OPTIONS} categories.`
+                            : undefined
+                    }
+                    onClick={() => onChange({ options: [...options, { key: '', label: '' }] })}
+                >
                     Add category
                 </LemonButton>
                 <p className="text-muted text-sm">

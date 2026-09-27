@@ -1370,6 +1370,7 @@ export type EvaluationApiOutputConfig = {
     /**
      * Categorical output options. Keys identify stored results; labels are displayed to users.
      * @minItems 1
+     * @maxItems 100
      */
     options?: EvaluationApiOutputConfigOptionsItem[]
     /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
@@ -1688,6 +1689,7 @@ export type PatchedEvaluationApiOutputConfig = {
     /**
      * Categorical output options. Keys identify stored results; labels are displayed to users.
      * @minItems 1
+     * @maxItems 100
      */
     options?: PatchedEvaluationApiOutputConfigOptionsItem[]
     /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
@@ -1866,6 +1868,7 @@ export type TestHogRequestApiOutputConfig = {
     /**
      * Categorical output options. Keys identify stored results; labels are displayed to users.
      * @minItems 1
+     * @maxItems 100
      */
     options?: TestHogRequestApiOutputConfigOptionsItem[]
     /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
@@ -2580,6 +2583,7 @@ export type EvaluationReportMetricsApiOutputConfig = {
     /**
      * Categorical output options. Keys identify stored results; labels are displayed to users.
      * @minItems 1
+     * @maxItems 100
      */
     options?: EvaluationReportMetricsApiOutputConfigOptionsItem[]
     /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */

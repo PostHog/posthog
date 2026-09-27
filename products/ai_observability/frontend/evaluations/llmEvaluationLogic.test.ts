@@ -1593,21 +1593,33 @@ return result`,
             expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
         })
 
-        it('does not request a sample with an invalid numeric config', async () => {
-            const testSample = jest.fn(() => ({ results: [] }))
-            useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
-            logic = llmEvaluationLogic({ evaluationId: 'new' })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-            logic.actions.setEvaluationType('hog')
-            logic.actions.setOutputType('numeric')
-            logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: NaN } })
+        it.each(['numeric', 'categorical'] as const)(
+            'does not request a sample with an invalid %s config',
+            async (outputType) => {
+                const testSample = jest.fn(() => ({ results: [] }))
+                useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
+                logic = llmEvaluationLogic({ evaluationId: 'new' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+                logic.actions.setEvaluationType('hog')
+                logic.actions.setOutputType(outputType)
+                logic.actions.patchOutputConfig(
+                    outputType === 'numeric'
+                        ? { passing_rule: { operator: 'gte', threshold: NaN } }
+                        : {
+                              options: Array.from({ length: 101 }, (_, i) => ({
+                                  key: `category_${i}`,
+                                  label: `Category ${i}`,
+                              })),
+                          }
+                )
 
-            await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
+                await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
 
-            expect(testSample).not.toHaveBeenCalled()
-            expect(logic.values.hogTestResults).toBeNull()
-        })
+                expect(testSample).not.toHaveBeenCalled()
+                expect(logic.values.hogTestResults).toBeNull()
+            }
+        )
 
         it.each(['boolean', 'numeric', 'categorical'] as const)(
             'sends %s output config and clears sample results after configuration changes',

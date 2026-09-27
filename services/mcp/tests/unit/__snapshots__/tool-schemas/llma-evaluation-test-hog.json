@@ -67,6 +67,7 @@
                         "required": ["key", "label"],
                         "type": "object"
                     },
+                    "maxItems": 100,
                     "minItems": 1,
                     "type": "array"
                 },

@@ -49,6 +49,7 @@ from ..llm import DEFAULT_MODEL_BY_PROVIDER
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
+    MAX_CATEGORICAL_OPTIONS,
     SESSION_EVAL_DEFAULT_QUIET_PERIOD_SECONDS,
     SESSION_EVAL_MAX_MAX_AGE_SECONDS,
     SESSION_EVAL_MAX_QUIET_PERIOD_SECONDS,
@@ -199,6 +200,7 @@ class _EvaluationConfigField(serializers.JSONField):
             "options": {
                 "type": "array",
                 "minItems": 1,
+                "maxItems": MAX_CATEGORICAL_OPTIONS,
                 "description": "Categorical output options. Keys identify stored results; labels are displayed to users.",
                 "items": {
                     "type": "object",

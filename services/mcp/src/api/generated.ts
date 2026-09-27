@@ -38434,6 +38434,7 @@ export namespace Schemas {
       /**
          * Categorical output options. Keys identify stored results; labels are displayed to users.
          * @minItems 1
+         * @maxItems 100
          */
       options?: EvaluationOutputConfigOptionsItem[];
       /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
@@ -39040,6 +39041,7 @@ export namespace Schemas {
       /**
          * Categorical output options. Keys identify stored results; labels are displayed to users.
          * @minItems 1
+         * @maxItems 100
          */
       options?: EvaluationReportMetricsOutputConfigOptionsItem[];
       /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
@@ -72817,6 +72819,7 @@ export namespace Schemas {
       /**
          * Categorical output options. Keys identify stored results; labels are displayed to users.
          * @minItems 1
+         * @maxItems 100
          */
       options?: PatchedEvaluationOutputConfigOptionsItem[];
       /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */
@@ -100031,6 +100034,7 @@ export namespace Schemas {
       /**
          * Categorical output options. Keys identify stored results; labels are displayed to users.
          * @minItems 1
+         * @maxItems 100
          */
       options?: TestHogRequestOutputConfigOptionsItem[];
       /** Select one category or multiple categories. Multiple selection allows an empty result. Defaults to single. */

@@ -114,6 +114,10 @@ class NumericOutputConfig(BaseModel):
         return score
 
 
+# boffin: bound category config before it crosses Temporal activity payloads.
+MAX_CATEGORICAL_OPTIONS = 100
+
+
 class CategoricalOption(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
 
@@ -144,7 +148,7 @@ class UnknownEvaluationCategory(ValueError):
 class CategoricalOutputConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    options: list[CategoricalOption] = Field(min_length=1)
+    options: list[CategoricalOption] = Field(min_length=1, max_length=MAX_CATEGORICAL_OPTIONS)
     selection_mode: Literal["single", "multiple"] = "single"
     allows_na: bool = False
     passing_rule: CategoricalPassingRule | None = None
