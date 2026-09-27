@@ -1,7 +1,7 @@
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
 import {
-  afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -25,13 +25,17 @@ import { useDraftSync } from "./useDraftSync";
 
 // A real editor rather than a stub of the commands the hook calls: what the
 // restore path is worth testing for is the text a user would see in the box.
+const editors: Editor[] = [];
+
 function makeEditor(): Editor {
   const element = document.createElement("div");
   document.body.appendChild(element);
-  return new Editor({
+  const editor = new Editor({
     element,
     extensions: getEditorExtensions({ sessionId: "session-1" }),
   });
+  editors.push(editor);
+  return editor;
 }
 
 function DraftAttachmentsProbe({ sessionId }: { sessionId: string }) {
@@ -62,9 +66,8 @@ describe("useDraftSync", () => {
     Range.prototype.getBoundingClientRect = () => new DOMRect();
   });
 
-  afterAll(() => {
-    Reflect.deleteProperty(Range.prototype, "getClientRects");
-    Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+  afterEach(() => {
+    for (const editor of editors.splice(0)) editor.destroy();
   });
 
   beforeEach(() => {
