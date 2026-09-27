@@ -186,6 +186,14 @@ describe('taxonomicSearchIntentLogic', () => {
         }
     )
 
+    it.each(['control', 'banner'])('promotes the predicted group on the All tab in the %s arm too', async (variant) => {
+        enroll(variant)
+        filterLogic.actions.setSearchQuery('email')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(TaxonomicFilterGroupType.PersonProperties)
+    })
+
     it('stops asking after the project turns out not to be enrolled', async () => {
         enroll('banner')
         useMocks({
