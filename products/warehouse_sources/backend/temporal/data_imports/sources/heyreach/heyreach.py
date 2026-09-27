@@ -56,6 +56,11 @@ def _make_client(api_key: str) -> RESTClient:
         base_url=HEYREACH_BASE_URL,
         auth=APIKeyAuth(api_key=api_key, name=AUTH_HEADER, location="header"),
         request_timeout=REQUEST_TIMEOUT_SECONDS,
+        # Pin every request to HEYREACH_BASE_URL's host and refuse redirects: the API key
+        # rides a custom header, so a spoofed pagination target or a cross-origin 3xx must
+        # not carry that credential off-host (SSRF).
+        allowed_hosts=[],
+        allow_redirects=False,
     )
 
 
@@ -71,6 +76,10 @@ def _rest_config(api_key: str, endpoint_config: HeyReachEndpointConfig) -> RESTA
                 "location": "header",
             },
             "paginator": _offset_paginator(),
+            # Same SSRF pinning as _make_client: the API key rides a header, so pagination
+            # can't be redirected off-host.
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resource_defaults": {},
         "resources": [
