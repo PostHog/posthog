@@ -6,6 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.llm.system_one import Answer, NoulAnswer, SystemOneResult
 from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS
 from posthog.models import Team
@@ -99,18 +101,19 @@ class TestMetadataSuggestions(SimpleTestCase):
         )
         assert set(suggestion.tags) == set(long_tags)
 
+    @parameterized.expand(
+        [
+            ("ascii_overflow", "y" * (MAX_STATE_BYTES + 1)),
+            (
+                "multibyte_overflow",
+                "字" * (MAX_STATE_BYTES - 200),
+            ),
+        ]
+    )
+    def test_state_rejects_oversized_insights(self, _name: str, description: str) -> None:
         decide = MagicMock()
         with _jev(decide), self.assertRaises(InsightTooLargeForSuggestions):
-            suggest_tags(1, InsightContext(summary="", description="y" * (MAX_STATE_BYTES + 1)), ["growth"])
-        decide.assert_not_called()
-
-        # A multi-byte character costs several UTF-8 bytes (and several model tokens) per character, so
-        # a character count alone would let this description through while it still overflows the budget.
-        decide = MagicMock()
-        multibyte_description = "字" * (MAX_STATE_BYTES - 200)
-        assert len(multibyte_description) < MAX_STATE_BYTES
-        with _jev(decide), self.assertRaises(InsightTooLargeForSuggestions):
-            suggest_tags(1, InsightContext(summary="", description=multibyte_description), ["growth"])
+            suggest_tags(1, InsightContext(summary="", description=description), ["growth"])
         decide.assert_not_called()
 
     def test_long_tag_names_sharing_a_prefix_stay_distinguishable_when_clipped(self) -> None:

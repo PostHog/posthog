@@ -110,7 +110,7 @@ def _clip(text: str, limit: int) -> str:
         return text
     if limit <= 3:
         return text[:limit]
-    head = (limit - 3 + 1) // 2
+    head = (limit - 2) // 2
     tail = limit - 3 - head
     return f"{text[:head]}...{text[len(text) - tail :]}" if tail else f"{text[:head]}..."
 
