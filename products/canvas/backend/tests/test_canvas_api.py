@@ -1741,6 +1741,24 @@ class TestCanvasState(CanvasAPIBaseTest):
         selected = self.client.get(url, {"key": "policy"}).json()
         assert [(entry["key"], entry["value"]) for entry in selected["entries"]] == [("policy", "a long policy")]
 
+    def test_state_cursor_pages_do_not_skip_entries_when_earlier_keys_change(self):
+        canvas_id = self._state_canvas()
+        for key in ("a", "b", "c"):
+            self._set_state(canvas_id, "shared", key, key)
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/"
+
+        first = self.client.get(url, {"keys_only": "true", "limit": "2"}).json()
+        assert [entry["key"] for entry in first["entries"]] == ["a", "b"]
+        assert first["next_cursor"] is not None
+        # With offsets, deleting an already-read key shifts "c" to offset 1 and the next page skips it.
+        assert self._set_state(canvas_id, "shared", "a", None).status_code == status.HTTP_204_NO_CONTENT
+        second = self.client.get(url, {"keys_only": "true", "limit": "2", "cursor": first["next_cursor"]}).json()
+        assert [entry["key"] for entry in second["entries"]] == ["c"]
+        assert second["complete"] is True
+        assert second["next_cursor"] is None
+
+        assert self.client.get(url, {"cursor": "not-a-cursor"}).status_code == status.HTTP_400_BAD_REQUEST
+
     def test_state_value_chunks_detect_changes(self):
         canvas_id = self._state_canvas()
         value = {"text": "é\\n" * 30}

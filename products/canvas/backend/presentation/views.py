@@ -1888,6 +1888,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         parameters=[CanvasStateQuerySerializer],
         responses={
             200: CanvasStateResponseSerializer,
+            400: OpenApiResponse(description="Invalid query, or a malformed cursor."),
             403: OpenApiResponse(description="Canvas state requires an authenticated user."),
         },
     )
@@ -1904,9 +1905,12 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return _state_rejection()
         query = CanvasStateQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        result = canvas_api.read_state(
-            self.team_id, user.id, canvas.id, canvas.head_capabilities, **query.validated_data
-        )
+        try:
+            result = canvas_api.read_state(
+                self.team_id, user.id, canvas.id, canvas.head_capabilities, **query.validated_data
+            )
+        except CanvasRequestRejected as rejection:
+            return Response(rejection.body, status=rejection.status_code)
         return Response(CanvasStateResponseSerializer(result).data)
 
     @extend_schema(

@@ -1352,6 +1352,8 @@ export const CanvasesStateRetrieveParams = () => zod.object({
         ),
 })
 
+export const canvasesStateRetrieveQueryCursorMax = 1024
+
 export const canvasesStateRetrieveQueryKeyMax = 200
 
 export const canvasesStateRetrieveQueryKeyPrefixMax = 200
@@ -1363,6 +1365,14 @@ export const canvasesStateRetrieveQueryOffsetDefault = 0
 export const canvasesStateRetrieveQueryOffsetMin = 0
 
 export const CanvasesStateRetrieveQueryParams = () => zod.object({
+    cursor: zod
+        .string()
+        .min(1)
+        .max(canvasesStateRetrieveQueryCursorMax)
+        .optional()
+        .describe(
+            'Cursor from next_cursor. Resumes after the last entry of the previous page, so writes between pages cannot skip or repeat entries. Keep filters unchanged between pages. Takes precedence over offset.'
+        ),
     key: zod.string().min(1).max(canvasesStateRetrieveQueryKeyMax).optional().describe('Only read this exact key.'),
     key_prefix: zod
         .string()
@@ -1385,7 +1395,9 @@ export const CanvasesStateRetrieveQueryParams = () => zod.object({
         .number()
         .min(canvasesStateRetrieveQueryOffsetMin)
         .default(canvasesStateRetrieveQueryOffsetDefault)
-        .describe('Entry offset from next_offset. Keep filters unchanged between pages.'),
+        .describe(
+            'Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.'
+        ),
     scope: zod
         .enum(['user', 'shared'])
         .optional()

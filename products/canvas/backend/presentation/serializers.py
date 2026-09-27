@@ -1254,7 +1254,18 @@ class CanvasStateQuerySerializer(serializers.Serializer):
         required=False,
         default=0,
         min_value=0,
-        help_text="Entry offset from next_offset. Keep filters unchanged between pages.",
+        help_text=(
+            "Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip "
+            "or repeat entries when state changes between pages."
+        ),
+    )
+    cursor = serializers.CharField(
+        required=False,
+        max_length=1024,
+        help_text=(
+            "Cursor from next_cursor. Resumes after the last entry of the previous page, so writes between pages "
+            "cannot skip or repeat entries. Keep filters unchanged between pages. Takes precedence over offset."
+        ),
     )
     limit = serializers.IntegerField(
         required=False,
@@ -1325,7 +1336,14 @@ class CanvasStateResponseSerializer(serializers.Serializer):
         many=True,
         help_text="The canvas's shared entries plus the caller's own user-scoped entries.",
     )
-    next_offset = serializers.IntegerField(allow_null=True, help_text="Next entry offset, or null when complete.")
+    next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Next entry offset, or null when complete. Null when the request used a cursor.",
+    )
+    next_cursor = serializers.CharField(
+        allow_null=True,
+        help_text="Cursor for the next page, or null when complete. Pass it as cursor.",
+    )
     complete = serializers.BooleanField(help_text="True when no further entries remain for this selection.")
 
 
