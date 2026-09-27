@@ -357,7 +357,10 @@ jobs:
                   package-manager-cache: false
 
             - name: Install e2e dependencies
-              run: pnpm install --frozen-lockfile --ignore-scripts --filter code
+              run: pnpm install --frozen-lockfile --ignore-scripts --filter code --filter "@posthog/agent..."
+
+            - name: Build agent package
+              run: pnpm --filter "@posthog/agent..." run build
 
             - name: Download the x64 app
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
