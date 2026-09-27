@@ -127,9 +127,28 @@ def _delta(results: list[dict]) -> float | None:
     return mean(by_arm["without"]) - mean(by_arm["with"])
 
 
+def _broken_without(results: list[dict]) -> bool:
+    return any(r["violations"] for r in results if r["arm"] == "without")
+
+
 def _effect(results: list[dict]) -> str:
     delta = _delta(results)
-    return "n/a" if delta is None else f"{delta:+.2f}"
+    if delta is None:
+        return "n/a"
+    if not _broken_without(results):
+        return "no evidence"
+    return f"{delta:+.2f}"
+
+
+def _helped(results: list[dict]) -> str:
+    """How many repeats the rule won, pairing each with-run against the without-run of the same repeat."""
+    by_repeat: dict[int, dict[str, float]] = defaultdict(dict)
+    for r in results:
+        if r["violations"] is not None:
+            by_repeat[r["repeat"]][r["arm"]] = r["violations"]
+    pairs = [arms for arms in by_repeat.values() if len(arms) == 2]
+    won = sum(1 for arms in pairs if arms["without"] > arms["with"])
+    return f"{won} of {len(pairs)}"
 
 
 def _largest_effect_first(item: tuple[str, list[dict]]) -> float:
@@ -153,15 +172,30 @@ def report(results: list[dict]) -> str:
             f"| {claim} | {claim_results[0]['section']} "
             f"| {_arm_mean([r for r in claim_results if r['arm'] == 'with'])} "
             f"| {_arm_mean([r for r in claim_results if r['arm'] == 'without'])} "
-            f"| {_effect(claim_results)} |"
+            f"| {_effect(claim_results)} | {_helped(claim_results)} |"
             for claim, claim_results in sorted(by_claim.items(), key=_largest_effect_first, reverse=True)
         ]
-        header = "| Claim | Section | With rule | Without rule | Rule effect |\n|---|---|---|---|---|\n"
-        sections.append(f"### {agent}\n\n{header}{chr(10).join(rows)}\n")
+        header = (
+            "| Claim | Section | With rule | Without rule | Rule effect | Repeats won |\n|---|---|---|---|---|---|\n"
+        )
+        sections.append(f"### {agent}\n\n{header}{'\\n'.join(rows)}\n")
     return (
         "\n".join(sections) + "\nViolations are the detector's count per run, averaged over repeats. "
-        "Rule effect is without minus with: positive means the rule reduced violations.\n"
+        "Rule effect is without minus with: positive means the rule reduced violations. "
+        "Repeats won counts the repeats where the run without the rule broke it more than the run with it.\n"
+        + _untempted_traps(results)
     )
+
+
+def _untempted_traps(results: list[dict]) -> str:
+    """A rule nobody breaks without it says nothing about the rule, only about the trap."""
+    by_claim: dict[str, list[dict]] = defaultdict(list)
+    for result in results:
+        by_claim[result["claim"]].append(result)
+    quiet = sorted(claim for claim, claim_results in by_claim.items() if not _broken_without(claim_results))
+    if not quiet:
+        return ""
+    return f"\nNo model broke these rules without them, so the trap did not tempt: {', '.join(quiet)}\n"
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

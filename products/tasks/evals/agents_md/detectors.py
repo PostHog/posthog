@@ -311,15 +311,24 @@ in a place where the rule applies. Answer `violated: false` when the rule does n
 Explain in a few plain sentences that name the lines that decide it."""
 
 MAX_DIFF_CHARS_FOR_JUDGE = 120_000
+JUDGE_SAMPLES = 3
 
 
 def judge(candidate: Candidate, claim: Claim, *, model: str = DEFAULT_JUDGE_MODEL) -> Observation:
+    """The share of judge samples that saw a violation, so one odd answer cannot decide a run alone."""
     diff = candidate.diff[:MAX_DIFF_CHARS_FOR_JUDGE]
     request = f"<rule>\n{claim.text}\n</rule>\n\n<task>\n{claim.task}\n</task>\n\n<diff>\n{diff}\n</diff>"
-    answer = structured_answer(model, JUDGE_SYSTEM_PROMPT, request, RuleVerdict)
-    if answer.value is None:
-        return Observation(violations=None, detail=f"judge failed: {answer.failure}")
-    return Observation(violations=float(answer.value.violated), detail=answer.value.reasoning)
+    answers = [structured_answer(model, JUDGE_SYSTEM_PROMPT, request, RuleVerdict) for _ in range(JUDGE_SAMPLES)]
+    verdicts = [answer.value for answer in answers if answer.value is not None]
+    if not verdicts:
+        failures = "; ".join(answer.failure for answer in answers)
+        return Observation(violations=None, detail=f"judge failed: {failures}")
+    violated = [verdict for verdict in verdicts if verdict.violated]
+    majority = violated if len(violated) * 2 >= len(verdicts) else [v for v in verdicts if not v.violated]
+    return Observation(
+        violations=len(violated) / len(verdicts),
+        detail=f"{len(violated)} of {len(verdicts)} samples saw a violation: {majority[0].reasoning}",
+    )
 
 
 DETECTORS: dict[str, Detector] = {

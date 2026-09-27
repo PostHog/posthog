@@ -1,3 +1,4 @@
+import json
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -17,7 +18,7 @@ from products.tasks.evals.agents_md.claims import (
     load_claims,
     review_bullets,
 )
-from products.tasks.evals.agents_md.detectors import DETECTORS, Candidate, detect
+from products.tasks.evals.agents_md.detectors import DETECTORS, Candidate, RuleVerdict, detect, judge
 from products.tasks.evals.golden_prs.scoring import Answer
 
 
@@ -45,7 +46,7 @@ def candidate(diff: str, workdir: Path = Path("/nonexistent")) -> Candidate:
 
 def test_every_review_rule_in_agents_md_has_a_claim_with_known_detectors():
     claims = load_claims()
-    assert len(claims) == len(review_bullets(AGENTS_MD_PATH.read_text()))
+    assert {c.line for c in claims} == {line for _, line in review_bullets(AGENTS_MD_PATH.read_text())}
     assert len({c.id for c in claims}) == len(claims)
     for c in claims:
         if c.testable:
@@ -53,6 +54,25 @@ def test_every_review_rule_in_agents_md_has_a_claim_with_known_detectors():
             assert all(spec["name"] in DETECTORS for spec in c.detectors), c.id
         else:
             assert c.untestable, c.id
+
+
+def test_one_rule_can_have_several_trap_tasks():
+    agents_md = "## Rules\n\n- **Do the thing.** `[review]` Always.\n"
+    entries = [
+        {
+            "id": "thing-named",
+            "starts_with": "**Do the thing.**",
+            "task": "Do it here.",
+            "detectors": [{"name": "judge"}],
+        },
+        {"id": "thing-open", "starts_with": "**Do the thing.**", "task": "Do it.", "detectors": [{"name": "judge"}]},
+    ]
+    with tempfile.NamedTemporaryFile("w", suffix=".json") as claims_file:
+        json.dump(entries, claims_file)
+        claims_file.flush()
+        claims = load_claims(agents_md, Path(claims_file.name))
+    assert [c.id for c in claims] == ["thing-named", "thing-open"]
+    assert claims[0].line == claims[1].line
 
 
 def test_ablate_removes_only_the_rule_under_test():
@@ -269,6 +289,28 @@ def test_detect_sums_detectors_and_reports_no_number_when_one_cannot_tell():
     assert "down" in detection.details[0]
 
 
+@parameterized.expand(
+    [
+        ("two of three saw it", [True, False, True], 2 / 3, "2 of 3"),
+        ("one of three saw it", [False, False, True], 1 / 3, "1 of 3"),
+        ("a failed sample does not vote", [True, None, False], 0.5, "1 of 2"),
+    ]
+)
+def test_judge_asks_several_times_and_reports_the_vote(
+    _name: str, votes: list[bool | None], expected: float, tally: str
+):
+    answers = [
+        Answer(value=None, failure="down")
+        if vote is None
+        else Answer(value=RuleVerdict(violated=vote, reasoning=f"v{i}"))
+        for i, vote in enumerate(votes)
+    ]
+    with patch("products.tasks.evals.agents_md.detectors.structured_answer", side_effect=answers):
+        observation = judge(candidate(diff_for("a.py", ["x"])), claim(), model="m")
+    assert observation.violations == pytest.approx(expected)
+    assert tally in observation.detail
+
+
 def test_run_reports_a_crashed_job_and_finishes_the_others(capsys: pytest.CaptureFixture[str]):
     first = load_claims()[0].id
     with (
@@ -304,8 +346,14 @@ def test_report_shows_the_difference_the_rule_makes():
             result(arm="with", repeat=2, violations=0.0),
             result(arm="without", violations=2.0),
             result(arm="without", repeat=2, violations=None),
+            result(claim="quiet", arm="with", violations=0.0),
+            result(claim="quiet", arm="without", violations=0.0),
+            result(claim="quiet", model="other", arm="with", violations=0.0),
+            result(claim="quiet", model="other", arm="without", violations=0.0),
         ]
     )
     assert "### claude m" in rendered
-    assert "| rule | Comments | 0.50 (n=2) | 2.00 (n=1) | +1.50 |" in rendered
+    assert "| rule | Comments | 0.50 (n=2) | 2.00 (n=1) | +1.50 | 1 of 1 |" in rendered
+    assert "| quiet | Comments | 0.00 (n=1) | 0.00 (n=1) | no evidence | 0 of 1 |" in rendered
+    assert "No model broke these rules without them, so the trap did not tempt: quiet" in rendered
     assert report([]) == "No results found.\n"

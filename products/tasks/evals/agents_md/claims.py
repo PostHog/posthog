@@ -50,11 +50,12 @@ def review_bullets(agents_md: str) -> list[tuple[str, str]]:
     return bullets
 
 
-def _entry_for(line: str, entries: list[dict[str, Any]]) -> dict[str, Any]:
+def _entries_for(line: str, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Every entry for one bullet; a rule can have several trap tasks, each its own claim."""
     matches = [entry for entry in entries if line.startswith(f"- {entry['starts_with']}")]
-    if len(matches) != 1:
-        raise ValueError(f"{len(matches)} claims.json entries match the AGENTS.md rule: {line[:80]}")
-    return matches[0]
+    if not matches:
+        raise ValueError(f"No claims.json entry matches the AGENTS.md rule: {line[:80]}")
+    return matches
 
 
 def load_claims(agents_md: str | None = None, claims_path: Path = CLAIMS_PATH) -> list[Claim]:
@@ -72,7 +73,7 @@ def load_claims(agents_md: str | None = None, claims_path: Path = CLAIMS_PATH) -
             no_change_is_compliant=entry.get("no_change_is_compliant", False),
         )
         for section, line in review_bullets(text)
-        for entry in [_entry_for(line, entries)]
+        for entry in _entries_for(line, entries)
     ]
     unused = {entry["id"] for entry in entries} - {claim.id for claim in claims}
     if unused:

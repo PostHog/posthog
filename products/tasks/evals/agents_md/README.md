@@ -41,9 +41,12 @@ Each run writes a `.json` with the violation count and details, the `.diff`, and
 
 `test_agents_md.py` fails when a `[review]` bullet in `AGENTS.md` has no entry in `claims.json`, or when an entry matches no bullet.
 An entry's `starts_with` is the start of the bullet text. It must match exactly one bullet.
+A bullet can have several entries when one trap is not enough, for example a task that names the forbidden path and one that does not. Each entry is its own claim with its own id.
 
 A claim with no small task that has one right answer gets `untestable` with the reason instead of a task.
 A claim whose right answer is to refuse the task gets `no_change_is_compliant`, so an empty diff scores zero instead of "cannot tell".
+The `judge` detector asks the model three times and reports the share of answers that saw a violation.
+The report marks a rule "no evidence" when no run without the rule broke it, because that says the trap did not tempt, not that the rule is useless.
 
 Detectors take their parameters from the entry. `count_added_matching` and `missing_added_matching` cover most rules with a regex.
 Add a function to `detectors.py` when a rule needs to read the file or parse the code.
