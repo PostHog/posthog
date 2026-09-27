@@ -8,6 +8,7 @@ syntax, but with runtime validation on construction, so a mapper that hands a
 contract the wrong shape fails at the facade boundary instead of in a consumer.
 """
 
+from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
@@ -23,6 +24,16 @@ class CanvasSearchRecord:
     channel_id: UUID
     kind: str
     template_id: str
+
+
+@dataclass(frozen=True)
+class CanvasSummary:
+    """The fields another product shows when it names or links to a canvas."""
+
+    id: UUID
+    name: str
+    channel_id: UUID
+    channel_name: str
 
 
 @dataclass(frozen=True)
@@ -49,3 +60,49 @@ class CanvasArtifact:
     status_code: int
     body: bytes
     headers: dict[str, str]
+
+
+@dataclass(frozen=True)
+class StagedCanvasSourceUpload:
+    """A source project object that canvas has uploaded but not yet committed to a version."""
+
+    key: str
+    digest: str
+    size: int
+
+
+@dataclass(frozen=True)
+class PreparedNotebookCanvasSource:
+    """A validated notebook widget source, staged in object storage.
+
+    Hand it back to ``publish_prepared_notebook_canvas_source`` or
+    ``publish_prepared_notebook_canvas_draft`` inside ``notebook_canvas_source_transaction``.
+    """
+
+    canvas_id: UUID
+    expected_current_version_id: UUID | None
+    prompt: str
+    name: str
+    project: dict[str, Any]
+    source_upload: StagedCanvasSourceUpload
+    legacy_upload: StagedCanvasSourceUpload | None
+
+
+class NotebookCanvasError(Exception):
+    pass
+
+
+class NotebookCanvasNotFoundError(NotebookCanvasError):
+    pass
+
+
+class NotebookCanvasVersionConflictError(NotebookCanvasError):
+    pass
+
+
+class NotebookCanvasBuildCapacityError(NotebookCanvasError):
+    pass
+
+
+class NotebookCanvasSourceInvalidError(NotebookCanvasError):
+    pass

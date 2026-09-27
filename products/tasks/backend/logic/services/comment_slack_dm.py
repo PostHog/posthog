@@ -15,7 +15,6 @@ from urllib.parse import urlencode
 from uuid import UUID
 
 from django.conf import settings
-from django.core.exceptions import ValidationError
 
 import structlog
 
@@ -32,7 +31,6 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.identity import resolve_slack_user
 from posthog.user_permissions import UserPermissions
 
-from products.canvas.backend.facade.models import Canvas
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_info import lookup_slack_user_id_by_email
 from products.tasks.backend.models import Task, TaskCommentActivity
@@ -389,15 +387,11 @@ def _link_target(*, comment: Comment, task: Task) -> _LinkTarget | None:
         return _LinkTarget(title=task.title or "a task", url=_bridge_url(comment=comment, task=task))
     if not comment.item_id:
         return None
-    try:
-        canvas = (
-            Canvas.objects.for_team(comment.team_id)
-            .filter(id=comment.item_id, deleted=False)
-            .only("id", "channel_id", "name")
-            .first()
-        )
-    except (ValueError, ValidationError):
-        return None
+    from products.canvas.backend.facade import (
+        access as canvas_access,  # noqa: PLC0415 — keeps canvas off django.setup()
+    )
+
+    canvas = canvas_access.live_canvas_summary(team_id=comment.team_id, canvas_id=comment.item_id)
     if canvas is None:
         return None
     return _LinkTarget(

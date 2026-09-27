@@ -26,8 +26,6 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.canvas.backend.facade.notebooks import (
     CanvasGenerationState,
     NotebookCanvasVersion,
-    _source_project,
-    _strip_legacy_frame_bridge,
     validate_notebook_canvas_source,
 )
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -474,24 +472,6 @@ class TestWidgetGeneration(SimpleTestCase):
 
         assert not [item for item in diagnostics if item.get("severity") == "error"]
 
-    def test_canvas_source_keeps_the_trusted_bridge_out_of_generated_code(self) -> None:
-        generated_source = "export default function Canvas() { return <div /> }"
-        project = _source_project(generated_source, ["public_df"])
-        source = project["files"]["src/canvas.tsx"]
-
-        assert source == generated_source
-        assert project["capabilities"]["posthog"]["notebookFrames"] == ["public_df"]
-        assert "notebook-connect" not in source
-        assert "blockNavigation" not in source
-
-    def test_legacy_canvas_source_hides_the_former_injected_bridge(self) -> None:
-        source = (
-            "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */\nlegacy runtime\n"
-            "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */\n\nexport default function Canvas() { return <div /> }"
-        )
-
-        assert _strip_legacy_frame_bridge(source) == "export default function Canvas() { return <div /> }"
-
     def test_infers_dataframe_context_from_the_notebook(self) -> None:
         notebook = cast(
             Notebook,
@@ -699,7 +679,7 @@ class TestWidgetData(APIBaseTest):
         path = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/widget_snapshots/"
         payload = {"node_id": self.NODE_ID, "version_id": str(version.id)}
         with patch(
-            "products.canvas.backend.notebook_integration.list_notebook_canvas_versions",
+            "products.canvas.backend.facade.notebooks.list_notebook_canvas_versions",
             return_value=[SimpleNamespace(artifact_url="https://example.com/widget.html", build_hash="a" * 64)],
         ):
             response = self.client.post(path, payload)
@@ -732,7 +712,7 @@ class TestWidgetData(APIBaseTest):
     @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
     @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
     @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
-    @patch("products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=[])
+    @patch("products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=[])
     def test_dashboard_publication_attaches_results_atomically(self, *_mocks: MagicMock) -> None:
         version = self._pinned_version(self._mapping())
         run = self._run()
@@ -880,7 +860,7 @@ class TestWidgetData(APIBaseTest):
     @patch("products.dashboards.backend.widget_publication.dashboard_widgets_enabled", return_value=True)
     @patch("products.dashboards.backend.widget_create.dashboard_widgets_enabled", return_value=True)
     @patch("products.dashboards.backend.widget_create.widget_flag_enabled", return_value=True)
-    @patch("products.canvas.backend.notebook_integration.list_notebook_canvas_versions", return_value=[])
+    @patch("products.canvas.backend.facade.notebooks.list_notebook_canvas_versions", return_value=[])
     def test_dashboard_refresh_does_not_share_the_snapshot_creation_bucket(self, *_mocks: MagicMock) -> None:
         version = self._pinned_version(self._mapping())
         run = self._run()

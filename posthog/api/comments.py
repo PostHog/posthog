@@ -196,7 +196,7 @@ def _record_task_comment_activity(
         )
 
         if comment.scope == "desktop_canvas" and comment.item_id:
-            from products.canvas.backend.facade.api import canvas_owner_id  # noqa: PLC0415
+            from products.canvas.backend.facade.access import canvas_owner_id  # noqa: PLC0415
 
             owner_id = canvas_owner_id(team_id=comment.team_id, canvas_id=comment.item_id)
 
@@ -235,7 +235,7 @@ def _mentions_allowed_for_comment_target(
     if scope == "desktop_canvas":
         if not item_id:
             return []
-        from products.canvas.backend.facade.api import visible_canvas_user_ids  # noqa: PLC0415
+        from products.canvas.backend.facade.access import visible_canvas_user_ids  # noqa: PLC0415
 
         visible_ids = visible_canvas_user_ids(
             team_id=team_id,

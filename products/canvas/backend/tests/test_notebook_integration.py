@@ -12,9 +12,12 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.canvas.backend.facade.notebooks import (
-    CanvasBuild,
+from products.canvas.backend.facade.tasks import cleanup_canvas_builds
+from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
+from products.canvas.backend.notebook_integration import (
     NotebookCanvasNotFoundError,
+    _source_project,
+    _strip_legacy_frame_bridge,
     cleanup_discarded_notebook_canvas_draft,
     create_notebook_canvas,
     discard_notebook_canvas_draft,
@@ -22,8 +25,6 @@ from products.canvas.backend.facade.notebooks import (
     requeue_discarded_notebook_canvas_drafts,
     validate_notebook_canvas_source,
 )
-from products.canvas.backend.facade.tasks import cleanup_canvas_builds
-from products.canvas.backend.models import Canvas, CanvasSourceVersion
 from products.tasks.backend.models import Channel
 
 
@@ -31,7 +32,7 @@ class TestNotebookCanvasCleanupTasks(SimpleTestCase):
     def test_retention_runs_when_draft_requeue_fails(self) -> None:
         with (
             patch(
-                "products.canvas.backend.facade.notebooks.requeue_discarded_notebook_canvas_drafts",
+                "products.canvas.backend.notebook_integration.requeue_discarded_notebook_canvas_drafts",
                 side_effect=RuntimeError("Queue unavailable"),
             ),
             patch("products.canvas.backend.build_service.cleanup_canvas_builds", return_value=0) as cleanup,
@@ -60,6 +61,24 @@ class TestNotebookCanvasSourceValidation(SimpleTestCase):
         diagnostics = validate_notebook_canvas_source('void ph.readFrame("public_df")', ["public_df"])
 
         self.assertFalse([diagnostic for diagnostic in diagnostics if diagnostic["severity"] == "error"])
+
+    def test_canvas_source_keeps_the_trusted_bridge_out_of_generated_code(self) -> None:
+        generated_source = "export default function Canvas() { return <div /> }"
+        project = _source_project(generated_source, ["public_df"])
+        source = project["files"]["src/canvas.tsx"]
+
+        assert source == generated_source
+        assert project["capabilities"]["posthog"]["notebookFrames"] == ["public_df"]
+        assert "notebook-connect" not in source
+        assert "blockNavigation" not in source
+
+    def test_legacy_canvas_source_hides_the_former_injected_bridge(self) -> None:
+        source = (
+            "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */\nlegacy runtime\n"
+            "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */\n\nexport default function Canvas() { return <div /> }"
+        )
+
+        assert _strip_legacy_frame_bridge(source) == "export default function Canvas() { return <div /> }"
 
 
 class TestNotebookCanvasCreation(APIBaseTest):

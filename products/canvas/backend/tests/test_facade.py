@@ -7,7 +7,7 @@ from parameterized import parameterized
 from posthog.models import Organization, Team, User
 from posthog.models.scoping import team_scope
 
-from products.canvas.backend.facade import api, search, testing
+from products.canvas.backend.facade import access, search, testing
 from products.canvas.backend.facade.contracts import CanvasSearchRecord
 from products.tasks.backend.models import Channel
 
@@ -63,10 +63,10 @@ class TestCanvasFacade(TestCase):
         self._canvas(deleted=True)
         testing.create_canvas(team_id=self.team.id, channel_id=empty.id, name="gone", deleted=True)
 
-        assert api.channel_has_canvases(team_id=self.team.id, channel_id=self.channel.id) is False
+        assert access.channel_has_canvases(team_id=self.team.id, channel_id=self.channel.id) is False
         self._canvas()
-        assert api.channel_has_canvases(team_id=self.team.id, channel_id=self.channel.id) is True
-        assert api.channel_has_canvases(team_id=self.team.id, channel_id=empty.id) is False
+        assert access.channel_has_canvases(team_id=self.team.id, channel_id=self.channel.id) is True
+        assert access.channel_has_canvases(team_id=self.team.id, channel_id=empty.id) is False
 
     def test_canvas_is_visible_follows_channel_visibility_and_deletion(self):
         other = User.objects.create(email="other@example.com", distinct_id="other-user")
@@ -77,10 +77,10 @@ class TestCanvasFacade(TestCase):
         deleted_id = self._canvas(deleted=True)
         public_id = self._canvas()
 
-        assert api.canvas_is_visible(team_id=self.team.id, canvas_id=public_id, user_id=other.id) is True
-        assert api.canvas_is_visible(team_id=self.team.id, canvas_id=private_id, user_id=self.user.id) is True
-        assert api.canvas_is_visible(team_id=self.team.id, canvas_id=private_id, user_id=other.id) is False
-        assert api.canvas_is_visible(team_id=self.team.id, canvas_id=deleted_id, user_id=self.user.id) is False
+        assert access.canvas_is_visible(team_id=self.team.id, canvas_id=public_id, user_id=other.id) is True
+        assert access.canvas_is_visible(team_id=self.team.id, canvas_id=private_id, user_id=self.user.id) is True
+        assert access.canvas_is_visible(team_id=self.team.id, canvas_id=private_id, user_id=other.id) is False
+        assert access.canvas_is_visible(team_id=self.team.id, canvas_id=deleted_id, user_id=self.user.id) is False
 
     def test_save_canvas_fields_writes_only_the_named_fields(self):
         canvas_id = self._canvas()

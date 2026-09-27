@@ -27,7 +27,7 @@ from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
-from products.canvas.backend.facade import api as canvas_facade
+from products.canvas.backend.facade import access as canvas_facade
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.tasks.backend.facade.access import DesktopAccessDecision

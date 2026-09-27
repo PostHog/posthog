@@ -307,24 +307,27 @@ def _args_span(text: str, open_idx: int) -> int | None:
     return None
 
 
-def _strip_inline_comment(line: str) -> str:
-    """Strip inline comments while preserving '#' inside quoted strings.
+def _strip_comments(source: str) -> str:
+    """Drop the comments from ``source``, and drop lines that hold only a comment.
 
-    Returns the code part of the line, with comments removed.
-    If the line cannot be safely parsed, returns the whole line without stripping trailing whitespace.
+    Tokenizes the whole text at once, so a ``#`` inside a string literal (also a
+    triple-quoted one that spans lines) stays. Returns ``source`` unchanged if it
+    cannot be tokenized.
     """
     try:
-        # Use tokenize to identify comments accurately
-        tokens = list(tokenize.generate_tokens(io.StringIO(line).readline))
-        for tok in tokens:
-            if tok.type == tokenize.COMMENT:
-                # Return the substring before the comment start, preserving whitespace
-                return line[: tok.start[1]].rstrip()
-        # No comment found, return the whole line stripped
-        return line.rstrip()
+        comments = [
+            tok.start for tok in tokenize.generate_tokens(io.StringIO(source).readline) if tok.type == tokenize.COMMENT
+        ]
     except tokenize.TokenError:
-        # If tokenization fails, return the line unchanged as a safe fallback
-        return line
+        return source
+    lines = source.split("\n")
+    for row, col in reversed(comments):
+        code = lines[row - 1][:col].rstrip()
+        if code:
+            lines[row - 1] = code
+        else:
+            del lines[row - 1]
+    return "\n".join(lines)
 
 
 def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
@@ -360,22 +363,8 @@ def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
         if args is None:
             replacement = f'@shared_task(name="{pinned_name}")'
         else:
-            inner_text = args[1:-1].strip()
-            # Handle inline comments: use tokenization to preserve '#' inside strings
-            if "#" in inner_text:
-                # Extract the code before the comment, preserving '#' inside quoted strings
-                lines = inner_text.split("\n")
-                processed_lines = []
-                for line in lines:
-                    if "#" in line:
-                        code_part = _strip_inline_comment(line)
-                        if code_part:
-                            processed_lines.append(code_part)
-                    else:
-                        processed_lines.append(line)
-                inner = "\n".join(processed_lines).rstrip(",").rstrip()
-            else:
-                inner = inner_text.rstrip(",").rstrip()
+            # A comment after the last argument would swallow the appended name=.
+            inner = _strip_comments(args)[1:-1].strip().rstrip(",").rstrip()
             joined = f'{inner}, name="{pinned_name}"' if inner else f'name="{pinned_name}"'
             replacement = f"@shared_task({joined})"
         text = text[: dec.start()] + replacement + text[args_end:]

@@ -176,6 +176,11 @@ def test_absolutize_relative_imports(source: str, package: str, expected: str) -
             '@shared_task(\n    queue="foo",  # (for compatibility\n)\ndef commented_task():\n    pass\n',
             '@shared_task(queue="foo", name="products.logs.backend.tasks.commented_task")',
         ),
+        # a '#' line inside a triple-quoted argument is string content, not a comment
+        (
+            '@shared_task(\n    description="""first\n# kept line\n""",  # note\n)\ndef documented_task():\n    pass\n',
+            '@shared_task(description="""first\n# kept line\n""", name="products.logs.backend.tasks.documented_task")',
+        ),
     ],
 )
 def test_pin_task_names(source: str, expected_fragment: str) -> None:

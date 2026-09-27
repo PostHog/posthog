@@ -203,7 +203,7 @@ def _resolve_feed_channel_id(loop: Loop) -> str | None:
 
 def context_canvas_is_visible(team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
     """Whether `canvas_id` is a canvas in this team the user may see."""
-    from products.canvas.backend.facade import api as canvas_facade
+    from products.canvas.backend.facade import access as canvas_facade
 
     return canvas_facade.canvas_is_visible(team_id=team_id, canvas_id=canvas_id, user_id=user_id)
 
