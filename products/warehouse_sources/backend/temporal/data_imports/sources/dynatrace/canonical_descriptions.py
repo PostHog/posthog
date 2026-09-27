@@ -111,6 +111,41 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/entity-v2",
         "columns": _ENTITY_COLUMNS,
     },
+    "databases": {
+        "description": "Monitored relational database service entities (for example Amazon RDS) and their metadata.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/entity-v2",
+        "columns": _ENTITY_COLUMNS,
+    },
+    "disks": {
+        "description": "Monitored disk entities and their metadata.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/entity-v2",
+        "columns": _ENTITY_COLUMNS,
+    },
+    "queues": {
+        "description": "Monitored messaging queue entities and their metadata.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/entity-v2",
+        "columns": _ENTITY_COLUMNS,
+    },
+    "kubernetes_clusters": {
+        "description": "Monitored Kubernetes cluster entities and their metadata.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/entity-v2",
+        "columns": _ENTITY_COLUMNS,
+    },
+    "kubernetes_nodes": {
+        "description": "Monitored Kubernetes node entities and their metadata.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/entity-v2",
+        "columns": _ENTITY_COLUMNS,
+    },
+    "cloud_applications": {
+        "description": "Monitored Kubernetes workload entities and their metadata.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/entity-v2",
+        "columns": _ENTITY_COLUMNS,
+    },
+    "custom_devices": {
+        "description": "Custom device entities reported through the Dynatrace API and their metadata.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/entity-v2",
+        "columns": _ENTITY_COLUMNS,
+    },
     "metrics": {
         "description": "Catalog of metric descriptors available in the environment (built-in and custom).",
         "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/metric-v2",
@@ -124,6 +159,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "entityType": "Entity types the metric applies to.",
             "aggregationTypes": "Aggregations available for the metric.",
             "tags": "Tags applied to the metric.",
+        },
+    },
+    "metric_data_points": {
+        "description": "Hourly metric values for the metric keys configured on the source, one row per metric, dimension combination and timestamp.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/metric-v2/get-data-points",
+        "columns": {
+            "metricId": "Key of the metric the data point belongs to, including any transformation applied.",
+            "dimensionKey": "Sorted dimension name/value pairs identifying the series the data point belongs to.",
+            "dimensionMap": "Dimension names mapped to their values for this series.",
+            "dimensions": "Ordered dimension values of the series. Deprecated by Dynatrace in favour of dimensionMap.",
+            "timestamp": "End of the time slot the data point covers, in UTC milliseconds.",
+            "value": "Value of the metric in that time slot.",
         },
     },
     "slos": {
@@ -143,6 +190,36 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "metricExpression": "Metric expression the SLO is based on.",
             "filter": "Entity filter of the SLO.",
             "relatedOpenProblems": "Number of open problems related to the SLO.",
+        },
+    },
+    "synthetic_monitors": {
+        "description": "Synthetic monitors configured in the environment.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/synthetic/synthetic-monitors/get-all-monitors",
+        "columns": {
+            "entityId": "Unique identifier of the synthetic monitor (e.g. SYNTHETIC_TEST-ABC123).",
+            "name": "Name of the synthetic monitor.",
+            "type": "Type of the monitor: BROWSER or HTTP.",
+            "enabled": "Whether the monitor is enabled.",
+        },
+    },
+    "synthetic_executions": {
+        "description": "On-demand executions of synthetic monitors, with their stage, location and results.",
+        "docs_url": "https://docs.dynatrace.com/docs/dynatrace-api/environment-api/synthetic-v2/synthetic-monitor-execution/get-all-executions",
+        "columns": {
+            "executionId": "Unique identifier of the execution.",
+            "batchId": "Identifier of the batch the execution belongs to.",
+            "monitorId": "Identifier of the executed monitor.",
+            "locationId": "Identifier of the location the monitor ran from.",
+            "executionStage": "Stage of the execution: TRIGGERED, EXECUTED, DATA_RETRIEVED, WAITING, TIMED_OUT, or NOT_TRIGGERED.",
+            "schedulingTimestamp": "Time the execution was scheduled, in UTC milliseconds.",
+            "executionTimestamp": "Time the execution finished, in UTC milliseconds.",
+            "dataDeliveryTimestamp": "Time the full result set reached the server, in UTC milliseconds.",
+            "source": "Source of the triggering request: API or UI.",
+            "userId": "Name of the user who triggered the execution.",
+            "processingMode": "Processing mode of the execution.",
+            "simpleResults": "Basic results of the execution, such as status, total time and response code.",
+            "fullResults": "Extended execution details, including per-step results and failure messages.",
+            "metadata": "Metadata map of the execution batch.",
         },
     },
 }
