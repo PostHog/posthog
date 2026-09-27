@@ -49,6 +49,7 @@ from posthog.event_usage import groups
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.models.integration.codex import CodexAuthError, CodexReauthRequired
+from posthog.oauth_provenance import is_interactive_desktop_grant
 from posthog.permissions import (
     APIScopePermission,
     get_authenticator_scoped_team_ids,
@@ -2758,20 +2759,22 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunPreviewSessionResponseSerializer,
                 description="The preview state, and a short-lived URL when the preview is ready",
             ),
-            403: OpenApiResponse(description="Refused during read-only impersonation"),
+            403: OpenApiResponse(description="Refused outside PostHog Desktop, or during read-only impersonation"),
             404: OpenApiResponse(description="Task run not found"),
         },
         summary="Start a preview session for a task run",
         description=(
-            "Returns a short-lived URL for an HTTP app running inside this run's sandbox, for clients "
-            "that show the app in their own view and cannot follow the `preview/` redirect with their "
-            "credentials. A fresh sandbox access token is minted on every request and is never persisted."
+            "Returns a short-lived URL for an HTTP app running inside this run's sandbox. Only PostHog "
+            "Desktop can call this, with a token the user signed in with, because the URL carries a "
+            "sandbox access token. A fresh token is minted on every request and is never persisted."
         ),
         strict_request_validation=True,
     )
     @action(detail=True, methods=["post"], url_path="preview_session", required_scopes=["task:write"])
     def preview_session(self, request, pk=None, **kwargs):
         self._refuse_read_only_impersonation(request)
+        if not is_interactive_desktop_grant(request):
+            raise PermissionDenied("Task previews open only in PostHog Desktop.", code="desktop_only")
         task_id = self._ensure_task_accessible()
         redirect = tasks_facade.resolve_task_run_preview_redirect(
             pk,

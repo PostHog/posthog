@@ -2251,7 +2251,7 @@ export const getTasksRunsPreviewSessionCreateUrl = (projectId: string, taskId: s
 }
 
 /**
- * Returns a short-lived URL for an HTTP app running inside this run's sandbox, for clients that show the app in their own view and cannot follow the `preview/` redirect with their credentials. A fresh sandbox access token is minted on every request and is never persisted.
+ * Returns a short-lived URL for an HTTP app running inside this run's sandbox. Only PostHog Desktop can call this, with a token the user signed in with, because the URL carries a sandbox access token. A fresh token is minted on every request and is never persisted.
  * @summary Start a preview session for a task run
  */
 export const tasksRunsPreviewSessionCreate = async (

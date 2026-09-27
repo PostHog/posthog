@@ -16967,6 +16967,7 @@ class TestTaskAnalysisActivityReporting(_TaskAnalysisReportingTestBase):
 
 class TestTaskRunPreviewAPI(BaseTaskAPITest):
     SANDBOX_CLASS_TARGET = "products.tasks.backend.logic.services.sandbox.get_sandbox_class"
+    DESKTOP_GRANT_TARGET = "products.tasks.backend.presentation.views.api.is_interactive_desktop_grant"
 
     def _preview_url(self, task: Task, run: TaskRun) -> str:
         return f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/preview/"
@@ -17044,7 +17045,10 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
             state = self._exposed_state(port=3000)
         run = self._create_run(task, state)
 
-        with patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class:
+        with (
+            patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class,
+            patch(self.DESKTOP_GRANT_TARGET, return_value=True),
+        ):
             if via == "redirect":
                 response = self.client.get(f"{self._preview_url(task, run)}?port={port}")
             else:
@@ -17063,21 +17067,28 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("ready", True, "ready", "http://localhost:50003/"),
-            ("not_exposed", False, "not_ready", None),
+            ("ready", True, True, "ready", "http://localhost:50003/"),
+            ("not_exposed", False, True, "not_ready", None),
+            ("not_the_desktop_app", True, False, None, None),
         ]
     )
-    def test_preview_session_returns_the_url_only_when_ready(self, _name, exposed, expected_outcome, expected_url):
+    def test_preview_session_returns_the_url_only_when_ready(
+        self, _name, exposed, desktop, expected_outcome, expected_url
+    ):
         task = self.create_task()
         run = self._create_run(task, self._exposed_state() if exposed else {"sandbox_id": "sandbox-1"})
         sandbox = self._running_sandbox(token=None)
         sandbox.create_preview_connect_credentials.return_value = MagicMock(url="http://localhost:50003", token=None)
 
-        with self._patch_sandbox_class(sandbox):
+        with self._patch_sandbox_class(sandbox), patch(self.DESKTOP_GRANT_TARGET, return_value=desktop):
             response = self.client.post(
                 f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/preview_session/", {"port": 3000}, format="json"
             )
 
+        if not desktop:
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            sandbox.create_preview_connect_credentials.assert_not_called()
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"outcome": expected_outcome, "url": expected_url})
         self.assertEqual(response["Cache-Control"], "no-store")
