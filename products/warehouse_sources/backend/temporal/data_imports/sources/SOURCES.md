@@ -72,6 +72,7 @@ the row lists both.
 | amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
+| anvil                            | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | apify_dataset                    | HTTP                        | requests                                                        | ✅                          |
 | apitally                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | apollo                           | HTTP                        | requests                                                        | ✅                          |
@@ -233,6 +234,7 @@ the row lists both.
 | deel                             | HTTP                        | requests                                                        | ✅                          |
 | deepgram                         | HTTP                        | requests                                                        | ✅                          |
 | deepsource                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| demodesk                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | deno_deploy                      | HTTP                        | requests                                                        | ✅                          |
 | depot                            | HTTP (Connect RPC)          | requests                                                        | ✅                          |
 | descope                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -646,6 +648,7 @@ the row lists both.
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
 | simplesat                        | HTTP                        | requests                                                        | ✅                          |
 | singlestore                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| skio                             | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
 | slack                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sleekplan                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -857,7 +860,6 @@ doesn't conflict with concurrent PRs.
 - amazon_sqs
 - anodot_cost
 - anomalo
-- anvil
 - apaleo
 - appcues
 - appdirect
@@ -988,7 +990,6 @@ doesn't conflict with concurrent PRs.
 - dayforce
 - db2
 - deelflows
-- demodesk
 - deno_deploy
 - deputy
 - develocity
@@ -1380,7 +1381,6 @@ doesn't conflict with concurrent PRs.
 - sinch
 - singular
 - site24x7
-- skio
 - skyvern
 - slash
 - sleuth

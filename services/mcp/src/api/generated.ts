@@ -35753,6 +35753,18 @@ export namespace Schemas {
       idempotent_replay: boolean;
     }
 
+    export interface EmojiSuggestion {
+      /** The suggested emoji character. */
+      emoji: string;
+      /** The emoji's English name. */
+      label: string;
+    }
+
+    export interface EmojiSearchResponse {
+      /** Related emojis, or an empty list. */
+      suggestions: EmojiSuggestion[];
+    }
+
     export interface EndExperiment {
       /** The conclusion of the experiment.
        *
@@ -39371,6 +39383,28 @@ export namespace Schemas {
       event_uuids: string[];
       /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
       pipelines: IngestionPipelineEnum[];
+    }
+
+    export interface EventMatch {
+      /** The event name to select, such as $autocapture. */
+      name: string;
+      /** The event's display name, such as Autocapture. */
+      display_name: string;
+      /** How likely the search means this event, from 0 to 1. */
+      probability: number;
+    }
+
+    export interface EventMatchRequest {
+      /**
+         * What the person typed into the events list search box, which matched no event name.
+         * @maxLength 200
+         */
+      query: string;
+    }
+
+    export interface EventMatchResponse {
+      /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
+      matches: EventMatch[];
     }
 
     /**
@@ -89785,6 +89819,11 @@ export namespace Schemas {
          * @nullable
          */
       prompt_version: number | null;
+      /**
+         * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
+         * @nullable
+         */
+      model_query: string | null;
     }
 
     export interface SearchSuggestionsQuery {
@@ -109613,6 +109652,15 @@ export namespace Schemas {
      * Optional substring to filter values by (case-sensitive contains match).
      */
     value?: string;
+    };
+
+    export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string;
     };
 
     export type EndpointsListParams = {
