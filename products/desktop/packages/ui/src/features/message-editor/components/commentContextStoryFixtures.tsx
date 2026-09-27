@@ -2,8 +2,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 export const STORY_SCREENSHOT_PATHS = {
-  heading: "/tmp/posthog-desktop/clipboard/comment-heading.png",
-  button: "/tmp/posthog-desktop/clipboard/comment-button.png",
+  heading: "/tmp/posthog-code-clipboard/attachment-story/comment-heading.png",
+  button: "/tmp/posthog-code-clipboard/attachment-story/comment-button.png",
 };
 
 function drawScreenshot(kind: keyof typeof STORY_SCREENSHOT_PATHS): string {

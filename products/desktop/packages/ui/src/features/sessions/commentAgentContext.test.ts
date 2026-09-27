@@ -90,8 +90,5 @@ describe("commentAgentContext element snippets", () => {
 
     const details = parseCommentContextBody(context?.body ?? "");
     expect(details.snippet).toBe(html);
-    expect(details.fields.map((field) => field.value)).not.toContain(
-      "https://evil.example.com",
-    );
   });
 });

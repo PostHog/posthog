@@ -1,5 +1,4 @@
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
-import { cn } from "@posthog/quill";
 import { parseCommentContextBody } from "./commentContextBody";
 import { useLocalImage } from "./useLocalImage";
 
@@ -33,11 +32,7 @@ export function CommentContextPreview({
         </blockquote>
       )}
       {!image && !quote && snippet && (
-        <pre
-          className={cn(
-            "max-h-24 overflow-hidden whitespace-pre-wrap break-all rounded bg-current/10 px-2 py-1.5 font-mono text-[11px] leading-relaxed",
-          )}
-        >
+        <pre className="max-h-24 overflow-hidden whitespace-pre-wrap break-all rounded bg-current/10 px-2 py-1.5 font-mono text-[11px] leading-relaxed">
           {snippet}
         </pre>
       )}
