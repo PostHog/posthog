@@ -107,10 +107,30 @@ describe('aiConsentLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.acceptDataProcessing()
-        }).toFinishAllListeners()
+        })
+            .toMatchValues({ dataProcessingApprovalPending: true })
+            .toFinishAllListeners()
 
         expect(logic.values.dataProcessingAccepted).toBe(true)
+        expect(logic.values.dataProcessingApprovalPending).toBe(false)
         expect(lemonToast.success).toHaveBeenCalledWith('AI data processing approved')
+    })
+
+    it('clears the pending approval state when approval fails, so the button does not spin forever', async () => {
+        initKeaTests(true, undefined, undefined, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+        useMocks({ patch: { '/api/organizations/:id': () => [500, { detail: 'boom' }] } })
+        logic = aiConsentLogic()
+        logic.mount()
+
+        await expectLogic(logic, () => {
+            logic.actions.acceptDataProcessing()
+        }).toFinishAllListeners()
+
+        expect(logic.values.dataProcessingAccepted).toBe(false)
+        expect(logic.values.dataProcessingApprovalPending).toBe(false)
     })
 
     // Regression guards for the SSO reauthentication redirect: it unloads the page before the

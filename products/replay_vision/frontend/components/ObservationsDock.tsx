@@ -12,6 +12,7 @@ import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { urls } from 'scenes/urls'
 
 import { AccessControlLevel } from '~/types'
 
@@ -76,7 +77,7 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
     const { summarizePending, defaultSummarizer, summarizerScanners } = useValues(logic)
     const { summarize, summarizeWith } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalPending } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     const { tooltip: quotaTooltip } = quotaUx(quota)
     const blockedReason = useSummarizeBlockedReason(scanBlock)
@@ -90,6 +91,9 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
     // label is the only thing that says the click landed: the summary takes minutes to arrive.
     const idleLabel = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
     const label = summarizePending ? 'Summarizing…' : idleLabel
+    // On the consent path the click only opens a popover, so the button stays pressed while it is open
+    // and spins while the approval saves. Without this, people clicked again because nothing changed.
+    const consentLabel = dataProcessingApprovalPending ? 'Allowing AI analysis…' : 'Allow AI analysis and summarize'
     const summarizerTooltip = summarizePending
         ? 'Watching this recording. The summary appears below when it is ready.'
         : defaultSummarizer
@@ -131,7 +135,8 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
             size="small"
             type="secondary"
             icon={<IconNotebook />}
-            loading={summarizePending}
+            loading={summarizePending || (!dataProcessingAccepted && dataProcessingApprovalPending)}
+            active={!dataProcessingAccepted && consentRequested}
             // The endpoint refuses without org AI approval, so ask for it here rather than toasting a 400.
             onClick={() => {
                 posthog.capture('replay_vision_summarize_clicked', {
@@ -165,7 +170,7 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
                     : null
             }
         >
-            <span className="truncate">{dataProcessingAccepted ? label : 'Allow AI analysis and summarize'}</span>
+            <span className="truncate">{dataProcessingAccepted ? label : consentLabel}</span>
         </LemonButton>
     )
 
@@ -180,6 +185,9 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
             ignoreDismissal
             hideTrainingDisclaimer
             hidden={!consentRequested}
+            // An SSO reauth redirect unloads the page before the approval saves, so the approval
+            // finishes on return and brings the user back to this recording.
+            pendingRedirectUrl={urls.replaySingle(sessionId)}
             onApprove={() => {
                 setConsentRequested(false)
                 summarize()

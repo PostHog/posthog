@@ -39,6 +39,7 @@ export interface aiConsentLogicValues {
     aiAccessRequested: boolean
     aiAccessRequestedByOrg: Record<string, boolean>
     dataProcessingAccepted: boolean
+    dataProcessingApprovalPending: boolean
     dataProcessingApprovalDisabledReason: string | null
     dataProcessingDismissed: boolean
     pendingApprovalRedirect: PendingApprovalRedirect | null
@@ -53,6 +54,9 @@ export interface aiConsentLogicActions {
     ) => {
         resumeUrl: string | undefined
         testOnlyOverride: boolean | undefined
+    }
+    acceptDataProcessingFinished: () => {
+        value: true
     }
     dismissDataProcessing: () => {
         value: true
@@ -97,6 +101,7 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
     })),
     actions({
         acceptDataProcessing: (testOnlyOverride?: boolean, resumeUrl?: string) => ({ testOnlyOverride, resumeUrl }),
+        acceptDataProcessingFinished: true,
         dismissDataProcessing: true,
         requestAiAccess: true,
         markAiAccessRequested: (organizationId: string) => ({ organizationId }),
@@ -104,6 +109,15 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
         setPendingApprovalRedirect: (redirect: PendingApprovalRedirect | null) => ({ redirect }),
     }),
     reducers({
+        // The approval request can take a few seconds, so buttons behind the popover read this to show
+        // that the click landed.
+        dataProcessingApprovalPending: [
+            false,
+            {
+                acceptDataProcessing: () => true,
+                acceptDataProcessingFinished: () => false,
+            },
+        ],
         dataProcessingDismissed: [
             false,
             { persist: true, storageKey: AI_DATA_PROCESSING_DISMISSED_STORAGE_KEY },
@@ -146,10 +160,12 @@ export const aiConsentLogic = kea<aiConsentLogicType>([
             } catch (error) {
                 // A real failure (a lost SSO redirect unloads the page instead of rejecting).
                 actions.setPendingApprovalRedirect(null)
+                actions.acceptDataProcessingFinished()
                 posthog.capture('ai_consent_approval_failed')
                 throw error
             }
             actions.setPendingApprovalRedirect(null)
+            actions.acceptDataProcessingFinished()
             posthog.capture('ai_consent_approved')
             lemonToast.success('AI data processing approved')
             if (resumeUrl) {
