@@ -124,3 +124,34 @@ async def execute_with_conflict_retry(
                 f"(attempt {attempt}/{DELTA_MERGE_CONFLICT_RETRIES})"
             )
             await asyncio.to_thread(table.update_incremental)
+
+
+# delta-rs replays every commit after the latest checkpoint when it opens a table, and it reads that
+# uncheckpointed tail twice. Its default checkpoints every 100 commits, so a table that takes many
+# small commits pays a long replay on every open. Ten keeps the tail short. deltalite reads the same
+# property when it commits, so both writers checkpoint on the same cadence.
+DELTA_TABLE_PROPERTIES: dict[str, str] = {"delta.checkpointInterval": "10"}
+
+
+async def ensure_table_properties(table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> bool:
+    """Apply DELTA_TABLE_PROPERTIES to a table that was created without them.
+
+    A metadata-only commit, made once per table: the check reads the handle's own snapshot, and
+    `set_table_properties` refreshes that snapshot, so a table that already carries the values costs
+    nothing here. Never raises, because the data write has already committed and a property that
+    fails to land only waits for the next write. Returns True when it committed.
+    """
+    current = table.metadata().configuration or {}
+    missing = {key: value for key, value in DELTA_TABLE_PROPERTIES.items() if current.get(key) != value}
+    if not missing:
+        return False
+    try:
+        await execute_with_conflict_retry(
+            table, lambda: table.alter.set_table_properties(missing), "set_table_properties", logger
+        )
+    except Exception as e:  # noqa: BLE001 - best-effort; the data commit already landed
+        await logger.awarning(
+            f"set_table_properties: could not set {sorted(missing)}, will retry on the next write: {e}"
+        )
+        return False
+    return True

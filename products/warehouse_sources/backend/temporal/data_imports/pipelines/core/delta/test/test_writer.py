@@ -725,6 +725,56 @@ class TestIncrementalBatchDeduplication:
         assert final.column("name").to_pylist() == ["second_copy"]
 
 
+def _commit_operations(delta_path: str) -> list[str]:
+    return [commit["operation"] for commit in deltalake.DeltaTable(delta_path).history()]
+
+
+class TestCheckpointIntervalProperty:
+    """Opening a table replays every commit after the last checkpoint, so a table left on delta-rs's
+    default interval pays a long replay on every open. Every table has to carry the short interval:
+    new ones from creation, existing ones from their next write."""
+
+    @pytest.mark.parametrize(
+        "write_type,primary_keys", [("incremental", ["id"]), ("append", None), ("full_refresh", None)]
+    )
+    @pytest.mark.asyncio
+    async def test_first_sync_creates_the_table_with_the_property(
+        self, write_type: str, primary_keys: list[str] | None, tmp_path: Path
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+
+        await DeltaWriter(make_local_table_ref(delta_path)).write(
+            data=pa.table({"id": [1, 2]}),
+            write_type=cast(Any, write_type),
+            should_overwrite_table=False,
+            primary_keys=primary_keys,
+        )
+
+        stored = deltalake.DeltaTable(delta_path)
+        assert stored.metadata().configuration.get("delta.checkpointInterval") == "10"
+        # Set at creation, so no separate metadata commit was needed.
+        assert "SET TBLPROPERTIES" not in _commit_operations(delta_path)
+
+    @pytest.mark.asyncio
+    async def test_existing_table_gets_the_property_once(self, tmp_path: Path) -> None:
+        # A table created before the property existed must pick it up, and a second write must not
+        # spend another commit on it: each metadata commit is one more entry in the tail every open replays.
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
+        table_ref = make_local_table_ref(delta_path)
+
+        for value in (2, 3):
+            await DeltaWriter(table_ref).write(
+                data=pa.table({"id": [value]}),
+                write_type="append",
+                should_overwrite_table=False,
+                primary_keys=None,
+            )
+
+        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "10"
+        assert _commit_operations(delta_path).count("SET TBLPROPERTIES") == 1
+
+
 class TestCreateRaceWithExistingTable:
     """DeltaTable.create() defaults to mode="error", raising "table already exists at that
     location" whenever the destination is non-empty. get_delta_table() can report "no table
