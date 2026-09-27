@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Callable
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError
@@ -87,6 +88,29 @@ def _merge(state_alias: str, base_aggregator: str) -> ast.Call:
     return ast.Call(name=base_aggregator + _MERGE_SUFFIX, args=[ast.Field(chain=["ev", state_alias])])
 
 
+def _occurrences_summed() -> ast.Call:
+    """Exact occurrence count of the optimized shape, summed over the inner per-bin counts."""
+    return ast.Call(name="sum", args=[ast.Field(chain=["ev", "occ"])])
+
+
+def _occurrences_counted() -> ast.Call:
+    """Exact occurrence count of the legacy single-query shape."""
+    return ast.Call(name="count", args=[])
+
+
+def _capped_at_occurrences(approximate: ast.Call, occurrences: ast.Call) -> ast.Call:
+    """Cap an approximate `uniq` count at the exact occurrence count.
+
+    One occurrence carries one user and one session, so a distinct count above
+    the occurrence count is HLL estimation error and never a real value.
+
+    `occurrences` must print identically to the `occurrences` alias of the same
+    query: ClickHouse folds aggregates by their printed expression, so a
+    divergence costs a second aggregate state per group.
+    """
+    return ast.Call(name="least", args=[approximate, occurrences])
+
+
 def _fingerprint_hash_expr() -> ast.Call:
     """Hash the fingerprint without resolving it to its materialized column.
 
@@ -105,6 +129,83 @@ def _fingerprint_hash_expr() -> ast.Call:
                 args=[ast.Field(chain=["e", "properties"]), ast.Constant(value="$exception_fingerprint")],
             )
         ],
+    )
+
+
+def _constant_value(value: Any) -> ast.Expr:
+    return ast.Constant(value=value)
+
+
+def _date_time_value(value: Any) -> ast.Expr:
+    return ast.Call(name="toDateTime", args=[ast.Constant(value=str(value))])
+
+
+# Issue filter keys, as sent by the frontend, each mapped to the denormalized
+# issue field and the constructor its values need. The frontend sends the
+# description filter under both names.
+_ISSUE_FILTER_FIELDS: dict[str, tuple[str, Callable[[Any], ast.Expr]]] = {
+    "name": ("issue_name", _constant_value),
+    "description": ("issue_description", _constant_value),
+    "issue_description": ("issue_description", _constant_value),
+    "status": ("issue_status", _constant_value),
+    "severity": ("issue_severity", _constant_value),
+    # A date needs an explicit cast to compare chronologically.
+    "first_seen": ("first_seen", _date_time_value),
+}
+
+# A filter carrying several values compares with the membership operator
+# instead, so each entry holds the single-value operator and that one.
+_MEMBERSHIP_OPERATORS: dict[PropertyOperator, tuple[ast.CompareOperationOp, ast.CompareOperationOp]] = {
+    PropertyOperator.EXACT: (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In),
+    PropertyOperator.IS_NOT: (ast.CompareOperationOp.NotEq, ast.CompareOperationOp.NotIn),
+}
+
+_PATTERN_OPERATORS: dict[PropertyOperator, tuple[str, ast.CompareOperationOp]] = {
+    PropertyOperator.ICONTAINS: ("%{}%", ast.CompareOperationOp.ILike),
+    PropertyOperator.NOT_ICONTAINS: ("%{}%", ast.CompareOperationOp.NotILike),
+    PropertyOperator.STARTS_WITH: ("{}%", ast.CompareOperationOp.ILike),
+    PropertyOperator.NOT_STARTS_WITH: ("{}%", ast.CompareOperationOp.NotILike),
+    PropertyOperator.ENDS_WITH: ("%{}", ast.CompareOperationOp.ILike),
+    PropertyOperator.NOT_ENDS_WITH: ("%{}", ast.CompareOperationOp.NotILike),
+}
+
+_RANGE_OPERATORS: dict[PropertyOperator, ast.CompareOperationOp] = {
+    PropertyOperator.GT: ast.CompareOperationOp.Gt,
+    PropertyOperator.IS_DATE_AFTER: ast.CompareOperationOp.Gt,
+    PropertyOperator.GTE: ast.CompareOperationOp.GtEq,
+    PropertyOperator.LT: ast.CompareOperationOp.Lt,
+    PropertyOperator.IS_DATE_BEFORE: ast.CompareOperationOp.Lt,
+    PropertyOperator.LTE: ast.CompareOperationOp.LtEq,
+}
+
+_NULLABILITY_OPERATORS: dict[PropertyOperator, ast.CompareOperationOp] = {
+    PropertyOperator.IS_SET: ast.CompareOperationOp.NotEq,
+    PropertyOperator.IS_NOT_SET: ast.CompareOperationOp.Eq,
+}
+
+
+def _comparable_values(raw_value: Any) -> list[str | float | bool]:
+    """Keep only the values ClickHouse can compare against an issue field."""
+    candidates = raw_value if isinstance(raw_value, list) else [raw_value]
+    return [candidate for candidate in candidates if isinstance(candidate, (str, float, bool))]
+
+
+def _membership_comparison(
+    field: ast.Expr,
+    operators: tuple[ast.CompareOperationOp, ast.CompareOperationOp],
+    raw_value: Any,
+    make_value: Callable[[Any], ast.Expr],
+) -> ast.Expr | None:
+    single_operator, many_operator = operators
+    values = _comparable_values(raw_value)
+    if not values:
+        return None
+    if len(values) == 1:
+        return ast.CompareOperation(op=single_operator, left=field, right=make_value(values[0]))
+    return ast.CompareOperation(
+        op=many_operator,
+        left=field,
+        right=ast.Tuple(exprs=[make_value(value) for value in values]),
     )
 
 
@@ -548,9 +649,15 @@ class ErrorTrackingQueryBuilder:
         if self.query.withAggregations:
             exprs.extend(
                 [
-                    ast.Alias(alias="occurrences", expr=ast.Call(name="sum", args=[ast.Field(chain=["ev", "occ"])])),
-                    ast.Alias(alias="sessions", expr=_merge("sessions_state", "uniq")),
-                    ast.Alias(alias="users", expr=_merge("users_state", "uniq")),
+                    ast.Alias(alias="occurrences", expr=_occurrences_summed()),
+                    ast.Alias(
+                        alias="sessions",
+                        expr=_capped_at_occurrences(_merge("sessions_state", "uniq"), _occurrences_summed()),
+                    ),
+                    ast.Alias(
+                        alias="users",
+                        expr=_capped_at_occurrences(_merge("users_state", "uniq"), _occurrences_summed()),
+                    ),
                 ]
             )
             if self.query.volumeResolution > 0:
@@ -662,49 +769,41 @@ class ErrorTrackingQueryBuilder:
         if self.query.withAggregations:
             # `uuid` is the events primary key, so `count(DISTINCT uuid)` is
             # identical to `count()` but pays for a distinct hashset per group.
-            exprs.append(ast.Alias(alias="occurrences", expr=ast.Call(name="count", args=[])))
+            exprs.append(ast.Alias(alias="occurrences", expr=_occurrences_counted()))
             # `uniq()` is HLL-based and ~1-2% off vs exact `count(DISTINCT)`
             # on high-cardinality inputs, but much cheaper.
-            exprs.append(
-                ast.Alias(
-                    alias="sessions",
-                    expr=ast.Call(
-                        name="uniq",
+            sessions = ast.Call(
+                name="uniq",
+                args=[
+                    ast.Call(
+                        name="nullIf",
+                        args=[ast.Field(chain=["e", "$session_id"]), ast.Constant(value="")],
+                    )
+                ],
+            )
+            exprs.append(ast.Alias(alias="sessions", expr=_capped_at_occurrences(sessions, _occurrences_counted())))
+            users = ast.Call(
+                name="uniq",
+                args=[
+                    ast.Call(
+                        name="coalesce",
                         args=[
                             ast.Call(
                                 name="nullIf",
-                                args=[ast.Field(chain=["e", "$session_id"]), ast.Constant(value="")],
-                            )
-                        ],
-                    ),
-                )
-            )
-            exprs.append(
-                ast.Alias(
-                    alias="users",
-                    expr=ast.Call(
-                        name="uniq",
-                        args=[
-                            ast.Call(
-                                name="coalesce",
                                 args=[
                                     ast.Call(
-                                        name="nullIf",
-                                        args=[
-                                            ast.Call(
-                                                name="toString",
-                                                args=[ast.Field(chain=["e", "event_person_id"])],
-                                            ),
-                                            ast.Constant(value="00000000-0000-0000-0000-000000000000"),
-                                        ],
+                                        name="toString",
+                                        args=[ast.Field(chain=["e", "event_person_id"])],
                                     ),
-                                    ast.Field(chain=["e", "distinct_id"]),
+                                    ast.Constant(value="00000000-0000-0000-0000-000000000000"),
                                 ],
-                            )
+                            ),
+                            ast.Field(chain=["e", "distinct_id"]),
                         ],
-                    ),
-                )
+                    )
+                ],
             )
+            exprs.append(ast.Alias(alias="users", expr=_capped_at_occurrences(users, _occurrences_counted())))
             exprs.append(
                 ast.Alias(
                     alias="volumeRange",
@@ -863,15 +962,17 @@ class ErrorTrackingQueryBuilder:
             }
             for chain_prefix, properties in props_to_search.items():
                 for property_name in properties:
+                    # A property definition can type a searched property as
+                    # Boolean, Float, or DateTime, and the property swapper then
+                    # casts the field away from String. String search rejects those
+                    # types, so stringify first.
+                    field = ast.Call(name="toString", args=[ast.Field(chain=[*chain_prefix, property_name])])
                     or_exprs.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Gt,
                             left=ast.Call(
-                                name="position",
-                                args=[
-                                    ast.Call(name="lower", args=[ast.Field(chain=[*chain_prefix, property_name])]),
-                                    ast.Call(name="lower", args=[ast.Constant(value=token)]),
-                                ],
+                                name="multiSearchAnyCaseInsensitive",
+                                args=[field, ast.Array(exprs=[ast.Constant(value=token)])],
                             ),
                             right=ast.Constant(value=0),
                         )
@@ -918,99 +1019,23 @@ class ErrorTrackingQueryBuilder:
         return property_to_expr(cast(Any, value), self.team, scope="event")
 
     def _issue_property_to_ast(self, prop: ErrorTrackingIssueFilter) -> ast.Expr | None:
-        key = "description" if prop.key == "issue_description" else prop.key
-
-        field_name_map: dict[str, str] = {
-            "name": "issue_name",
-            "description": "issue_description",
-            "status": "issue_status",
-            "severity": "issue_severity",
-            "first_seen": "first_seen",
-        }
-
-        field_name = field_name_map.get(key)
-        if field_name is None:
+        filter_field = _ISSUE_FILTER_FIELDS.get(prop.key)
+        if filter_field is None:
             return None
 
+        field_name, make_value = filter_field
         field = self._legacy_issue_state_expr(field_name)
-        value = prop.value
         operator = prop.operator
 
-        def make_value(v) -> ast.Expr:
-            if key == "first_seen":
-                return ast.Call(name="toDateTime", args=[ast.Constant(value=str(v))])
-            return ast.Constant(value=v)
-
-        def normalize_values(raw_value: object | list[object]) -> list[str | float | bool]:
-            candidates = raw_value if isinstance(raw_value, list) else [raw_value]
-            return [candidate for candidate in candidates if isinstance(candidate, (str, float, bool))]
-
-        if operator == PropertyOperator.EXACT:
-            values = normalize_values(value)
-            if not values:
-                return None
-            if len(values) == 1:
-                return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=make_value(values[0]))
+        if (membership := _MEMBERSHIP_OPERATORS.get(operator)) is not None:
+            return _membership_comparison(field, membership, prop.value, make_value)
+        if (pattern := _PATTERN_OPERATORS.get(operator)) is not None:
+            template, pattern_operator = pattern
             return ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=field,
-                right=ast.Tuple(exprs=[make_value(v) for v in values]),
+                op=pattern_operator, left=field, right=ast.Constant(value=template.format(prop.value))
             )
-
-        if operator == PropertyOperator.IS_NOT:
-            not_values = normalize_values(value)
-            if not not_values:
-                return None
-            if len(not_values) == 1:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.NotEq, left=field, right=make_value(not_values[0])
-                )
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotIn,
-                left=field,
-                right=ast.Tuple(exprs=[make_value(v) for v in not_values]),
-            )
-
-        if operator == PropertyOperator.ICONTAINS:
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.ILike, left=field, right=ast.Constant(value=f"%{value}%")
-            )
-
-        if operator == PropertyOperator.NOT_ICONTAINS:
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotILike, left=field, right=ast.Constant(value=f"%{value}%")
-            )
-
-        if operator in (
-            PropertyOperator.STARTS_WITH,
-            PropertyOperator.NOT_STARTS_WITH,
-            PropertyOperator.ENDS_WITH,
-            PropertyOperator.NOT_ENDS_WITH,
-        ):
-            prefix_match = operator in (PropertyOperator.STARTS_WITH, PropertyOperator.NOT_STARTS_WITH)
-            negated = operator in (PropertyOperator.NOT_STARTS_WITH, PropertyOperator.NOT_ENDS_WITH)
-            return ast.CompareOperation(
-                op=ast.CompareOperationOp.NotILike if negated else ast.CompareOperationOp.ILike,
-                left=field,
-                right=ast.Constant(value=f"{value}%" if prefix_match else f"%{value}"),
-            )
-
-        if operator in (PropertyOperator.GT, PropertyOperator.IS_DATE_AFTER):
-            return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=field, right=make_value(value))
-
-        if operator == PropertyOperator.GTE:
-            return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=field, right=make_value(value))
-
-        if operator in (PropertyOperator.LT, PropertyOperator.IS_DATE_BEFORE):
-            return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=field, right=make_value(value))
-
-        if operator == PropertyOperator.LTE:
-            return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=field, right=make_value(value))
-
-        if operator == PropertyOperator.IS_SET:
-            return ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=field, right=ast.Constant(value=None))
-
-        if operator == PropertyOperator.IS_NOT_SET:
-            return ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=ast.Constant(value=None))
-
+        if (range_operator := _RANGE_OPERATORS.get(operator)) is not None:
+            return ast.CompareOperation(op=range_operator, left=field, right=make_value(prop.value))
+        if (nullability_operator := _NULLABILITY_OPERATORS.get(operator)) is not None:
+            return ast.CompareOperation(op=nullability_operator, left=field, right=ast.Constant(value=None))
         return None

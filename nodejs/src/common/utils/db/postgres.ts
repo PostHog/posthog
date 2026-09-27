@@ -7,7 +7,12 @@ import { withSpan } from '~/common/tracing/tracing-utils'
 import { logger } from '../logger'
 import { createPostgresPool } from '../utils'
 import { DependencyUnavailableError } from './error'
-import { postgresErrorCounter } from './metrics'
+import {
+    postgresClientErrorCounter,
+    postgresErrorCounter,
+    postgresOpenTransactionsGauge,
+    postgresPoolAcquireDurationHistogram,
+} from './metrics'
 import { timeoutGuard } from './utils'
 
 /** Config that PostgresRouter needs to create its connection pools. */
@@ -57,6 +62,7 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'query_wait_timeout', // Waiting on PG bouncer to give us a slot
     'server login has been failing', // PgBouncer cannot authenticate with upstream PG
     'pooler is shutting down', // PgBouncer terminating client connections during a restart
+    'Cannot use a pool after calling end on the pool', // Shutdown ended the pool while work was still in flight
 ]
 
 export function isTransientPgError(err: unknown): boolean {
@@ -195,25 +201,47 @@ export class PostgresRouter {
         tag: string,
         transaction: (client: TransactionClient) => Promise<ReturnType>
     ): Promise<ReturnType> {
-        const wrappedTag = `${PostgresUse[usage]}:Tx<${tag}>`
+        const poolLabel = PostgresUse[usage]
+        const wrappedTag = `${poolLabel}:Tx<${tag}>`
 
         return withSpan('postgres', 'query.postgres_transaction', { tag: wrappedTag }, async () => {
             const timeout = timeoutGuard(`Postgres slow transaction warning after 30 sec!`)
+            const acquireStart = performance.now()
             const client = await this.pools.get(usage)!.connect()
+            postgresPoolAcquireDurationHistogram.observe({ pool: poolLabel }, (performance.now() - acquireStart) / 1000)
+
+            // pg removes the pool's error listener from a checked-out client, so a lost
+            // connection would otherwise crash the process as an unhandled 'error' event.
+            let releaseError: Error | undefined
+            const onClientError = (error: Error): void => {
+                releaseError = error
+                postgresClientErrorCounter.inc({ pool: poolLabel })
+                logger.warn('🔌', 'Postgres client error during transaction', { tag: wrappedTag, error: String(error) })
+            }
+            client.on('error', onClientError)
+            postgresOpenTransactionsGauge.inc({ pool: poolLabel, tag })
             try {
                 await client.query('BEGIN')
                 const response = await transaction(new TransactionClient(usage, client))
                 await client.query('COMMIT')
                 return response
             } catch (e) {
-                await client.query('ROLLBACK')
+                try {
+                    await client.query('ROLLBACK')
+                } catch (rollbackError) {
+                    // The connection's transaction state is unknown, so the pool must not reuse it.
+                    releaseError ??= rollbackError as Error
+                    logger.warn('🔌', 'Postgres ROLLBACK failed', { tag: wrappedTag, error: String(rollbackError) })
+                }
 
                 // if Postgres is down the ROLLBACK above won't work, but the transaction shouldn't be committed either
                 handlePostgresError(e, usage)
 
                 throw e
             } finally {
-                client.release()
+                postgresOpenTransactionsGauge.dec({ pool: poolLabel, tag })
+                client.removeListener('error', onClientError)
+                client.release(releaseError)
                 clearTimeout(timeout)
             }
         })

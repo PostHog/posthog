@@ -16,6 +16,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 
+import { parseEndpointModelName } from 'products/data_modeling/frontend/endpointModelName'
+
 const toMapByName = <T extends { name: string }>(items: T[]): Record<string, T> =>
     items.reduce(
         (acc, cur) => {
@@ -492,26 +494,18 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
         latestEndpointTables: [
             (s) => [s.endpointTables],
             (endpointTables: DatabaseSchemaEndpointTable[]): DatabaseSchemaEndpointTable[] => {
-                const grouped: Record<string, DatabaseSchemaEndpointTable> = {}
+                const grouped: Record<string, { table: DatabaseSchemaEndpointTable; version: number }> = {}
                 for (const table of endpointTables) {
-                    const match = table.name.match(/^(.+)_v(\d+)$/)
-                    if (!match) {
+                    const parsed = parseEndpointModelName(table.name)
+                    if (!parsed) {
                         continue
                     }
-                    const [, baseName, versionStr] = match
-                    const version = parseInt(versionStr, 10)
-                    const existing = grouped[baseName]
-                    if (!existing) {
-                        grouped[baseName] = table
-                    } else {
-                        const existingMatch = existing.name.match(/_v(\d+)$/)
-                        const existingVersion = existingMatch ? parseInt(existingMatch[1], 10) : 0
-                        if (version > existingVersion) {
-                            grouped[baseName] = table
-                        }
+                    const existing = grouped[parsed.endpointName]
+                    if (!existing || parsed.version > existing.version) {
+                        grouped[parsed.endpointName] = { table, version: parsed.version }
                     }
                 }
-                return Object.values(grouped)
+                return Object.values(grouped).map(({ table }) => table)
             },
             { resultEqualityCheck: objectsEqual },
         ],
@@ -536,9 +530,22 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
     }),
-    listeners(({ actions, values }) => ({
-        refreshDatabaseSchema: () => {
-            actions.loadDatabase({ force: true })
+    listeners(({ actions, asyncActions, values, cache }) => ({
+        refreshDatabaseSchema: async (_, breakpoint) => {
+            const connectionId = values.connectionId
+            const tableNames = Object.keys(values.database?.tables ?? {}).filter(
+                (name) => values.tableFieldsStatus[name] === 'loaded' || values.tableFieldsStatus[name] === 'loading'
+            )
+            await asyncActions.loadDatabase({ force: true, shallow: !values.databaseFieldsComplete })
+            breakpoint()
+            if (values.connectionId === connectionId) {
+                actions.hydrateTableFields(tableNames)
+            }
+        },
+        loadDatabaseSuccess: () => {
+            if (cache.allTableFieldsRequested && values.database) {
+                actions.ensureAllTableFields()
+            }
         },
         hydrateTableFields: async ({ tableNames }) => {
             const requestConnectionId = values.connectionId ?? undefined
@@ -599,19 +606,8 @@ export const databaseTableListLogic = kea<databaseTableListLogicType>([
                 actions.hydrateTableFieldsFailure(toLoad)
             }
         },
-        loadDatabaseSuccess: async ({ payload }, breakpoint) => {
-            if (!payload?.shallow || values.databaseFieldsComplete) {
-                return
-            }
-            // A shallow load renders the table tree immediately; upgrade to the full schema in the
-            // background so every other consumer of this shared store (taxonomic filters, join
-            // modal, insights) still converges on complete field data. The delay lets tables the
-            // user expands right away hydrate through their own small requests first; tables
-            // already loaded or loading are skipped by the upgrade.
-            await breakpoint(3000)
-            actions.ensureAllTableFields()
-        },
         ensureAllTableFields: () => {
+            cache.allTableFieldsRequested = true
             if (values.databaseFieldsComplete && values.database) {
                 return
             }

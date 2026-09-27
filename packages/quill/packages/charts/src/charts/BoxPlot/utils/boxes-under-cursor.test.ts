@@ -41,13 +41,15 @@ function makeScales(
 describe('cursorInsideBoxBand', () => {
     const box = { x: 10, width: 40 }
     it.each([
-        ['cursor left of box', { x: 5 }, false],
-        ['cursor on left edge', { x: 10 }, true],
-        ['cursor inside box', { x: 30 }, true],
-        ['cursor on right edge', { x: 50 }, true],
-        ['cursor right of box', { x: 60 }, false],
-    ])('%s', (_name, cursor, expected) => {
-        expect(cursorInsideBoxBand(box, cursor)).toBe(expected)
+        ['cursor left of box', { x: 5, y: 30 }, false, false],
+        ['cursor on left edge', { x: 10, y: 0 }, false, true],
+        ['cursor inside box', { x: 30, y: 0 }, false, true],
+        ['cursor on right edge', { x: 50, y: 0 }, false, true],
+        ['cursor right of box', { x: 60, y: 30 }, false, false],
+        ['horizontal: cursor inside the band on y, outside on x', { x: 90, y: 30 }, true, true],
+        ['horizontal: cursor outside the band on y, inside on x', { x: 30, y: 90 }, true, false],
+    ])('%s', (_name, cursor, horizontal, expected) => {
+        expect(cursorInsideBoxBand(box, cursor, horizontal)).toBe(expected)
     })
 })
 

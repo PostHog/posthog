@@ -7,7 +7,7 @@ from django_scim import constants
 from django_scim.adapters import SCIMUser
 from scim2_filter_parser.attr_paths import AttrPath
 
-from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.email_utils import EmailLookupHandler, EmailNormalizer
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
@@ -174,7 +174,7 @@ class PostHogSCIMUser(SCIMUser):
         active = data.get("active", True)
 
         with transaction.atomic():
-            user = User.objects.filter(email__iexact=email).first()
+            user = EmailLookupHandler.get_user_by_email(email, is_active=None)
 
             # Check if already SCIM-provisioned for this IdP config
             if user and SCIMProvisionedUser.objects.record_for(user=user, config=config) is not None:
@@ -248,7 +248,7 @@ class PostHogSCIMUser(SCIMUser):
 
             self.obj.first_name = name_data.get("givenName", "")
             self.obj.last_name = name_data.get("familyName", "")
-            self.obj.email = email
+            self.obj.email = EmailNormalizer.normalize(email)
             self.obj.save()
 
             SCIMProvisionedUser.objects.upsert(
@@ -359,7 +359,7 @@ class PostHogSCIMUser(SCIMUser):
         _validate_email_domain_is_verified(email, self._config.organization)
         # Org must also own the current email domain to prevent cross-tenant account takeover
         _validate_email_domain_is_verified(self.obj.email, self._config.organization)
-        self.obj.email = email
+        self.obj.email = EmailNormalizer.normalize(email)
 
     def _write_attribute(self, path: AttrPath, value: Union[str, list, dict]) -> bool:
         """

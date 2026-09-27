@@ -1,7 +1,9 @@
 import functools
+import threading
+import contextvars
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 import pytest
 from unittest import mock
@@ -75,7 +77,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     TOPUP_RESOURCE_NAME,
     TRANSFER_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
+    InvoiceListWithAllLines,
+    RateLimitCallback,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS,
     NON_PARTITIONED_ENDPOINTS,
@@ -242,6 +247,9 @@ class TestStripeSource:
             # listing a specific customer's nested resources — every retry replays the same request
             # against the same customer and fails identically.
             "Request req_abc123: error_details_unknown",
+            # The key belongs to a connected account, so Stripe refuses to nest Connect access two
+            # levels deep when an "Account id" is also configured — a customer misconfiguration.
+            "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -265,6 +273,22 @@ class TestStripeSource:
         assert messages
         assert messages[0] is not None
         assert "isn't authorized for the configured Stripe account" in messages[0]
+
+    def test_connect_account_topology_rejection_has_actionable_message(self):
+        # Stripe's own text names no fix a customer can act on — the guidance has to say what will,
+        # which is removing the 'Account id' or switching to a platform key, since the rejection is
+        # about the key/account combination and surfaces on any endpoint the sync calls, not one table.
+        observed_error = (
+            "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "Account id" in messages[0]
 
     @pytest.mark.parametrize(
         "other_error",
@@ -330,6 +354,32 @@ class TestStripeSource:
 
         assert ok is False
         assert message == expected_message
+
+    def test_delete_webhook_skips_gracefully_when_integration_deleted(self):
+        # Webhook cleanup runs when a source is deleted, by which point the OAuth integration may
+        # already be gone and `get_oauth_integration` raises "Integration not found". delete_webhook
+        # must report the skip: raising leaves the caller's hog function enabled and captures noise
+        # on an otherwise-successful deletion. The reported error must not echo the integration id,
+        # which reaches the API response.
+        config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="oauth", stripe_integration_id=42))
+
+        with mock.patch.object(
+            self.source, "get_oauth_integration", side_effect=ValueError("Integration not found: 42")
+        ):
+            result = self.source.delete_webhook(config, "https://example.com/webhook", team_id=1)
+
+        assert result.success is False
+        assert "42" not in (result.error or "")
+
+    def test_parse_config_reads_flat_oauth_auth_method(self):
+        # The source API accepts a flat payload, so an OAuth connection arrives as
+        # `auth_method: "oauth"` with the integration id as a sibling. Parsing must pick the
+        # OAuth branch; the api_key default would report a missing API key for an account the
+        # user connected with OAuth.
+        config = self.source.parse_config({"auth_method": "oauth", "stripe_integration_id": 123})
+
+        assert config.auth_method.selection == "oauth"
+        assert config.auth_method.stripe_integration_id == 123
 
     def test_validate_credentials_does_not_echo_rejected_key(self):
         # Stripe's 401 body echoes the submitted key verbatim; here the user pasted a password into
@@ -401,11 +451,26 @@ class TestStripeSource:
             ((_TRUNCATED_NON_LIST_WITH_LIST_TOKEN, 200, {}), 0, False),
             # 429s stay retryable (regression guard for the existing rate-limit handling).
             ((b'{\n  "error": {}\n}', 429, {}), 0, True),
+            # A 429 outlives the network-retry budget on its own, larger one...
+            ((b'{\n  "error": {}\n}', 429, {}), 2, True),
+            ((b'{\n  "error": {}\n}', 429, {}), stripe_module.RATE_LIMIT_RETRIES, False),
+            # ...unless Stripe says a retry is pointless.
+            ((b'{\n  "error": {}\n}', 429, {"stripe-should-retry": "false"}), 0, False),
         ],
     )
     def test_rate_limit_client_should_retry(self, response, num_retries, expected):
         client = _RateLimitRetryingRequestsClient()
         assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
+
+    def test_rate_limit_client_reports_retry_after_to_the_throttle_callback(self):
+        seen: list[Optional[float]] = []
+        client = _RateLimitRetryingRequestsClient(on_rate_limited=seen.append)
+
+        client._should_retry((b"{}", 429, {"retry-after": "7"}), None, num_retries=0, max_network_retries=2)
+        client._should_retry((b"{}", 429, {}), None, num_retries=0, max_network_retries=2)
+        client._should_retry((b"{}", 500, {}), None, num_retries=0, max_network_retries=2)
+
+        assert seen == [7, None]
 
     @pytest.mark.parametrize(
         "body,expected",
@@ -626,6 +691,7 @@ class TestStripeNestedResourceGetRows:
         assert rows == []
         # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
         assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
+        assert manager.committing.call_count == 2
         # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
         # the running fan-out size instead of leaving the attempt's only line until after the loop.
         assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]
@@ -646,13 +712,103 @@ class TestStripeNestedResourceGetRows:
         assert {row["customer"] for row in rows} == {"cus_a", "cus_b"}
 
 
-class TestInvoiceListWithAllLines:
-    def test_skips_lines_for_invoice_deleted_mid_sync(self):
-        invoices = [
-            SimpleNamespace(id="in_gone", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
-            SimpleNamespace(id="in_ok", lines=SimpleNamespace(has_more=True, data=[], url="orig")),
-        ]
+def _invoice(invoice_id: Optional[str], has_more: bool = True) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=invoice_id, lines=SimpleNamespace(has_more=has_more, data=[{"id": "embedded"}], url="orig")
+    )
 
+
+class _FakeInvoicePage:
+    def __init__(self, data: list[SimpleNamespace], next_page: "Optional[_FakeInvoicePage]" = None) -> None:
+        self.data = data
+        self._next = next_page
+
+    @property
+    def is_empty(self) -> bool:
+        return not self.data
+
+    def next_page(self) -> "_FakeInvoicePage":
+        return self._next if self._next is not None else _FakeInvoicePage([])
+
+
+class TestInvoiceListWithAllLines:
+    def test_expands_lines_across_pages_in_list_order(self):
+        pages = _FakeInvoicePage(
+            [_invoice("in_1"), _invoice("in_2", has_more=False), _invoice(None)],
+            next_page=_FakeInvoicePage([_invoice("in_3")]),
+        )
+        client = MagicMock()
+        client.invoices.list.return_value = pages
+        client.invoices.line_items.list.side_effect = lambda invoice=None, params=None: _list_object(
+            [{"id": f"il_{invoice}_a"}, {"id": f"il_{invoice}_b"}]
+        )
+
+        result = list(
+            InvoiceListWithAllLines(
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+            ).auto_paging_iter()
+        )
+
+        assert [inv.id for inv in result] == ["in_1", "in_2", "in_3"]
+        assert result[0].lines.data == [{"id": "il_in_1_a"}, {"id": "il_in_1_b"}]
+        assert result[0].lines.has_more is False
+        assert result[1].lines.data == [{"id": "embedded"}]
+        assert result[2].lines.data == [{"id": "il_in_3_a"}, {"id": "il_in_3_b"}]
+
+    def test_line_fetches_run_with_the_callers_context(self):
+        label: contextvars.ContextVar[str] = contextvars.ContextVar("label")
+        label.set("job-42")
+        seen = []
+
+        def line_items_list(invoice=None, params=None):
+            seen.append(label.get(None))
+            return _list_object([{"id": "il_1"}])
+
+        client = MagicMock()
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1"), _invoice("in_2")])
+        client.invoices.line_items.list.side_effect = line_items_list
+
+        list(
+            InvoiceListWithAllLines(
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+            ).auto_paging_iter()
+        )
+
+        assert seen == ["job-42", "job-42"]
+
+    def test_line_fetches_overlap_across_workers_on_their_own_clients(self):
+        first_started = threading.Event()
+        second_finished = threading.Event()
+        threads_by_client: dict[int, set[int]] = {}
+
+        def make_client(_throttled: RateLimitCallback) -> MagicMock:
+            client = MagicMock()
+
+            def line_items_list(invoice=None, params=None):
+                threads_by_client.setdefault(id(client), set()).add(threading.get_ident())
+                if invoice == "in_1":
+                    first_started.set()
+                    assert second_finished.wait(2), "the second fetch never ran while the first was in flight"
+                else:
+                    first_started.wait(2)
+                    second_finished.set()
+                return _list_object([{"id": f"il_{invoice}"}])
+
+            client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1"), _invoice("in_2")])
+            client.invoices.line_items.list.side_effect = line_items_list
+            return client
+
+        result = list(
+            InvoiceListWithAllLines(
+                params={}, logger=MagicMock(), client_factory=make_client, concurrency=2
+            ).auto_paging_iter()
+        )
+
+        assert [inv.lines.data for inv in result] == [[{"id": "il_in_1"}], [{"id": "il_in_2"}]]
+        assert len(threads_by_client) == 2
+        assert all(len(threads) == 1 for threads in threads_by_client.values())
+
+    def test_skips_lines_for_invoice_deleted_mid_sync(self):
         def line_items_list(invoice=None, params=None):
             if invoice == "in_gone":
                 raise stripe_lib.InvalidRequestError(
@@ -661,10 +817,14 @@ class TestInvoiceListWithAllLines:
             return _list_object([{"id": "il_1"}])
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_gone"), _invoice("in_ok")])
         client.invoices.line_items.list.side_effect = line_items_list
 
-        result = list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+        result = list(
+            InvoiceListWithAllLines(
+                params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+            ).auto_paging_iter()
+        )
 
         assert [inv.id for inv in result] == ["in_gone", "in_ok"]
         # The deleted invoice keeps its original (incomplete) lines rather than crashing the sync.
@@ -674,17 +834,19 @@ class TestInvoiceListWithAllLines:
         assert result[1].lines.data == [{"id": "il_1"}]
 
     def test_other_invalid_request_errors_still_raise(self):
-        invoices = [SimpleNamespace(id="in_1", lines=SimpleNamespace(has_more=True, data=[], url="orig"))]
-
         def line_items_list(invoice=None, params=None):
             raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
 
         client = MagicMock()
-        client.invoices.list.return_value = _list_object(invoices)
+        client.invoices.list.return_value = _FakeInvoicePage([_invoice("in_1")])
         client.invoices.line_items.list.side_effect = line_items_list
 
         with pytest.raises(stripe_lib.InvalidRequestError):
-            list(InvoiceListWithAllLines(client, params={}, logger=MagicMock()).auto_paging_iter())
+            list(
+                InvoiceListWithAllLines(
+                    params={}, logger=MagicMock(), client_factory=lambda _throttled: client
+                ).auto_paging_iter()
+            )
 
 
 class TestScrubClientSecrets:
@@ -1261,6 +1423,38 @@ class TestCustomerPaymentMethodHistory:
             assert HISTORY_EVENT_ID_COLUMN not in row
 
 
+class TestWebhookUpsertCollapse:
+    @parameterized.expand(
+        [
+            # One Stripe operation stamps every event it emits with the same whole second, so a
+            # payment's invoice.updated and invoice.paid tie on `created`. The batch holds the
+            # rows in arrival order, so the last row carries the newer state. Keeping the first
+            # row left the invoice at `open` in the warehouse while Stripe showed `paid`, and
+            # the sync still reported success.
+            ("tie broken by arrival order", [(1700000100, "open"), (1700000100, "paid")], "paid"),
+            # A redelivery can arrive after a newer event, so a plain last-row-wins rule would
+            # reinstate the older state.
+            ("older event delivered last", [(1700000100, "paid"), (1700000050, "open")], "paid"),
+        ]
+    )
+    def test_latest_state_per_object_wins(
+        self, _name: str, deliveries: list[tuple[int, str]], expected_status: str
+    ) -> None:
+        events = table_from_py_list(
+            [
+                _event_row(
+                    f"evt_{index}",
+                    "invoice.updated",
+                    event_created,
+                    {"id": "in_1", "object": "invoice", "created": 1700000000, "status": status},
+                )
+                for index, (event_created, status) in enumerate(deliveries)
+            ]
+        )
+        rows = stripe_module._webhook_table_transformer(events).to_pylist()
+        assert [row["status"] for row in rows] == [expected_status]
+
+
 class TestEndpointCatalogWiring:
     def setup_method(self):
         self.resources = stripe_module._build_resources(MagicMock(), logger=None)
@@ -1541,6 +1735,103 @@ class TestCreateWebhookLimitErrorCopy:
         assert result.success is False
         assert "webhook endpoint limit" in (result.error or "")
         assert "manually" in (result.error or "")
+
+
+class TestRepinWebhookApiVersion:
+    _URL = "https://example.com/webhook"
+
+    def _endpoint(self, api_version: str | None) -> SimpleNamespace:
+        return SimpleNamespace(
+            id="we_old",
+            url=self._URL,
+            api_version=api_version,
+            enabled_events=["invoice.paid", "customer.created"],
+            description="PostHog data warehouse webhook",
+        )
+
+    def _client(self, mock_client_cls: MagicMock, endpoint: SimpleNamespace) -> MagicMock:
+        client = mock_client_cls.return_value
+        client.webhook_endpoints.list.return_value = _list_object([endpoint])
+        client.webhook_endpoints.create.return_value = SimpleNamespace(id="we_new", secret="whsec_new")
+        return client
+
+    @parameterized.expand(
+        [
+            ("subscription is copied", ["invoice.paid", "customer.created"], ["invoice.paid", "customer.created"]),
+            # An endpoint with nothing enabled must not come back subscribed to every Stripe event.
+            ("nothing enabled stays empty", [], []),
+        ]
+    )
+    def test_replacement_is_pinned_and_keeps_the_old_endpoint(
+        self, _name: str, enabled_events: list[str], expected_events: list[str]
+    ):
+        # Stripe takes api_version on create only, so the endpoint has to be replaced. The old
+        # endpoint must survive this call: its deliveries are the only ones that verify until the
+        # caller stores the new signing secret.
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            endpoint = self._endpoint(None)
+            endpoint.enabled_events = enabled_events
+            client = self._client(mock_client_cls, endpoint)
+
+            repin = stripe_module.create_pinned_webhook_replacement(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url=self._URL,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            )
+
+        params = client.webhook_endpoints.create.call_args.kwargs["params"]
+        assert params["api_version"] == STRIPE_API_VERSION_ACACIA
+        assert params["url"] == self._URL
+        assert params["enabled_events"] == expected_events
+        client.webhook_endpoints.delete.assert_not_called()
+
+        assert repin.status == "replaced"
+        assert repin.signing_secret == "whsec_new"
+        assert repin.replaced_endpoint_id == "we_old"
+
+    @parameterized.expand(
+        [
+            # A second run must not rotate the signing secret of an endpoint that is already on
+            # the version, and a source whose endpoint was removed in Stripe has nothing to repin.
+            ("already pinned", STRIPE_API_VERSION_ACACIA, "https://example.com/webhook", "already_pinned"),
+            ("no endpoint on this url", None, "https://example.com/other", "no_endpoint"),
+        ]
+    )
+    def test_no_replacement_without_drift(self, _name: str, api_version: str | None, url: str, expected: str):
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            endpoint = self._endpoint(api_version)
+            endpoint.url = url
+            client = self._client(mock_client_cls, endpoint)
+
+            repin = stripe_module.create_pinned_webhook_replacement(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url=self._URL,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            )
+
+        assert repin.status == expected
+        client.webhook_endpoints.create.assert_not_called()
+
+    def test_a_replacement_without_a_secret_is_a_failure_that_names_the_endpoint(self):
+        # Stripe returns the signing secret once, at create. A replacement whose secret never
+        # arrived can never verify a delivery, and reporting it as replaced would delete the
+        # working endpoint and leave only the unusable one.
+        with patch.object(stripe_module, "StripeClient") as mock_client_cls:
+            client = self._client(mock_client_cls, self._endpoint(None))
+            client.webhook_endpoints.create.return_value = SimpleNamespace(id="we_new", secret=None)
+
+            repin = stripe_module.create_pinned_webhook_replacement(
+                api_key="sk_test_123",
+                stripe_account_id=None,
+                webhook_url=self._URL,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            )
+
+        assert repin.status == "failed"
+        assert repin.created_endpoint_id == "we_new"
+        client.webhook_endpoints.delete.assert_not_called()
 
 
 class TestStripeAppManifestCoversSourcePermissions:
@@ -1853,8 +2144,9 @@ class TestStripeNestedSweepResume:
 
         def run(manager):
             collected: list[dict] = []
-            checkpoints: list[tuple[int, Any]] = []
-            manager.save_state.side_effect = lambda state: checkpoints.append((len(collected), state))
+            staged: list[Any] = []
+            committed: list[tuple[int, Any]] = []
+            manager.save_state.side_effect = staged.append
             with (
                 patch.object(stripe_module, "StripeClient"),
                 patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 2),
@@ -1876,12 +2168,15 @@ class TestStripeNestedSweepResume:
                     warehouse_parent=warehouse_parent,
                 ):
                     collected.extend(table.to_pylist())
-            return collected, checkpoints
+                    if staged:
+                        committed.append((len(collected), staged[-1]))
+                        staged.clear()
+            return collected, committed
 
         killed = MagicMock()
         killed.can_resume.return_value = False
-        all_rows, checkpoints = run(killed)
-        rows_written, crash_state = checkpoints[0]
+        all_rows, committed = run(killed)
+        rows_written, crash_state = committed[0]
 
         restarted = MagicMock()
         restarted.can_resume.return_value = True

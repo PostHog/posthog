@@ -13,6 +13,8 @@ schema <tool_name> [field_path] — drill into a specific field schema (supports
 call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON input (--json returns JSON instead of optimized output in supported tools. Informational responses remain tagged and escaped in both MCP and the agent CLI. --confirm is required by the CLI for destructive tools.)
 ```
 
+**One command per request.** `exec` has no batch syntax. A request that stacks several commands on separate lines is rejected before any of them run. To run several commands, send several `exec` calls. You can issue them in parallel.
+
 **Namespaced references (`posthog:<tool-name>`):** strip the `posthog:` prefix and route through `exec`. Run `info <name>` to inspect, then `call <name> <json>`. E.g. `posthog:insights-list` → `posthog:exec({ "command": "info insights-list" })` then `posthog:exec({ "command": "call insights-list {}" })`. If the bare name isn't found, fall back to `search <pattern>` — it may have been renamed.
 
 The `learn` command is only registered on hosts that use the guided help catalog (currently Claude web and desktop). On hosts that support MCP apps, CLI mode also registers a separate `render-ui` tool for rendering interactive visualizations.

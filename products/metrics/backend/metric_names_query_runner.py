@@ -35,6 +35,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
+from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
 from products.metrics.backend.search import ilike_pattern
 
 # Autocomplete tolerates partial results, so reads break at the budget instead
@@ -43,11 +44,10 @@ _QUERY_SETTINGS = HogQLGlobalSettings(
     max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
     read_overflow_mode="break",
 )
-
-# Both `metric_series` and `metrics` expire at the same `original_expiry_timestamp`,
-# which ingest sets to the team's retention (90 days by default).
-# A lookback beyond this would quietly return fewer names than the raw table has.
-SERIES_RETENTION = dt.timedelta(days=90)
+_SPARKLINE_QUERY_SETTINGS = HogQLGlobalSettings(
+    max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+    read_overflow_mode="throw",
+)
 
 # Short enough that a new metric shows up while someone is still wiring it up,
 # long enough to absorb the burst of mounts a team generates in a working session.
@@ -82,6 +82,7 @@ class MetricNamesQueryRunner:
         lookback: dt.timedelta = dt.timedelta(days=7),
         services: Sequence[str] = (),
         include_sparklines: bool = True,
+        names: Sequence[str] = (),
     ) -> None:
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
@@ -89,6 +90,8 @@ class MetricNamesQueryRunner:
             raise ValueError("lookback must be positive")
         if len(services) > MAX_PICKER_SERVICES:
             raise ValueError(f"at most {MAX_PICKER_SERVICES} services may be selected")
+        if len(names) > MAX_SPARKLINE_BATCH_SIZE:
+            raise ValueError(f"at most {MAX_SPARKLINE_BATCH_SIZE} metric names may be selected")
 
         self.team = team
         self.search = search.strip()
@@ -103,6 +106,7 @@ class MetricNamesQueryRunner:
         # expensive part of a name lookup. Callers that only need the type
         # (anomaly defaults) skip it.
         self.include_sparklines = include_sparklines
+        self.names = tuple(sorted(set(names)))
 
     def _build_query(self) -> ast.SelectQuery:
         # The alias is `last_seen_at`, not `last_seen`: HogQL registers select
@@ -159,6 +163,17 @@ class MetricNamesQueryRunner:
         # Both variants above filter on the lookback, so there is always a WHERE to
         # extend; the assert is what tells the type checker so.
         assert query.where is not None
+        if self.names:
+            query.where = ast.And(
+                exprs=[
+                    query.where,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=ast.Field(chain=["metric_name"]),
+                        right=ast.Tuple(exprs=[ast.Constant(value=name) for name in self.names]),
+                    ),
+                ]
+            )
 
         # Appended to the parsed tree rather than written into both SQL variants
         # above, so the scoped and unscoped pickers stay one query definition.
@@ -184,7 +199,7 @@ class MetricNamesQueryRunner:
             query=self._build_query(),
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
-            settings=_QUERY_SETTINGS,
+            settings=_SPARKLINE_QUERY_SETTINGS if self.names else _QUERY_SETTINGS,
         )
 
         names = [row[0] for row in response.results]
@@ -257,7 +272,7 @@ class MetricNamesQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,
-            settings=_QUERY_SETTINGS,
+            settings=_SPARKLINE_QUERY_SETTINGS,
         )
 
         sparklines: dict[str, list[float]] = {}

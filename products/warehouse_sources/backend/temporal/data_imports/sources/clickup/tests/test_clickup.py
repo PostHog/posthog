@@ -1,5 +1,5 @@
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -8,9 +8,12 @@ from unittest import mock
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickup.clickup import (
+    TIME_ENTRIES_HISTORY_FLOOR,
+    TIME_IN_STATUS_BATCH_SIZE,
     ClickUpResumeConfig,
     _ms_to_iso,
     _normalize_task,
+    _normalize_time_entry,
     _to_epoch_ms,
     clickup_source,
     validate_credentials,
@@ -57,6 +60,22 @@ def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, 
 
     session.prepare_request.side_effect = _prepare
     session.send.side_effect = responses
+    return snapshots
+
+
+def _wire_repeating(session: mock.MagicMock, first: list[Response], then: Any) -> list[dict[str, Any]]:
+    """Like `_wire`, but answers every request past `first` by calling `then()` for a fresh response.
+
+    A full-refresh window walk issues one request per window back to the history floor, far more
+    than a fixed list can hold.
+    """
+    remaining = list(first)
+
+    def _send(*args: Any, **kwargs: Any) -> Response:
+        return remaining.pop(0) if remaining else then()
+
+    snapshots = _wire(session, [])
+    session.send.side_effect = _send
     return snapshots
 
 
@@ -225,6 +244,217 @@ class TestTasks:
         assert "date_updated_gt" not in snapshots[0]["params"]
 
 
+class TestNormalizeTimeEntry:
+    def test_converts_entry_timestamps(self) -> None:
+        entry = _normalize_time_entry(
+            {"id": "4", "start": "1567785250202", "end": "1567785260202", "at": "1567785270202", "duration": "10000"}
+        )
+        assert entry["start"] == "2019-09-06T15:54:10.202000+00:00"
+        assert entry["end"] == "2019-09-06T15:54:20.202000+00:00"
+        assert entry["at"] == "2019-09-06T15:54:30.202000+00:00"
+        # Duration is a millisecond count, not a timestamp, so it must survive untouched.
+        assert entry["duration"] == "10000"
+
+
+class TestTimeEntries:
+    TEAMS = {"teams": [{"id": "9", "members": [{"user": {"id": 11}}, {"user": {"id": 22}}]}]}
+
+    def _entries(self, *ids: str) -> dict[str, Any]:
+        return {"data": [{"id": entry_id, "start": "1567785250202"} for entry_id in ids]}
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_walks_windows_from_the_watermark(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        watermark = datetime.now(tz=UTC) - timedelta(days=45)
+        snapshots = _wire(
+            session,
+            [_response(self.TEAMS), _response(self._entries("e1")), _response(self._entries("e2"))],
+        )
+
+        manager = _make_manager()
+        rows = _rows(
+            _source(
+                "time_entries",
+                manager,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=watermark,
+            )
+        )
+
+        # Members first, then one request per 30-day window up to now: 45 days spans two.
+        assert [row["id"] for row in rows] == ["e1", "e2"]
+        assert snapshots[0]["url"].endswith("/team")
+        windows = snapshots[1:]
+        assert len(windows) == 2
+        assert all(snapshot["url"].endswith("/team/9/time_entries") for snapshot in windows)
+        assert windows[0]["params"]["start_date"] == round(watermark.timestamp() * 1000)
+        # Windows are contiguous and oldest first, so nothing between them goes unfetched.
+        assert windows[0]["params"]["end_date"] == windows[1]["params"]["start_date"]
+        assert windows[0]["params"]["start_date"] < windows[1]["params"]["start_date"]
+        # Only the workspace's own members are named; `assignee` is what widens the endpoint past
+        # the calling user's own entries.
+        assert windows[0]["params"]["assignee"] == "11,22"
+        assert rows[0]["start"].startswith("2019-09-06T")
+        # Checkpoint the window just yielded, not the next one: a crash re-fetches it and merge
+        # dedupes.
+        saved = [call.args[0].window_start for call in manager.save_state.call_args_list]
+        assert saved == [window["params"]["start_date"] for window in windows]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resumes_from_the_saved_window(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        resume_start = round((datetime.now(tz=UTC) - timedelta(days=10)).timestamp() * 1000)
+        snapshots = _wire(session, [_response(self.TEAMS), _response(self._entries("e1"))])
+
+        _rows(
+            _source(
+                "time_entries",
+                _make_manager(ClickUpResumeConfig(window_start=resume_start)),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=365),
+            )
+        )
+
+        # The saved window wins over the watermark, so a resumed sync doesn't re-walk a year.
+        assert snapshots[1]["params"]["start_date"] == resume_start
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_full_refresh_starts_at_the_history_floor(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire_repeating(session, [_response(self.TEAMS)], lambda: _response({"data": []}))
+
+        _rows(_source("time_entries", _make_manager(), should_use_incremental_field=False))
+
+        # No watermark means the whole history, which the endpoint only returns when asked,
+        # because without an explicit start_date it answers with the last 30 days.
+        assert snapshots[1]["params"]["start_date"] == round(TIME_ENTRIES_HISTORY_FLOOR.timestamp() * 1000)
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_fails_when_no_members_resolve(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        # A token that can see other workspaces but not the configured one.
+        _wire(session, [_response({"teams": [{"id": "404", "members": [{"user": {"id": 11}}]}]})])
+
+        # Syncing without `assignee` would fill a workspace-wide table with one user's time, and
+        # nothing downstream could tell that from a workspace where only one person tracks time.
+        with pytest.raises(ValueError, match="no members for workspace 9"):
+            _rows(
+                _source(
+                    "time_entries",
+                    _make_manager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime.now(tz=UTC) - timedelta(days=1),
+                )
+            )
+
+
+class TestTaskTimeInStatus:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_flattens_the_map_into_rows_keyed_by_task(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        snapshots = _wire(
+            session,
+            [
+                _response({"tasks": [{"id": "t1"}, {"id": "t2"}]}),
+                _response(
+                    {
+                        "t1": {"current_status": {"status": "open"}, "status_history": []},
+                        "t2": {"current_status": {"status": "done"}, "status_history": []},
+                        # ClickUp has no wrapper key here, so a stray non-object value would
+                        # otherwise be merged into a row.
+                        "error": "nope",
+                    }
+                ),
+            ],
+        )
+
+        rows = _rows(_source("task_time_in_status", _make_manager()))
+
+        assert [(row["task_id"], row["current_status"]["status"]) for row in rows] == [("t1", "open"), ("t2", "done")]
+        assert snapshots[1]["url"].endswith("/task/bulk_time_in_status/task_ids")
+        assert snapshots[1]["params"]["task_ids"] == ["t1", "t2"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_batches_at_the_endpoint_cap(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        first_batch = [str(i) for i in range(TIME_IN_STATUS_BATCH_SIZE)]
+        snapshots = _wire(
+            session,
+            [
+                _response({"tasks": [{"id": task_id} for task_id in first_batch]}),
+                _response({task_id: {"current_status": {}, "status_history": []} for task_id in first_batch}),
+                _response({"tasks": [{"id": "last"}]}),
+                _response({"last": {"current_status": {}, "status_history": []}}),
+            ],
+        )
+
+        rows = _rows(_source("task_time_in_status", _make_manager()))
+
+        assert len(rows) == TIME_IN_STATUS_BATCH_SIZE + 1
+        # The batch is flushed as soon as it fills, before the next task page is fetched.
+        assert [snapshot["url"].rsplit("/", 1)[-1] for snapshot in snapshots] == [
+            "task",
+            "task_ids",
+            "task",
+            "task_ids",
+        ]
+        assert snapshots[3]["params"]["task_ids"] == ["last"]
+
+
+class TestListChildren:
+    # Two lists reached by both routes: one folderless, one under a folder.
+    LISTS_WALK = [
+        {"spaces": [{"id": "s1"}]},
+        {"lists": [{"id": "l1"}]},
+        {"spaces": [{"id": "s1"}]},
+        {"folders": [{"id": "f1"}]},
+        {"lists": [{"id": "l2"}]},
+    ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_stamps_each_field_with_the_list_it_came_from(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        responses = [
+            _response(self.LISTS_WALK[0]),
+            _response(self.LISTS_WALK[1]),
+            _response({"fields": [{"id": "cf1"}]}),
+            _response(self.LISTS_WALK[2]),
+            _response(self.LISTS_WALK[3]),
+            _response(self.LISTS_WALK[4]),
+            _response({"fields": [{"id": "cf1"}, {"id": "cf2"}]}),
+        ]
+        snapshots = _wire(session, responses)
+
+        rows = _rows(_source("list_custom_fields", _make_manager()))
+
+        # A field defined above the list repeats per list, so the row needs the list id the
+        # composite primary key merges on.
+        assert [(row["_list_id"], row["id"]) for row in rows] == [("l1", "cf1"), ("l2", "cf1"), ("l2", "cf2")]
+        assert snapshots[2]["url"].endswith("/list/l1/field")
+        assert snapshots[6]["url"].endswith("/list/l2/field")
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_skips_a_list_that_stops_serving_its_fields(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        _wire(
+            session,
+            [
+                _response(self.LISTS_WALK[0]),
+                _response(self.LISTS_WALK[1]),
+                _response({"err": "List not found"}, status_code=404),
+                _response(self.LISTS_WALK[2]),
+                _response(self.LISTS_WALK[3]),
+                _response(self.LISTS_WALK[4]),
+                _response({"fields": [{"id": "cf2"}]}),
+            ],
+        )
+
+        rows = _rows(_source("list_custom_fields", _make_manager()))
+
+        # An archived or deleted list must not take the whole table down with it.
+        assert [(row["_list_id"], row["id"]) for row in rows] == [("l2", "cf2")]
+
+
 class TestTeamScoped:
     @pytest.mark.parametrize(
         "endpoint, expected_path",
@@ -232,12 +462,13 @@ class TestTeamScoped:
             ("workspaces", "/team"),
             ("spaces", "/team/9/space"),
             ("goals", "/team/9/goal"),
+            ("custom_fields", "/team/9/field"),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_team_scoped_endpoints(self, MockSession: mock.MagicMock, endpoint: str, expected_path: str) -> None:
         session = MockSession.return_value
-        data_key = CLICKUP_ENDPOINTS[endpoint].data_key
+        data_key = CLICKUP_ENDPOINTS[endpoint].data_key or ""
         snapshots = _wire(session, [_response({data_key: [{"id": "1"}, {"id": "2"}]})])
 
         rows = _rows(_source(endpoint, _make_manager()))

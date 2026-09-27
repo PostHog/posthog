@@ -12,7 +12,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { engineeringAnalyticsEmptyState } from '../emptyState/engineeringAnalyticsEmptyState'
 import { doraLogic } from './doraLogic'
-import { EngineeringAnalyticsHealth } from './EngineeringAnalyticsHealth'
+import { EngineeringAnalyticsAuthors } from './EngineeringAnalyticsAuthors'
+import { EngineeringAnalyticsDeploys } from './EngineeringAnalyticsDeploys'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
@@ -21,7 +22,7 @@ import {
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
 import { EngineeringAnalyticsTeams } from './EngineeringAnalyticsTeams'
-import { EngineeringAnalyticsTestHealth } from './EngineeringAnalyticsTestHealth'
+import { EngineeringAnalyticsTests } from './EngineeringAnalyticsTests'
 import { EngineeringAnalyticsWorkflows } from './EngineeringAnalyticsWorkflows'
 import { RepoOverviewScene } from './RepoOverviewScene'
 
@@ -50,11 +51,11 @@ function RefreshButton({ extraLoading = false }: { extraLoading?: boolean }): JS
     )
 }
 
-// Rendered only while the Health tab is active, where its content keeps doraLogic mounted —
-// subscribing here adds no eager DORA load on the other tabs. The DORA loading state can't
+// Rendered only while the Deploys tab is active, where its content keeps doraLogic mounted.
+// Subscribing here adds no eager DORA load on the other tabs. The DORA loading state can't
 // join anyLoading directly: doraLogic already connects from engineeringAnalyticsLogic, and a
 // reverse connect would make the two logics circular.
-function HealthRefreshButton(): JSX.Element {
+function DeploysRefreshButton(): JSX.Element {
     const { doraLoading } = useValues(doraLogic)
     return <RefreshButton extraLoading={doraLoading} />
 }
@@ -63,7 +64,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
     const { searchParams: linkParams } = useValues(router)
     const { activeView } = useValues(engineeringAnalyticsSceneLogic)
 
-    // The general areas of the product. Drill-down pages (workflow, run, PR) live below the Overview.
+    // The general areas of the product. A drill-down page sits below the tab it opens from.
     const tabs: LemonTab<EngineeringAnalyticsView>[] = [
         {
             key: 'hub',
@@ -87,6 +88,22 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             'data-attr': 'engineering-analytics-workflows-tab',
         },
         {
+            key: 'tests',
+            label: 'Tests',
+            content: <EngineeringAnalyticsTests />,
+            link: combineUrl(urls.engineeringAnalyticsTests(), linkParams).url,
+            // Pinned because autocapture dashboards and selectors use the original value.
+            'data-attr': 'engineering-analytics-test-health-tab',
+        },
+        {
+            key: 'deploys',
+            label: 'Deploys',
+            content: <EngineeringAnalyticsDeploys />,
+            link: combineUrl(urls.engineeringAnalyticsDeploys(), linkParams).url,
+            // Pinned because autocapture dashboards and selectors use the original value.
+            'data-attr': 'engineering-analytics-health-tab',
+        },
+        {
             key: 'teams',
             label: 'Teams',
             content: <EngineeringAnalyticsTeams />,
@@ -94,18 +111,11 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             'data-attr': 'engineering-analytics-teams-tab',
         },
         {
-            key: 'test-health',
-            label: 'Test health',
-            content: <EngineeringAnalyticsTestHealth />,
-            link: combineUrl(urls.engineeringAnalyticsTestHealth(), linkParams).url,
-            'data-attr': 'engineering-analytics-test-health-tab',
-        },
-        {
-            key: 'health',
-            label: 'Health',
-            content: <EngineeringAnalyticsHealth />,
-            link: combineUrl(urls.engineeringAnalyticsHealth(), linkParams).url,
-            'data-attr': 'engineering-analytics-health-tab',
+            key: 'authors',
+            label: 'Authors',
+            content: <EngineeringAnalyticsAuthors />,
+            link: combineUrl(urls.engineeringAnalyticsAuthors(), linkParams).url,
+            'data-attr': 'engineering-analytics-authors-tab',
         },
     ]
 
@@ -116,7 +126,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                     name="Engineering analytics"
                     description={VIEW_DESCRIPTIONS[activeView]}
                     resourceType={{ type: 'health' }}
-                    actions={activeView === 'health' ? <HealthRefreshButton /> : <RefreshButton />}
+                    actions={activeView === 'deploys' ? <DeploysRefreshButton /> : <RefreshButton />}
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
                     Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.

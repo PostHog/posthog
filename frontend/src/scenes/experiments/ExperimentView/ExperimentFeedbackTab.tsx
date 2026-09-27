@@ -31,7 +31,8 @@ export function ExperimentFeedbackTab({ experiment }: { experiment: Experiment }
                 type: QuickSurveyType.EXPERIMENT,
                 experiment,
             }}
-            emptyStateBannerMessage="Gather qualitative feedback from users participating in this experiment"
+            emptyStateHeader="Survey your experiment participants"
+            emptyStateDescription="Create a survey that targets users exposed to this experiment. Responses are linked to the experiment so you can review them alongside your results."
             multipleSurveysBannerMessage={
                 <>
                     Showing only surveys associated with this experiment.{' '}

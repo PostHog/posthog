@@ -2,6 +2,12 @@ import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 
 import { logger } from '~/common/utils/logger'
+import {
+    MlDecodedMessage,
+    MlKafkaTransport,
+    ingestionVersion,
+    validateImageRefVersion,
+} from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/transport'
 
 import {
     FetchCandidate,
@@ -11,6 +17,7 @@ import {
     parseCollectedUrlsRecord,
 } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
+import { FetchCandidatePoolAdmission } from './fetch-candidate-pool'
 import { mergeDuplicateFetchCandidates } from './fetch-candidate-queue'
 import {
     AttemptOutcome,
@@ -25,6 +32,7 @@ import { FrontierPublisher, RepublishBatch } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
+import { urlHistoryExpiresAtMs } from './url-history-expiry'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
@@ -48,7 +56,8 @@ export class UrlFetchConsumer {
         private readonly options: UrlFetchConsumerOptions,
         private readonly runner?: FetchPass,
         private readonly deadLetters: FrontierDeadLetterSink | null = null,
-        private readonly topHogMetrics?: ImageFetchTopHogMetrics
+        private readonly topHogMetrics?: ImageFetchTopHogMetrics,
+        private readonly keyManager?: MlKafkaTransport
     ) {
         if (!Number.isInteger(options.seenTtlSeconds) || options.seenTtlSeconds < 60 * 60) {
             throw new Error('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS must be at least 3600')
@@ -59,7 +68,32 @@ export class UrlFetchConsumer {
         ImageFetchConsumerMetrics.setDryRun(options.dryRun)
     }
 
-    public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
+    public async handleBatch(
+        messages: Message[],
+        nowMs: number,
+        admission?: FetchCandidatePoolAdmission
+    ): Promise<void> {
+        const decoded: MlDecodedMessage[] = this.keyManager
+            ? await this.keyManager.read(messages)
+            : messages.map((message) => {
+                  let version: 1 | 2
+                  try {
+                      version = ingestionVersion(message)
+                  } catch (error) {
+                      if (error instanceof Error && error.message === 'Unsupported ML ingestion version') {
+                          return { message, original: message, version: undefined, invalid: true }
+                      }
+                      throw error
+                  }
+                  if (version === 2) {
+                      throw new Error('ML v2 frontier requires key manager configuration')
+                  }
+                  return { message, original: message, version, invalid: undefined }
+              })
+        const decodedValid = decoded.filter((entry) => !entry.invalid && !entry.legacy)
+        const v2 = decodedValid.filter((entry) => entry.version === 2).length
+        ImageFetchConsumerMetrics.incrementVersion('2', v2)
+        ImageFetchConsumerMetrics.incrementVersion('1', decodedValid.length - v2)
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
@@ -75,10 +109,17 @@ export class UrlFetchConsumer {
         const stage = ImageFetchProcessingMetrics.start('batch_parse')
 
         try {
-            for (const message of messages) {
+            for (const { message, original, version, invalid, legacy } of decoded) {
+                if (legacy) {
+                    continue
+                }
+                if (invalid) {
+                    rejectedRecords.push({ message: original, reasons: ['malformed'] })
+                    continue
+                }
                 const parsed = this.parse(message)
                 if (!parsed.ok) {
-                    rejectedRecords.push({ message, reasons: [parsed.reason] })
+                    rejectedRecords.push({ message: original, reasons: [parsed.reason] })
                     continue
                 }
                 ImageFetchConsumerMetrics.observeRecord(parsed.urlCount)
@@ -89,12 +130,23 @@ export class UrlFetchConsumer {
                 )
                 if (parsed.rejected.length > 0) {
                     rejectedRecords.push({
-                        message,
+                        message: original,
                         reasons: parsed.rejected.map((rejected) => rejected.reason),
                     })
                 }
                 for (const { reason } of parsed.skipped) {
                     skips.set(reason, (skips.get(reason) ?? 0) + 1)
+                }
+                try {
+                    for (const candidate of parsed.candidates) {
+                        validateImageRefVersion(candidate.originalRef, version ?? 1)
+                        if (version === 2 && !candidate.sessionId) {
+                            throw new Error('A v2 fetch job needs its session ID')
+                        }
+                    }
+                } catch {
+                    rejectedRecords.push({ message: original, reasons: ['bad_ref'] })
+                    continue
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
@@ -186,7 +238,7 @@ export class UrlFetchConsumer {
 
             const republishBatch = this.publisher.createRepublishBatch(republishDeadlineAtMonotonicMs)
             stage.move('batch_fetch')
-            const attempts = await this.runner!.run(fetchable, stored, republishBatch)
+            const attempts = await this.runner!.run(fetchable, stored, republishBatch, admission)
             stage.move('batch_prepare_republish')
             attempts.push(
                 ...(await Promise.all(
@@ -421,7 +473,7 @@ export class UrlFetchConsumer {
     }
 
     private terminalHistory(candidate: FetchCandidate, outcome: AttemptOutcome, nowMs: number): UrlCrawlHistoryItem {
-        const nextFetchAtMs = nowMs + this.options.seenTtlSeconds * 1000
+        const nextFetchAtMs = urlHistoryExpiresAtMs(candidate.originalRef, nowMs, this.options.seenTtlSeconds)
         return {
             kind: 'url',
             key: candidate.originalRef,

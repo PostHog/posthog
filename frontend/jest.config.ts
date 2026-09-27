@@ -284,6 +284,7 @@ const config: Config = {
     // jest.quarantine.ts first so it wraps the describe/it/test globals before any test file declares tests.
     setupFilesAfterEnv: [
         '<rootDir>/jest.quarantine.ts',
+        '<rootDir>/../.github/scripts/jest-retries.cjs',
         '<rootDir>/jest.setupAfterEnv.ts',
         '<rootDir>/src/mocks/jest.ts',
     ],

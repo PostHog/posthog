@@ -173,6 +173,7 @@ Production code may not add one.
 `drives(...)` lines record the tests outside a product that execute its query runners.
 They are keyed by the product's `backend/hogql_queries/` location instead of a class, and read from test modules only.
 A new line is a new outside test that drives product code, and that test belongs in the product.
+`facade-*` lines record what a facade signature promises, read from the facade itself rather than from a caller.
 A repo-invariant test compares that file against a fresh scan, in both directions.
 A count can go down.
 A count must not go up.
@@ -198,6 +199,12 @@ All three are a declared residual, not permission to add more.
 A behavioral class that fits no approved interface must not cross at all.
 Wrap it in a facade function returning contracts, or register a plain function (see the managed-view provider registry in `products/data_modeling/backend/facade/managed_viewset_hooks.py`).
 A product whose facade hands out unapproved behavior is not soundly isolated: it loses `backend:contract-check` and pays the full suite until fixed.
+
+**Inbound webhook consumers are a designated location of the same kind.**
+A product declares its handlers in `backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence.
+`posthog/ingress/` discovers that module through `load_product_modules("webhook_consumers")` on the first delivery, and its registry validates each consumer at build: an unknown provider app, a name already taken for that provider, or an event type the provider does not declare raises.
+No class crosses, because a consumer is a plain function behind a frozen contract, and an import-linter contract holds the module to its own product's `facade/`.
+See [posthog/ingress/README.md](/posthog/ingress/README.md).
 
 Why shape rules rather than location rules: publicness-by-location without a constrained API shape rots.
 Shopify's Packwerk `app/public` folders became a "catch-all drawer" of models, controllers, and jobs for exactly this reason.
@@ -257,7 +264,7 @@ myproduct/
 
 ### Which locations are fixed, and which are yours
 
-Only the paths the tooling is pointed at have fixed names: `facade/`, `presentation/`, `tasks/`, `routes.py`, and the wiring locations (`hogql_queries/`, `max_tools.py`, `temporal/`) — see [Wiring couplings](#wiring-couplings).
+Only the paths the tooling is pointed at have fixed names: `facade/`, `presentation/`, `tasks/`, `routes.py`, `webhook_consumers.py`, and the wiring locations (`hogql_queries/`, `max_tools.py`, `temporal/`) — see [Wiring couplings](#wiring-couplings).
 They are the narrowed `backend:contract-check` inputs, and two import-linter contracts hold the HTTP surface inside them by shape: `routes.py` may only import `presentation/`, and `presentation/` may only import `facade/`.
 Core reaches a product's views only through `routes.py`, so the chain core → routes → presentation → facade is three import edges, and a view anywhere else simply cannot be routed.
 `hogli product:lint` holds the same two rules by reading the imports directly, because import-linter cannot see a module under a directory without `__init__.py`.

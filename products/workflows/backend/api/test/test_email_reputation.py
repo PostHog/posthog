@@ -17,7 +17,7 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models import HogFlow, HogFlowBatchJob
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
-from products.workflows.backend.providers.ses import IspDailyPoint, IspSendingMetrics
+from products.workflows.backend.providers.ses import IspSendingMetrics
 
 
 class TestEmailReputationAPI(APIBaseTest):
@@ -254,6 +254,28 @@ class TestEmailReputationAPI(APIBaseTest):
         assert data["workflows"] == []
         assert data["reputation"]["emails_sent"] == 200
 
+    def test_reputation_endpoint_flags_workflows_we_paused_ourselves(self):
+        # The rest of this tab reports the provider's verdict, so a workflow PostHog paused reads
+        # as healthy here without this flag.
+        paused = self._create_flow("Paused blast")
+        clean = self._create_flow("Healthy drip")
+        paused.email_sending_paused_at = timezone.now()
+        paused.email_sending_paused_reason = "Spam complaints reached 2%."
+        paused.save(update_fields=["email_sending_paused_at", "email_sending_paused_reason"])
+
+        data = self._get_reputation(
+            {
+                str(paused.id): {"email_sent": 1000, "email_blocked": 20},
+                str(clean.id): {"email_sent": 1000},
+            }
+        )
+
+        rows = {row["hog_flow_name"]: row for row in data["workflows"]}
+        assert rows["Paused blast"]["email_sending_paused"] is True
+        assert rows["Paused blast"]["email_sending_paused_reason"] == "Spam complaints reached 2%."
+        assert rows["Healthy drip"]["email_sending_paused"] is False
+        assert rows["Healthy drip"]["email_sending_paused_reason"] == ""
+
     def test_reputation_endpoint_reports_email_sending_suspension(self):
         suspended_at = timezone.now().replace(microsecond=0)
         TeamWorkflowsConfig.objects.update_or_create(
@@ -288,16 +310,18 @@ class TestEmailReputationAPI(APIBaseTest):
                     emails_sent=900,
                     delivery_rate=0.97,
                     bounce_rate=0.01,
+                    transient_bounce_rate=0.02,
                     complaint_rate=None,
-                    daily=(IspDailyPoint(date="2026-08-01", emails_sent=900, delivery_rate=0.97, bounce_rate=0.01),),
+                    complaint_base=0,
                 ),
                 IspSendingMetrics(
                     isp="Yahoo",
                     emails_sent=100,
                     delivery_rate=0.99,
                     bounce_rate=0.0,
+                    transient_bounce_rate=0.0,
                     complaint_rate=0.002,
-                    daily=(),
+                    complaint_base=50,
                 ),
             ],
         )
@@ -308,27 +332,22 @@ class TestEmailReputationAPI(APIBaseTest):
                 "emails_sent": 900,
                 "delivery_rate": 0.97,
                 "bounce_rate": 0.01,
-                # Null rather than 0 — Gmail runs no feedback loop, so a complaint rate would be
+                "transient_bounce_rate": 0.02,
+                # Null rather than 0: Gmail runs no feedback loop, so a complaint rate would be
                 # a number we can't actually measure.
                 "complaint_rate": None,
+                "complaint_base": 0,
                 "unavailable": [],
-                "daily": [
-                    {
-                        "date": "2026-08-01",
-                        "emails_sent": 900,
-                        "delivery_rate": 0.97,
-                        "bounce_rate": 0.01,
-                    }
-                ],
             },
             {
                 "isp": "Yahoo",
                 "emails_sent": 100,
                 "delivery_rate": 0.99,
                 "bounce_rate": 0.0,
+                "transient_bounce_rate": 0.0,
                 "complaint_rate": 0.002,
+                "complaint_base": 50,
                 "unavailable": [],
-                "daily": [],
             },
         ]
 
@@ -404,8 +423,9 @@ class TestEmailReputationAPI(APIBaseTest):
                     emails_sent=900,
                     delivery_rate=0.97,
                     bounce_rate=0.01,
+                    transient_bounce_rate=0.0,
                     complaint_rate=None,
-                    daily=(),
+                    complaint_base=0,
                 )
             ],
         )
@@ -457,8 +477,9 @@ class TestEmailReputationAPI(APIBaseTest):
                     emails_sent=90,
                     delivery_rate=0.99,
                     bounce_rate=0.01,
+                    transient_bounce_rate=0.0,
                     complaint_rate=None,
-                    daily=(),
+                    complaint_base=0,
                 )
             ],
             isp_flag_enabled=False,
@@ -515,8 +536,9 @@ class TestEmailReputationAccessControl(APIBaseTest):
                 emails_sent=100,
                 delivery_rate=0.9,
                 bounce_rate=0.05,
+                transient_bounce_rate=0.0,
                 complaint_rate=None,
-                daily=(),
+                complaint_base=0,
             )
         ]
         with (

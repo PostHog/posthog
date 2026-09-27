@@ -1,5 +1,6 @@
 import re
 import json
+import math
 import time
 import random
 import datetime
@@ -21,7 +22,7 @@ from django.core.signing import BadSignature
 from django.db import transaction
 from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_http_methods
@@ -38,6 +39,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from social_core.exceptions import AuthConnectionError, AuthFailed, AuthMissingParameter
 from social_django.strategy import DjangoStrategy
 from social_django.views import auth
@@ -76,6 +78,7 @@ from posthog.rate_limit import (
     CodeBasedVerificationResendThrottle,
     CodeBasedVerificationThrottle,
     LoginPrecheckThrottle,
+    SSOLoginThrottle,
     TwoFactorThrottle,
     UserPasswordResetThrottle,
 )
@@ -85,8 +88,17 @@ from posthog.tasks.email import (
     send_password_reset,
     send_two_factor_auth_backup_code_used_email,
 )
-from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
+from posthog.utils import (
+    get_instance_available_sso_providers,
+    get_ip_address,
+    get_short_user_agent,
+    get_trusted_client_ip,
+)
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
@@ -146,9 +158,18 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
+    sso_login_throttle = SSOLoginThrottle()
+    if not sso_login_throttle.allow_request(cast(Request, request), view=cast(APIView, None)):
+        response = HttpResponse("Too many requests. Please try again later.", status=429)
+        wait = sso_login_throttle.wait()
+        if wait is not None:
+            response["Retry-After"] = str(math.ceil(wait))
+        return response
+
     sso_providers = get_instance_available_sso_providers()
     # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
     sso_providers["saml"] = settings.EE_AVAILABLE
+    sso_providers["oidc"] = settings.EE_AVAILABLE
 
     is_reauth = is_sso_reauth_begin(request)
 
@@ -161,8 +182,8 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
 
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
-    if connect_from:
-        # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
+    if connect_from and backend == "github":
+        # For linking GitHub, keep the session and set the next URL to /account-connected/github-login
         # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
         query_dict["next"] = (
@@ -183,6 +204,24 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # it's a sibling of AuthFailed (not a subclass), so it would otherwise surface as an unhandled 500.
         logger.warning("SSO login failed, redirecting to login page", exc_info=e)
         return redirect(sso_failure_redirect_url(request, "improperly_configured_sso", is_reauth=is_reauth))
+
+
+SSO_REAUTH_CHANNEL = "posthog-sso-reauth"
+
+
+@require_http_methods(["GET"])
+def sso_reauth_complete(request: HttpRequest) -> HttpResponse:
+    return render(
+        request,
+        "sso_reauth_complete.html",
+        {
+            "result": {
+                "channel": SSO_REAUTH_CHANNEL,
+                "attempt": request.GET.get("attempt") or None,
+                "error_code": request.GET.get("error_code") or None,
+            }
+        },
+    )
 
 
 class TwoFactorRequired(APIException):
@@ -342,6 +381,15 @@ class LoginSerializer(serializers.Serializer):
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
+        try:
+            security_shadow_check(
+                SecuritySubject(email=user.email, user_uuid=str(user.uuid), ip=get_trusted_client_ip(axes_request)),
+                SecuritySurface.APP,
+                call_site="login",
+            )
+        except Exception:
+            logger.exception("security_shadow_check_site_failed", call_site="login")
+
         if not is_email_verified_for_login(user):
             # A fresh code was just emailed; hand the frontend the uuid so it can route to
             # the code entry page.
@@ -438,16 +486,18 @@ class LoginPrecheckSerializer(serializers.Serializer):
         ]
 
         saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
+        oidc_available = IdentityProviderConfig.objects.get_is_oidc_available_for_email(email)
 
         return {
             "sso_enforcement": sso_enforcement_for_login_address(email, user),
             "saml_available": saml_available,
+            "oidc_available": oidc_available,
             "webauthn_credentials": webauthn_credentials,
-            **self._available_local_methods(email, saml_available=saml_available),
+            **self._available_local_methods(email, saml_available=saml_available, oidc_available=oidc_available),
         }
 
     @staticmethod
-    def _available_local_methods(email: str, *, saml_available: bool) -> dict[str, Any]:
+    def _available_local_methods(email: str, *, saml_available: bool, oidc_available: bool = False) -> dict[str, Any]:
         """
         Report whether this account can log in with a password, and which of its linked social
         identities are actually usable on this instance, so the login form can stop offering a
@@ -475,6 +525,8 @@ class LoginPrecheckSerializer(serializers.Serializer):
             # SAML is domain-configured rather than instance-configured, so it isn't covered above.
             usable_providers.add("saml")
         linked_providers = set(user.social_auth.values_list("provider", flat=True))
+        if oidc_available:
+            usable_providers.add("oidc")
 
         return {
             "password_login_available": password_login_available,
@@ -605,9 +657,8 @@ class DevLoginSerializer(serializers.Serializer):
             return self._create_fresh_account()
 
         request = self.context["request"]
-        try:
-            user = User.objects.get(email__iexact=validated_data["email"], is_active=True)
-        except User.DoesNotExist:
+        user = EmailLookupHandler.get_user_by_email(validated_data["email"])
+        if user is None:
             raise serializers.ValidationError("User not found", code="user_not_found")
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -1290,6 +1341,34 @@ def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
         return None
 
     return request
+
+
+def social_identity_matches_session(
+    strategy: DjangoStrategy,
+    backend: Any,
+    details: dict[str, Any] | None = None,
+    user: User | None = None,
+    social: Any = None,
+    **kwargs: Any,
+) -> None:
+    request = strategy.request
+    if not request or not request.user.is_authenticated or social is not None:
+        return
+
+    is_github_account_link = getattr(backend, "name", "") == "github" and (
+        strategy.session_get("next") or ""
+    ).startswith("/account-connected/github-login")
+    if is_github_account_link:
+        return
+
+    identity_email = ((details or {}).get("email") or "").lower()
+    if user is None or user.pk != request.user.pk or identity_email != request.user.email.lower():
+        logger.warning(
+            "SSO identity mismatch for authenticated session",
+            backend=getattr(backend, "name", ""),
+            session_user_id=request.user.pk,
+        )
+        raise AuthFailed(backend, "reauth_user_mismatch")
 
 
 def social_reauth(

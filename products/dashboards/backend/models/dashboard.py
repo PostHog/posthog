@@ -8,6 +8,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri
 
@@ -40,7 +41,7 @@ class DashboardManager(RootTeamManager):
         return super().get_queryset().exclude(deleted=True)
 
 
-class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
+class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = (

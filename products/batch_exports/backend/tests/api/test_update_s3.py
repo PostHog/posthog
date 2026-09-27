@@ -156,3 +156,120 @@ def test_updating_legacy_s3_batch_export_is_rejected(client: HttpClient, tempora
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert "deprecated" in response.json()["detail"]
+
+
+def test_updating_s3_family_batch_export_preserves_legacy_parquet_extension(
+    client: HttpClient, temporal, organization, team, user
+):
+    """A grandfathered export keeps its file names when a patch does not mention the setting.
+
+    The frontend only renders the setting for an export that still has it on, so every other
+    patch omits the key and must not turn it off.
+    """
+    destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
+    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {**destination.config, "legacy_parquet_extension": True}
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"prefix": "new-prefix/"}}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    config = response.json()["destination"]["config"]
+    assert config["prefix"] == "new-prefix/"
+    assert config["legacy_parquet_extension"] is True
+
+
+@pytest.mark.parametrize(
+    "stored_file_format,stored_compression,expected",
+    [
+        ("Parquet", "zstd", True),
+        ("JSONLines", "gzip", False),
+        ("Parquet", None, False),
+    ],
+)
+def test_updating_s3_family_batch_export_pins_naming_from_the_stored_config(
+    client: HttpClient, temporal, organization, team, user, stored_file_format, stored_compression, expected
+):
+    """An export with no stored value records its naming from what it was already writing.
+
+    Only an export already writing compressed Parquet has names carrying a codec. One on JSON
+    Lines, or on Parquet with no compression, has none, so moving it to compressed Parquet must
+    produce '.parquet'.
+    """
+    destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
+    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {
+        **destination.config,
+        "file_format": stored_file_format,
+        "compression": stored_compression,
+    }
+    # remove any stored value for legacy_parquet_extension to mimic an existing batch export
+    destination.config.pop("legacy_parquet_extension", None)
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"file_format": "Parquet", "compression": "zstd"}}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    config = response.json()["destination"]["config"]
+    assert config["file_format"] == "Parquet"
+    assert config["legacy_parquet_extension"] is expected
+
+
+def test_updating_s3_family_batch_export_rejects_turning_legacy_naming_back_on(
+    client: HttpClient, temporal, organization, team, user
+):
+    """Moving to `.parquet` is one way, and the frontend states that, so the API has to hold it."""
+    destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
+    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {
+        **destination.config,
+        "file_format": "Parquet",
+        "compression": "zstd",
+        "legacy_parquet_extension": False,
+    }
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"legacy_parquet_extension": True}}},
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "legacy_parquet_extension" in response.json()["detail"]
+
+
+def test_updating_s3_family_batch_export_lets_a_grandfathered_export_keep_legacy_naming(
+    client: HttpClient, temporal, organization, team, user
+):
+    """An export still on the legacy names may resend the value, which is what the form does."""
+    destination_type, kind, integration_config = _S3_FAMILY_INTEGRATIONS[0]
+    _, batch_export = _create_integration_backed_export(client, team, user, destination_type, kind, integration_config)
+    destination = BatchExportDestination.objects.get(batchexport__id=batch_export["id"])
+    destination.config = {**destination.config, "file_format": "Parquet", "compression": "zstd"}
+    destination.config.pop("legacy_parquet_extension", None)
+    destination.save()
+
+    response = patch_batch_export(
+        client,
+        team.pk,
+        batch_export["id"],
+        {"destination": {"type": destination_type, "config": {"legacy_parquet_extension": True}}},
+    )
+
+    assert response.status_code == status.HTTP_200_OK, response.json()
+    assert response.json()["destination"]["config"]["legacy_parquet_extension"] is True

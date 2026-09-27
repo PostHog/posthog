@@ -87,6 +87,9 @@ tools:
     hog-flows-rerun-create:
         operation: hog_flows_rerun_create
         enabled: false
+    hog-flows-resume-email-sending:
+        operation: hog_flows_resume_email_sending
+        enabled: false
     hog-flows-revisions-list:
         operation: hog_flows_revisions_list
         enabled: false
@@ -258,9 +261,11 @@ tools:
         title: List workflows
         description: >
             List all workflows in the project. Returns workflows with their name, description, status
-            (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<name> to find a
-            workflow by name and read its id. Most workflows-* tools take that value as 'id'; workflows-blast-radius,
-            workflows-run-batch and workflows-schedule-create take it as 'workflow_id'.
+            (draft/active/archived), version, trigger configuration, and timestamps. Pass search=<text> to find a
+            workflow by its name or description, or, when neither matches, by a step name or the subject, preheader or
+            body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools take that
+            value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as
+            'workflow_id'.
         ui_app: workflow-list
     workflows-list-batch-jobs:
         operation: hog_flows_batch_jobs_list

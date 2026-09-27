@@ -20,30 +20,38 @@ from typing import TYPE_CHECKING, Protocol
 from policy import OwnershipSource, load_policy
 
 if TYPE_CHECKING:
-    from posthog_owners.resolver import OwnersResolver
+    from owners_yaml.resolver import OwnersResolver
 
-# The resolver lives in the posthog-owners package. This script's uv env does not install it, so the
+
+# The resolver lives in the owners-yaml package. This script's uv env does not install it, so the
 # code puts it on the path and imports it as a library. It needs only pyyaml, which review_pr.py
 # declares. _build_hogli_resolver defers the import, because downstream repos vendor this directory
-# (plus .stamphog/) without tools/owners. A module-level import would disable their stamphog copy
+# without the resolver package. A module-level import would disable their stamphog copy
 # before any gate runs. The package is only necessary once a policy declares a hogli-resolver
 # ownership source.
 #
 # There are two candidate locations, and the code puts only the FIRST one that exists on the path.
-# The sibling `owners/` covers two cases: the vendored layout that downstream repos copy, and the
-# review sandbox, which receives this directory at <checkout>/tools/pr-approval-agent with
-# tools/owners beside it. The sandbox therefore never reaches the second entry. The second entry
-# covers a run from this repo, where the engine's own home is under products/stamphog/packages/.
+# The first entry covers a run from this repo, where the resolver is at packages/owners-yaml and the
+# engine's own home is under products/stamphog/packages/. The sibling `owners/` covers two cases:
+# the vendored layout that downstream repos copy, and the review sandbox, which receives this
+# directory at <checkout>/tools/pr-approval-agent with the resolver beside it at
+# <checkout>/tools/owners. Neither of those layouts has a first entry to find, so they fall through
+# to the sibling.
 #
 # Both entries are fixed offsets from this file, and not a discovered repo root.
 # `policy.repo_root()` walks up to find a `.stamphog/` directory, and the PR head is untrusted. A PR
 # that adds `tools/.stamphog/` would move that root and point this code at a directory that the PR
 # controls. The sandbox would then import that directory, and the sandbox holds the run's LLM
 # credentials.
-_OWNERS_PKG_CANDIDATES = (
-    Path(__file__).resolve().parents[1] / "owners",
-    Path(__file__).resolve().parents[4] / "tools" / "owners",
-)
+def _owners_pkg_candidates(engine_file: Path) -> tuple[Path, ...]:
+    engine_dir = engine_file.resolve().parent
+    # engine_dir is products/stamphog/packages/pr-approval-agent in this repo, so the repo root is
+    # four levels up. In the sandbox and in a vendored copy that offset points outside the tree and
+    # finds nothing, which is what makes the sibling the answer there.
+    return (engine_dir.parents[3] / "packages" / "owners-yaml", engine_dir.parent / "owners")
+
+
+_OWNERS_PKG_CANDIDATES = _owners_pkg_candidates(Path(__file__))
 
 # ── Dependency ecosystems ────────────────────────────────────────
 #
@@ -209,11 +217,11 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliRes
     try:
         # Deferred (PLC0415) because the package is absent in vendored copies and is needed only
         # once a policy declares this ownership format.
-        from posthog_owners.resolver import OwnersResolver  # noqa: PLC0415
+        from owners_yaml.resolver import OwnersResolver  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
-            "ownership format 'hogli-resolver' requires the posthog-owners package: "
-            "vendor tools/owners alongside this directory, or drop the "
+            "ownership format 'hogli-resolver' requires the owners-yaml package: "
+            "add a pinned owners-yaml from PyPI to this script's dependencies, or drop the "
             "hogli-resolver source from .stamphog/policy.yml"
         ) from exc
     assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)
@@ -259,7 +267,7 @@ TEAM_FILE_SAMPLE = 10
 # rather than whether code is safe to approve. A bare `generated/` match would also catch
 # hand-editable directories elsewhere in the tree, which is the case AGENTS.md warns about.
 #
-# The ownership registry has a `status: generated` value (posthog_owners.schema) that would be the
+# The ownership registry has a `status: generated` value (owners_yaml.schema) that would be the
 # right home for this, but no owners.yaml or product.yaml declares it today, so reading it would
 # exclude nothing.
 _GENERATED_PATH_RE = re.compile(r"^products/[^/]+/frontend/generated/")

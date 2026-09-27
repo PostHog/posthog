@@ -22,6 +22,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.report_check_execution import run_due_report_checks
 from products.signals.backend.scout_harness.config_registry import live_scout_skill_names, register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
@@ -119,6 +120,43 @@ class CoordinatorWorkflowOutput:
     planned_count: int
     started_count: int
     skipped_count: int
+
+
+@frozen
+class RunDueChecksInput:
+    """No fields today; the executor reads its own bounds."""
+
+
+@frozen
+class RunDueChecksOutput:
+    expired: int
+    passed: int
+    failed: int
+    errored: int
+    # Defaulted so a workflow history written before the agent lane existed still decodes.
+    dispatched: int = 0
+    deferred: int = 0
+
+
+@activity.defn
+async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> RunDueChecksOutput:
+    """Advance every report check due this tick.
+
+    Rides the coordinator rather than a schedule of its own: soak windows are days, so tick
+    granularity is ample, and a deterministic check costs one cached Trends query with no sandbox
+    and no scout enrolment. An `agent` check is dispatched here as a scout run and answers itself
+    later, so this activity never waits on one.
+    """
+    async with Heartbeater():
+        summary = await database_sync_to_async(run_due_report_checks, thread_sensitive=False)()
+    return RunDueChecksOutput(
+        expired=summary.expired,
+        passed=summary.passed,
+        failed=summary.failed,
+        errored=summary.errored,
+        dispatched=summary.dispatched,
+        deferred=summary.deferred,
+    )
 
 
 @activity.defn
@@ -667,6 +705,14 @@ class SignalsScoutCoordinatorWorkflow:
 
     @workflow.run
     async def run(self, _input: CoordinatorWorkflowInput) -> CoordinatorWorkflowOutput:
+        if workflow.patched("signals-report-checks-2026-09"):
+            await workflow.execute_activity(
+                run_due_signal_report_checks_activity,
+                RunDueChecksInput(),
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
         fetch_result = await workflow.execute_activity(
             fetch_enabled_signals_scout_runs_activity,
             FetchEnabledRunsInput(),

@@ -772,9 +772,8 @@ function composeToolSchema(
                 if (sourceImport) {
                     let expr = `${sourceImport}.shape['${paramName}']`
                     if (override.required) {
-                        // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
-                        // tool schema requires the field, matching the backend serializer.
-                        expr += '.unwrap()'
+                        // Keep the Orval field description when requiring a PATCH body field.
+                        expr += '.nonoptional()'
                         optionalParamNames.delete(paramName)
                     }
                     if (override.default !== undefined) {
@@ -842,6 +841,31 @@ function composeToolSchema(
             return `${p.name}: ${expr}`
         })
         schemaExpr = `(${schemaExpr}).extend({ ${overrideEntries.join(', ')} })`
+    }
+
+    // normalizeParamAliases deletes alias keys after copying them onto the canonical
+    // param, so an alias that is also a real parameter of this operation, or an alias
+    // two params both claim, would silently drop a value. Checked after every override
+    // has run, because input_schema overrides add body fields inside the loop above.
+    const declaredParamNames = new Set([...pathParamNames, ...queryParamNames, ...bodyFieldNames])
+    const aliasOwners = new Map<string, string>()
+    for (const [paramName, aliases] of Object.entries(paramAliases)) {
+        for (const alias of aliases) {
+            if (alias === paramName || declaredParamNames.has(alias)) {
+                throw new Error(
+                    `${config.operation}: alias "${alias}" for param "${paramName}" is also a declared parameter ` +
+                        'of this operation, so normalizeParamAliases would drop its value. Rename or remove the alias.'
+                )
+            }
+            const owner = aliasOwners.get(alias)
+            if (owner !== undefined) {
+                throw new Error(
+                    `${config.operation}: alias "${alias}" is declared by both "${owner}" and "${paramName}", ` +
+                        'so normalizeParamAliases would drop one of them. Keep it on one param.'
+                )
+            }
+            aliasOwners.set(alias, paramName)
+        }
     }
 
     return {
@@ -979,12 +1003,18 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
     const noteLiteral = config.agent_note ? JSON.stringify(config.agent_note) : null
     const noted = (expr: string): string => (noteLiteral ? `withAgentNote(${expr}, ${noteLiteral})` : expr)
     const informationalWrapper = config.response?.informational_wrapper
+    // The text projection wraps last, so it can name the `_posthogUrl` each row picked up from enrichment.
+    const textInclude = config.response?.text_include
+    const projected = (expr: string): string =>
+        textInclude?.length ? `withTextProjection(${expr}, [${textInclude.map((f) => `'${f}'`).join(', ')}])` : expr
     const wrapped = (expr: string): string => {
         const notedExpression = noted(expr)
         const purposeArgument = informationalWrapper?.purpose ? `, ${JSON.stringify(informationalWrapper.purpose)}` : ''
-        return informationalWrapper
-            ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
-            : notedExpression
+        return projected(
+            informationalWrapper
+                ? `withInformationalResponse(${notedExpression}, ${JSON.stringify(informationalWrapper.tag)}${purposeArgument})`
+                : notedExpression
+        )
     }
 
     // Joiner between url_prefix and the enrich_url prefix: append `/` for path-segment enrichments,
@@ -1291,6 +1321,7 @@ function generateToolCode(
                 [
                     ...responseFilter.helperImports,
                     config.response?.informational_wrapper && 'withInformationalResponse',
+                    config.response?.text_include?.length && 'withTextProjection',
                 ].filter((value): value is string => !!value)
             ),
         }
@@ -1327,6 +1358,7 @@ const ${factoryName} = (): ToolBase<ReturnType<typeof ${schemaName}>, ${resultTy
             [
                 ...responseFilter.helperImports,
                 config.response?.informational_wrapper && 'withInformationalResponse',
+                config.response?.text_include?.length && 'withTextProjection',
             ].filter((value): value is string => !!value)
         ),
     }
@@ -1633,6 +1665,7 @@ ${handlerBody}    },
             [
                 ...responseFilter.helperImports,
                 config.response?.informational_wrapper && 'withInformationalResponse',
+                config.response?.text_include?.length && 'withTextProjection',
             ].filter((value): value is string => !!value)
         ),
     }

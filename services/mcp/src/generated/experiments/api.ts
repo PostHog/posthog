@@ -3,11 +3,14 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 38 enabled ops
+ * PostHog API - MCP 41 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsListParams = () => zod.object({
     project_id: zod
         .string()
@@ -21,6 +24,9 @@ export const ExperimentHoldoutsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsCreateParams = () => zod.object({
     project_id: zod
         .string()
@@ -305,6 +311,9 @@ export const ExperimentHoldoutsCreateBody = () => zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -314,6 +323,9 @@ export const ExperimentHoldoutsRetrieveParams = () => zod.object({
         ),
 })
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -600,6 +612,9 @@ export const ExperimentHoldoutsPartialUpdateBody = () => zod
     })
     .describe('A holdout group — a stable slice of users excluded from experiment exposure.')
 
+/**
+ * Create, read, update and delete experiment holdouts.
+ */
 export const ExperimentHoldoutsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment holdout.'),
     project_id: zod
@@ -739,6 +754,12 @@ export const ExperimentsListQueryParams = () => zod.object({
         .describe(
             'Filter to experiments whose metrics reference this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference.'
         ),
+    excluded_tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.'
+        ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -760,6 +781,12 @@ export const ExperimentsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter by experiment status. \"running\", \"paused\", and \"exposure_frozen\" are mutually exclusive: \"running\" returns launched experiments with an active feature flag, \"paused\" returns launched experiments whose feature flag is deactivated, and \"exposure_frozen\" returns launched experiments whose exposure was frozen to the already-enrolled cohort while metrics keep flowing. \"complete\" is an alias for \"stopped\". \"all\" disables status filtering.'
+        ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded list of tag names. Returns experiments carrying at least one of the given tags, e.g. `[\"growth\", \"checkout\"]`.'
         ),
 })
 
@@ -919,6 +946,9 @@ export const experimentsCreateBodyConclusionCommentMax = 4000
 export const experimentsCreateBodyRepositoryMax = 255
 
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
+export const experimentsCreateBodyTagsItemMax = 255
+
+export const experimentsCreateBodyTagsMax = 100
 
 export const ExperimentsCreateBody = () => zod
     .object({
@@ -4719,7 +4749,15 @@ export const ExperimentsCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -4905,6 +4943,12 @@ export const ExperimentsCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -5426,7 +5470,11 @@ export const ExperimentsCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -5557,7 +5605,9 @@ export const ExperimentsCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -5588,7 +5638,7 @@ export const ExperimentsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -5741,7 +5791,15 @@ export const ExperimentsCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -5927,6 +5985,12 @@ export const ExperimentsCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -6448,7 +6512,11 @@ export const ExperimentsCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -6579,7 +6647,9 @@ export const ExperimentsCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -6665,6 +6735,11 @@ export const ExperimentsCreateBody = () => zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsCreateBodyTagsItemMax))
+            .max(experimentsCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -6833,6 +6908,10 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercen
 export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
 
 export const experimentsPartialUpdateBodyRepositoryMax = 255
+
+export const experimentsPartialUpdateBodyTagsItemMax = 255
+
+export const experimentsPartialUpdateBodyTagsMax = 100
 
 export const ExperimentsPartialUpdateBody = () => zod
     .object({
@@ -10633,7 +10712,15 @@ export const ExperimentsPartialUpdateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -10819,6 +10906,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -11340,7 +11433,11 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -11471,7 +11568,9 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -11502,7 +11601,7 @@ export const ExperimentsPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -11655,7 +11754,15 @@ export const ExperimentsPartialUpdateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -11841,6 +11948,12 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -12366,7 +12479,11 @@ export const ExperimentsPartialUpdateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -12497,7 +12614,9 @@ export const ExperimentsPartialUpdateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -12587,6 +12706,11 @@ export const ExperimentsPartialUpdateBody = () => zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsPartialUpdateBodyTagsItemMax))
+            .max(experimentsPartialUpdateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
 
@@ -12831,6 +12955,9 @@ export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
 export const experimentsDuplicateCreateBodyRepositoryMax = 255
 
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
+export const experimentsDuplicateCreateBodyTagsItemMax = 255
+
+export const experimentsDuplicateCreateBodyTagsMax = 100
 
 export const ExperimentsDuplicateCreateBody = () => zod
     .object({
@@ -16527,7 +16654,15 @@ export const ExperimentsDuplicateCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -16713,6 +16848,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -17234,7 +17375,11 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -17365,7 +17510,9 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -17396,7 +17543,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
+                "Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event; pass start_event {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment's exposure event). Use the read-data-schema tool with query kind 'events' to find available events in the project."
             ),
         metrics_secondary: zod
             .union([
@@ -17549,7 +17696,15 @@ export const ExperimentsDuplicateCreateBody = () => zod
                             conversion_window: zod
                                 .union([zod.number(), zod.null()])
                                 .optional()
-                                .describe('Conversion window duration.'),
+                                .describe(
+                                    "Only count metric events within this many units after the user's first exposure. Requires conversion_window_unit: a window without a unit is ignored and the metric counts events until the experiment ends. Omit both to count until the experiment ends."
+                                ),
+                            conversion_window_unit: zod
+                                .union([zod.enum(['second', 'minute', 'hour', 'day', 'week', 'month']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "Unit for conversion_window: 'second', 'minute', 'hour', 'day', 'week' or 'month'. Required when conversion_window is set."
+                                ),
                             denominator: zod
                                 .union([
                                     zod.object({
@@ -17735,6 +17890,12 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     'For ratio metrics: winsorization applied to the denominator aggregate. Leave unset for a binomial-style denominator, which is never clamped.'
+                                ),
+                            funnel_order_type: zod
+                                .union([zod.enum(['strict', 'unordered', 'ordered']), zod.null()])
+                                .optional()
+                                .describe(
+                                    "For funnel metrics: how the steps must occur. 'ordered' (default) or 'unordered'. Do not use 'strict': experiment funnels give wrong counts with it."
                                 ),
                             goal: zod
                                 .union([zod.enum(['increase', 'decrease']), zod.null()])
@@ -18260,7 +18421,11 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                             .union([zod.number(), zod.null()])
                                             .optional()
                                             .describe('Action ID. Required for ActionsNode.'),
-                                        kind: zod.enum(['EventsNode', 'ActionsNode']),
+                                        kind: zod
+                                            .enum(['EventsNode', 'ActionsNode', 'ExperimentExposureNode'])
+                                            .describe(
+                                                "Pass 'ExperimentExposureNode' to start retention from the experiment's own exposure event; the other fields then stay unset."
+                                            ),
                                         math: zod
                                             .union([
                                                 zod.enum([
@@ -18391,7 +18556,9 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                     zod.null(),
                                 ])
                                 .optional()
-                                .describe('For retention metrics: start event.'),
+                                .describe(
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
+                                ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
                                 .union([zod.number(), zod.null()])
@@ -18481,6 +18648,11 @@ export const ExperimentsDuplicateCreateBody = () => zod
             .describe(
                 'The experiment state as the client last read it, used together with `version` to resolve concurrent edits: metric collections merge per metric uuid, and any other field the update carries merges per field against its base value here (only a same-field double edit fails). Relevant keys are metrics, metrics_secondary, saved_metrics_ids, plus the last-read values of whichever scalar fields the update writes; unknown keys are ignored. Changed fields without a base value — and, without this object, any version mismatch — fail with HTTP 409.'
             ),
+        tags: zod
+            .array(zod.string().max(experimentsDuplicateCreateBodyTagsItemMax))
+            .max(experimentsDuplicateCreateBodyTagsMax)
+            .optional()
+            .describe('Organizational tags for this experiment (up to 100, 255 characters each).'),
     })
     .describe(
         'Full experiment representation for the detail, create, and update endpoints.\n\nExtends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric\ndefinitions (``metrics``\/``metrics_secondary``\/``saved_metrics``) and the write-side\nfields, and refreshes stale action names while serializing. The list endpoint uses the\nleaner ``ExperimentBasicSerializer`` instead.'
@@ -18547,7 +18719,7 @@ export const ExperimentsEndCreateBody = () => zod.object({
         .boolean()
         .default(experimentsEndCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     repository: zod
         .string()
@@ -18668,6 +18840,32 @@ export const ExperimentsMetricsRecalculationRetrieveParams = () => zod.object({
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsMetricsRecalculationLatestRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Move a legacy experiment onto the new experiments engine.
+ *
+ * Creates a new experiment with the same configuration and its metrics converted
+ * to the new format, and returns it. The legacy experiment is left untouched and
+ * keeps its results, so the project ends up with two experiments. Both point at
+ * the same feature flag, so no new rollout is needed and users keep the variant
+ * they already have.
+ *
+ * Legacy shared metrics used by the experiment are converted as part of the same
+ * call. Each one gets a new shared metric, and the new experiment links to that.
+ *
+ * Calling this again returns the experiment created the first time instead of
+ * making another copy.
+ *
+ * Returns 400 if the experiment already uses the new engine.
+ */
+export const ExperimentsMigrateCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()
@@ -18819,7 +19017,7 @@ export const ExperimentsShipVariantCreateBody = () => zod.object({
         .boolean()
         .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
         .describe(
-            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Desktop (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. A personal API key needs the task:write scope (403 otherwise). Skipped when the conclusion is empty, or when no connected repository can be resolved."
         ),
     repository: zod
         .string()
@@ -18898,6 +19096,56 @@ export const ExperimentsUnfreezeExposureCreateParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Bulk update tags on multiple objects.
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
+ */
+export const ExperimentsBulkUpdateTagsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsBulkUpdateTagsCreateBodyIdsMax = 500
+
+export const experimentsBulkUpdateTagsCreateBodyTagsItemMax = 255
+
+export const experimentsBulkUpdateTagsCreateBodyTagsMax = 100
+
+export const ExperimentsBulkUpdateTagsCreateBody = () => zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(experimentsBulkUpdateTagsCreateBodyIdsMax)
+        .describe('List of object IDs to update tags on.'),
+    action: zod
+        .enum(['add', 'remove', 'set'])
+        .describe('\* `add` - add\n\* `remove` - remove\n\* `set` - set')
+        .describe(
+            "'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.\n\n\* `add` - add\n\* `remove` - remove\n\* `set` - set"
+        ),
+    tags: zod
+        .array(zod.string().max(experimentsBulkUpdateTagsCreateBodyTagsItemMax))
+        .max(experimentsBulkUpdateTagsCreateBodyTagsMax)
+        .describe('Tag names to add, remove, or set (up to 100 per request, 255 characters each).'),
 })
 
 /**
@@ -19073,6 +19321,357 @@ export const ExperimentsPromptTemplatesRetrieveParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+/**
+ * Facts about this project that decide how to configure a new experiment.
+ *
+ * Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
+ * surface, the baseline of a candidate metric, how recent experiments were set up, and the
+ * most reused shared metrics. Each section has its own status, so a slow or failed read
+ * leaves the others valid. POST because the inputs describe a plan rather than a resource;
+ * the endpoint only reads.
+ */
+export const ExperimentsSetupContextCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const experimentsSetupContextCreateBodyTargetEventMax = 400
+
+export const experimentsSetupContextCreateBodyTargetUrlContainsMax = 1000
+
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault = `exact`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault = `event`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyTargetPropertiesOneMax = 10
+
+export const experimentsSetupContextCreateBodyMetricEventMax = 400
+
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault = `exact`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault = `event`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault = `person`
+export const experimentsSetupContextCreateBodyMetricPropertiesOneMax = 10
+
+export const experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault = 10
+export const experimentsSetupContextCreateBodyPreviousExperimentsLimitMax = 25
+
+export const experimentsSetupContextCreateBodySharedMetricsLimitDefault = 10
+export const experimentsSetupContextCreateBodySharedMetricsLimitMax = 25
+
+export const ExperimentsSetupContextCreateBody = () => zod
+    .object({
+        target_event: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyTargetEventMax)
+            .nullish()
+            .describe(
+                "Event that marks a visit to the surface under test, for example '$pageview' or '$screen'. Needed for target_surface and for the baseline in candidate_metric."
+            ),
+        target_url_contains: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyTargetUrlContainsMax)
+            .nullish()
+            .describe(
+                "Only counts target events whose $current_url contains this text, ignoring case. Needs target_event to be '$pageview'."
+            ),
+        target_properties: zod
+            .union([
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        experimentsSetupContextCreateBodyTargetPropertiesOneItemOneOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(experimentsSetupContextCreateBodyTargetPropertiesOneItemOneTypeDefault)
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                type: zod
+                                    .literal('person')
+                                    .default(experimentsSetupContextCreateBodyTargetPropertiesOneItemTwoTypeDefault)
+                                    .describe('Person properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                        ])
+                    )
+                    .max(experimentsSetupContextCreateBodyTargetPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Event or person property filters that narrow the target event, for example an exact $host and $pathname for one page. At most 10 filters, and each needs type 'event' or 'person'. Needs target_event. Combines with target_url_contains."
+            ),
+        metric_event: zod
+            .string()
+            .max(experimentsSetupContextCreateBodyMetricEventMax)
+            .nullish()
+            .describe(
+                "Event of the candidate primary metric. With target_event, candidate_metric returns a baseline. Without it, candidate_metric returns only the event's volume. Also marks the shared metrics that count this event."
+            ),
+        metric_properties: zod
+            .union([
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod
+                                    .union([
+                                        zod.enum([
+                                            'exact',
+                                            'is_not',
+                                            'icontains',
+                                            'not_icontains',
+                                            'starts_with',
+                                            'not_starts_with',
+                                            'ends_with',
+                                            'not_ends_with',
+                                            'regex',
+                                            'not_regex',
+                                            'gt',
+                                            'gte',
+                                            'lt',
+                                            'lte',
+                                            'is_set',
+                                            'is_not_set',
+                                            'is_date_exact',
+                                            'is_date_before',
+                                            'is_date_after',
+                                            'between',
+                                            'not_between',
+                                            'min',
+                                            'max',
+                                            'in',
+                                            'not_in',
+                                            'is_cleaned_path_exact',
+                                            'flag_evaluates_to',
+                                            'semver_eq',
+                                            'semver_neq',
+                                            'semver_gt',
+                                            'semver_gte',
+                                            'semver_lt',
+                                            'semver_lte',
+                                            'semver_tilde',
+                                            'semver_caret',
+                                            'semver_wildcard',
+                                            'icontains_multi',
+                                            'not_icontains_multi',
+                                        ]),
+                                        zod.null(),
+                                    ])
+                                    .default(
+                                        experimentsSetupContextCreateBodyMetricPropertiesOneItemOneOperatorDefault
+                                    ),
+                                type: zod
+                                    .literal('event')
+                                    .default(experimentsSetupContextCreateBodyMetricPropertiesOneItemOneTypeDefault)
+                                    .describe('Event properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                            zod.object({
+                                key: zod.string(),
+                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                operator: zod.enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'gte',
+                                    'lt',
+                                    'lte',
+                                    'is_set',
+                                    'is_not_set',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'between',
+                                    'not_between',
+                                    'min',
+                                    'max',
+                                    'in',
+                                    'not_in',
+                                    'is_cleaned_path_exact',
+                                    'flag_evaluates_to',
+                                    'semver_eq',
+                                    'semver_neq',
+                                    'semver_gt',
+                                    'semver_gte',
+                                    'semver_lt',
+                                    'semver_lte',
+                                    'semver_tilde',
+                                    'semver_caret',
+                                    'semver_wildcard',
+                                    'icontains_multi',
+                                    'not_icontains_multi',
+                                ]),
+                                type: zod
+                                    .literal('person')
+                                    .default(experimentsSetupContextCreateBodyMetricPropertiesOneItemTwoTypeDefault)
+                                    .describe('Person properties'),
+                                value: zod
+                                    .union([
+                                        zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
+                                        zod.string(),
+                                        zod.number(),
+                                        zod.boolean(),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                            }),
+                        ])
+                    )
+                    .max(experimentsSetupContextCreateBodyMetricPropertiesOneMax)
+                    .describe('Event or person property filters that narrow which events are counted.'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Event or person property filters that narrow the metric event, for the metric that counts only some of its occurrences. At most 10 filters, and each needs type 'event' or 'person'. Needs metric_event."
+            ),
+        previous_experiments_limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSetupContextCreateBodyPreviousExperimentsLimitMax)
+            .default(experimentsSetupContextCreateBodyPreviousExperimentsLimitDefault)
+            .describe('How many experiments to return, most recently launched first, then drafts, 1 to 25.'),
+        shared_metrics_limit: zod
+            .number()
+            .min(1)
+            .max(experimentsSetupContextCreateBodySharedMetricsLimitMax)
+            .default(experimentsSetupContextCreateBodySharedMetricsLimitDefault)
+            .describe('How many shared metrics to return, most reused first, 1 to 25.'),
+    })
+    .describe(
+        "What the caller plans to test. Every field is optional; a section that needs a missing input\ncomes back with status 'skipped'."
+    )
 
 /**
  * Mixin for ViewSets to handle approval-gate exceptions raised from decorated serializers.

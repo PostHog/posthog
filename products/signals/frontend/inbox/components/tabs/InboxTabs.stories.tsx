@@ -82,7 +82,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true, [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true },
         testOptions: { waitForLoadersToDisappear: false },
     },
 }

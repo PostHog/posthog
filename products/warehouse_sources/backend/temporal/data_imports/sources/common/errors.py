@@ -1,4 +1,4 @@
-"""Shared non-retryable-error helpers for warehouse sources.
+"""Shared error-classification helpers for warehouse sources.
 
 `get_non_retryable_errors()` returns a dict mapping a substring of the stringified exception to a
 friendly message; the pipeline fails the job (instead of retrying) when a raised error contains one
@@ -32,3 +32,21 @@ def auth_non_retryable_errors(host: str | None = None, *, service: str | None = 
 
 # Host-agnostic default, for sources that just want the common pair with no service name.
 AUTH_401_403_ERRORS: dict[str, str | None] = auth_non_retryable_errors()
+
+
+# PostHog's own egress proxy throttling (429) or briefly unreachable (5xx tunnel, refused, timed
+# out): nothing on the customer's side is wrong and the next attempt recovers. Statuses are
+# allowlisted and connect failures name their inner exception so a 407 (proxy auth, deterministic)
+# stays reportable despite sharing the "Cannot connect to proxy." prefix.
+TRANSIENT_EGRESS_PROXY_ERRORS: tuple[str, ...] = (
+    "Tunnel connection failed: 429",
+    "Tunnel connection failed: 502",
+    "Tunnel connection failed: 503",
+    "Tunnel connection failed: 504",
+    "Cannot connect to proxy.', TimeoutError",
+    "Cannot connect to proxy.', NewConnectionError",
+)
+
+
+def is_transient_egress_proxy_error(error_message: str) -> bool:
+    return any(fragment in error_message for fragment in TRANSIENT_EGRESS_PROXY_ERRORS)

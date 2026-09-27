@@ -164,7 +164,7 @@ def clone_key(clone: dict) -> tuple[frozenset, str]:
     return pair, hashlib.sha256(clone["fragment"].encode()).hexdigest()
 
 
-def mark_new_clones(current: list[dict], baseline: list[dict]) -> None:
+def mark_new_clones(current: list[dict], baseline: list[dict], changed_files: set[str]) -> None:
     """Flag clones the baseline cannot account for, counting occurrences.
 
     A fragment already copied once between two files is grandfathered only
@@ -174,7 +174,9 @@ def mark_new_clones(current: list[dict], baseline: list[dict]) -> None:
     available = collections.Counter(clone_key(clone) for clone in baseline)
     for clone in current:
         key = clone_key(clone)
-        if available[key] > 0:
+        if key[0].isdisjoint(changed_files):
+            clone["isNew"] = False
+        elif available[key] > 0:
             available[key] -= 1
             clone["isNew"] = False
         else:
@@ -197,6 +199,17 @@ def resolve_baseline(base: str, repo: Path) -> str:
         return merge_base
     print(f"Could not resolve the merge-base with {base!r} (shallow history?). Falling back to {base!r}.")
     return base
+
+
+def changed_files_between(baseline: str, current: str, repo: Path) -> set[str]:
+    return set(
+        filter(
+            None,
+            subprocess.check_output(["git", "diff", "--name-only", "-z", baseline, current], cwd=repo, text=True).split(
+                "\0"
+            ),
+        )
+    )
 
 
 def main() -> int:
@@ -240,35 +253,38 @@ def main() -> int:
     scan_failed = False
     with tempfile.TemporaryDirectory(prefix="jscpd-") as tmp:
         tmp_path = Path(tmp)
+        current_worktree = tmp_path / "current-worktree"
         baseline_worktree = tmp_path / "baseline-worktree"
+        scan_worktrees = ((current_worktree, "HEAD"), (baseline_worktree, baseline))
         # Registrations from runs killed mid-scan point at paths that no
         # longer exist; drop them before adding a fresh one.
         subprocess.run(["git", "worktree", "prune"], capture_output=True, cwd=repo)
-        add = subprocess.run(
-            ["git", "worktree", "add", "--detach", str(baseline_worktree), baseline],
-            capture_output=True,
-            text=True,
-            cwd=repo,
-        )
-        if add.returncode != 0:
-            print(add.stderr[-2000:])
-            print(f"duplication lint could not check out the baseline {baseline}")
-            return 2
         try:
-            current_clones = run_jscpd(repo, tmp_path / "current-report")
+            for worktree, revision in scan_worktrees:
+                add = subprocess.run(
+                    ["git", "worktree", "add", "--detach", str(worktree), revision],
+                    capture_output=True,
+                    text=True,
+                    cwd=repo,
+                )
+                if add.returncode != 0:
+                    print(add.stderr[-2000:])
+                    print(f"duplication lint could not check out {revision}")
+                    return 2
+            current_clones = run_jscpd(current_worktree, tmp_path / "current-report")
             baseline_clones = run_jscpd(baseline_worktree, tmp_path / "baseline-report")
         except SystemExit:
             scan_failed = True
             current_clones = []
         finally:
-            subprocess.run(
-                ["git", "worktree", "remove", "--force", str(baseline_worktree)], capture_output=True, cwd=repo
-            )
+            for worktree, _ in scan_worktrees:
+                subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], capture_output=True, cwd=repo)
 
     if scan_failed:
         return 2
 
-    mark_new_clones(current_clones, baseline_clones)
+    changed_files = changed_files_between(baseline, "HEAD", repo)
+    mark_new_clones(current_clones, baseline_clones, changed_files)
     print(
         f"{len(current_clones)} clones in this tree, {sum(1 for c in current_clones if c['isNew'])} not in the baseline"
     )

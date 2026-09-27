@@ -23,6 +23,7 @@ function __printHogValue(obj, marked = new Set()) {
             if (typeof obj === 'function') return `fn<${__escapeIdentifier(obj.name || 'lambda')}(${obj.length})>`;
     return obj.toString();
 }
+function __lt (a, b) { return a === null || a === undefined || b === null || b === undefined ? false : a < b }
 function __lambda (fn) { return fn }
 function __isHogError(obj) {return obj && obj.__hogError__ === true}
 function __isHogDateTime(obj) { return obj && obj.__hogDateTime__ === true }
@@ -39,7 +40,7 @@ function __escapeIdentifier(identifier) {
 }
 
 let fibonacci = __lambda((number) => {
-    if ((number < 2)) {
+    if (__lt(number, 2)) {
             return number;
         } else {
             return (fibonacci((number - 1)) + fibonacci((number - 2)));
@@ -47,7 +48,7 @@ let fibonacci = __lambda((number) => {
 });
 print(fibonacci(6));
 function hogonacci(number) {
-    if ((number < 2)) {
+    if (__lt(number, 2)) {
             return number;
         } else {
             return (hogonacci((number - 1)) + hogonacci((number - 2)));

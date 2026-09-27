@@ -12,6 +12,7 @@ import type {
     AffectedCohortRequestApi,
     AffectedCohortResponseApi,
     ApplyPromptSuggestionRequestApi,
+    BackfillCreateApi,
     BackfillEstimateResponseApi,
     BackfillWindowApi,
     BulkObserveRequestApi,
@@ -26,6 +27,7 @@ import type {
     InlineScanRequestApi,
     InlineScanResponseApi,
     ObservationSearchResponseApi,
+    ObservationSignalReportApi,
     ObservationStatsApi,
     ObserveAlreadyScannedApi,
     ObserveRequestApi,
@@ -56,6 +58,7 @@ import type {
     SuggestTagsRequestApi,
     SuggestTagsResponseApi,
     VisionAlertConfigurationApi,
+    VisionAlertConfigurationDetailApi,
     VisionAlertCreateDestinationApi,
     VisionAlertDeleteDestinationApi,
     VisionAlertDestinationResponseApi,
@@ -71,9 +74,12 @@ import type {
     VisionScannersListParams,
     VisionScannersObservationsListParams,
     VisionScannersObservationsRetrieveParams,
+    VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersPromptSuggestionsListParams,
+    VisionScannersWatchFeedRetrieveParams,
     VisionSpendSeriesApi,
+    WatchFeedResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -145,8 +151,8 @@ export const visionAlertsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<VisionAlertConfigurationApi> => {
-    return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsRetrieveUrl(projectId, id), {
+): Promise<VisionAlertConfigurationDetailApi> => {
+    return apiMutator<VisionAlertConfigurationDetailApi>(getVisionAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -428,6 +434,42 @@ export const visionObservationsRetryCreate = async (
     return apiMutator<RetryResponseApi>(getVisionObservationsRetryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionObservationsSignalReportsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/signal_reports/`
+}
+
+/**
+ * The inbox reports this observation's emitted signals were grouped into, newest first.
+ */
+export const visionObservationsSignalReportsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ObservationSignalReportApi[]> => {
+    return apiMutator<ObservationSignalReportApi[]>(getVisionObservationsSignalReportsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionObservationsThumbnailRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/observations/${id}/thumbnail/`
+}
+
+/**
+ * Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it.
+ */
+export const visionObservationsThumbnailRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getVisionObservationsThumbnailRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -864,14 +906,14 @@ export const getVisionScannersBackfillsCreateUrl = (projectId: string, scannerId
 export const visionScannersBackfillsCreate = async (
     projectId: string,
     scannerId: string,
-    backfillWindowApi: BackfillWindowApi,
+    backfillCreateApi: BackfillCreateApi,
     options?: RequestInit
 ): Promise<ReplayScannerBackfillApi> => {
     return apiMutator<ReplayScannerBackfillApi>(getVisionScannersBackfillsCreateUrl(projectId, scannerId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(backfillWindowApi),
+        body: JSON.stringify(backfillCreateApi),
     })
 }
 
@@ -1119,6 +1161,65 @@ export const visionScannersObservationsRetryCreate = async (
     return apiMutator<RetryResponseApi>(getVisionScannersObservationsRetryCreateUrl(projectId, scannerId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionScannersObservationsSignalReportsListUrl = (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    params?: VisionScannersObservationsSignalReportsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/signal_reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/signal_reports/`
+}
+
+/**
+ * The inbox reports this observation's emitted signals were grouped into, newest first.
+ */
+export const visionScannersObservationsSignalReportsList = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    params?: VisionScannersObservationsSignalReportsListParams,
+    options?: RequestInit
+): Promise<ObservationSignalReportApi[]> => {
+    return apiMutator<ObservationSignalReportApi[]>(
+        getVisionScannersObservationsSignalReportsListUrl(projectId, scannerId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersObservationsThumbnailRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/thumbnail/`
+}
+
+/**
+ * Redirect to the frame that illustrates this observation, so a caller with only the observation id can show it.
+ */
+export const visionScannersObservationsThumbnailRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    id: string,
+    options?: RequestInit
+): Promise<unknown> => {
+    return apiMutator<unknown>(getVisionScannersObservationsThumbnailRetrieveUrl(projectId, scannerId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1463,6 +1564,10 @@ export const getVisionScannersInlineScanCreateUrl = (projectId: string) => {
  *
  * The config resolves to a scanner minted on first use, so asking the same question twice reuses
  * the observations it already has, while a different question about the same session gets its own.
+ *
+ * With `scanner_type` set to `summarizer`, this is how you get PostHog's own AI summary for a
+ * recording ID. It resolves to the Summarize button's own scanner only when the prompt and
+ * `scanner_config` match what the button sends, since the config is what the key fingerprints.
  */
 export const visionScannersInlineScanCreate = async (
     projectId: string,
@@ -1511,5 +1616,38 @@ export const visionScannersSuggestTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(suggestTagsRequestApi),
+    })
+}
+
+export const getVisionScannersWatchFeedRetrieveUrl = (
+    projectId: string,
+    params?: VisionScannersWatchFeedRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/watch_feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/watch_feed/`
+}
+
+/**
+ * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ */
+export const visionScannersWatchFeedRetrieve = async (
+    projectId: string,
+    params?: VisionScannersWatchFeedRetrieveParams,
+    options?: RequestInit
+): Promise<WatchFeedResponseApi> => {
+    return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }

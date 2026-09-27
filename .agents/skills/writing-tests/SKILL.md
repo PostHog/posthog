@@ -179,6 +179,23 @@ Escalating to the next rung is the last resort, not the default.
   Most ClickHouse tables are already safe: they build their TTL through `ttl_period()` ([`posthog/clickhouse/kafka_engine.py`](../../../posthog/clickhouse/kafka_engine.py)), which returns `""` under `settings.TEST`, so tests get no TTL at all.
   A table that hardcodes its `TTL` clause opts out of that guard — `ai_events` is one. Check rather than assume: `grep -rlE '^\s*TTL ' posthog/models/ posthog/clickhouse/ --include=*.py`.
   Make the row's lifetime independent of the ambient clock instead — pin the retention column on insert, the way `bulk_create_ai_events` writes `retention_days=10000`. Moving the frozen date forward only resets the timer.
+- **Two writes in a row are not ordered in time.**
+  Don't derive a cutoff from one write's recorded timestamp and expect the next write to land after it.
+  Clocks are coarser than they look: library timestamps are milliseconds, and on Linux file mtimes come from the kernel's coarse clock, which lags the in-process clock by a scheduler tick.
+  The library may also read a different clock than the one you sampled — delta-rs time travel resolves a datetime against the `_delta_log` commit files' mtimes, not the `timestamp` that `DeltaTable.history()` reports.
+  Such a test passes on macOS and fails every rerun on a fast Linux runner, so retries don't save it and it blames whichever PR is in the merge queue.
+  Set the times yourself — `os.utime` on the file, an explicit `created_at` on the row — minutes apart, and pick a cutoff between them. That is also the production shape, where the two events are seconds apart.
+- **A test must not inherit a production timeout, latency budget, or retry deadline.**
+  Code that carries a time budget reads it from config, and a test that calls that code without overriding it asserts how fast the CI runner is.
+  Nothing at the call site shows this.
+  `tester.invoke(...)` in a hog template test takes its 550ms budget from `CDP_WATCHER_HOG_COST_TIMING_UPPER_MS`, and `executeLogTransformation(bytecode, record, globals, {})` takes 10ms from `DEFAULT_LOG_TRANSFORMATION_TIMEOUT_MS`; both are defined two files away and neither is named in the test.
+  Such a test passes with a wide margin on an idle laptop and fails on a loaded shard, where it reports the timeout as a wrong result: a hog transformation that runs out of budget returns `status: 'failed'`, so the assertion reads `Expected: "mutated" / Received: "failed"` and names neither the clock nor the budget.
+  Pass the budget explicitly, large enough that it cannot bind. The test then asserts behavior, and the production number stays a production decision.
+  Assert the whole result object rather than one field of it: `expect(outcome).toMatchObject({ status: 'mutated' })` prints the error on failure, `expect(outcome.status).toEqual('mutated')` hides it.
+- **Don't assert wall-clock duration.**
+  `expect(elapsedMs).toBeLessThan(2000)` measures the runner, not the code, and on shared CI the runner is whatever else is running on it.
+  It is usually dead as well: when the code under test already has a shorter internal budget, that budget trips first, so the duration assertion can never be the one that fails.
+  If a unit test must cover scale, assert the output at scale — every key present, nothing truncated — and leave the timing to a benchmark.
 - **No real network / live external services.** Mock the boundary.
 - **No cross-test ordering.**
   Tests must pass in any order and in isolation; don't rely on state a previous test left behind.

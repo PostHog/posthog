@@ -1,7 +1,7 @@
 """The `get_events_around` tool: analytics events near a recording timestamp, on demand.
 
 Exposed to the scanner LLM so events don't have to be dumped inline — the model watches the video
-and pulls event context for a moment only when it needs it, keyed on the footer's `REC_T`.
+and pulls event context for a moment only when it needs it, keyed on video seconds.
 """
 
 from __future__ import annotations
@@ -15,15 +15,17 @@ from google.genai import types
 if TYPE_CHECKING:
     # Type-only: importing `types` at runtime would trip the pre-existing types <-> scanners import cycle.
     from products.replay_vision.backend.temporal.types import ScannerLlmInputs
+from products.replay_vision.backend.temporal.tool_args import parse_seconds
+from products.replay_vision.backend.temporal.video_clock import VideoClock
 
 GET_EVENTS_TOOL_NAME = "get_events_around"
 
 _DEFAULT_WINDOW_S = 10
 _MAX_WINDOW_S = 60
-# A busy window can hold a lot of events; bound the response and keep the ones nearest `rec_t`.
+# A busy window can hold a lot of events; bound the response and keep the ones nearest `vid_t`.
 _MAX_EVENTS_RETURNED = 50
 # Internal columns the model doesn't need: the uuid is no longer cited, and the absolute timestamp
-# is replaced by each event's recording-relative `rec_t`.
+# is replaced by each event's video-relative `vid_t`.
 _DROPPED_COLUMNS = frozenset({"event_uuid", "timestamp"})
 
 
@@ -39,12 +41,13 @@ class EventsIndex:
     events: list[dict[str, Any]]
 
 
-def build_events_index(llm_inputs: ScannerLlmInputs) -> EventsIndex:
-    """Resolve every event once and sort it by `rec_t` (seconds since the recording started).
+def build_events_index(llm_inputs: ScannerLlmInputs, clock: VideoClock) -> EventsIndex:
+    """Resolve every event once and sort it by `vid_t` (seconds from the start of the video).
 
     For each event we drop the internal columns, map the `url`/`window` tokens back to real values, and tag it
-    with `rec_t` from `event_timestamps` (ms since recording start) — the same recording-start anchor the footer
-    and citation timestamps use, so there's no session-vs-recording skew.
+    with `vid_t` converted from `event_timestamps` (ms since recording start) through `clock`, so events land on
+    the same scale the model cites moments in. An event inside a stretch the rasterizer cut collapses onto that
+    cut's position in the video, which is the only place it could be shown.
     """
     offsets = llm_inputs.event_timestamps
     url_mapping = llm_inputs.url_mapping
@@ -54,10 +57,10 @@ def build_events_index(llm_inputs: ScannerLlmInputs) -> EventsIndex:
     for raw in llm_inputs.events.as_dicts():  # `as_dicts` already drops null/empty fields
         offset_ms = offsets.get(str(raw.get("event_uuid", "")))
         if offset_ms is None:
-            # No resolvable offset — skip rather than pin to second 0, which would pollute every rec_t≈0 window.
+            # No resolvable offset — skip rather than pin to second 0, which would pollute every vid_t≈0 window.
             continue
-        offset_s = offset_ms // 1000
-        event: dict[str, Any] = {"rec_t": offset_s}
+        offset_s = int(clock.session_ms_to_video_s(offset_ms))
+        event: dict[str, Any] = {"vid_t": offset_s}
         for column, value in raw.items():
             if column in _DROPPED_COLUMNS:
                 continue
@@ -72,18 +75,18 @@ def build_events_index(llm_inputs: ScannerLlmInputs) -> EventsIndex:
     return EventsIndex(offsets=[offset for offset, _ in entries], events=[event for _, event in entries])
 
 
-def get_events_around(index: EventsIndex, rec_t: int, window_s: int = _DEFAULT_WINDOW_S) -> list[dict[str, Any]]:
-    """Return the events within ±`window_s` seconds of `rec_t`, chronological, capped to the nearest `_MAX_EVENTS_RETURNED`."""
-    rec_t = max(0, rec_t)
+def get_events_around(index: EventsIndex, vid_t: int, window_s: int = _DEFAULT_WINDOW_S) -> list[dict[str, Any]]:
+    """Return the events within ±`window_s` seconds of `vid_t`, chronological, capped to the nearest `_MAX_EVENTS_RETURNED`."""
+    vid_t = max(0, vid_t)
     window_s = max(1, min(window_s, _MAX_WINDOW_S))
 
-    lo = bisect.bisect_left(index.offsets, rec_t - window_s)
-    hi = bisect.bisect_right(index.offsets, rec_t + window_s)
+    lo = bisect.bisect_left(index.offsets, vid_t - window_s)
+    hi = bisect.bisect_right(index.offsets, vid_t + window_s)
     window = index.events[lo:hi]  # offsets are sorted, so this slice is already chronological
     if len(window) > _MAX_EVENTS_RETURNED:
-        # Keep the events nearest `rec_t`, then restore chronological order.
-        window = sorted(window, key=lambda event: abs(event["rec_t"] - rec_t))[:_MAX_EVENTS_RETURNED]
-        window.sort(key=lambda event: event["rec_t"])
+        # Keep the events nearest `vid_t`, then restore chronological order.
+        window = sorted(window, key=lambda event: abs(event["vid_t"] - vid_t))[:_MAX_EVENTS_RETURNED]
+        window.sort(key=lambda event: event["vid_t"])
     return window
 
 
@@ -94,40 +97,26 @@ def events_tool() -> types.Tool:
             types.FunctionDeclaration(
                 name=GET_EVENTS_TOOL_NAME,
                 description=(
-                    "Look up the analytics events around a moment in the recording. Pass `rec_t` — the footer's "
-                    "REC_T (whole seconds since the recording started). Use it to check what the event log captured "
-                    "at that moment, e.g. whether a $rageclick, $dead_click or $exception is recorded there."
+                    "Look up the analytics events around a moment in the recording. Pass `vid_t` — whole seconds "
+                    "from the start of the video, the same scale you cite moments in. Use it to check what the event "
+                    "log captured there, e.g. whether a $rageclick, $dead_click or $exception is recorded."
                 ),
                 parameters=types.Schema(
                     type=types.Type.OBJECT,
                     properties={
-                        "rec_t": types.Schema(
-                            type=types.Type.INTEGER, description="Recording seconds — the footer's REC_T value."
+                        "vid_t": types.Schema(
+                            type=types.Type.INTEGER, description="Video seconds from the start of the video."
                         ),
                         "window_s": types.Schema(
                             type=types.Type.INTEGER,
                             description=f"Half-window in seconds (default {_DEFAULT_WINDOW_S}).",
                         ),
                     },
-                    required=["rec_t"],
+                    required=["vid_t"],
                 ),
             )
         ]
     )
-
-
-def _parse_seconds(value: Any) -> int | None:
-    """Coerce a model-sent tool argument to whole seconds; `None` when it isn't numeric."""
-    try:
-        if isinstance(value, bool):
-            return None
-        if isinstance(value, int | float):
-            return int(value)
-        if isinstance(value, str):
-            return int(float(value.strip()))
-    except (ValueError, OverflowError):
-        return None
-    return None
 
 
 def dispatch_events_tool(function_call: Any, index: EventsIndex) -> dict[str, Any]:
@@ -136,10 +125,10 @@ def dispatch_events_tool(function_call: Any, index: EventsIndex) -> dict[str, An
         return {"error": f"unknown tool: {getattr(function_call, 'name', None)}"}
     args = dict(getattr(function_call, "args", None) or {})
     # Errors go back to the model as tool output — a malformed call must not fail the billed conversation.
-    rec_t = _parse_seconds(args.get("rec_t", 0))
-    if rec_t is None:
-        return {"error": "rec_t must be a number of recording seconds (the footer's REC_T value)"}
-    window_s = _parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
+    vid_t = parse_seconds(args.get("vid_t"))
+    if vid_t is None:
+        return {"error": "vid_t must be a number of seconds from the start of the video"}
+    window_s = parse_seconds(args.get("window_s", _DEFAULT_WINDOW_S))
     if window_s is None:
         window_s = _DEFAULT_WINDOW_S
-    return {"events": get_events_around(index, rec_t, window_s)}
+    return {"events": get_events_around(index, vid_t, window_s)}

@@ -94,6 +94,7 @@ func LoadExistingEnv() map[string]string {
 		"POSTHOG_NODE_TAG",
 		"SESSION_RECORDING_V2_METADATA_SWITCHOVER",
 		"SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS",
+		"OBJECT_STORAGE_MINIO_REMOVED",
 	}
 
 	for _, key := range keys {

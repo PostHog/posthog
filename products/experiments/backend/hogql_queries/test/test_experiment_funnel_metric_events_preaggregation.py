@@ -105,7 +105,7 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         )
 
         # Precompute metric events
-        metric_query_string, metric_placeholders = builder.get_funnel_metric_events_query_for_precomputation()
+        metric_query_string, metric_placeholders = builder.get_metric_events_query_for_precomputation()
         ensure_precomputed(
             team=self.team,
             insert_query=metric_query_string,
@@ -363,7 +363,7 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
         )
 
         # Precompute metric events — extend end date by conversion window
-        metric_query_string, metric_placeholders = builder.get_funnel_metric_events_query_for_precomputation()
+        metric_query_string, metric_placeholders = builder.get_metric_events_query_for_precomputation()
         conversion_window_seconds = builder._get_conversion_window_seconds()
         metric_end_date = experiment.end_date + timedelta(seconds=conversion_window_seconds)
         ensure_precomputed(

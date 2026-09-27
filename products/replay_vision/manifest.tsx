@@ -53,6 +53,9 @@ export const manifest: ProductManifest = {
     },
     redirects: {
         '/replay-vision/templates': '/replay-vision/new/template',
+        // People guess the product sits under replay. Without this, `/replay/vision` matches
+        // `/replay/:id` and shows "Recording not found".
+        '/replay/vision': '/replay-vision',
     },
     urls: {
         replayVision:

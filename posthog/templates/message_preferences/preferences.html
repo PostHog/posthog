@@ -1,10 +1,14 @@
+{% load static %}
 <!DOCTYPE html>
 <html>
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>Message preferences</title>
-        <script src="https://cdn.tailwindcss.com"></script>
+        {# Compiled from the Tailwind classes in this directory, including the ones the inline #}
+        {# script below builds as strings. Run `pnpm --filter=@posthog/frontend #}
+        {# build:message-preferences` after changing a class in either place. #}
+        <link rel="stylesheet" href="{% static 'message-preferences.css' %}" />
     </head>
     <body>
         {% block content %}

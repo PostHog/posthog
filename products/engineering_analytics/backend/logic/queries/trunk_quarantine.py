@@ -8,17 +8,25 @@ under ``'unowned'``.
 
 from datetime import UTC, datetime, timedelta
 
+from posthog.egress.limiter.policies import Priority
+
 from products.engineering_analytics.backend.facade.contracts import (
     TrunkQuarantineDebt,
     TrunkQuarantinedTest,
     TrunkQuarantineTeamDebt,
 )
 from products.engineering_analytics.backend.logic.ownership import QuarantinedTestFile, resolve_test_ownership
+from products.engineering_analytics.backend.logic.ownership_files import repo_files
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-_QUARANTINED_SELECT = """
+# Oldest first, so a repo past the cap keeps the debt that has aged past its TTL.
+_LIMIT = 5000
+
+_QUARANTINED_SELECT = f"""
     SELECT runner, nodeid, source_path, crate, status, quarantine_setting, test_case_id, quarantined_at
     FROM __TRUNK_SOURCE__
+    ORDER BY quarantined_at ASC, nodeid ASC
+    LIMIT {_LIMIT + 1}
 """
 
 
@@ -54,6 +62,8 @@ def query_trunk_quarantine_debt(
             trunk_url=None,
             teams=[],
             tests=[],
+            truncated=False,
+            limit=_LIMIT,
         )
     org_url_slug = curated.trunk_org_url_slug()
     trunk_url = _trunk_url(org_url_slug, curated.repository)
@@ -64,6 +74,8 @@ def query_trunk_quarantine_debt(
         placeholders={},
     )
     rows = quarantined.results or []
+    truncated = len(rows) > _LIMIT
+    rows = rows[:_LIMIT]
     if not rows:
         return TrunkQuarantineDebt(
             available=True,
@@ -73,13 +85,20 @@ def query_trunk_quarantine_debt(
             trunk_url=trunk_url,
             teams=[],
             tests=[],
+            truncated=False,
+            limit=_LIMIT,
         )
 
     parsed = [
         (runner, nodeid, QuarantinedTestFile(source_path=source_path, crate=crate), status, setting, case_id, at)
         for runner, nodeid, source_path, crate, status, setting, case_id, at in rows
     ]
-    owned_by_test = resolve_test_ownership(curated.repository, [row[2] for row in parsed])
+    owned_by_test = resolve_test_ownership(
+        curated.repository,
+        [row[2] for row in parsed],
+        # A person is waiting on the board, so the reads run on the interactive lane.
+        files=repo_files(curated.team, curated.repository, source_id=curated.source_id, priority=Priority.NORMAL),
+    )
     tests: list[TrunkQuarantinedTest] = []
     for (runner, nodeid, _file, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
         parsed, owned_by_test.tests, strict=True
@@ -125,4 +144,6 @@ def query_trunk_quarantine_debt(
         trunk_url=trunk_url,
         teams=teams,
         tests=tests,
+        truncated=truncated,
+        limit=_LIMIT,
     )

@@ -94,6 +94,7 @@ class TestScoreRows(SimpleTestCase):
         assert _score_rows([]) == []
 
 
+@time_machine.travel("2026-09-11T12:00:00Z", tick=False)
 class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
     def _make_pipeline_and_model(self, **pipeline_kwargs) -> tuple[AutoresearchPipeline, AutoresearchModel]:
         pipeline = AutoresearchPipeline.objects.create(
@@ -131,6 +132,8 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert run.status == AutoresearchRun.Status.COMPLETED
         assert run.rows_scored == 2
         assert run.metrics["holdout_auc"] == 0.7
+        assert run.metrics["prediction_date"] == "2026-09-11"
+        assert run.metrics["horizon_days"] == 7
         assert capture.call_count == 1
         kwargs = capture.call_args.kwargs
         events = kwargs["events"]
@@ -256,6 +259,7 @@ class TestPredictionDateGuards(TeamScopedTestMixin, BaseTest):
         score.assert_not_called()
         run = AutoresearchRun.objects.filter(pipeline=pipeline).latest("created_at")
         assert run.status == AutoresearchRun.Status.FAILED
+        assert run.metrics["prediction_date"] == prediction_date.isoformat()
 
     def test_future_prediction_date_is_refused(self):
         # A future date reads as live: today's features under a future label.
@@ -761,6 +765,7 @@ class TestRecipeFit(SimpleTestCase):
         [
             ("seeded_from_the_pipeline", {}, 1234),
             ("recipe_seed_wins", {"random_state": 7}, 7),
+            ("null_seed_falls_back_to_the_pipeline", {"random_state": None}, 1234),
         ]
     )
     def test_stochastic_estimator_gets_a_stable_seed(self, _name, params, expected):

@@ -143,5 +143,19 @@ describe('passkeyLogic', () => {
             expect(onFailure).not.toHaveBeenCalled()
             expect(apiStatusLogic.values.timeSensitiveAuthenticationRequired).toBe(false)
         })
+
+        it('clears the gate even when the sensitive action throws', async () => {
+            const onSuccess = jest.fn(() => {
+                throw new Error('sensitive action failed')
+            })
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([onSuccess, jest.fn()])
+
+            logic.actions.beginPasskeyLogin(undefined, { reauth: 'true' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(onSuccess).toHaveBeenCalledTimes(1)
+            expect(apiStatusLogic.values.timeSensitiveAuthenticationRequired).toBe(false)
+            expect(logic.values.isReauth).toBe(false)
+        })
     })
 })

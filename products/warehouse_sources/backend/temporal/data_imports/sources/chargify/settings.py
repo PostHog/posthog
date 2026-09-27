@@ -95,6 +95,34 @@ CHARGIFY_ENDPOINTS: dict[str, ChargifyEndpoint] = {
         partition_key="created_at",
         params={"per_page": PER_PAGE, "direction": "asc"},
     ),
+    "CreditNotes": ChargifyEndpoint(
+        name="CreditNotes",
+        path="/credit_notes.json",
+        # Wrapped like Invoices rather than a bare array.
+        data_selector="credit_notes",
+        # Credit notes carry no numeric ``id`` — ``uid`` ("cn_" prefixed) is the identifier.
+        primary_key=["uid"],
+        # No creation timestamp is exposed: ``issue_date`` is a date, and ``applied_date`` only
+        # gets a value once the credit is fully applied, so neither is a stable partition key.
+        partition_key=None,
+        params={"per_page": PER_PAGE},
+    ),
+    "Coupons": ChargifyEndpoint(
+        name="Coupons",
+        path="/coupons.json",
+        data_selector="[*].coupon",
+        primary_key=["id"],
+        partition_key="created_at",
+        params={"per_page": PER_PAGE},
+    ),
+    "ReasonCodes": ChargifyEndpoint(
+        name="ReasonCodes",
+        path="/reason_codes.json",
+        data_selector="[*].reason_code",
+        primary_key=["id"],
+        partition_key="created_at",
+        params={"per_page": PER_PAGE},
+    ),
 }
 
 ENDPOINTS: tuple[str, ...] = tuple(CHARGIFY_ENDPOINTS.keys())

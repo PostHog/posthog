@@ -312,8 +312,9 @@ def experiment_error_handler(method: F) -> F:
             if user_message is None:
                 raise
 
-            # Get error code if available
+            # Get error code if available. Chain the original explicitly: the query SLO
+            # classifier reads __cause__ to keep converted technical errors counted as failures.
             error_code = ERROR_TYPE_TO_CODE.get(type(e))
-            raise ValidationError(user_message, code=error_code)
+            raise ValidationError(user_message, code=error_code) from e
 
     return cast(F, wrapper)

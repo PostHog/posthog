@@ -5,7 +5,8 @@ import { LemonSelect } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
+
+import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 
 import { smoothingOptions } from './smoothings'
 

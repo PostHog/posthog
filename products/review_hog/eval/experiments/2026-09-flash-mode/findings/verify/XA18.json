@@ -1,0 +1,27 @@
+{
+    "letter": "XA",
+    "id": "XA18",
+    "cluster": 58,
+    "is_real": true,
+    "severity": "should_fix",
+    "votes": [
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1223-1234 commits a QUEUED ReviewRun with delivery_id=None before the on_commit callback starts Temporal. The callback's failures propagate through _start_review_workflow at 366-380 and retry at 1235-1237, but the task permits only three retries (1109). Every retry can leave the committed row QUEUED; exhausting them does not mark failure or schedule further recovery. Existing QUEUED restart logic at 1212-1214 is only reached if that task is invoked again. The other recovery helper at 383-409 is delivery-id based and cannot pick up this run. The production QUEUED references in this product contain these two event-driven restart paths, not a periodic reconciler. An outage lasting through the attempts can therefore leave a visibly pending initial review without any workflow.",
+            "refutation": "I first checked the already-implemented recovery and whether workflow idempotency itself retries a missed hand-off. The code DOES restart a queued run on a later receiver invocation (tasks.py:1212-1214), and temporal/client.py:43-48 gives that restart a stable workflow id. But an idempotent start is not a scheduled start: after Celery exhaustion neither helper is invoked automatically, and no Temporal activity retries exist before the workflow has started. Ordinary status/state saves are excluded by review_hog/receivers.py:85-89, and opened/ready webhook events are excluded by stamphog/tasks.py:160-168. A later output save or push/reopen is a workaround, hence should_fix. The outage-exhaustion path alone proves the defect without depending on worker-ack crash semantics."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "/tmp/frozen-75215/products/stamphog/backend/tasks/tasks.py:1223-1234 commits a QUEUED ReviewRun with delivery_id=None before starting Temporal from on_commit. A failed start is retried at :1235-1237, but the task decorator at :1109 caps retries at three with a five-second default delay. If Temporal remains unavailable through those attempts, no workflow exists to move the row out of QUEUED. temporal/client.py:42-54 only starts a workflow after connecting; workflow-level activity retries cannot recover an unstarted workflow. The product's scheduled registration in /tmp/frozen-75215/posthog/tasks/scheduled.py:97,803-808 is the digest, and there is no queued ReviewRun reconciler in the Stamphog tasks/temporal code.",
+            "refutation": "First checked the existing recovery paths. tasks.py:1202-1214 restarts an existing queued run when the receiver fires again, and tests/test_tasks.py:974-1001 explicitly covers that recovery. Webhook delivery recovery at :384-409 requires a delivery id, which this row lacks. Later output saves or head-changing webhooks can recover, but after a final PR-output save neither is guaranteed and ready_for_review alone is excluded by :160-168. The generic scheduled orphan TaskRun redispatch is for the Tasks product, not Stamphog ReviewRun. Thus retries handle a brief outage but an exhausted hand-off can leave the UI permanently queued until a manual/repeated trigger."
+        },
+        {
+            "is_real": true,
+            "severity": "should_fix",
+            "evidence": "products/stamphog/backend/tasks/tasks.py:1223-1234 commits a QUEUED ReviewRun with no delivery_id before its on_commit callback starts Temporal. Temporal errors propagate into retry at 1235-1237, but the task has only three retries with a five-second default delay at 1109. If all starts fail, the row remains QUEUED: no workflow exists to execute its failure handler. The retry path can restart an existing queued row at 1211-1214, but requires another delivery of this task. Stamphog's beat schedule contains only daily digests (tasks/schedules.py; posthog/tasks/scheduled.py:803-808), not a stale ReviewRun restart sweep. Thus a finite Temporal outage can strand an already-durable initial review until an unrelated future output save or push.",
+            "refutation": "I first checked the explicit retry and deduplication recovery: _start_review_workflow swallows only WorkflowAlreadyStartedError (tasks.py:366-380), and repeat tasks restart an existing QUEUED run rather than dropping it (1211-1214), so a single transient failure is handled. I also checked scheduled orphan recovery; posthog/tasks/scheduled.py:257-266 schedules Tasks product TaskRun redispatch, not Stamphog ReviewRun recovery. The claim still holds for an outage lasting through the bounded attempts, regardless of whether worker-crash acknowledgment settings provide redelivery. No guaranteed later TaskRun output save exists, and the initial opened bot-draft webhook is intentionally ineligible (tasks.py:160-169). The durable row makes manual recovery possible, limiting severity to should_fix."
+        }
+    ]
+}

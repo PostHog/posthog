@@ -180,6 +180,29 @@ export function navigateToInboxPullRequestDetail(reportId: string): void {
   navigateToReport(reportId);
 }
 
+/**
+ * Back to the list a report was opened from. Triage's place in the queue rides
+ * along in history state, because TanStack blanks that state on a plain
+ * navigate and the queue would restart at the top. The caller passes the report
+ * id rather than the origin object, so this file keeps no import of the feature
+ * module that augments the router's history state. That import reaches the
+ * route-tree cycle described above and drops the augmentations in the web host.
+ */
+export function navigateToReportSource(
+  href: string,
+  triageReportId: string | null,
+): void {
+  void getRouterOrNull()?.navigate({
+    href,
+    state: (previous) => ({
+      ...previous,
+      ...(triageReportId
+        ? { inboxTriageOrigin: { reportId: triageReportId } }
+        : {}),
+    }),
+  });
+}
+
 export function navigateToInboxReportDetail(
   reportId: string,
   options?: { returnToTriage?: boolean },
@@ -205,18 +228,35 @@ export function navigateToLoops(options?: { ignoreBlocker?: boolean }): void {
   });
 }
 
-export function navigateToNewLoop(): void {
-  void getRouterOrNull()?.navigate({ to: "/loops/new" });
+export function navigateToSpaceLoops(
+  channelId: string,
+  options?: { ignoreBlocker?: boolean },
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/loops",
+    params: { channelId },
+    ignoreBlocker: options?.ignoreBlocker,
+  });
 }
 
 export function navigateToLoopDetail(
   loopId: string,
-  options?: { ignoreBlocker?: boolean; edit?: boolean },
+  options?: { ignoreBlocker?: boolean; edit?: boolean; channelId?: string },
 ): void {
+  const search = options?.edit ? { edit: true } : {};
+  if (options?.channelId) {
+    void getRouterOrNull()?.navigate({
+      to: "/spaces/$channelId/loops/$loopId",
+      params: { channelId: options.channelId, loopId },
+      search,
+      ignoreBlocker: options?.ignoreBlocker,
+    });
+    return;
+  }
   void getRouterOrNull()?.navigate({
     to: "/loops/$loopId",
     params: { loopId },
-    search: options?.edit ? { edit: true } : {},
+    search,
     ignoreBlocker: options?.ignoreBlocker,
   });
 }

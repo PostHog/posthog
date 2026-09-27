@@ -590,6 +590,126 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         payload["item_context"]["taskId"] = str(other_task.id)
         assert self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == 403
 
+    def test_canvas_comments_follow_the_canvas_channel_not_the_task_channel(self) -> None:
+        channel_model = apps.get_model("tasks", "Channel")
+        task_model = apps.get_model("tasks", "Task")
+        canvas_model = apps.get_model("canvas", "Canvas")
+
+        author = User.objects.create_and_join(self.organization, "canvas-author@posthog.com", "password")
+        shared = channel_model.objects.unscoped().create(
+            team=self.team, name="shared-space", channel_type="public", created_by=author
+        )
+        author_personal = channel_model.objects.unscoped().create(
+            team=self.team, name="me", channel_type="personal", created_by=author
+        )
+        task = task_model.objects.create(
+            team=self.team, title="Build the canvas", created_by=author, channel=author_personal
+        )
+        canvas = canvas_model.objects.unscoped().create(
+            team=self.team,
+            channel=shared,
+            name="Shared canvas",
+            created_by=author,
+            generation_task_id=task.id,
+        )
+        payload = {
+            "content": "Nice canvas",
+            "scope": "desktop_canvas",
+            "item_id": str(canvas.id),
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+        }
+
+        created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+
+        assert created.status_code == status.HTTP_201_CREATED
+        listed = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+        )
+        assert [row["id"] for row in listed.json()["results"]] == [created.json()["id"]]
+
+        regenerated_by = task_model.objects.create(
+            team=self.team, title="Regenerate the canvas", created_by=author, channel=author_personal
+        )
+        canvas.generation_task_id = regenerated_by.id
+        canvas.save(update_fields=["generation_task_id"])
+        relisted = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={regenerated_by.id}"
+        )
+        assert [row["id"] for row in relisted.json()["results"]] == [created.json()["id"]]
+
+    @mock.patch("posthog.api.comments.send_mention_notifications")
+    @mock.patch("posthog.api.comments.produce_discussion_mention_events")
+    def test_private_canvas_comments_follow_space_membership(
+        self, produce_events: mock.Mock, send_notifications: mock.Mock
+    ) -> None:
+        channel_model = apps.get_model("tasks", "Channel")
+        membership_model = apps.get_model("tasks", "ChannelMembership")
+        canvas_model = apps.get_model("canvas", "Canvas")
+        invited = User.objects.create_and_join(self.organization, "canvas-member@posthog.com", "password")
+        non_member = User.objects.create_and_join(self.organization, "canvas-non-member@posthog.com", "password")
+        channel = channel_model.objects.unscoped().create(
+            team=self.team,
+            name="private-canvas-space",
+            channel_type="private",
+            created_by=self.user,
+        )
+        membership_model.objects.unscoped().bulk_create(
+            [
+                membership_model(team=self.team, channel=channel, user=self.user),
+                membership_model(team=self.team, channel=channel, user=invited),
+            ]
+        )
+        task = self._task_artifact_target(public=False)
+        canvas = canvas_model.objects.unscoped().create(
+            team=self.team,
+            channel=channel,
+            name="Private canvas",
+            created_by=self.user,
+            generation_task_id=task.id,
+        )
+        payload = {
+            "content": "Review this canvas",
+            "scope": "desktop_canvas",
+            "item_id": str(canvas.id),
+            "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
+            "mentions": [invited.id, non_member.id],
+        }
+
+        created = self.client.post(f"/api/projects/{self.team.id}/comments", payload)
+
+        assert created.status_code == status.HTTP_201_CREATED
+        assert produce_events.call_args.args[1] == [invited.id]
+        assert send_notifications.call_args.args[1] == [invited.id]
+        activity_model = apps.get_model("tasks", "TaskCommentActivity")
+        assert (
+            activity_model.objects.unscoped()
+            .filter(team=self.team, user=invited, comment_id=created.json()["id"])
+            .exists()
+        )
+        assert (
+            not activity_model.objects.unscoped()
+            .filter(team=self.team, user=non_member, comment_id=created.json()["id"])
+            .exists()
+        )
+
+        self.client.force_login(invited)
+        assert (
+            self.client.post(
+                f"/api/projects/{self.team.id}/comments", {**payload, "content": "A member comment", "mentions": []}
+            ).status_code
+            == status.HTTP_201_CREATED
+        )
+
+        self.client.force_login(non_member)
+        assert (
+            self.client.post(f"/api/projects/{self.team.id}/comments", payload).status_code == status.HTTP_403_FORBIDDEN
+        )
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/comments?scope=desktop_canvas&item_id={canvas.id}&task_id={task.id}"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == []
+
     def test_canvas_comments_respect_personal_channel_visibility(self) -> None:
         task = self._task_artifact_target()
         other = User.objects.create_and_join(self.organization, "private-canvas-owner@posthog.com", "password")

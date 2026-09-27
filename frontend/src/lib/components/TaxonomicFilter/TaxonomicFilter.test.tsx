@@ -108,6 +108,36 @@ describe('TaxonomicFilter', () => {
         )
     }
 
+    it.each(['mouse', 'keyboard'] as const)(
+        'selects a custom event name with neutral copy using the %s',
+        async (input) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/event_definitions': () => [200, { results: [], count: 0 }],
+                },
+            })
+            taxonomicFilterCategoryLayoutLogic.actions.setCategoryRailPinned(input === 'keyboard')
+            renderFilter({ allowNonCapturedEvents: true })
+            await withoutDebounceDelay(async (user) => {
+                await user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_confirmed')
+            })
+
+            const option = await screen.findByTestId('prop-filter-event-option-custom')
+            expect(option).toHaveTextContent(/Use event name:\s*purchase_confirmed/)
+            expect(screen.queryByText('Not seen yet')).not.toBeInTheDocument()
+            if (input === 'mouse') {
+                await userEvent.click(option)
+            } else {
+                fireEvent.keyDown(screen.getByTestId('taxonomic-filter-searchfield'), { key: 'Enter' })
+            }
+            expect(onChangeMock).toHaveBeenCalledWith(
+                expect.objectContaining({ type: TaxonomicFilterGroupType.Events }),
+                'purchase_confirmed',
+                expect.objectContaining({ name: 'purchase_confirmed', isNonCaptured: true })
+            )
+        }
+    )
+
     function expectActiveTab(activeTestId: string, inactiveTestId?: string): void {
         expect(screen.getByTestId(activeTestId)).toHaveClass('LemonTag--primary')
         if (inactiveTestId) {
@@ -1517,6 +1547,9 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(await screen.findByTestId('taxonomic-category-rail-toggle'))
 
             expect(await screen.findByText('Categories')).toBeInTheDocument()
+            await waitFor(() => {
+                expect(screen.queryByTestId('taxonomic-category-rail-toggle')).not.toBeInTheDocument()
+            })
             expect(screen.getByTestId('taxonomic-category-dropdown-trigger-pill')).toHaveClass('hidden')
 
             await userEvent.click(screen.getByTestId('taxonomic-category-rail-unpin'))

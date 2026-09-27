@@ -327,7 +327,13 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
             scopes = str(params.get("scopes", "")).split(",")
             queryset = queryset.filter(scope__in=scopes)
         if params.get("item_id"):
-            queryset = queryset.filter(item_id=params.get("item_id"))
+            if set(str(params.get("scopes", "")).split(",")) == {"DataWarehouseSavedQuery", "DataQualityCheck"}:
+                # Load the product relationship only for a model's combined history feed.
+                from products.data_quality.backend.facade.activity import model_activity  # noqa: PLC0415
+
+                queryset = model_activity(queryset, self.team_id, params["item_id"])
+            else:
+                queryset = queryset.filter(item_id=params.get("item_id"))
 
         if params.get("page"):
             queryset = queryset.order_by(*activity_log_ordering(self.request))
@@ -398,7 +404,7 @@ class AdvancedActivityLogFiltersSerializer(serializers.Serializer):
         child=serializers.CharField(),
         required=False,
         default=[],
-        help_text="Filter by API clients that generated the activity (from x-posthog-client header).",
+        help_text="Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
     )
     ip_addresses = JSONTolerantListField(
         child=serializers.CharField(validators=[_validate_ip_or_wildcard]),
@@ -537,7 +543,7 @@ class StaticFiltersSerializer(serializers.Serializer):
     activities = serializers.ListField(child=serializers.DictField(), help_text="Available activity types.")
     clients = serializers.ListField(
         child=serializers.DictField(),
-        help_text="API clients that have generated activity (from x-posthog-client header).",
+        help_text="API clients that have generated activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).",
     )
 
 
