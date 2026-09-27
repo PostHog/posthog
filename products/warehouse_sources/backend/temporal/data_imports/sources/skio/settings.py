@@ -111,12 +111,14 @@ ENDPOINTS: dict[str, SkioEndpointConfig] = {
         name="orders",
         query_name="Orders",
         graphql_type="Order",
+        # `subscriptionId` is deliberately not selected: Skio's schema documents it as never
+        # written (always null). The real link from an order to its subscription runs through
+        # order_line_items.subscriptionLineId -> subscription_lines.subscriptionId.
         fields=(
             "id",
             "platformId",
             "platformNumber",
             "name",
-            "subscriptionId",
             "storefrontUserId",
             "shippingAddressId",
             "siteId",
