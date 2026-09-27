@@ -902,6 +902,9 @@ def _expr_to_compare_op(
         return semver_range_compare(expr, value, "Caret", _caret_bounds)
     elif operator == PropertyOperator.SEMVER_WILDCARD:
         return semver_range_compare(expr, value, "Wildcard", _wildcard_bounds)
+    # Property dicts from saved filters skip enum validation, so an unknown operator is bad input, not a missing feature.
+    elif operator not in PropertyOperator:
+        raise QueryError(f"Unknown property filter operator '{operator}' on property '{property.key}'")
     else:
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
