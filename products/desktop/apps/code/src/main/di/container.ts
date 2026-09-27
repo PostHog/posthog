@@ -372,6 +372,7 @@ export const container = new TypedContainer<MainBindings>({
 });
 
 container.bind(URL_LAUNCHER_SERVICE).to(ElectronUrlLauncher);
+container.bind(SCREEN_CAPTURE_SERVICE).to(ElectronScreenCapture);
 container.bind(STORAGE_PATHS_SERVICE).to(ElectronStoragePaths);
 container.bind(APP_META_SERVICE).to(ElectronAppMeta);
 container.bind(DIALOG_SERVICE).to(ElectronDialog);
@@ -380,7 +381,6 @@ container.bind(CLIPBOARD_SERVICE).to(ElectronClipboard);
 container.bind(CRYPTO_SERVICE).to(ElectronCrypto);
 container.bind(ANALYTICS_SERVICE).toConstantValue(posthogNodeAnalytics);
 container.bind(FEEDBACK_CONTEXT_SERVICE).to(ElectronFeedbackContext);
-container.bind(SCREEN_CAPTURE_SERVICE).to(ElectronScreenCapture);
 container.bind(FILE_ICON_SERVICE).to(ElectronFileIcon);
 container.bind(SECURE_STORAGE_SERVICE).to(ElectronSecureStorage);
 container.bind(MAIN_WINDOW_SERVICE).to(ElectronMainWindow);

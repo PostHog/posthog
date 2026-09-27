@@ -56,6 +56,10 @@
       "types": "./dist/mcp-sandbox-proxy.d.ts",
       "import": "./dist/mcp-sandbox-proxy.js"
     },
+    "./screenshot-area": {
+      "types": "./dist/screenshot-area.d.ts",
+      "import": "./dist/screenshot-area.js"
+    },
     "./rich-output-prompt": {
       "types": "./dist/rich-output-prompt.d.ts",
       "import": "./dist/rich-output-prompt.js"

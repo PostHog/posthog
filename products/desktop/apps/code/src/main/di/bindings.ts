@@ -349,6 +349,7 @@ export interface MainBindings {
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // Platform adapters
   [URL_LAUNCHER_SERVICE]: ElectronUrlLauncher;
+  [SCREEN_CAPTURE_SERVICE]: ElectronScreenCapture;
   [STORAGE_PATHS_SERVICE]: ElectronStoragePaths;
   [APP_META_SERVICE]: ElectronAppMeta;
   [DIALOG_SERVICE]: ElectronDialog;
@@ -356,7 +357,6 @@ export interface MainBindings {
   [CRYPTO_SERVICE]: ElectronCrypto;
   [ANALYTICS_SERVICE]: IAnalytics;
   [FEEDBACK_CONTEXT_SERVICE]: ElectronFeedbackContext;
-  [SCREEN_CAPTURE_SERVICE]: ElectronScreenCapture;
   [FILE_ICON_SERVICE]: ElectronFileIcon;
   [SECURE_STORAGE_SERVICE]: ElectronSecureStorage;
   [MAIN_WINDOW_SERVICE]: ElectronMainWindow;

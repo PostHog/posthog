@@ -189,6 +189,10 @@ container.bind<TRPCClient<TrpcRouter>>(TRPC_CLIENT).toConstantValue(trpcClient);
 
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
 
+container.bind(SCREEN_CAPTURE_SERVICE).toConstantValue({
+  captureRegion: (region) =>
+    hostTrpcClient.screenCapture.captureRegion.query(region),
+} satisfies IScreenCapture);
 container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
   captureScreenshot: () =>
     hostTrpcClient.feedbackContext.captureScreenshot.query(),
@@ -235,11 +239,6 @@ container.bind(TASK_BROWSER_HOST).toConstantValue({
   forgetTab: (browserId) =>
     hostTrpcClient.taskBrowser.forgetTab.mutate({ browserId }),
 });
-
-container.bind(SCREEN_CAPTURE_SERVICE).toConstantValue({
-  captureRegion: (region) =>
-    hostTrpcClient.screenCapture.captureRegion.query(region),
-} satisfies IScreenCapture);
 
 container.bind(UPDATES_CLIENT).toConstantValue(updatesClient);
 

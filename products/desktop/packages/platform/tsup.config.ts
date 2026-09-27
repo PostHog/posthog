@@ -31,6 +31,7 @@ export default defineConfig({
     "src/app-metrics.ts",
     "src/dev-host-actions.ts",
     "src/disk-cache.ts",
+    "src/screen-capture.ts",
   ],
   format: ["esm"],
   dts: true,
