@@ -69,7 +69,7 @@ export interface ProjectTreeLogicProps {
     includeRoot?: boolean
     hideFolders?: string[]
     isActiveInPanel?: boolean
-    shortcutScope?: 'apps' | 'files'
+    shortcutScope?: 'products' | 'files'
 }
 
 const FOLDER_LOADING = [
@@ -1188,8 +1188,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
 
                 if (root === 'shortcuts://' && shortcutScope) {
                     firstFolders = firstFolders.filter((item) => {
-                        const isApp = item.record?.type !== 'folder' && !item.record?.ref
-                        return shortcutScope === 'apps' ? isApp : !isApp
+                        const isProduct = item.record?.type !== 'folder' && !item.record?.ref
+                        return shortcutScope === 'products' ? isProduct : !isProduct
                     })
                 }
 
@@ -1290,12 +1290,16 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             }
         },
         clearSearch: () => {
-            actions.pruneClosedFolders(values.expandedFolders)
+            // All trees share the folder data. A non-project tree has no project:// expanded folders,
+            // so a prune from it removes every loaded project folder, including folders open in other trees.
+            if (props.root === undefined || props.root.startsWith('project://')) {
+                actions.pruneClosedFolders(values.expandedFolders)
+            }
         },
         loadFolderSuccess: ({ folder }) => {
             if (props.root?.startsWith('project://') && props.isActiveInPanel === true && folder === '') {
                 const rootItems = values.folders['']
-                if (rootItems.length < 5) {
+                if (rootItems.length < 5 && !values.expandedFolders.includes('project://Unfiled')) {
                     actions.toggleFolderOpen('project://Unfiled', true)
                 }
             }
@@ -1370,8 +1374,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             const allFolders = splitPath(path).slice(0, -1)
             const allFullFolders = allFolders.map((_, index) => joinPath(allFolders.slice(0, index + 1)))
             const nonExpandedFolders = allFullFolders.filter((f) => !expandedSet.has('project://' + f))
-            for (const folder of nonExpandedFolders) {
-                if (values.folderStates[folder] !== 'loaded' && values.folderStates[folder] !== 'loading') {
+            for (const folder of allFullFolders) {
+                if (!values.folderStates[folder] || values.folderStates[folder] === 'error') {
                     actions.loadFolder(folder)
                 }
             }

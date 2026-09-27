@@ -153,6 +153,7 @@ const oauthAuthorize = async (
     // any printable ASCII in `state`, so a raw-JSON state must reach the API byte-for-byte.
     const params = new URLSearchParams(window.location.search)
     try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call to a route outside /api/, with an unchecked response type. No generated function can cover it until the route is in the OpenAPI schema.
         const response = await api.create('/oauth/authorize/', {
             client_id: params.get('client_id'),
             redirect_uri: params.get('redirect_uri'),
@@ -437,10 +438,12 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 loadAllTeams: async () => {
                     const user = userLogic.values.user
                     if (!user?.organizations?.length) {
+                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                         return await api.loadPaginatedResults('api/projects')
                     }
                     const results = await Promise.all(
                         user.organizations.map((org) =>
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use organizationsProjectsList() from '~/generated/core/api' instead.
                             api.loadPaginatedResults<TeamBasicType>(`api/organizations/${org.id}/projects`)
                         )
                     )
@@ -484,6 +487,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             try {
                 const orgId = values.selectedOrganization
                 const endpoint = orgId ? `api/organizations/${orgId}/projects/` : 'api/projects/'
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 await api.create(endpoint, { name })
                 lemonToast.success(`Project "${name}" created`)
                 actions.setShowCreateProject(false)

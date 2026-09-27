@@ -281,6 +281,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
                  * ClickHouse queries. An explicit Rescan click is a request for
                  * current data and has to mean it, or the button looks broken. */
                 loadSetupPlan: async ({ refresh } = { refresh: false }) => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/marketing_analytics/setup_plan${
                             refresh ? '?refresh=true' : ''
@@ -595,6 +596,7 @@ export const setupPlanLogic = kea<setupPlanLogicType>([
             }
             posthog.capture('marketing analytics setup change submitted', properties)
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use marketingAnalyticsApplySetupOpsCreate() from 'products/marketing_analytics/frontend/generated/api' instead.
                 const response: ApplyResponse = await api.create(
                     `api/projects/${values.currentTeamId}/marketing_analytics/apply_setup_ops`,
                     { ops, source: options.source }

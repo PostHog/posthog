@@ -88,7 +88,7 @@ class TestDecideRequestValidation(SimpleTestCase):
         serializer = DecideRequestSerializer(data={"state": "text", "questions": QUESTIONS})
 
         assert serializer.is_valid(), serializer.errors
-        assert serializer.validated_data["model"] == "posthog/alibiserikbay/jevk5-0.2"
+        assert serializer.validated_data["model"] == "posthog/hogference/jevk5-fp8-0.2"
 
 
 class TestDecideEndpoint(APIBaseTest):
@@ -106,7 +106,7 @@ class TestDecideEndpoint(APIBaseTest):
                 ),
             },
             input_tokens=50,
-            latency_ms=31,
+            latency_ms=31.5,
         )
 
         response = self.client.post(self._url(), {"state": "charged twice", "questions": QUESTIONS}, format="json")
@@ -123,6 +123,7 @@ class TestDecideEndpoint(APIBaseTest):
         }
         assert body["answers"]["queue"]["choice"] == "billing"
         assert body["input_tokens"] == 50
+        assert body["latency_ms"] == 31.5
         sent = decide.call_args.args[0]
         assert sent.team_id == self.team.id
         assert sent.questions["queue"].criteria == {"billing": "money", "support": "product"}

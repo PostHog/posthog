@@ -71,6 +71,8 @@ export interface AgentServerConfig {
    * a model its catalogue does not advertise the tier for, and as the
    * `X-PostHog-Service-Tier` header on every request to the Go gateway, which
    * writes it into the body itself.
+   * Flex also permits the gateway's standard-tier fallback when capacity is
+   * unavailable, so a flex run can incur standard-tier charges.
    */
   serviceTier?: ServiceTier;
   contextWindow?: "200k" | "1m";

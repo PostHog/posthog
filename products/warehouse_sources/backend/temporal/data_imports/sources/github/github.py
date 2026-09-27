@@ -1376,18 +1376,26 @@ def _has_only_graphql_access_errors(errors: Any) -> bool:
     )
 
 
+# GitHub's GraphQL API has been observed using both spellings for this condition: the documented
+# "RATE_LIMITED" and, for the primary rate limit specifically, "RATE_LIMIT" (with code
+# "graphql_rate_limit"). Match both so neither shape falls through to the generic retryable path,
+# whose plain backoff is capped at 30 seconds and cannot outlast the hourly window this resets on.
+_GRAPHQL_RATE_LIMIT_ERROR_TYPES = frozenset({"RATE_LIMITED", "RATE_LIMIT"})
+
+
 def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, Any]) -> None:
     """Map GraphQL's own primary rate limit onto the error the REST path raises.
 
-    GraphQL reports that limit as a 200 whose `errors` carry type RATE_LIMITED. `raise_if_github_rate_limited`
-    cannot see that shape, because it only inspects 429 and 403 responses. Without this mapping the retry
-    falls back to the plain backoff, which is capped at 30 seconds and so cannot outlast the hourly window
-    the GraphQL limit resets on.
+    GraphQL reports that limit as a 200 whose `errors` carry a rate-limit type (see
+    `_GRAPHQL_RATE_LIMIT_ERROR_TYPES`). `raise_if_github_rate_limited` cannot see that shape, because
+    it only inspects 429 and 403 responses. Without this mapping the retry falls back to the plain
+    backoff, which is capped at 30 seconds and so cannot outlast the hourly window the GraphQL limit
+    resets on.
     """
     errors = body.get("errors")
     if not isinstance(errors, list):
         return
-    if not any(isinstance(error, dict) and error.get("type") == "RATE_LIMITED" for error in errors):
+    if not any(_graphql_error_type(error) in _GRAPHQL_RATE_LIMIT_ERROR_TYPES for error in errors):
         return
 
     try:

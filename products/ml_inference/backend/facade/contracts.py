@@ -8,7 +8,9 @@ from pydantic.dataclasses import dataclass
 
 from .enums import DecisionQuestionType
 
-DEFAULT_DECISION_MODEL = "posthog/alibiserikbay/jevk5-0.2"
+DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+
+type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 
 
 class DecisionsDisabledError(Exception):
@@ -59,9 +61,12 @@ class DecisionQuestion:
 @dataclass(frozen=True)
 class DecisionRequest:
     team_id: int
-    state: str
+    state: JsonValue
     questions: dict[str, DecisionQuestion]
     model: str = DEFAULT_DECISION_MODEL
+    ai_product: str = "ml_inference"
+    trace_id: str | None = None
+    properties: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         if len(self.questions) > MAX_QUESTIONS_PER_REQUEST:
@@ -95,4 +100,4 @@ class DecisionResult:
     model: str
     answers: dict[str, DecisionAnswer]
     input_tokens: int
-    latency_ms: int | None = None
+    latency_ms: float | None = None

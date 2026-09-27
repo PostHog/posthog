@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     slot_exists,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _is_dropped_or_connect_timeout,
     _retry_on_connection_dropped,
     source_requires_ssl,
 )
@@ -230,9 +231,16 @@ class PostgresCDCAdapter:
         # connection (the slot invalidation that triggered recovery), so a transient drop
         # mid-recreate — the server terminating our backend on a deploy/failover, an idle cull —
         # is likely. drop_slot runs first on every attempt, so retrying is idempotent; absorb the
-        # drop in-process instead of failing the whole recovery. Permanent errors (auth, a missing
-        # customer-owned publication) don't match the predicate and re-raise immediately.
-        consistent_point = _retry_on_connection_dropped(_recreate, _retry_logger)
+        # drop in-process instead of failing the whole recovery. Widen the predicate to also
+        # retry connect-time timeouts: cdc_pg_connection opens with the same _connect_to_postgres
+        # the main streaming path uses, and classify_postgres_cdc_error now treats an exhausted
+        # ConnectionTimeout as non-retryable on the assumption every reconnect already timed out —
+        # without retrying it here first, a single transient connect timeout would abort recovery
+        # instead of reaching that exhausted state. Permanent errors (auth, a missing
+        # customer-owned publication) don't match either predicate and re-raise immediately.
+        consistent_point = _retry_on_connection_dropped(
+            _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
+        )
 
         # Every schema is reset to snapshot before this runs, so no change from the dead slot is owed
         # to the legacy lane: the new slot starts on the buffer, as a new source does.

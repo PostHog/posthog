@@ -4,7 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     DynatraceSourceConfig,
 )
 
-INCREMENTAL_ENDPOINTS = {"problems", "events", "audit_logs"}
+INCREMENTAL_ENDPOINTS = {"problems", "events", "audit_logs", "metric_data_points", "synthetic_executions"}
 
 
 class TestDynatraceSource:

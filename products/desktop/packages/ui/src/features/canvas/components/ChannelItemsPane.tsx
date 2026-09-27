@@ -160,18 +160,21 @@ export function ChannelItemsPane({
 
   const sources = useMemo(() => channelItemSources(items), [items]);
   const filters = useMemo<ChannelItemFilters>(() => {
-    const sourceMissing =
-      rawFilters.source !== ANY_SOURCE &&
-      rawFilters.source !== DESKTOP_SOURCE &&
-      !sources.includes(rawFilters.source);
     const scoped: ChannelItemFilters = {
       ...rawFilters,
       ...(hasMultipleAuthors ? {} : { createdBy: "anyone" as const }),
-      ...(sourceMissing ? { source: ANY_SOURCE } : {}),
+      sources: rawFilters.sources.filter(
+        (source) => source === DESKTOP_SOURCE || sources.includes(source),
+      ),
     };
     return hasRuns
       ? scoped
-      : { ...scoped, attention: "any", environment: "any", source: ANY_SOURCE };
+      : {
+          ...scoped,
+          attention: "any",
+          environment: "any",
+          sources: ANY_SOURCE,
+        };
   }, [rawFilters, hasMultipleAuthors, hasRuns, sources]);
   const filtersActive = hasActiveChannelItemFilters(
     filters,

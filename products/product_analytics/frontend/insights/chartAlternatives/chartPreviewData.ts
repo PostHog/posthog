@@ -1,6 +1,7 @@
 import type { AnyResponseType, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type TrendResult } from '~/types'
 
+import { hasTrendsChartData } from '../shared/hasTrendsChartData'
 import { breakdownProperties, hasTrendsFormula } from './chartDisplayOptions'
 import { sampleBoxPlotRows, sampleCalendarHeatmapRows, sampleWorldMapRows } from './chartPreviewSamples'
 
@@ -32,6 +33,12 @@ function resultsOf(response: AnyResponseType): TrendResult[] {
     const raw =
         (response as { result?: unknown; results?: unknown }).result ?? (response as { results?: unknown }).results
     return Array.isArray(raw) ? (raw as TrendResult[]) : []
+}
+
+export function hasPreviewData(response: AnyResponseType): boolean {
+    const results = resultsOf(response)
+    const shape = shapeOf(results)
+    return shape === 'boxPlot' || shape === 'heatmap' || hasTrendsChartData(results)
 }
 
 // insightDataLogic rebuilds `result` from `results`, so both keys must carry the derived rows.
@@ -138,8 +145,6 @@ interface PreviewRecipe {
 
 const noBreakdown = (source: TrendsQuery): boolean => !hasBreakdown(source)
 const summable = (source: TrendsQuery, rows: PreviewRows): boolean => canSumBuckets(source, rows.results)
-const canSlope = (source: TrendsQuery): boolean =>
-    (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 && !hasBreakdown(source)
 const completeCountries = (source: TrendsQuery, rows: PreviewRows): boolean =>
     hasCountryCodeBreakdown(source) && isCompleteBreakdown(rows.response)
 
@@ -152,7 +157,7 @@ const RECIPES: Partial<Record<ChartDisplayType, PreviewRecipe>> = {
     [ChartDisplayType.ActionsStackedBar]: { needs: 'buckets' },
     [ChartDisplayType.Metric]: { needs: 'buckets', when: noBreakdown },
     [ChartDisplayType.ActionsLineGraphCumulative]: { needs: 'buckets', when: summable, transform: toCumulative },
-    [ChartDisplayType.SlopeGraph]: { needs: 'buckets', when: canSlope, transform: toSlope },
+    [ChartDisplayType.SlopeGraph]: { needs: 'buckets', transform: toSlope },
     [ChartDisplayType.BoldNumber]: { needs: 'totals', when: noBreakdown },
     [ChartDisplayType.ActionsPie]: { needs: 'totals' },
     [ChartDisplayType.ActionsDonut]: { needs: 'totals' },
