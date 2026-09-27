@@ -373,7 +373,9 @@ describe('sessionRecordingPlayerLogic', () => {
             captureSpy.mockRestore()
         })
 
-        it('does nothing once the first load has left the buffering state', () => {
+        it('does nothing once the first load has left the buffering state with a replayer', () => {
+            const replayer = { pause: jest.fn(), play: jest.fn(), setConfig: jest.fn(), getCurrentTime: () => 0 }
+            logic.actions.setPlayer({ replayer: replayer as any, windowId: 1 })
             logic.actions.endBuffer()
             logic.actions.startBuffer()
 
@@ -381,6 +383,14 @@ describe('sessionRecordingPlayerLogic', () => {
 
             expect(logic.values.playerError).toBeNull()
             expect(logic.values.isBuffering).toBe(true)
+        })
+
+        it('still times out when the buffer ended but the replayer never started', () => {
+            logic.actions.endBuffer()
+
+            logic.actions.firstLoadBufferingTimedOut()
+
+            expect(logic.values.playerError).toBe('firstLoadBufferingTimeout')
         })
     })
 

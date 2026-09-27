@@ -712,6 +712,13 @@ function armFirstLoadBufferingTimeout(
     }, 'firstLoadBufferingTimeout')
 }
 
+function completeFirstLoad(cache: Record<string, any>, values: { playerError: string | null }): void {
+    if (!cache.firstLoadCompleted && !values.playerError) {
+        cache.firstLoadCompleted = true
+        cache.disposables.dispose('firstLoadBufferingTimeout')
+    }
+}
+
 function scheduleDiagnosticsFlush(
     cache: Record<string, any>,
     actions: { flushDoctorDiagnostics: (d: DoctorDiagnostics) => void }
@@ -1007,9 +1014,6 @@ export interface sessionRecordingPlayerLogicActions {
     endScrub: () => {
         value: true
     }
-    firstLoadBufferingTimedOut: () => {
-        value: true
-    }
     exportRecording: (
         format: ExporterFormat,
         timestamp?: number,
@@ -1031,6 +1035,9 @@ export interface sessionRecordingPlayerLogicActions {
     }
     fingerprintReported: (fingerprint: string) => {
         fingerprint: string
+    }
+    firstLoadBufferingTimedOut: () => {
+        value: true
     }
     flushDoctorDiagnostics: (diagnostics: DoctorDiagnostics) => {
         diagnostics: DoctorDiagnostics
@@ -2779,6 +2786,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             )
         },
         setPlayer: ({ player }) => {
+            if (player?.replayer && !values.isBuffering) {
+                completeFirstLoad(cache, values)
+            }
             if (player) {
                 if (values.currentTimestamp !== undefined) {
                     actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
@@ -3132,7 +3142,16 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         firstLoadBufferingTimedOut: () => {
-            if (cache.firstLoadCompleted || !values.isBuffering || values.playerError || values.isWaitingForIngestion) {
+            if (cache.firstLoadCompleted || values.playerError) {
+                return
+            }
+            // The ingestion wait has its own message. Keep the limit armed for the load that follows it.
+            if (values.isWaitingForIngestion) {
+                armFirstLoadBufferingTimeout(cache, actions)
+                return
+            }
+            // syncPlayerState can end the buffer before the replayer exists, so a missing replayer also counts as a stall.
+            if (!values.isBuffering && values.player?.replayer) {
                 return
             }
             posthog.capture('player buffering timed out', {
@@ -3230,9 +3249,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.stopAnimation()
         },
         endBuffer: () => {
-            if (!cache.firstLoadCompleted && !values.playerError) {
-                cache.firstLoadCompleted = true
-                cache.disposables.dispose('firstLoadBufferingTimeout')
+            if (values.player?.replayer) {
+                completeFirstLoad(cache, values)
             }
         },
         setPlayerError: () => {
