@@ -25,6 +25,9 @@ const MAX_QUERY_LENGTH = 64
 const MAX_SUGGESTIONS = 3
 // Longer than a keystroke gap, so a person who types a phrase asks once and not once per letter.
 const EVENT_MATCH_DEBOUNCE_MS = 350
+// A throttle returns 429 by design, and the backend reports its own model failures as 503.
+// Other failures are visible only in the browser, so the logic reports them without the search text.
+const UNREPORTED_FAILURE_STATUSES = [429, 503]
 
 export interface EventMatches {
     projectId: number
@@ -176,6 +179,12 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
             } catch (error: any) {
                 if (error?.status === 404) {
                     unavailableProjectIds.add(projectId)
+                } else if (!UNREPORTED_FAILURE_STATUSES.includes(error?.status)) {
+                    posthog.captureException(error, {
+                        feature: 'taxonomic-event-match',
+                        projectId,
+                        status: error?.status,
+                    })
                 }
                 breakpoint()
                 actions.setEventMatches(null)

@@ -166,4 +166,24 @@ describe('taxonomicEventMatchLogic', () => {
         expect(matchRequests).toHaveLength(1)
         expect(logic.values.suggestedEvents).toEqual([])
     })
+
+    it.each([
+        [404, false],
+        [429, false],
+        [503, false],
+        [500, true],
+    ])('reports a %s failure to error tracking: %s', async (failureStatus, reported) => {
+        enroll(true)
+        status = failureStatus
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+
+        await search('browser capture')
+
+        expect(logic.values.suggestedEvents).toEqual([])
+        expect(captureExceptionSpy.mock.calls).toEqual(
+            reported
+                ? [[expect.anything(), { feature: 'taxonomic-event-match', projectId: MOCK_TEAM_ID, status: 500 }]]
+                : []
+        )
+    })
 })
