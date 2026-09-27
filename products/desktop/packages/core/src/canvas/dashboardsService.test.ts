@@ -127,3 +127,35 @@ describe("DashboardsService.file", () => {
     });
   });
 });
+
+describe("DashboardsService.listState", () => {
+  it("follows next_offset until the state is complete", async () => {
+    const entry = (key: string) => ({
+      scope: "shared",
+      key,
+      value: key,
+      updated_at: "2026-07-01T00:00:00Z",
+    });
+    const { api, calls } = fakeApi({
+      "canvases/c1/state/?limit=100&offset=0": {
+        entries: [entry("a")],
+        next_offset: 100,
+        complete: false,
+      },
+      "canvases/c1/state/?limit=100&offset=100": {
+        entries: [entry("b")],
+        next_offset: null,
+        complete: true,
+      },
+    });
+    const service = new DashboardsService(api);
+
+    const entries = await service.listState({ id: "c1" });
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "canvases/c1/state/?limit=100&offset=0",
+      "canvases/c1/state/?limit=100&offset=100",
+    ]);
+    expect(entries.map((row) => row.key)).toEqual(["a", "b"]);
+  });
+});

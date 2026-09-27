@@ -72,9 +72,21 @@ def visible_canvas_summaries(
     return {str(canvas.id): _summary(canvas) for canvas in canvases}
 
 
-def live_visible_canvas_ids(team_id: int, user_id: int | None) -> set[str]:
-    """Ids of the live canvases that the user may see, in any source policy."""
-    return {str(canvas_id) for canvas_id in _visible_canvases(team_id, user_id).values_list("id", flat=True)}
+def live_visible_canvas_ids(team_id: int, user_id: int | None, canvas_ids: Iterable[str]) -> set[str]:
+    """The ids from `canvas_ids` of live canvases that the user may see, in any source policy.
+
+    Ids that are not UUIDs are dropped, so callers can pass free-form comment item ids.
+    """
+    candidates = []
+    for canvas_id in canvas_ids:
+        try:
+            candidates.append(UUID(canvas_id))
+        except (TypeError, ValueError):
+            continue
+    if not candidates:
+        return set()
+    visible = _visible_canvases(team_id, user_id).filter(id__in=candidates).values_list("id", flat=True)
+    return {str(canvas_id) for canvas_id in visible}
 
 
 def visible_canvas_ids(team_id: int, user: User | None) -> set[str]:

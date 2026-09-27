@@ -4,7 +4,7 @@ import json
 from typing import Any
 from uuid import UUID
 
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q, QuerySet
 
 from rest_framework import status
@@ -174,6 +174,15 @@ def call_connector(
     )
 
 
+def _lock_state_scope(canvas_id: UUID, scope: str, owner_id: int | None) -> None:
+    """Hold a transaction-scoped advisory lock on one canvas state scope of one owner."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"canvas_state:{canvas_id}:{scope}:{owner_id if owner_id is not None else 'shared'}"],
+        )
+
+
 def _readable_state(
     team_id: int, user_id: int, canvas_id: UUID, capabilities: dict[str, Any] | None
 ) -> QuerySet[CanvasState]:
@@ -249,9 +258,11 @@ def set_state(
             "Store large data in PostHog (insights, the warehouse) and reference it.",
         )
     with transaction.atomic():
-        # The canvas row is the mutex for the key-count check: without it,
-        # concurrent new-key writes both observe space and overshoot the cap.
-        Canvas.objects.for_team(team_id).select_for_update().get(pk=canvas_id)
+        # The key-count check needs a mutex: without it, concurrent new-key writes
+        # both observe space and overshoot the cap. The cap applies per canvas,
+        # scope, and owner, so the lock has the same key and writes to other
+        # viewers' state do not wait on it.
+        _lock_state_scope(canvas_id, scope, owner_id)
         if not existing.exists() and scoped.count() >= CANVAS_STATE_MAX_KEYS_PER_SCOPE:
             raise CanvasRequestRejected(
                 status.HTTP_400_BAD_REQUEST,
