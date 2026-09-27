@@ -68,6 +68,12 @@
     background: #2a4bd7;
     animation: MagicEightBall__reveal 700ms ease-out both;
 
+    // The snapshot runner zeroes animation durations, and headless Chromium can then paint the
+    // 0% keyframe, which leaves the answer invisible.
+    .storybook-test-runner & {
+        animation: none;
+    }
+
     span {
         width: 62%;
         font-size: calc(var(--ball-size) * 0.042);

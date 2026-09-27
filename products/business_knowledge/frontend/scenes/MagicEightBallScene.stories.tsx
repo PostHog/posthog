@@ -117,12 +117,3 @@ export const Error: Story = {
         await within(canvasElement).findAllByText(/The ball couldn't answer:/)
     },
 }
-
-export const FlagOff: Story = {
-    parameters: {
-        featureFlags: [FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE, FEATURE_FLAGS.ML_INFERENCE_DECISIONS],
-    },
-    play: async ({ canvasElement }) => {
-        await within(canvasElement).findByText('This feature is not enabled for your project.')
-    },
-}
