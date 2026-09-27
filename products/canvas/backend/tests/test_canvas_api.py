@@ -1756,7 +1756,7 @@ class TestCanvasState(CanvasAPIBaseTest):
         oversized = self._set_state(canvas_id, "shared", "big", "x" * (64 * 1024))
         assert oversized.status_code == status.HTTP_400_BAD_REQUEST
 
-        with patch("products.canvas.backend.presentation.views.CANVAS_STATE_MAX_KEYS_PER_SCOPE", 2):
+        with patch("products.canvas.backend.logic.runtime.CANVAS_STATE_MAX_KEYS_PER_SCOPE", 2):
             assert self._set_state(canvas_id, "shared", "one", 1).status_code == status.HTTP_200_OK
             assert self._set_state(canvas_id, "shared", "two", 2).status_code == status.HTTP_200_OK
             # Rewriting an existing key is not a new key, so it stays allowed.

@@ -6,6 +6,7 @@ This module pulls the build path (and Temporal) onto import. Put reads that run 
 
 from django.http import HttpRequest
 
+from products.canvas.backend.actions import canvas_actions_disabled as canvas_actions_disabled
 from products.canvas.backend.artifacts import canvas_artifact as _canvas_artifact
 from products.canvas.backend.connectors import (
     call_connector_tool as call_connector_tool,
@@ -13,6 +14,13 @@ from products.canvas.backend.connectors import (
     connector_listings as connector_listings,
     mcp_provider_host as mcp_provider_host,
     native_connector_listings as native_connector_listings,
+)
+from products.canvas.backend.contract import (
+    GRID_COLUMN_CHOICES as GRID_COLUMN_CHOICES,
+    MAX_COMPONENT_HEIGHT as MAX_COMPONENT_HEIGHT,
+    MAX_COMPONENT_WIDTH as MAX_COMPONENT_WIDTH,
+    canvas_sdk_version as canvas_sdk_version,
+    contract_limits as contract_limits,
 )
 from products.canvas.backend.facade.contracts import CanvasArtifact
 from products.canvas.backend.facade.enums import (
@@ -30,14 +38,58 @@ from products.canvas.backend.layout import (
     validate_layout as validate_layout,
     validate_layout_references as validate_layout_references,
 )
+from products.canvas.backend.logic.canvases import (
+    count_canvases as count_canvases,
+    create_canvas as create_canvas,
+    delete_canvas as delete_canvas,
+    get_canvas as get_canvas,
+    home_canvas as home_canvas,
+    list_canvases as list_canvases,
+    provision_home_canvas as provision_home_canvas,
+    update_canvas as update_canvas,
+)
+from products.canvas.backend.logic.runtime import (
+    action_required_scopes as action_required_scopes,
+    action_starts_cloud_run as action_starts_cloud_run,
+    call_connector as call_connector,
+    execute_action as execute_action,
+    list_actions as list_actions,
+    prepare_agent_request as prepare_agent_request,
+    prepare_fix_request as prepare_fix_request,
+    read_state as read_state,
+    read_state_value as read_state_value,
+    report_error as report_error,
+    set_state as set_state,
+    validate_action as validate_action,
+)
+from products.canvas.backend.logic.sources import (
+    build_action as build_action,
+    canvas_builds as canvas_builds,
+    create_draft as create_draft,
+    head_layout as head_layout,
+    head_source as head_source,
+    list_drafts as list_drafts,
+    list_versions as list_versions,
+    open_canvas as open_canvas,
+    promote_draft as promote_draft,
+    publish_current_version as publish_current_version,
+    publish_layout as publish_layout,
+    publish_source as publish_source,
+    read_layout as read_layout,
+    read_source as read_source,
+    revert as revert,
+    wait_for_build as wait_for_build,
+)
+from products.canvas.backend.source import (
+    has_errors as has_errors,
+    validate_source_project as validate_source_project,
+)
 from products.canvas.backend.source_edits import apply_source_edits as apply_source_edits
-from products.canvas.backend.state_reads import CanvasStateReader as CanvasStateReader
 from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,
     TEACHING_CANVAS_NAME as TEACHING_CANVAS_NAME,
     seed_teaching_canvas as seed_teaching_canvas,
 )
-from products.canvas.backend.welcome import seed_home_canvas as seed_home_canvas
 
 
 def render_canvas_artifact(*, host: str, token: str, artifact_path: str, if_none_match: str | None) -> CanvasArtifact:

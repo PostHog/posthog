@@ -390,7 +390,7 @@ class TestCanvasConnectors(CanvasAPIBaseTest):
         assert response.json()["status"] == "ok"
         assert mock_request.call_count == 2
 
-    @patch("products.canvas.backend.presentation.views.call_connector_tool")
+    @patch("products.canvas.backend.logic.runtime.call_connector_tool")
     def test_existing_connector_versions_cannot_read_with_shared_state(self, mock_call):
         canvas_id = self._connectors_canvas()
         canvas = Canvas.objects.for_team(self.team.id).get(id=canvas_id)

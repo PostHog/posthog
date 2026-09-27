@@ -28,7 +28,6 @@ approvals
 batch_exports
 billing_alerts
 business_knowledge
-canvas
 cdp
 cohorts
 context_layer

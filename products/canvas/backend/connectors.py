@@ -20,7 +20,8 @@ import json
 import base64
 from collections.abc import Callable
 from dataclasses import field, replace
-from typing import TYPE_CHECKING, Any
+from typing import Any
+from uuid import UUID
 
 from django.core.validators import RegexValidator
 
@@ -38,9 +39,6 @@ from products.canvas.backend.facade.enums import ConnectorCallStatus, ConnectorK
 from products.mcp_store.backend.facade import api as mcp_store_facade
 from products.mcp_store.backend.facade.contracts import ConnectorTool as McpConnectorTool
 
-if TYPE_CHECKING:
-    from posthog.models import Team
-
 logger = structlog.get_logger(__name__)
 
 # Rollout gate, evaluated per team. Fails closed: connectors stay off when the
@@ -55,12 +53,12 @@ _GITHUB_SOURCE = "canvas_connectors"
 _PERSONAL_INTEGRATIONS_PATH = "/settings/user-personal-integrations"
 
 
-def canvas_connectors_enabled(team: "Team") -> bool:
+def canvas_connectors_enabled(team_uuid: UUID | str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
                 CANVAS_CONNECTORS_FLAG,
-                str(team.uuid),
+                str(team_uuid),
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
             )

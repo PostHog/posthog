@@ -17,3 +17,31 @@ class ConnectorCallStatus(models.TextChoices):
 class ConnectorKind(models.TextChoices):
     NATIVE = "native"
     MCP = "mcp"
+
+
+class CanvasAccess(models.TextChoices):
+    """Which canvases a request may reach, by the kind of operation it performs."""
+
+    # Reads: list, retrieve, source, builds, state, and the other read actions.
+    READ = "read"
+    # Writes to the viewer's own runtime state.
+    STATE = "state"
+    # Content writes any member who sees the canvas may make: publish, edit, revert, and metadata updates.
+    EDIT = "edit"
+    # Other writes: error reports, fix and agent requests, actions, and connector calls.
+    WRITE = "write"
+    # Writes only the creator may make.
+    DELETE = "delete"
+
+
+CANVAS_KIND_FREEFORM = "freeform"
+CANVAS_KIND_GRID = "grid"
+CANVAS_KIND_COMPONENT = "component"
+CANVAS_KINDS = [CANVAS_KIND_FREEFORM, CANVAS_KIND_GRID, CANVAS_KIND_COMPONENT]
+
+CANVAS_STATE_SCOPE_USER = "user"
+CANVAS_STATE_SCOPE_SHARED = "shared"
+CANVAS_STATE_SCOPES = [CANVAS_STATE_SCOPE_USER, CANVAS_STATE_SCOPE_SHARED]
+
+CANVAS_BUILD_STATUS_READY = "ready"
+CANVAS_BUILD_STATUS_FAILED = "failed"
