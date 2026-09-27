@@ -1678,7 +1678,7 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
 
-        it('moves a send typed while the agent was busy into the turn that answers it', async () => {
+        it('renders a send typed while the agent was busy in the turn that answers it', async () => {
             const answer = (messageId: string, text: string): void => {
                 logic.actions.ingestAcpFrame(
                     sessionUpdate({ sessionUpdate: 'agent_message', messageId, content: { text } })
