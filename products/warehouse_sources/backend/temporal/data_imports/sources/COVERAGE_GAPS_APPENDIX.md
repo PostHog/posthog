@@ -3129,12 +3129,12 @@ Today (11): `balance_sheets`, `bond_yields`, `cash_flows`, `company_information`
 
 Diffed against: <https://finnworlds.com/documentation/>
 
-- [ ] `Company Identification` — ticker/ISIN/CIK lookup table that resolves the company identifiers every other synced table keys on (high)
-- [ ] `Historical Candlestick` — historical OHLC series; stock_prices only covers real-time quotes so there is no price history to analyze (high)
-- [ ] `Insider Transactions` — insider trade rows, a core analytical fact table absent from the current set (high)
+- [x] `Company Identification` — ticker/ISIN/CIK lookup table that resolves the company identifiers every other synced table keys on (high) — added as `company_identifiers` (`/identifiers`)
+- [x] `Historical Candlestick` — historical OHLC series; stock_prices only covers real-time quotes so there is no price history to analyze (high) — already synced: `stock_prices` calls `/historicalcandlestick`. The uncovered endpoint is the real-time quote one (`/stockprice`), not this one.
+- [x] `Insider Transactions` — insider trade rows, a core analytical fact table absent from the current set (high) — added as `insider_transactions`, one row per Form 4 transaction line
 - [ ] `Market Exchanges` — lookup resolving the exchange codes carried on company and price rows (medium)
 - [ ] `Stock Market Index` — index level series needed to benchmark the synced company data (medium)
-- [ ] `Macroeconomic Data` — macro indicator series, one of Finnworlds' headline datasets (medium)
+- [x] `Macroeconomic Data` — macro indicator series, one of Finnworlds' headline datasets (medium) — added as `macroeconomic_indicators` (`/macroindicator`), fanned out over a new countries field
 - [ ] `Economic Calendar` — scheduled macro releases; useful for event-study joins against price data (medium)
 - [ ] `Currency Exchange Rates` — FX rates required to normalize multi-currency financial statements (medium)
 - [ ] `ETF Holdings` — fund-to-holding breakdown rows linking funds to already-synced companies (medium)

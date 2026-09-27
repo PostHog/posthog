@@ -8,3 +8,4 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class FinnworldsSourceConfig(config.Config):
     api_key: str
     tickers: str
+    countries: str | None = None
