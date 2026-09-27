@@ -1,8 +1,9 @@
-import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -35,7 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.s
 BASE_URL = "https://demodesk.com/api"
 
 
-@dataclasses.dataclass
+@frozen
 class DemodeskResumeConfig:
     # v1 endpoints checkpoint a page number, v2 endpoints an opaque cursor; one field is set.
     page: int | None = None
