@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.co
     CoolifyHostNotAllowedError,
     DeploymentsPaginationTruncatedError,
     _client_config,
+    _DeploymentsPaginator,
     api_base_url,
     coolify_source,
     hostname_of,
@@ -280,6 +281,27 @@ class TestCoolifyDeploymentsFanout:
             pytest.raises(DeploymentsPaginationTruncatedError),
         ):
             _rows("deployments")
+
+    def test_an_unparseable_body_at_the_cap_stops_without_crashing(self) -> None:
+        # If the response at the cap boundary isn't valid JSON, `_DeploymentsPaginator` can't read
+        # `count` to tell whether rows were left unfetched; it must fall back to stopping quietly
+        # rather than raising on a body it can't interpret.
+        paginator = _DeploymentsPaginator(
+            limit=DEPLOYMENTS_PAGE_SIZE,
+            offset_param="skip",
+            limit_param="take",
+            total_path="count",
+            maximum_offset=DEPLOYMENTS_PAGE_SIZE,
+        )
+        paginator.offset = DEPLOYMENTS_PAGE_SIZE
+        response = Response()
+        response.status_code = 200
+        response._content = b"not json"
+        page = [{"deployment_uuid": f"dep-{i}"} for i in range(DEPLOYMENTS_PAGE_SIZE)]
+
+        paginator.update_state(response, page)
+
+        assert paginator.has_next_page is False
 
 
 class TestCoolifyValidateCredentials:
