@@ -249,9 +249,7 @@ def electricity_maps_source(
 def validate_credentials(api_token: str, zones: list[str]) -> tuple[bool, str | None]:
     # Same redirect boundary as the extraction client: the auth-token header must never leave
     # the API host, so this probe pins to BASE_URL rather than following the session default.
-    session = make_tracked_session(
-        headers={"auth-token": api_token}, redact_values=(api_token,), allow_redirects=False
-    )
+    session = make_tracked_session(headers={"auth-token": api_token}, redact_values=(api_token,), allow_redirects=False)
     # `/carbon-intensity/latest` is the cheapest authenticated call and is available on every
     # plan, so it both proves the token and surfaces per-zone entitlement before the first sync.
     for zone in zones:
