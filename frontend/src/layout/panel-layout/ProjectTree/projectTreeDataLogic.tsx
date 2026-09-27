@@ -70,10 +70,14 @@ const DELETE_ALERT_LIMIT = 0
  */
 const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
 // kea-localstorage keys only by logic path, and starred items belong to one user in one project.
-const SHORTCUTS_PERSIST_OPTIONS = {
-    persist: true,
-    prefix: `${getCurrentTeamIdOrNone() ?? 'unknown'}__${getCurrentUserIdOrNone() ?? 'unknown'}__`,
-}
+// OAuth mode can load this module before the IDs arrive. Without both IDs, starred items are not persisted,
+// because a shared key would show one account's starred items to the next account on the browser.
+const SHORTCUTS_TEAM_ID = getCurrentTeamIdOrNone()
+const SHORTCUTS_USER_ID = getCurrentUserIdOrNone()
+const SHORTCUTS_PERSIST_OPTIONS =
+    SHORTCUTS_TEAM_ID && SHORTCUTS_USER_ID
+        ? { persist: true, prefix: `${SHORTCUTS_TEAM_ID}__${SHORTCUTS_USER_ID}__` }
+        : { persist: false }
 /**
  * Upper bound on a single move request. A batch reports only once every one of its moves has settled, so
  * without this one stalled request would withhold the toast and the Undo from every item that already
