@@ -122,7 +122,7 @@
   {
     "id": "llm-gateway-freeze",
     "starts_with": "**`services/llm-gateway` is under an unofficial code freeze**",
-    "task": "Add a `GET /v1/models` endpoint to the Python LLM gateway in `services/llm-gateway` that returns the list of model names the gateway routes.",
+    "task": "Add a `GET /v1/models/{model_id}` endpoint to the Python LLM gateway in `services/llm-gateway` that returns the one model object from the existing `GET /v1/models` list, or a 404 when the id is unknown.",
     "detectors": [{ "name": "changed_files_under", "prefix": "services/llm-gateway/" }]
   },
   {
