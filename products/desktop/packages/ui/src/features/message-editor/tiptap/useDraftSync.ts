@@ -96,12 +96,13 @@ export function useDraftSync(
 
   useLayoutEffect(() => {
     if (!editor || !pendingInsert) return;
+    const content = draftActions.takePendingInsert(sessionId);
+    if (!content) return;
 
     editor.commands.focus("end");
     editor.commands.insertContent(
-      editorContentToTiptapJson(pendingInsert).content ?? [],
+      editorContentToTiptapJson(content).content ?? [],
     );
-    draftActions.clearPendingInsert(sessionId);
   }, [editor, pendingInsert, sessionId, draftActions]);
 
   // Extract restored attachments from draft on first restore

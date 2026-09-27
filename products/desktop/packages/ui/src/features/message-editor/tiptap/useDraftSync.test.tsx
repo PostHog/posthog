@@ -1,4 +1,5 @@
 import { act, render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@posthog/ui/shell/rendererStorage", () => ({
@@ -57,6 +58,7 @@ describe("useDraftSync", () => {
       commands: {},
       focusRequested: {},
       pendingContent: {},
+      pendingInsert: {},
       _hasHydrated: true,
     }));
   });
@@ -88,6 +90,24 @@ describe("useDraftSync", () => {
     );
 
     expect(editor.getText()).toBe(expected);
+  });
+
+  it("inserts content sent from elsewhere once when the composer mounts", () => {
+    const editor = makeEditor();
+    useDraftStore.getState().actions.insertPendingContent("session-insert", {
+      segments: [{ type: "text", text: "Make it red" }],
+    });
+
+    render(
+      <StrictMode>
+        <RestoreProbe editor={editor} sessionId="session-insert" />
+      </StrictMode>,
+    );
+
+    expect(editor.getText()).toBe("Make it red");
+    expect(useDraftStore.getState().pendingInsert["session-insert"]).toBe(
+      undefined,
+    );
   });
 
   // Drafts land only once the store hydrates, so filling the box before that
