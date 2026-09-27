@@ -1,19 +1,8 @@
-import {
-  CaretDownIcon,
-  ChatCircleIcon,
-  FunnelSimpleIcon,
-  GitPullRequestIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleIcon } from "@phosphor-icons/react";
 import type { ResourceComment } from "@posthog/api-client/posthog-client";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import { commentTargetKey } from "@posthog/core/comments/anchors";
 import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -25,7 +14,12 @@ import type {
   TaskThreadMessage,
   UserBasic,
 } from "@posthog/shared/domain-types";
-import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
+import {
+  ALL_SOURCES,
+  CommentListHeader,
+  type CommentStateFilter,
+} from "@posthog/ui/features/canvas/components/CommentListHeader";
+import { CommentThreadGroups } from "@posthog/ui/features/canvas/components/CommentThreadGroups";
 import {
   buildRows,
   type CommentSource,
@@ -36,7 +30,6 @@ import {
   byNewestThread,
   prCommentThreads,
   resourceCommentThreads,
-  type SourceKind,
   type TaskCommentThread,
   threadSourceOptions,
 } from "@posthog/ui/features/canvas/components/taskCommentThreads";
@@ -65,7 +58,6 @@ import {
   useCreateComment,
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
-import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -74,7 +66,6 @@ const EMPTY_COMMENTS: ResourceComment[] = [];
  *  poll because this one fans out across every resource. */
 const POLL_INTERVAL_MS = 30_000;
 const PULSE_MS = 1_200;
-const ALL_SOURCES = "all";
 // Keep task comments live, but bound the artifact and canvas poll so generated
 // output cannot turn one Comments tab into an unbounded backend request.
 const MAX_RESOURCE_COMMENT_TARGETS = 20;
@@ -82,8 +73,6 @@ const MAX_RESOURCE_COMMENT_TARGETS = 20;
 // task with generated output cannot fan out into an unbounded number of requests.
 const MAX_PR_COMMENT_SOURCES = 20;
 const MAX_CONCURRENT_PR_SOURCES = 4;
-
-type StateFilter = "open" | "resolved";
 
 function scrollThreadInPane(pane: HTMLElement, thread: HTMLElement): void {
   const paneRect = pane.getBoundingClientRect();
@@ -97,45 +86,6 @@ function scrollThreadInPane(pane: HTMLElement, thread: HTMLElement): void {
   if (offset !== 0) {
     pane.scrollTo({ top: pane.scrollTop + offset, behavior: "smooth" });
   }
-}
-
-/** The icon a source shows wherever it's named — the card label and the
- *  filter menu — so the two always agree. */
-function sourceIcon(kind: SourceKind, label: string, size = 12) {
-  switch (kind) {
-    case "pr":
-      return (
-        <GitPullRequestIcon size={size} className="shrink-0 text-gray-11" />
-      );
-    case "canvas":
-      return iconForTemplate("", { size, className: "text-violet-9" });
-    case "task":
-      return <ChatCircleIcon size={size} className="shrink-0 text-gray-11" />;
-    default:
-      return <FileIcon filename={label} size={size} />;
-  }
-}
-
-function SourceLabel({ thread }: { thread: TaskCommentThread }) {
-  const replies = thread.entries.length - 1;
-  return (
-    <span className="mb-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
-      {sourceIcon(thread.sourceKind, thread.sourceLabel)}
-      <span className="min-w-0 truncate" title={thread.sourceLabel}>
-        {thread.sourceLabel}
-      </span>
-      {thread.origin.kind === "pr-review" && (
-        <span className="min-w-0 truncate">
-          · {thread.origin.filePath.split("/").at(-1)}
-        </span>
-      )}
-      {replies > 0 && (
-        <span className="shrink-0">
-          · {replies} {replies === 1 ? "reply" : "replies"}
-        </span>
-      )}
-    </span>
-  );
 }
 
 function CommentReference({
@@ -153,11 +103,14 @@ function CommentReference({
   const quote = anchor?.kind === "text" ? anchor.quote : null;
   if (!version && !quote) return null;
   return (
-    <span className="mb-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
+    <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
       {version && <span className="shrink-0">{version} ·</span>}
       {quote && (
-        <span className="min-w-0 truncate" title={quote}>
-          “{quote}”
+        <span
+          className="min-w-0 truncate border-[rgb(250_204_21)] border-l-2 pl-2"
+          title={quote}
+        >
+          {quote}
         </span>
       )}
     </span>
@@ -178,7 +131,6 @@ function ResourceThreadRow({
   pulsing,
   resolution,
   onOpen,
-  showSource = true,
   commentVersionLabel,
 }: {
   thread: TaskCommentThread;
@@ -190,7 +142,6 @@ function ResourceThreadRow({
   pulsing: boolean;
   resolution?: HighlightResolution;
   onOpen: () => void;
-  showSource?: boolean;
   commentVersionLabel?: (versionId: string) => string | null;
 }) {
   const createComment = useCreateComment(source.target, taskId);
@@ -208,10 +159,7 @@ function ResourceThreadRow({
       resolution={resolution}
       busy={createComment.isPending || setResolved.isPending}
       source={
-        <>
-          {showSource && <SourceLabel thread={thread} />}
-          <CommentReference root={root} versionLabel={commentVersionLabel} />
-        </>
+        <CommentReference root={root} versionLabel={commentVersionLabel} />
       }
       onSelect={onOpen}
       canReply={!rootPending}
@@ -224,7 +172,9 @@ function ResourceThreadRow({
           mentions,
         });
       }}
-      onResolve={(resolved) => setResolved.mutate({ root, resolved })}
+      onResolve={async (resolved) => {
+        await setResolved.mutateAsync({ root, resolved });
+      }}
     />
   );
 }
@@ -266,7 +216,16 @@ function PrThreadRow({
       // insert markup nobody on that side understands.
       members={[]}
       busy={busy}
-      source={<SourceLabel thread={thread} />}
+      source={
+        origin.kind === "pr-review" && (
+          <span
+            className="block truncate text-muted-foreground text-xs"
+            title={origin.filePath}
+          >
+            {origin.filePath.split("/").at(-1)}
+          </span>
+        )
+      }
       // Only inline review threads accept replies and resolution; conversation
       // comments are read here and linked out to GitHub to act on.
       canReply={origin.kind === "pr-review"}
@@ -326,7 +285,7 @@ export function TaskCommentsList({
   const resolutionsByTarget = useCommentNavigationStore(
     (state) => state.resolutionsByTarget,
   );
-  const [stateFilter, setStateFilter] = useState<StateFilter>("open");
+  const [stateFilter, setStateFilter] = useState<CommentStateFilter>("open");
   const [sourceFilter, setSourceFilter] = useState<string>(ALL_SOURCES);
   const [pulseThreadId, setPulseThreadId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -598,88 +557,26 @@ export function TaskCommentsList({
     // The parent scrolls the middle; the filters and the composer are pinned so
     // they stay reachable however long the thread list grows.
     <div className="flex h-full min-h-0 flex-col">
-      <header className="sticky top-0 z-10 flex shrink-0 items-center justify-end gap-1 bg-gray-1 px-2 py-2">
-        {!onlySource && (
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  size="sm"
-                  aria-label="Filter by source"
-                  title={sourceLabel}
-                >
-                  <span className="max-w-40 truncate">{sourceLabel}</span>
-                  <CaretDownIcon />
-                </Button>
-              }
-            />
-            {/* Wide, single-line rows: the label truncates at the end (with the
-              full name on hover) and the count is pinned right with the shared
-              ml-auto idiom, so a long PR title stays legible and aligned. */}
-            <DropdownMenuContent align="end" sideOffset={6} className="w-80">
-              <DropdownMenuRadioGroup
-                value={sourceFilter}
-                onValueChange={(value) => {
+      <CommentListHeader
+        stateFilter={stateFilter}
+        openCount={openCount}
+        resolvedCount={resolvedCount}
+        onStateFilterChange={setStateFilter}
+        sourceFilter={
+          onlySource
+            ? undefined
+            : {
+                value: effectiveSourceFilter,
+                valueLabel: sourceLabel,
+                options: sourceOptions,
+                onChange: (value) => {
                   sourceFilterTouched.current = value !== ALL_SOURCES;
                   setSourceFilter(value);
-                }}
-              >
-                <DropdownMenuRadioItem value={ALL_SOURCES} className="gap-2">
-                  <FunnelSimpleIcon
-                    size={12}
-                    className="shrink-0 text-gray-11"
-                  />
-                  <span className="min-w-0 truncate">All sources</span>
-                  <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
-                    {stateFilteredThreads.length}
-                  </span>
-                </DropdownMenuRadioItem>
-                {sourceOptions.map((option) => (
-                  <DropdownMenuRadioItem
-                    key={option.key}
-                    value={option.key}
-                    title={option.label}
-                    className="gap-2"
-                  >
-                    {sourceIcon(option.kind, option.label)}
-                    <span className="min-w-0 truncate">{option.label}</span>
-                    <span className="ml-auto shrink-0 pl-3 text-muted-foreground tabular-nums">
-                      {option.count}
-                    </span>
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            render={
-              <Button size="sm" aria-label="Filter comments">
-                {stateFilter === "open" ? "Open" : "Resolved"}
-                <CaretDownIcon />
-              </Button>
-            }
-          />
-          <DropdownMenuContent align="end" sideOffset={6}>
-            <DropdownMenuRadioGroup
-              value={stateFilter}
-              onValueChange={(value) => setStateFilter(value as StateFilter)}
-            >
-              <DropdownMenuRadioItem value="open">
-                Open ({openCount})
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="resolved">
-                Resolved ({resolvedCount})
-              </DropdownMenuRadioItem>
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </header>
-      <div
-        ref={threadListRef}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 pt-3 pb-2"
-      >
+                },
+              }
+        }
+      />
+      <div ref={threadListRef} className="min-h-0 flex-1 overflow-y-auto">
         {loadFailed ? (
           <Empty className="py-8">
             <EmptyHeader>
@@ -713,34 +610,38 @@ export function TaskCommentsList({
             </EmptyHeader>
           </Empty>
         ) : (
-          visibleThreads.map((thread) =>
-            thread.origin.kind === "resource" ? (
-              <ResourceThreadRow
-                key={thread.id}
-                thread={thread}
-                source={thread.origin.source}
-                root={thread.origin.root}
-                taskId={taskId}
-                members={members}
-                selected={thread.id === focusedThreadId}
-                pulsing={thread.id === pulseThreadId}
-                resolution={resolutionsByTarget[thread.sourceKey]?.get(
-                  thread.id,
-                )}
-                onOpen={() => openThread(thread)}
-                showSource={!onlySource}
-                commentVersionLabel={commentVersionLabel}
-              />
-            ) : (
-              <PrThreadRow
-                key={thread.id}
-                thread={thread}
-                selected={thread.id === focusedThreadId}
-                pulsing={thread.id === pulseThreadId}
-                onOpen={() => openThread(thread)}
-              />
-            ),
-          )
+          <CommentThreadGroups
+            threads={visibleThreads}
+            grouped={!onlySource}
+            revealThreadId={pulseThreadId}
+            renderThread={(thread) =>
+              thread.origin.kind === "resource" ? (
+                <ResourceThreadRow
+                  key={thread.id}
+                  thread={thread}
+                  source={thread.origin.source}
+                  root={thread.origin.root}
+                  taskId={taskId}
+                  members={members}
+                  selected={thread.id === focusedThreadId}
+                  pulsing={thread.id === pulseThreadId}
+                  resolution={resolutionsByTarget[thread.sourceKey]?.get(
+                    thread.id,
+                  )}
+                  onOpen={() => openThread(thread)}
+                  commentVersionLabel={commentVersionLabel}
+                />
+              ) : (
+                <PrThreadRow
+                  key={thread.id}
+                  thread={thread}
+                  selected={thread.id === focusedThreadId}
+                  pulsing={thread.id === pulseThreadId}
+                  onOpen={() => openThread(thread)}
+                />
+              )
+            }
+          />
         )}
       </div>
       <footer className="sticky bottom-0 shrink-0 border-border border-t bg-background p-2">
@@ -762,9 +663,10 @@ export function TaskCommentsList({
             });
           }}
           members={members}
-          placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}
-          rows={2}
+          placeholder={`Comment on this ${onlySource ? "canvas" : "task"}…`}
+          rows={1}
           disabled={createComment.isPending}
+          compact
         />
       </footer>
     </div>

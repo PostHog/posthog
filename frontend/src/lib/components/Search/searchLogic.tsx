@@ -233,7 +233,7 @@ export interface searchLogicValues {
     loadingStates: {
         accountSearchResultsLoading: boolean
         groupSearchResultsLoading: boolean
-        isToolsLoading: boolean
+        isProductsLoading: boolean
         personSearchResultsLoading: boolean
         playlistSearchResultsLoading: boolean
         recentsHasLoaded: boolean
@@ -252,6 +252,7 @@ export interface searchLogicValues {
     playlistItems: SearchItem[]
     playlistSearchResults: FileSystemEntry[]
     playlistSearchResultsLoading: boolean
+    productsItems: SearchItem[]
     recentItems: SearchItem[]
     search: string
     searchPending: boolean
@@ -263,7 +264,6 @@ export interface searchLogicValues {
     ticketItems: SearchItem[]
     ticketSearchResults: TicketApi[]
     ticketSearchResultsLoading: boolean
-    toolsItems: SearchItem[]
     unifiedSearchItems: Record<string, SearchItem[]>
     unifiedSearchResults: SearchResponse | null
     unifiedSearchResultsLoading: boolean
@@ -450,7 +450,7 @@ export interface searchLogicMeta {
             search: string
         ) => SearchItem[]
         starredItems: (cachedStarred: FileSystemEntry[]) => SearchItem[]
-        toolsItems: (
+        productsItems: (
             featureFlags: FeatureFlagsSet,
             isDev: boolean | undefined,
             user: UserType | null,
@@ -510,7 +510,7 @@ export interface searchLogicMeta {
         ) => {
             accountSearchResultsLoading: boolean
             groupSearchResultsLoading: boolean
-            isToolsLoading: boolean
+            isProductsLoading: boolean
             personSearchResultsLoading: boolean
             playlistSearchResultsLoading: boolean
             recentsHasLoaded: boolean
@@ -523,7 +523,7 @@ export interface searchLogicMeta {
         allCategories: (
             recentItems: SearchItem[],
             starredItems: SearchItem[],
-            toolsItems: SearchItem[],
+            productsItems: SearchItem[],
             dataManagementItems: SearchItem[],
             peopleItems: SearchItem[],
             healthItems: SearchItem[],
@@ -541,7 +541,7 @@ export interface searchLogicMeta {
             loadingStates: {
                 accountSearchResultsLoading: boolean
                 groupSearchResultsLoading: boolean
-                isToolsLoading: boolean
+                isProductsLoading: boolean
                 personSearchResultsLoading: boolean
                 playlistSearchResultsLoading: boolean
                 recentsHasLoaded: boolean
@@ -889,7 +889,7 @@ export const searchLogic = kea<searchLogicType>([
                     )
             },
         ],
-        toolsItems: [
+        productsItems: [
             (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
             (
                 featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet,
@@ -916,7 +916,7 @@ export const searchLogic = kea<searchLogicType>([
                 })
 
                 const items: SearchItem[] = filteredProducts.map((product) => ({
-                    id: `app-${product.path}`,
+                    id: `product-${product.path}`,
                     name: product.path,
                     displayName: product.displayLabel ?? product.path,
                     category: 'tools',
@@ -934,7 +934,7 @@ export const searchLogic = kea<searchLogicType>([
                     },
                 }))
                 items.push({
-                    id: 'app-activity',
+                    id: 'product-activity',
                     name: 'Activity',
                     displayName: 'Activity',
                     category: 'tools',
@@ -1581,7 +1581,7 @@ export const searchLogic = kea<searchLogicType>([
                 recentsHasLoaded,
                 starredLoading: !shortcutDataHasLoaded,
                 starredHasLoaded: shortcutDataHasLoaded,
-                isToolsLoading: !sceneLogViewsHasLoaded,
+                isProductsLoading: !sceneLogViewsHasLoaded,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 accountSearchResultsLoading,
@@ -1593,7 +1593,7 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [
                 s.recentItems,
                 s.starredItems,
-                s.toolsItems,
+                s.productsItems,
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
@@ -1611,7 +1611,7 @@ export const searchLogic = kea<searchLogicType>([
             (
                 recentItems: SearchItem[],
                 starredItems: SearchItem[],
-                toolsItems: SearchItem[],
+                productsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
                 peopleItems: SearchItem[],
                 healthItems: SearchItem[],
@@ -1629,7 +1629,7 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded: boolean
                     starredLoading: boolean
                     starredHasLoaded: boolean
-                    isToolsLoading: boolean
+                    isProductsLoading: boolean
                     personSearchResultsLoading: boolean
                     groupSearchResultsLoading: boolean
                     accountSearchResultsLoading: boolean
@@ -1644,7 +1644,7 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded,
                     starredLoading,
                     starredHasLoaded,
-                    isToolsLoading,
+                    isProductsLoading,
                     personSearchResultsLoading,
                     groupSearchResultsLoading,
                     accountSearchResultsLoading,
@@ -1680,16 +1680,16 @@ export const searchLogic = kea<searchLogicType>([
                     isLoading: isStarredLoading,
                 })
 
-                // Filter tools and data management by search
-                const filteredTools = filterBySearch(toolsItems)
+                // Filter products and data management by search
+                const filteredProducts = filterBySearch(productsItems)
                 const filteredDataManagement = filterBySearch(dataManagementItems)
 
-                // Show tools if not searching or has matching results
-                if (!hasSearch || filteredTools.length > 0) {
+                // Show products if not searching or has matching results
+                if (!hasSearch || filteredProducts.length > 0) {
                     categories.push({
                         key: 'tools',
-                        items: isToolsLoading ? [] : filteredTools,
-                        isLoading: isToolsLoading,
+                        items: isProductsLoading ? [] : filteredProducts,
+                        isLoading: isProductsLoading,
                     })
                 }
 
@@ -1697,8 +1697,8 @@ export const searchLogic = kea<searchLogicType>([
                 if (!hasSearch || filteredDataManagement.length > 0) {
                     categories.push({
                         key: 'data-management',
-                        items: isToolsLoading ? [] : filteredDataManagement,
-                        isLoading: isToolsLoading,
+                        items: isProductsLoading ? [] : filteredDataManagement,
+                        isLoading: isProductsLoading,
                     })
                 }
 
