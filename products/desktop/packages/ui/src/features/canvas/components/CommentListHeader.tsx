@@ -36,14 +36,29 @@ export function CommentListHeader({
   return (
     <ChromeBar inset="even" actions={sourceFilter}>
       <Tabs
+        className="self-stretch"
         value={stateFilter}
         onValueChange={(value: string) =>
           onStateFilterChange(value as CommentStateFilter)
         }
       >
-        <TabsList aria-label="Filter comments">
-          <TabsTrigger value="open">Open {openCount}</TabsTrigger>
-          <TabsTrigger value="resolved">Resolved {resolvedCount}</TabsTrigger>
+        <TabsList
+          variant="line"
+          className="!h-full"
+          aria-label="Filter comments"
+        >
+          <TabsTrigger value="open">
+            Open
+            <span className="text-muted-foreground tabular-nums">
+              {openCount}
+            </span>
+          </TabsTrigger>
+          <TabsTrigger value="resolved">
+            Resolved
+            <span className="text-muted-foreground tabular-nums">
+              {resolvedCount}
+            </span>
+          </TabsTrigger>
         </TabsList>
       </Tabs>
     </ChromeBar>

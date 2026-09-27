@@ -11,7 +11,10 @@ import {
   threadSourceOptions,
 } from "@posthog/ui/features/canvas/components/taskCommentThreads";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
-import { CommentThreadCard } from "@posthog/ui/features/sessions/components/CommentThreadCard";
+import {
+  CommentQuote,
+  CommentThreadCard,
+} from "@posthog/ui/features/sessions/components/CommentThreadCard";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 
@@ -211,17 +214,6 @@ function demoThreads(): DemoThread[] {
   ];
 }
 
-function QuoteLine({ quote }: { quote: string }) {
-  return (
-    <span
-      className="block truncate text-muted-foreground text-xs"
-      title={quote}
-    >
-      “{quote}”
-    </span>
-  );
-}
-
 function TaskCommentsPanelDemo({ grouped }: { grouped: boolean }) {
   const [threads, setThreads] = useState(() =>
     grouped
@@ -284,7 +276,7 @@ function TaskCommentsPanelDemo({ grouped }: { grouped: boolean }) {
                 resolved={demo.resolved}
                 members={[]}
                 busy={false}
-                source={demo.quote && <QuoteLine quote={demo.quote} />}
+                source={demo.quote && <CommentQuote quote={demo.quote} />}
                 resolution={demo.id === "t4" ? "orphaned" : undefined}
                 canReply={!demo.githubOnly}
                 canResolve={!demo.githubOnly}
@@ -321,8 +313,9 @@ function TaskCommentsPanelDemo({ grouped }: { grouped: boolean }) {
             setSelectedId(id);
           }}
           members={[]}
-          placeholder={`Comment on this ${grouped ? "task" : "canvas"}… Type @ to mention someone`}
+          placeholder={`Comment on this ${grouped ? "task" : "canvas"}…`}
           rows={1}
+          compact
         />
       </footer>
     </div>

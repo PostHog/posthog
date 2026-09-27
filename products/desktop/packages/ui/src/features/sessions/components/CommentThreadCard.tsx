@@ -12,6 +12,7 @@ import {
   AvatarImage,
   Button,
   cn,
+  Kbd,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -24,7 +25,6 @@ import type { CommentEntry } from "@posthog/ui/features/canvas/components/taskCo
 import { githubCommentComponents } from "@posthog/ui/features/editor/components/githubCommentImages";
 import { githubRehypePlugins } from "@posthog/ui/features/editor/components/githubMarkdownPlugins";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
-import { KeyHint } from "@posthog/ui/primitives/KeyHint";
 import { toast } from "@posthog/ui/primitives/toast";
 import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
@@ -32,6 +32,7 @@ import {
   type KeyboardEvent,
   type ReactElement,
   type ReactNode,
+  useRef,
   useState,
 } from "react";
 import { CommentComposer } from "./CommentComposer";
@@ -50,13 +51,17 @@ function CommentAvatar({
 }): ReactElement {
   // A PostHog author keeps the avatar and hue they have everywhere else;
   // a GitHub author only ever comes with a url.
-  if (entry.user || !entry.avatarUrl) {
+  if (entry.user) {
     return <UserAvatar user={entry.user} size={size} />;
   }
   return (
     <Avatar size={size}>
-      <AvatarImage src={cachedImageUrl(entry.avatarUrl)} alt="" />
-      <AvatarFallback>{entry.authorName.slice(0, 2)}</AvatarFallback>
+      {entry.avatarUrl && (
+        <AvatarImage src={cachedImageUrl(entry.avatarUrl)} alt="" />
+      )}
+      <AvatarFallback>
+        {entry.authorName.slice(0, 2).toUpperCase()}
+      </AvatarFallback>
     </Avatar>
   );
 }
@@ -131,9 +136,28 @@ function ThreadAction({
       />
       <TooltipContent side="top" className="flex items-center gap-1.5">
         {label}
-        <KeyHint>{shortcut}</KeyHint>
+        <Kbd>{shortcut}</Kbd>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+export function CommentQuote({
+  quote,
+  version,
+}: {
+  quote?: string | null;
+  version?: string | null;
+}): ReactElement | null {
+  if (!quote && !version) return null;
+  return (
+    <span
+      className="flex min-w-0 items-center gap-1.5 border-border border-l-2 pl-2 text-muted-foreground text-xs"
+      title={quote ?? undefined}
+    >
+      {version && <span className="shrink-0">{version} ·</span>}
+      {quote && <span className="min-w-0 truncate">{quote}</span>}
+    </span>
   );
 }
 
@@ -180,6 +204,8 @@ export function CommentThreadCard({
   onResolve: (resolved: boolean) => void | Promise<void>;
 }) {
   const [replying, setReplying] = useState(false);
+  const [focusComposer, setFocusComposer] = useState(false);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
   const [reply, setReply] = useState("");
   const [showAllReplies, setShowAllReplies] = useState(false);
   const [root, ...replies] = entries;
@@ -190,6 +216,15 @@ export function CommentThreadCard({
       ? 0
       : replies.length - 1;
   const shownReplies = replies.slice(hiddenReplies);
+  const startReply = () => {
+    setReplying(true);
+    setFocusComposer(true);
+  };
+  const stopReply = () => {
+    setReplying(false);
+    setFocusComposer(false);
+    setReply("");
+  };
 
   const setThreadResolved = (next: boolean) => {
     Promise.resolve(onResolve(next))
@@ -212,7 +247,7 @@ export function CommentThreadCard({
     moveThreadFocus(event);
     if (event.key === "r" && canReply) {
       event.preventDefault();
-      setReplying(true);
+      startReply();
     } else if (event.key === "e" && canResolve && !busy) {
       event.preventDefault();
       const current = event.currentTarget;
@@ -232,11 +267,7 @@ export function CommentThreadCard({
       )}
     >
       {canReply && (
-        <ThreadAction
-          label="Reply"
-          shortcut="R"
-          onClick={() => setReplying(true)}
-        >
+        <ThreadAction label="Reply" shortcut="R" onClick={startReply}>
           <ArrowBendUpLeftIcon />
         </ThreadAction>
       )}
@@ -256,30 +287,32 @@ export function CommentThreadCard({
   return (
     <div
       className={cn(
-        "group/thread relative border-border/70 border-b px-3 pt-2 pb-3 transition-colors duration-300",
+        "group/thread relative border-border/70 border-b px-3 pt-2.5 pb-3 transition-colors duration-300 has-[>[data-thread-focus]:focus-visible]:ring-2 has-[>[data-thread-focus]:focus-visible]:ring-ring/50 has-[>[data-thread-focus]:focus-visible]:ring-inset",
         selected
           ? "bg-fill-selected before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:bg-primary"
           : "hover:bg-fill-hover",
         // Inset, so a pane that clips its overflow can't shave the highlight.
         pulsing && "ring-2 ring-primary ring-inset",
-        resolved && "opacity-70",
       )}
       data-comment-thread-id={threadId}
     >
       <Button
         type="button"
         variant="outline"
-        className="absolute inset-0 h-auto w-full scroll-mt-8 rounded-none opacity-0 focus-visible:opacity-100"
+        className="absolute inset-0 h-auto w-full scroll-mt-8 rounded-none opacity-0"
+        ref={openButtonRef}
         aria-label="Open comment thread"
         data-thread-focus="thread"
         onClick={onSelect}
         onKeyDown={onKeyDown}
       />
       <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
-        {source && <div className={`${TEXT_INSET} mb-1 min-w-0`}>{source}</div>}
+        {source && (
+          <div className={`${TEXT_INSET} mb-1.5 min-w-0`}>{source}</div>
+        )}
         {resolution === "orphaned" && (
           <div
-            className={`${TEXT_INSET} mb-1 flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300`}
+            className={`${TEXT_INSET} mb-1.5 flex items-center gap-1 text-warning-foreground text-xs`}
           >
             <WarningCircleIcon />
             The highlighted text changed
@@ -319,40 +352,38 @@ export function CommentThreadCard({
             <ArrowSquareOutIcon />
           </Button>
         </div>
-      ) : replying ? (
-        <div className={`relative ${TEXT_INSET} mt-2.5`}>
-          <CommentComposer
-            value={reply}
-            onValueChange={setReply}
-            onSubmit={async (content, mentions) => {
-              await onReply(content, mentions);
-              setReply("");
-              setReplying(false);
-              setShowAllReplies(true);
-            }}
-            onCancel={() => setReplying(false)}
-            members={members}
-            placeholder={
-              members.length > 0 ? "Reply… Type @ to mention someone" : "Reply…"
-            }
-            rows={1}
-            disabled={busy}
-            submitLabel="Reply"
-            autoFocus
-          />
-        </div>
       ) : (
-        selected &&
-        canReply && (
+        canReply &&
+        (replying || selected) && (
           <div className={`relative ${TEXT_INSET} mt-2.5`}>
-            <Button
-              variant="outline"
-              size="lg"
-              className="w-full cursor-text justify-start"
-              onClick={() => setReplying(true)}
-            >
-              Reply…
-            </Button>
+            <CommentComposer
+              key={focusComposer ? "focused" : "idle"}
+              value={reply}
+              onValueChange={(value) => {
+                setReply(value);
+                if (value) setReplying(true);
+              }}
+              onSubmit={async (content, mentions) => {
+                await onReply(content, mentions);
+                stopReply();
+                setShowAllReplies(true);
+              }}
+              onCancel={
+                replying
+                  ? () => {
+                      stopReply();
+                      openButtonRef.current?.focus();
+                    }
+                  : undefined
+              }
+              members={members}
+              placeholder="Reply…"
+              rows={1}
+              disabled={busy}
+              submitLabel="Reply"
+              autoFocus={focusComposer}
+              compact
+            />
           </div>
         )
       )}

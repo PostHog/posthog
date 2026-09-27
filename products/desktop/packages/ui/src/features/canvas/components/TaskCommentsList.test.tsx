@@ -319,7 +319,7 @@ describe("TaskCommentsList", () => {
       { scope: "desktop_canvas", itemId: "canvas-1" },
     ]);
     expect(screen.getByText("Canvas feedback")).toBeInTheDocument();
-    expect(screen.getByText("“important copy”")).toBeInTheDocument();
+    expect(screen.getByText("important copy")).toBeInTheDocument();
     expect(screen.getByText("V2 ·")).toBeInTheDocument();
     expect(screen.queryByText("Selected text")).not.toBeInTheDocument();
     expect(screen.queryByText("Whole canvas")).not.toBeInTheDocument();
@@ -365,7 +365,7 @@ describe("TaskCommentsList", () => {
     render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
 
     expect(screen.getByText("report.md")).toBeTruthy();
-    expect(screen.getByText("“Purpose”")).toBeTruthy();
+    expect(screen.getByText("Purpose")).toBeTruthy();
   });
 
   it("loads canvas comments from a local-development artifact link", () => {
@@ -600,7 +600,7 @@ describe("TaskCommentsList", () => {
     expect(screen.getByText("Second thread")).toBeTruthy();
     expect(screen.queryByText("Tighten this summary")).toBeNull();
 
-    fireEvent.click(screen.getByText("Resolved 1"));
+    fireEvent.click(screen.getByRole("tab", { name: /Resolved/ }));
 
     expect(screen.getByText("Tighten this summary")).toBeTruthy();
     expect(screen.queryByText("Second thread")).toBeNull();

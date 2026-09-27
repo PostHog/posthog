@@ -85,10 +85,11 @@ export function CommentThreadGroups({
           <section key={group.key} aria-label={group.label}>
             <Button
               variant="default"
+              size="sm"
               aria-expanded={open}
               title={group.label}
               data-thread-focus="group"
-              className="sticky top-0 z-10 h-8 w-full justify-start gap-1.5 rounded-none border-border border-b bg-background px-2 hover:bg-background"
+              className="sticky top-0 z-10 h-8 w-full justify-start gap-1.5 rounded-none border-border border-b bg-muted px-3 hover:bg-muted"
               onClick={() => toggle(group.key)}
               onKeyDown={moveThreadFocus}
             >

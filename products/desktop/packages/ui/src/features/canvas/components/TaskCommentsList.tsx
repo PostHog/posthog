@@ -49,7 +49,10 @@ import { usePrCommentsForUrls } from "@posthog/ui/features/pr-review/usePrCommen
 import { usePrReviewThreadsForUrls } from "@posthog/ui/features/pr-review/usePrReviewThreadsForUrls";
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { CommentComposer } from "@posthog/ui/features/sessions/components/CommentComposer";
-import { CommentThreadCard } from "@posthog/ui/features/sessions/components/CommentThreadCard";
+import {
+  CommentQuote,
+  CommentThreadCard,
+} from "@posthog/ui/features/sessions/components/CommentThreadCard";
 import type { HighlightResolution } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import { readCommentContext } from "@posthog/ui/features/sessions/components/commentViewTypes";
 import {
@@ -102,17 +105,7 @@ function CommentReference({
     : null;
   const anchor = context?.anchor;
   const quote = anchor?.kind === "text" ? anchor.quote : null;
-  if (!version && !quote) return null;
-  return (
-    <span className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
-      {version && <span className="shrink-0">{version} ·</span>}
-      {quote && (
-        <span className="min-w-0 truncate" title={quote}>
-          “{quote}”
-        </span>
-      )}
-    </span>
-  );
+  return <CommentQuote quote={quote} version={version} />;
 }
 
 /**
@@ -659,9 +652,10 @@ export function TaskCommentsList({
             });
           }}
           members={members}
-          placeholder={`Comment on this ${onlySource ? "canvas" : "task"}… Type @ to mention someone`}
+          placeholder={`Comment on this ${onlySource ? "canvas" : "task"}…`}
           rows={1}
           disabled={createComment.isPending}
+          compact
         />
       </footer>
     </div>
