@@ -26,7 +26,7 @@ FEATUREBASE_OBJECT_TYPE_TO_TOPICS: dict[str, tuple[str, ...]] = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class FeaturebaseEndpointConfig:
     name: str
     path: str  # Relative to FEATUREBASE_BASE_URL; may carry a {post_id} placeholder for fan-out

@@ -3035,7 +3035,8 @@ Today (14): `admins`, `boards`, `changelogs`, `comments`, `companies`, `contacts
 
 Diffed against: <https://developers.featurebase.app/llms.txt>
 
-- [x] `support/conversations (list, search)` — the entire support inbox - conversation volume, first response and resolution analysis (high)
+- [x] `support/conversations (list)` — the entire support inbox - conversation volume, first response and resolution analysis (high)
+- [ ] `support/conversations (search)` — a POST query endpoint over the collection `conversations` already syncs, returning a slimmer inbox row; declined as a separate table (high)
 - [x] `support/tickets (list)` — ticket workload and lifecycle, the other half of the support product (high)
 - [x] `support/tickets/statuses` — lookup table resolving the status id on every ticket (high)
 - [x] `support/conversation_tags (list)` — lookup table for tags applied to conversations - the main support breakdown dimension (high)
