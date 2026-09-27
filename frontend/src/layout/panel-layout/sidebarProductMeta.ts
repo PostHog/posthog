@@ -52,6 +52,7 @@ const descriptions: Record<string, string> = {
         'Find problems encountered while processing your events. Inspect the warnings to identify tracking issues and improve the data you analyze.',
     Annotations:
         'Add context to changes in your metrics. Mark releases, campaigns, and other milestones so your team can connect a chart with what happened.',
+    ETL: 'Watch the data moving into PostHog and out to your own warehouses. See what is running, what is stale, and what has stopped.',
     Sources:
         'Bring data from your other tools into PostHog. Combine it with product events to answer questions that span your business.',
     Destinations:
@@ -63,9 +64,9 @@ const descriptions: Record<string, string> = {
 
 /**
  * Tree items whose product has no page on posthog.com/docs yet, so they show no docs link.
- * Every other sidebar tool must have one — `sidebarToolMeta.test.ts` fails when a new tool has neither.
+ * Every other sidebar product must have one — `sidebarProductMeta.test.ts` fails when a new product has neither.
  */
-export const SIDEBAR_TOOLS_WITHOUT_DOCS = new Set<string>([
+export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'AI gateway',
     'Apps',
     'Broadcasts',
@@ -81,13 +82,13 @@ export const SIDEBAR_TOOLS_WITHOUT_DOCS = new Set<string>([
     'Wizard',
 ])
 
-export interface SidebarToolMeta {
+export interface SidebarProductMeta {
     description?: string
     docsHref?: string
 }
 
-/** Shared descriptions for app tooltips and sidebar settings, with docs from the scene config. */
-export function sidebarToolMeta(product: FileSystemImport): SidebarToolMeta {
+/** Description and docs link for a sidebar product, both read from the product's scene config. */
+export function sidebarProductMeta(product: FileSystemImport): SidebarProductMeta {
     // Most tree items name their scene explicitly; the rest are generated with a single-scene list.
     const sceneKey = product.sceneKey ?? (product.sceneKeys?.length === 1 ? product.sceneKeys[0] : undefined)
     const sceneConfig = sceneKey ? sceneConfigurations[sceneKey] : undefined
