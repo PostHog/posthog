@@ -55,8 +55,8 @@ export class ElectronScreenCapture implements IScreenCapture {
     const resized =
       scale < 1
         ? image.resize({
-            width: Math.round(width * scale),
-            height: Math.round(height * scale),
+            width: Math.max(1, Math.round(width * scale)),
+            height: Math.max(1, Math.round(height * scale)),
           })
         : image;
     return resized.toDataURL();

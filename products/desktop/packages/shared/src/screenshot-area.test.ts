@@ -52,6 +52,11 @@ describe("screenshotArea", () => {
       element: rect(500, -80, 40, 20),
       width: 1200,
     },
+    {
+      name: "an element with a missing position",
+      element: rect(Number.NaN, 400, 40, 20),
+      width: 1200,
+    },
   ])("gives no area for $name", ({ element, width }) => {
     expect(
       screenshotArea(element, { width, height: width === 0 ? 0 : 800 }),

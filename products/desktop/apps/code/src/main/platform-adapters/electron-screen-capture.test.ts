@@ -64,14 +64,19 @@ describe("ElectronScreenCapture.captureRegion", () => {
     });
   });
 
-  it("scales a tall capture so both sides fit", async () => {
-    const tall = image(1_000, 4_000);
-    const { capture } = makeCapture(async () => tall);
+  it.each([
+    ["a tall capture", 1_000, 4_000, "data:image/png;320x1280"],
+    ["a narrow tall capture", 1, 4_000, "data:image/png;1x1280"],
+  ])(
+    "scales %s so both sides fit and stay positive",
+    async (_name, width, height, expected) => {
+      const { capture } = makeCapture(async () => image(width, height));
 
-    await expect(
-      capture.captureRegion({ x: 0, y: 0, width: 1_000, height: 4_000 }),
-    ).resolves.toBe("data:image/png;320x1280");
-  });
+      await expect(
+        capture.captureRegion({ x: 0, y: 0, width, height }),
+      ).resolves.toBe(expected);
+    },
+  );
 
   it("clips the region to the window before it captures", async () => {
     const { capture, webContents } = makeCapture(
