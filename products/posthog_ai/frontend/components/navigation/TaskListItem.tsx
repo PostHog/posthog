@@ -14,8 +14,8 @@ import { urls } from 'scenes/urls'
 import { tasksLogic } from '../../logics/tasksLogic'
 import { TaskRunEnvironment } from '../../types/taskTypes'
 import type { Task } from '../../types/taskTypes'
-import { TaskEnvironmentIcon } from '../TaskEnvironmentIcon'
 import { TaskRunLivenessDot } from '../TaskRunLivenessDot'
+import { getTaskSourceLabel, TaskSourceIcon } from '../TaskSourceIcon'
 import { openRenameTaskDialog } from './openRenameTaskDialog'
 
 function compactTimeAgo(iso: string): string {
@@ -30,14 +30,22 @@ function getHref(taskId: string): string {
     return urls.aiTask(taskId)
 }
 
-function TaskTypeIcon({ task }: { task: Task }): JSX.Element {
+function getTaskTypeTooltip(task: Task): string {
     const environment = task.latest_run?.environment
-    const label = environment === TaskRunEnvironment.CLOUD ? 'Cloud task' : 'Local task'
+    const environmentLabel = !environment
+        ? 'Task'
+        : environment === TaskRunEnvironment.CLOUD
+          ? 'Cloud task'
+          : 'Local task'
+    const sourceLabel = getTaskSourceLabel(task.origin_product)
+    return sourceLabel ? `From ${sourceLabel} · ${environmentLabel}` : environmentLabel
+}
 
+function TaskTypeIcon({ task }: { task: Task }): JSX.Element {
     return (
-        <Tooltip title={environment ? label : 'Task'} placement="right">
+        <Tooltip title={getTaskTypeTooltip(task)} placement="right">
             <span className="flex size-4 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50">
-                <TaskEnvironmentIcon environment={environment} />
+                <TaskSourceIcon originProduct={task.origin_product} environment={task.latest_run?.environment} />
             </span>
         </Tooltip>
     )
