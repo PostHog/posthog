@@ -76,6 +76,7 @@ def _make_table_ref(**kwargs):
         "get_table_uri": AsyncMock(return_value="s3://bucket/live"),
         "get_storage_options": Mock(return_value={}),
         "get_delta_table": AsyncMock(return_value=None),
+        "invalidate_cached_table": Mock(),
     }
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)

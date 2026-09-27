@@ -319,7 +319,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             # captured, obscuring the real import error that's already driving retry
             # classification and the user-facing message.
             await self._logger.adebug("Cleaning up delta table helper")
-            delta_table = self._delta_table_ref.get_delta_table.cache_pop(self._delta_table_ref)
+            delta_table = self._delta_table_ref.pop_cached_table()
             if delta_table:
                 del delta_table
 
