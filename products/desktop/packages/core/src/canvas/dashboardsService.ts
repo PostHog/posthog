@@ -475,9 +475,12 @@ export class DashboardsService {
       if (cursor) params.set("cursor", cursor);
       const body = await this.readStatePage(input.id, params);
       if (!("next_cursor" in body) && !body.complete) {
-        params.delete("limit");
+        // Start again from the first entry: during a rolling deploy the earlier
+        // pages can come from a server with cursors, so none of them is reused.
+        const unpaged = new URLSearchParams();
+        if (input.scope) unpaged.set("scope", input.scope);
         return toStateEntries(
-          (await this.readStatePage(input.id, params)).entries,
+          (await this.readStatePage(input.id, unpaged)).entries,
         );
       }
       entries.push(...toStateEntries(body.entries));

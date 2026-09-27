@@ -161,6 +161,36 @@ describe("DashboardsService.listState", () => {
     expect(entries.map((row) => row.key)).toEqual(["a", "b"]);
   });
 
+  it("restarts without a cursor when a later page comes from a server without cursors", async () => {
+    const { api, calls } = fakeApi({
+      "canvases/c1/state/?limit=100&cursor=page-2": {
+        entries: [entry("b")],
+        next_offset: 100,
+        complete: false,
+      },
+      "canvases/c1/state/?limit=100": {
+        entries: [entry("a")],
+        next_cursor: "page-2",
+        next_offset: null,
+        complete: false,
+      },
+      "canvases/c1/state/": {
+        entries: [entry("a"), entry("b"), entry("c")],
+        next_offset: null,
+        complete: true,
+      },
+    });
+
+    const entries = await new DashboardsService(api).listState({ id: "c1" });
+
+    expect(calls.map((call) => call.path)).toEqual([
+      "canvases/c1/state/?limit=100",
+      "canvases/c1/state/?limit=100&cursor=page-2",
+      "canvases/c1/state/",
+    ]);
+    expect(entries.map((row) => row.key)).toEqual(["a", "b", "c"]);
+  });
+
   it("reads the whole state in one request when the server returns no cursor", async () => {
     const { api, calls } = fakeApi({
       "canvases/c1/state/?limit=100": {
