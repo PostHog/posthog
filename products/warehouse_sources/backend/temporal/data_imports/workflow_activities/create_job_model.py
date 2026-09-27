@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.d
     retry_on_operational_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    repartition_activity_has_work,
     repartition_import_hold_reason,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -322,6 +323,9 @@ class CreateExternalDataJobModelActivityOutputs:
     # The workflow hands this to the import, which resets only while the schema is still due. Nothing is
     # stored on the schema, so a run that stops before the wipe leaves no reset behind for later runs.
     scheduled_full_refresh: bool = False
+    # True when the pre-extraction repartition activity has a rewrite, swap or on-disk measurement to
+    # do. Defaults True so a payload from a worker that predates the field still schedules it.
+    repartition_needed: bool = True
 
 
 @activity.defn
@@ -431,6 +435,10 @@ def create_external_data_job_model_activity(
             statistics_needed=statistics_needed,
         )
 
+        # The repartition activity re-checks this itself; deciding here lets the workflow skip
+        # scheduling it at all, which for most syncs is its whole cost.
+        repartition_needed = repartition_activity_has_work(schema)
+
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
             incremental_or_append=schema.is_incremental or schema.is_append or schema.is_webhook,
@@ -445,6 +453,7 @@ def create_external_data_job_model_activity(
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
             scheduled_full_refresh=scheduled_full_refresh,
+            repartition_needed=repartition_needed,
         )
     except V3PipelineLockLostError:
         # The takeover race the guard handles, not a defect — skip the generic handler's

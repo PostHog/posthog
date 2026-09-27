@@ -876,6 +876,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 person_property_sync_enabled = False
                 fast_return_eligible = False
                 scheduled_full_refresh = False
+                repartition_needed = True
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -888,6 +889,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
                 fast_return_eligible = create_job_result.fast_return_eligible
                 scheduled_full_refresh = create_job_result.scheduled_full_refresh
+                repartition_needed = create_job_result.repartition_needed
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -908,9 +910,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
-            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed). A scheduled
-            # full refresh deletes the table before extraction, so rewriting it first is wasted work.
-            if job_id is not None and not scheduled_full_refresh:
+            # Never fails the sync (errors are swallowed). Skipped when the job-creation activity saw nothing
+            # queued and no on-disk measurement due, so the common sync pays no activity round trip. A
+            # scheduled full refresh deletes the table before extraction, so rewriting it first is wasted work.
+            if job_id is not None and not scheduled_full_refresh and repartition_needed:
                 try:
                     await workflow.execute_activity(
                         maybe_repartition_table_activity,

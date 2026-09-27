@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
     MAX_REPARTITION_ATTEMPTS,
+    repartition_activity_has_work,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (
     RepartitionActivityInputs,
@@ -32,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table"
+CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 
 TEAM_ID = 1
 SCHEMA_ID = str(uuid.uuid4())
@@ -1061,6 +1063,50 @@ class TestFeatureFlagGate:
         )
 
         assert mock_repartition.await_count == (1 if expect_rewrite else 0)
+
+
+class TestRepartitionActivityHasWork:
+    @parameterized.expand(
+        [
+            (
+                "revive_pending_stands_down",
+                {"delta_revive_required": {"at": "x"}},
+                PENDING_TARGET,
+                None,
+                None,
+                True,
+                False,
+            ),
+            ("queued_rewrite", {}, PENDING_TARGET, None, None, False, True),
+            ("staged_swap", {}, None, {"state": "ready"}, None, False, True),
+            ("flag_on_measures_the_table", {}, None, None, None, True, True),
+            ("flag_off_nothing_queued", {}, None, None, None, False, False),
+            ("coarsen_nomination_without_flag", {}, None, None, {"requested_by": "op"}, False, True),
+            ("cdc_never_measures", {"sync_type": ExternalDataSchema.SyncType.CDC}, None, None, None, True, False),
+        ]
+    )
+    @patch(f"{CONTROLLER_MODULE}.is_auto_repartition_enabled")
+    def test_matches_the_activitys_own_fast_path(
+        self,
+        _name: str,
+        overrides: dict,
+        pending: dict | None,
+        swap: dict | None,
+        coarsen_requested: dict | None,
+        enabled: bool,
+        expected: bool,
+        mock_enabled: MagicMock,
+    ) -> None:
+        # The workflow skips scheduling the activity on this answer, so a False here for a table the
+        # activity would have rewritten or measured silently stops that table repartitioning.
+        mock_enabled.return_value = enabled
+        schema = _schema(name="public.usages", s3_folder_name="usages", pending=pending, swap=swap)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.coarsen_requested = coarsen_requested
+        for attribute, value in overrides.items():
+            setattr(schema, attribute, value)
+
+        assert repartition_activity_has_work(schema) is expected
 
 
 class TestMaybeFlagPreExtraction:
