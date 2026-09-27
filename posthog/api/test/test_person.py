@@ -1398,6 +1398,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_split_people_preserves_creator_distinct_id(
         self, _name, distinct_ids, payload, expected_status, kept_id
     ) -> None:
+        api_key = self.create_personal_api_key_with_scopes(["person:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
         person = _create_person(
             team=self.team,
             distinct_ids=distinct_ids,
