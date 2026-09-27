@@ -124,6 +124,9 @@ EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 * 7  # 7 days
 CLIENT_IDS_WITHOUT_REFRESH_TOKEN: frozenset[str] = frozenset(
     {
         # PostHog Wizard CLI (CIMD) — short-lived auth, no persistent session needed.
+        "https://posthog.com/oauth/wizard/client-metadata.json",
+        # Where the wizard's document lived before it moved to posthog.com. Existing app rows
+        # keep these client_ids, so they stay here until the wizard stops sending them.
         "https://us.posthog.com/api/oauth/wizard/client-metadata",
         "https://eu.posthog.com/api/oauth/wizard/client-metadata",
     }

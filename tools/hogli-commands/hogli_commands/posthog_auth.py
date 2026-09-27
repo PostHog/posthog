@@ -13,8 +13,8 @@ Three sources, in order:
 3. An interactive browser login, on a tty only.
 
 The browser path is the RFC 8252 native-app flow. The client_id is the URL of the client metadata
-document PostHog serves for hogli, so there is nothing to register and every machine authorizes as
-the same named client. The code comes back to an ephemeral port on 127.0.0.1 with PKCE.
+document PostHog publishes for hogli on posthog.com, so there is nothing to register and every machine
+authorizes as the same named client on every host. The code comes back to an ephemeral port on 127.0.0.1 with PKCE.
 RFC 8628 device flow is not used because PostHog does not advertise that grant. A login always
 prints the URL as well as opening it, and accepts the redirect typed back in, so it also finishes
 on a machine whose browser lives somewhere else.
@@ -62,8 +62,9 @@ KEY_ENV_VARS = ("POSTHOG_PERSONAL_API_KEY", "POSTHOG_AUTH_HEADER")
 
 _CACHE_ROOT = Path.home() / ".config" / "posthog" / "oauth"
 
-# PostHog serves hogli's client metadata document here, and its own URL is the client_id.
-_METADATA_PATH = "api/oauth/hogli/client-metadata"
+# hogli's client metadata document, published from PostHog/posthog.com (static/oauth/hogli/). Its own
+# URL is the client_id, so US, EU, and self-hosted all know hogli as the same client.
+_CLIENT_ID = "https://posthog.com/oauth/hogli/client-metadata.json"
 # The document registers the redirect without a port: RFC 8252 §7.3 requires the server to allow
 # any port on a loopback redirect, so one entry covers whichever ephemeral port we get. 127.0.0.1
 # rather than localhost because django-oauth-toolkit's port exemption lists the literal addresses.
@@ -347,15 +348,15 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
         )
 
     superseded = load(host)
-    client = _client(host)
+    client = _client()
     refused = [scope for scope in wanted if scope not in client.scopes]
     if refused:
         # Checked before the browser opens, since /authorize clamps to the published ceiling and
         # consenting would mint a token missing these, failing only after the user's click.
         raise AuthError(
             f"{host} does not offer {' '.join(refused)} to hogli.\n"
-            f"  It publishes {' '.join(client.scopes)}. A new scope goes in the client metadata "
-            "document PostHog serves, not here."
+            f"  It publishes {' '.join(client.scopes)}. A new scope goes in hogli's client metadata "
+            f"document ({_CLIENT_ID}), not here."
         )
 
     verifier = secrets.token_urlsafe(64)
@@ -400,22 +401,20 @@ def login(*, scopes: Sequence[str], host: str = DEFAULT_HOST) -> Credential:
     return credential
 
 
-def _client(host: str) -> ClientMetadata:
-    """The client PostHog publishes for hogli, fetched from the host itself.
+def _client() -> ClientMetadata:
+    """The client PostHog publishes for hogli.
 
     The document's own URL is the client_id, so there is nothing to register and every machine
     authorizes as the same named client. Fetched rather than hardcoded so the scope ceiling comes
-    from the server that enforces it, and so a host too old to serve one says so before a browser
-    opens on an /authorize that cannot resolve the client.
+    from the same document /authorize clamps to.
     """
-    url = f"{host}/{_METADATA_PATH}"
-    body = _get(url, action="Reading hogli's client metadata")
-    if body.get("client_id") != url:
-        raise AuthError(f"{host} published a client metadata document for a different client_id.")
+    body = _get(_CLIENT_ID, action="Reading hogli's client metadata")
+    if body.get("client_id") != _CLIENT_ID:
+        raise AuthError(f"{_CLIENT_ID} names a different client_id.")
     scopes = body.get("com.posthog", {}).get("scopes") if isinstance(body.get("com.posthog"), dict) else None
     if not scopes:
-        raise AuthError(f"{host} published no scopes for hogli, so a login could ask for nothing.")
-    return ClientMetadata(client_id=url, scopes=tuple(str(scope) for scope in scopes))
+        raise AuthError(f"{_CLIENT_ID} publishes no scopes for hogli, so a login could ask for nothing.")
+    return ClientMetadata(client_id=_CLIENT_ID, scopes=tuple(str(scope) for scope in scopes))
 
 
 def _exchange(
@@ -528,14 +527,6 @@ def _get(url: str, *, action: str) -> dict[str, Any]:
         response = requests.get(url, timeout=_HTTP_TIMEOUT_SECONDS)
     except requests.RequestException as exc:
         raise AuthError(f"{action} could not reach {url}: {exc}", exit_code=1) from exc
-    if response.status_code == 404:
-        # Named rather than left as a bare 404, because the fix is a PostHog version, not anything
-        # the user did wrong.
-        raise AuthError(
-            f"{url} is not served by this PostHog.\n"
-            "  A browser login needs a version that publishes hogli's client metadata document.\n"
-            f"  Set {KEY_ENV_VARS[0]} to use a personal API key against this host instead."
-        )
     body = _body_of(response, action=action)
     if not body:
         raise AuthError(f"{action} returned no object.")

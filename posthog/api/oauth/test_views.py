@@ -810,8 +810,9 @@ class TestOAuthAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("us", "https://us.posthog.com/api/oauth/wizard/client-metadata"),
-            ("eu", "https://eu.posthog.com/api/oauth/wizard/client-metadata"),
+            ("posthog-com", "https://posthog.com/oauth/wizard/client-metadata.json"),
+            ("legacy-us", "https://us.posthog.com/api/oauth/wizard/client-metadata"),
+            ("legacy-eu", "https://eu.posthog.com/api/oauth/wizard/client-metadata"),
         ]
     )
     def test_wizard_cimd_client_does_not_issue_refresh_token(self, region: str, wizard_cimd_url: str):
