@@ -1117,15 +1117,22 @@ class TestCheckResultTool(APIBaseTest):
         assert "fired 30 times yesterday" in artefact.content
         assert f'"run_id":"{self.scout_run.id}"' in artefact.content
 
-    def test_a_pass_rearms_a_recurring_check_for_its_next_look(self) -> None:
+    @parameterized.expand([("on_its_lane", False), ("bound_to_the_run", True)])
+    def test_a_pass_rearms_a_recurring_check_for_its_next_look(self, _name, bind_run) -> None:
         check = self._check(run_interval_minutes=MIN_CHECK_INTERVAL_MINUTES, runs_remaining=2)
+        if bind_run:
+            self.scout_run.metadata = {"check_id": str(check.id)}
+            self.scout_run.save(update_fields=["metadata"])
 
         result = self._record(check, outcome="passed", explanation="No events since the fix merged.")
 
         assert result.check_status == SignalReportCheck.Status.ACTIVE
         assert result.runs_remaining == 1
+        with self.assertRaises(InvalidCheckResultError):
+            self._record(check, outcome="passed", explanation="No events since the fix merged.")
         check.refresh_from_db()
         assert check.dispatched_at is None
+        assert check.runs_remaining == 1
         assert check.next_run_at > timezone.now() + timedelta(minutes=MIN_CHECK_INTERVAL_MINUTES - 5)
 
     @parameterized.expand(

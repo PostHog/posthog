@@ -107,8 +107,13 @@ def _resolve_dispatched_check(team: Team, run: SignalScoutRun, check_id: str) ->
     if check.status != SignalReportCheck.Status.ACTIVE:
         raise InvalidCheckResultError(f"check {check_id} already finished as `{check.status}`")
     # The dispatch stamps the check on the run it starts, so that run answers its check even when
-    # the lane resolves differently now.
+    # the lane resolves differently now. It answers once: its verdict clears `dispatched_at`, and a
+    # retry after a recurring check re-arms must not spend another run.
     if (run.metadata or {}).get("check_id") == str(check.id):
+        if check.dispatched_at is None:
+            raise InvalidCheckResultError(
+                f"check {check_id} already has the verdict for the run dispatched to answer it"
+            )
         return check
     if check.dispatched_at is None:
         now = timezone.now()

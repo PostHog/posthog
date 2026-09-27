@@ -520,8 +520,8 @@ tools:
             leaves the report with an unanswered follow-up. You may also record a check on your own scout whose
             `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for
             a check on another scout, a `pending` check whose report has not resolved, a check that is not due yet, a
-            `paused` check whose report is suppressed or whose horizon passed, and a check the coordinator measures
-            itself.
+            `paused` check whose report is suppressed or whose horizon passed, a check your run already answered, and a
+            check the coordinator measures itself.
     scout-config-create:
         operation: signals_scout_config_create
         enabled: true
