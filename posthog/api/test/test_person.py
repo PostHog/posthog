@@ -1420,6 +1420,27 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             enqueue.assert_called_once()
             self.assertEqual(enqueue.call_args.args[2], kept_id)
 
+    def test_split_people_allows_partial_split_when_creator_stays(self) -> None:
+        api_key = self.create_personal_api_key_with_scopes(["person:write"])
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["creator-id", "other"],
+            uuid=uuidFromDistinctId(self.team.id, "creator-id"),
+            immediate=True,
+        )
+
+        with mock.patch("posthog.api.person.split_person.delay") as enqueue:
+            response = self.client.post(
+                f"/api/person/{person.pk}/split/",
+                {"distinct_ids_to_split": ["other"]},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        enqueue.assert_called_once()
+        self.assertIsNone(enqueue.call_args.args[2])
+        self.assertEqual(enqueue.call_args.kwargs["distinct_ids_to_split"], ["other"])
+
     def test_split_people_partial_rejects_combined_with_main_distinct_id(self) -> None:
         person1 = _create_person(
             team=self.team,
