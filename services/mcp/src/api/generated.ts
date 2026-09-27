@@ -81810,6 +81810,8 @@ export namespace Schemas {
     export interface ProjectProfile {
       /** Compact envelope repeating the emit gate and the inbox report counts from `payload.inventory`. Declared first so it survives a truncated response. */
       summary: ProjectProfileSummary;
+      /** ISO-8601 UTC timestamp of this response, from the same server clock that HogQL `now()`, relative date ranges, and run timestamps use. Use it as the current date and time. Unlike `computed_at`, it is not the build time of a cached profile. */
+      as_of: string;
       /** UUID of the `SignalProjectProfile` row. */
       profile_id: string;
       /** ISO-8601 timestamp the profile was built. */
