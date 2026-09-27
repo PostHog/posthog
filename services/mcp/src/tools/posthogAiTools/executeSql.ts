@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { redactUrlCredentials } from '@/lib/url-credential-redaction'
 import { ExecuteSQLSchema } from '@/schema/tool-inputs'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context, type ToolBase } from '@/tools/types'
 
@@ -27,13 +28,14 @@ export const executeSqlHandler: ToolBase<typeof schema, ExecuteSqlResult>['handl
         throw new Error(result.content)
     }
 
+    const content = redactUrlCredentials(result.content)
     return result.structured_content
         ? {
               ...result.structured_content,
-              results: result.content,
-              [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: result.content,
+              results: content,
+              [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: content,
           }
-        : result.content
+        : content
 }
 
 const tool = (): ToolBase<typeof schema, ExecuteSqlResult> => ({

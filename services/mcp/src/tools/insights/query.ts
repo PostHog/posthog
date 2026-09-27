@@ -2,6 +2,7 @@ import type { z } from 'zod'
 
 import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '@/api/client'
 import { withUiApp } from '@/resources/ui-apps'
+import { redactUrlCredentials, redactUrlCredentialsDeep } from '@/lib/url-credential-redaction'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -94,9 +95,9 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
     const results = isTabular
         ? {
               columns: queryResult.data.columns || [],
-              results: queryResult.data.results || [],
+              results: redactUrlCredentialsDeep(queryResult.data.results || []),
           }
-        : queryResult.data.results
+        : redactUrlCredentialsDeep(queryResult.data.results)
 
     // Optimized output surfaces the server-formatted summary as the model-facing text, but the
     // UI app still needs the structured results in structuredContent. Carry the formatted string
@@ -115,7 +116,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
             results,
             ...(queryResult.data.warnings ? { warnings: queryResult.data.warnings } : {}),
             ...(surfaceFormatted
-                ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: queryResult.data.formatted_results }
+                ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: redactUrlCredentials(queryResult.data.formatted_results) }
                 : {}),
         },
         path

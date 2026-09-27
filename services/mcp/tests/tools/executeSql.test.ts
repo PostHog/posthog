@@ -56,6 +56,32 @@ describe('executeSqlHandler', () => {
         }
     })
 
+    it.each([false, true])('masks credential query parameters in results, structured: %s', async (structured) => {
+        vi.stubGlobal(
+            'fetch',
+            vi.fn().mockResolvedValue(
+                new Response(
+                    JSON.stringify({
+                        success: true,
+                        content: 'url\nhttps://example.com/callback?code=fake-auth-code&state=fake-state&lang=en',
+                        ...(structured ? { structured_content: { query: { kind: 'HogQLQuery' } } } : {}),
+                    })
+                )
+            )
+        )
+        const context = {
+            api: new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' }),
+            stateManager: { getProjectId: vi.fn().mockResolvedValue(2) },
+        } as unknown as Context
+        const params = { query: 'SELECT properties.$current_url FROM events', truncate: true }
+        const handlerResult = await executeSqlHandler(context, params)
+
+        const payload = buildToolResultPayload({ handlerResult, toolName: 'execute-sql', params })
+        expect(payload.content).toEqual([
+            { type: 'text', text: 'url\nhttps://example.com/callback?code=[REDACTED]&state=[REDACTED]&lang=en' },
+        ])
+    })
+
     // The catalog disclosure the metric-discovery prompt asks for has to have a field to
     // live in, and it has to stay on this side of the wire: the endpoint takes no such
     // argument, and the sentence is bookkeeping rather than part of the query.
