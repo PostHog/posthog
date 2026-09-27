@@ -3,7 +3,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, CompareLabelType } from '~/types'
 import type { TrendResult } from '~/types'
 
-import { deriveChartPreview } from './chartPreviewData'
+import { PREVIEW_SERIES_LIMIT, deriveChartPreview } from './chartPreviewData'
 import type { ChartPreviewData } from './chartPreviewData'
 
 function series(overrides: Partial<TrendResult> & { math?: string }): TrendResult {
@@ -102,6 +102,24 @@ describe('deriveChartPreview', () => {
             ['Chrome', 10],
             ['Safari', 10],
         ])
+    })
+
+    it.each([
+        ['caps', ChartDisplayType.ActionsLineGraph, PREVIEW_SERIES_LIMIT],
+        ['caps', ChartDisplayType.ActionsTable, PREVIEW_SERIES_LIMIT],
+        ['keeps every slice of', ChartDisplayType.ActionsPie, PREVIEW_SERIES_LIMIT + 5],
+    ])('%s the series of a large breakdown for %s', (_, display, expected) => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+        })
+        const rows = Array.from({ length: PREVIEW_SERIES_LIMIT + 5 }, (_, index) =>
+            series({ breakdown_value: `browser ${index}` })
+        )
+
+        const shown = results(deriveChartPreview(display, source, response(rows)))
+        expect(shown.map((row) => row.breakdown_value)).toEqual(
+            rows.slice(0, expected).map((row) => row.breakdown_value)
+        )
     })
 
     it.each([ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap, ChartDisplayType.BoxPlot])(
