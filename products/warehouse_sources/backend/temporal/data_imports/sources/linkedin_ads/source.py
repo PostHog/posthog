@@ -50,8 +50,11 @@ from .linkedin_ads import (
 _MISSING_INTEGRATION_ERROR = (
     "The LinkedIn Ads connection for this source no longer exists. Reconnect your LinkedIn Ads account, then try again."
 )
-_LOAD_CONNECTION_ERROR = (
-    "PostHog couldn't load your LinkedIn Ads connection. Reconnect your LinkedIn Ads account, then try again."
+# The catch-all this backs also covers a transient database failure, which a reconnect never fixes,
+# so lead with the retry and keep reconnecting as the fallback.
+_CONNECTION_CHECK_ERROR = (
+    "PostHog couldn't check your LinkedIn Ads connection. Try again in a few minutes, "
+    "and reconnect your LinkedIn Ads account if it keeps failing."
 )
 
 # LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
@@ -270,7 +273,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             return False, _MISSING_INTEGRATION_ERROR
         except Exception as e:
             capture_exception(e)
-            return False, _LOAD_CONNECTION_ERROR
+            return False, _CONNECTION_CHECK_ERROR
 
     def get_schemas(
         self,

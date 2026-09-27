@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source import (
-    _LOAD_CONNECTION_ERROR,
+    _CONNECTION_CHECK_ERROR,
     _MISSING_INTEGRATION_ERROR,
     LINKEDIN_ADS_VERSION_202606,
     LINKEDIN_ADS_VERSION_202607,
@@ -226,7 +226,7 @@ class TestLinkedInAdsSource:
         assert is_valid is False
         # The raw exception text is a database internal the user can do nothing with; it belongs in
         # error tracking, not in the wizard.
-        assert error_message == _LOAD_CONNECTION_ERROR
+        assert error_message == _CONNECTION_CHECK_ERROR
         mock_capture_exception.assert_called_once()
 
     @pytest.mark.parametrize(
