@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from enum import StrEnum
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
@@ -20,7 +22,7 @@ class FinageEndpointKind(StrEnum):
 STATEMENT_PERIODS = ("annual", "quarter")
 
 
-@dataclass
+@frozen
 class FinageEndpointConfig:
     name: str
     # Finage path template. `{symbol}` is filled per symbol; aggregate paths additionally fill

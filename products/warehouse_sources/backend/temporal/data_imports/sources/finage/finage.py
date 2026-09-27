@@ -8,6 +8,8 @@ from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.finage.settings import (
@@ -119,13 +121,17 @@ def _today() -> str:
 
 
 def _is_iso_date(value: Any) -> bool:
+    """True only for a canonical `YYYY-MM-DD` string.
+
+    `strptime` accepts a date with the leading zeros left off, so "2021-1-8" parses. Left alone it
+    would key the same day two ways and merge as two rows, hence the round-trip comparison.
+    """
     if not isinstance(value, str):
         return False
     try:
-        datetime.strptime(value, "%Y-%m-%d")
+        return datetime.strptime(value, "%Y-%m-%d").date().isoformat() == value
     except ValueError:
         return False
-    return True
 
 
 @retry(
@@ -273,14 +279,16 @@ def _records(data: JsonBody, what: str, logger: FilteringBoundLogger) -> list[di
     These endpoints answer with a bare JSON array. Finage reports a symbol it has no data for with an
     object instead, so a non-list body means there is nothing to sync for this request.
     """
-    if isinstance(data, list):
-        return [record for record in data if isinstance(record, dict)]
-    logger.warning(f"Finage: {what} returned no records, skipping")
-    return []
+    if not isinstance(data, list):
+        logger.warning(f"Finage: {what} returned no records, skipping")
+        return []
+    if not all(isinstance(record, dict) for record in data):
+        raise ValueError(f"Finage {what} returned an array element that is not a record")
+    return data
 
 
 def _keyed_row(
-    record: dict[str, Any], config: FinageEndpointConfig, *, fallback_symbol: str | None, what: str
+    record: dict[str, Any], config: FinageEndpointConfig, *, pinned_symbol: str | None, what: str
 ) -> dict[str, Any]:
     """Return the record with `symbol` and `date` pinned, rejecting records that can't supply them.
 
@@ -288,9 +296,15 @@ def _keyed_row(
     partition key. A missing symbol merges unrelated companies onto one key, and a missing or
     malformed date buckets the row into the fallback 1970-01 partition, so either fails the sync
     rather than corrupting the table.
+
+    A per-symbol request passes `pinned_symbol` so the row is keyed by the symbol we asked for. The
+    response cannot then relabel one company's history under another company's key, and the four
+    per-symbol tables key the same way whether or not the response repeats the symbol. A calendar
+    request passes `None`, because only the record says which company it is about.
     """
-    symbol = record.get("symbol") or fallback_symbol
-    if not isinstance(symbol, str) or not symbol:
+    symbol = pinned_symbol if pinned_symbol is not None else record.get("symbol")
+    symbol = symbol.strip() if isinstance(symbol, str) else ""
+    if not symbol:
         raise ValueError(f"Finage {config.name} for {what} returned a record with no symbol")
 
     date = record.get("date")
@@ -334,10 +348,22 @@ def _iter_symbol_history_rows(
             if not records:
                 continue
 
-            yield [_keyed_row(record, config, fallback_symbol=symbol, what=symbol) for record in records]
+            yield [_keyed_row(record, config, pinned_symbol=symbol, what=symbol) for record in records]
 
 
-def _calendar_windows(start_date: str) -> Iterator[tuple[str, str]]:
+@frozen
+class _CalendarWindow:
+    """One inclusive `from` / `to` pair for a calendar request."""
+
+    start: str
+    end: str
+
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"Finage calendar window starts after it ends: {self.start} to {self.end}")
+
+
+def _calendar_windows(start_date: str) -> Iterator[_CalendarWindow]:
     """Walk [start_date, today + CALENDAR_FORWARD_DAYS] as contiguous, non-overlapping date windows.
 
     Finage treats `from` and `to` as inclusive, so each window starts the day after the previous one
@@ -348,7 +374,7 @@ def _calendar_windows(start_date: str) -> Iterator[tuple[str, str]]:
     last_day = datetime.now(UTC).date() + timedelta(days=CALENDAR_FORWARD_DAYS)
     while window_start <= last_day:
         window_end = min(window_start + timedelta(days=CALENDAR_WINDOW_DAYS - 1), last_day)
-        yield window_start.isoformat(), window_end.isoformat()
+        yield _CalendarWindow(start=window_start.isoformat(), end=window_end.isoformat())
         window_start = window_end + timedelta(days=1)
 
 
@@ -365,10 +391,10 @@ def _iter_calendar_rows(
     symbol. A window that fails is logged and skipped so one bad request doesn't lose the rest of the
     backfill; auth and plan failures (401/403) still stop the sync.
     """
-    for window_start, window_end in _calendar_windows(start_date):
-        what = f"{config.name} between {window_start} and {window_end}"
+    for window in _calendar_windows(start_date):
+        what = f"{config.name} between {window.start} and {window.end}"
         try:
-            data = _fetch_json(session, config.path, api_key, logger, params={"from": window_start, "to": window_end})
+            data = _fetch_json(session, config.path, api_key, logger, params={"from": window.start, "to": window.end})
         except requests.HTTPError as exc:
             _handle_symbol_http_error(exc, logger, what)
             continue
@@ -377,7 +403,7 @@ def _iter_calendar_rows(
         if not records:
             continue
 
-        yield [_keyed_row(record, config, fallback_symbol=None, what=what) for record in records]
+        yield [_keyed_row(record, config, pinned_symbol=None, what=what) for record in records]
 
 
 def get_rows(

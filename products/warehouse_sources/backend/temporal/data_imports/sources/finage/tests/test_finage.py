@@ -302,20 +302,20 @@ class TestCalendarWindows:
         # then has to de-duplicate. Both are invisible in the synced table until someone counts.
         windows = list(finage._calendar_windows("2024-01-01"))
 
-        assert windows[0][0] == "2024-01-01"
+        assert windows[0].start == "2024-01-01"
         # `from`/`to` are inclusive, so the forward horizon is the last day a window may end on.
-        assert windows[-1][1] == (date(2024, 3, 1) + timedelta(days=CALENDAR_FORWARD_DAYS)).isoformat()
-        for (_, window_end), (next_start, _) in zip(windows, windows[1:]):
-            assert date.fromisoformat(next_start) == date.fromisoformat(window_end) + timedelta(days=1)
-        for window_start, window_end in windows:
-            span = date.fromisoformat(window_end) - date.fromisoformat(window_start)
+        assert windows[-1].end == (date(2024, 3, 1) + timedelta(days=CALENDAR_FORWARD_DAYS)).isoformat()
+        for window, following in zip(windows, windows[1:]):
+            assert date.fromisoformat(following.start) == date.fromisoformat(window.end) + timedelta(days=1)
+        for window in windows:
+            span = date.fromisoformat(window.end) - date.fromisoformat(window.start)
             assert timedelta(0) <= span <= timedelta(days=CALENDAR_WINDOW_DAYS - 1)
 
     @time_machine.travel("2024-03-01", tick=False)
     def test_start_date_inside_the_forward_horizon_still_yields_one_window(self) -> None:
         # A source created today must not produce an empty walk, which would sync nothing silently.
         windows = list(finage._calendar_windows("2024-03-01"))
-        assert windows[0][0] == "2024-03-01"
+        assert windows[0].start == "2024-03-01"
         assert len(windows) >= 1
 
 
@@ -349,13 +349,20 @@ class TestFundamentalsRows:
 
         assert [call.kwargs["params"] for call in fetch.call_args_list] == expected_params
 
-    def test_pins_requested_symbol_when_the_response_omits_it(self) -> None:
-        # The split and dividend responses carry no symbol. Without pinning it the rows lose half
-        # their primary key and every company's history merges onto the same rows.
+    @parameterized.expand(
+        [
+            ("response_omits_symbol", {}),
+            ("response_reports_another_symbol", {"symbol": "MSFT"}),
+        ]
+    )
+    def test_pins_the_requested_symbol_onto_every_row(self, _name: str, response_symbol: dict) -> None:
+        # The split and dividend responses carry no symbol, so without pinning the rows lose half
+        # their primary key. A response that names a different company must not write its history
+        # under that company's key either.
         record = {"numerator_factor": 4, "denominator_factor": 1, "label": "August 31, 20", "date": "2020-08-31"}
         with (
             mock.patch.object(finage, "make_tracked_session"),
-            mock.patch.object(finage, "_fetch_json", return_value=[record]),
+            mock.patch.object(finage, "_fetch_json", return_value=[{**record, **response_symbol}]),
         ):
             batches = list(get_rows("k", "historical_stock_splits", ["AAPL"], "2020-01-01", mock.Mock()))
 
@@ -382,6 +389,9 @@ class TestFundamentalsRows:
             ("missing_date", "historical_dividends", {"adj_dividend": 0.22}),
             ("malformed_date", "historical_dividends", {"date": "November 05, 21", "adj_dividend": 0.22}),
             ("calendar_without_symbol", "dividend_calendar", {"date": "2021-01-08", "adj_dividend": 0.003}),
+            ("calendar_blank_symbol", "dividend_calendar", {"symbol": "   ", "date": "2021-01-08"}),
+            # `strptime` parses "2021-1-8", which would key the same day two ways.
+            ("noncanonical_date", "historical_dividends", {"date": "2021-1-8", "adj_dividend": 0.22}),
         ]
     )
     def test_rejects_records_that_cannot_be_keyed(self, _name: str, endpoint: str, bad_record: dict) -> None:
@@ -393,6 +403,16 @@ class TestFundamentalsRows:
         ):
             with pytest.raises(ValueError):
                 list(get_rows("k", endpoint, ["AAPL"], "2021-01-01", mock.Mock()))
+
+    def test_rejects_an_array_holding_something_that_is_not_a_record(self) -> None:
+        # Dropping the element would let the sync finish with an incomplete table, which is the
+        # outcome the key checks above exist to prevent.
+        with (
+            mock.patch.object(finage, "make_tracked_session"),
+            mock.patch.object(finage, "_fetch_json", return_value=[{"date": "2020-08-31"}, "not-a-record"]),
+        ):
+            with pytest.raises(ValueError):
+                list(get_rows("k", "historical_stock_splits", ["AAPL"], "2020-01-01", mock.Mock()))
 
     def test_skips_a_symbol_whose_body_is_not_a_record_list(self) -> None:
         # Finage answers a symbol it has no fundamentals for with an object rather than an array.
