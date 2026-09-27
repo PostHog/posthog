@@ -15,6 +15,37 @@ from posthog.test.persons import create_person
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
+def _assert_pagination_with_tied_sent_at(test_case, api_call_func):
+    """Test that pagination with tied sent_at times doesn't repeat or drop rows.
+
+    Batch sends give many rows the same sent_at, so stable ordering via tiebreak
+    is required to avoid repeating or dropping rows at page boundaries.
+    """
+    tied = datetime.now(tz=UTC)
+    for invocation_id, action_id in [
+        ("inv-1", "step-a"),
+        ("inv-1", "step-b"),
+        ("inv-0", "step-b"),
+        ("inv-0", "step-a"),
+        ("inv-2", "step-a"),
+    ]:
+        test_case._seed(invocation_id, action_id=action_id, sent_at=tied)
+    assert len(api_call_func({"limit": 2}).json()) == 2
+    assert len(api_call_func({"limit": 2, "offset": 4}).json()) == 1
+    walked = [
+        (r["invocation_id"], r["action_id"])
+        for offset in (0, 2, 4)
+        for r in api_call_func({"limit": 2, "offset": offset}).json()
+    ]
+    assert walked == [
+        ("inv-2", "step-a"),
+        ("inv-1", "step-b"),
+        ("inv-1", "step-a"),
+        ("inv-0", "step-b"),
+        ("inv-0", "step-a"),
+    ]
+
+
 def create_message_asset(
     team_id: int,
     function_id: str,
@@ -164,31 +195,7 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert {r["invocation_id"] for r in results} == {"recent"}
 
     def test_respects_limit_and_offset(self):
-        # One sent time for every row, as a batch send gives, and one invocation that
-        # sends from two steps. Neither tie may move a row between pages.
-        tied = datetime.now(tz=UTC)
-        for invocation_id, action_id in [
-            ("inv-1", "step-a"),
-            ("inv-1", "step-b"),
-            ("inv-0", "step-b"),
-            ("inv-0", "step-a"),
-            ("inv-2", "step-a"),
-        ]:
-            self._seed(invocation_id, action_id=action_id, sent_at=tied)
-        assert len(self._list({"limit": 2}).json()) == 2
-        assert len(self._list({"limit": 2, "offset": 4}).json()) == 1
-        walked = [
-            (r["invocation_id"], r["action_id"])
-            for offset in (0, 2, 4)
-            for r in self._list({"limit": 2, "offset": offset}).json()
-        ]
-        assert walked == [
-            ("inv-2", "step-a"),
-            ("inv-1", "step-b"),
-            ("inv-1", "step-a"),
-            ("inv-0", "step-b"),
-            ("inv-0", "step-a"),
-        ]
+        _assert_pagination_with_tied_sent_at(self, self._list)
 
     def test_content_returns_html_bytes_inline(self):
         self._seed("inv-1", action_id="step-a", html="<html><body>Hello Bob</body></html>")
@@ -329,31 +336,7 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         assert [r["invocation_id"] for r in rows] == ["newer", "older"]
 
     def test_respects_limit_and_offset(self):
-        # One sent time for every row, as a batch send gives, and one invocation that
-        # sends from two steps. Neither tie may move a row between pages.
-        tied = datetime.now(tz=UTC)
-        for invocation_id, action_id in [
-            ("inv-1", "step-a"),
-            ("inv-1", "step-b"),
-            ("inv-0", "step-b"),
-            ("inv-0", "step-a"),
-            ("inv-2", "step-a"),
-        ]:
-            self._seed(invocation_id, action_id=action_id, sent_at=tied)
-        assert len(self._emails({"limit": 2}).json()) == 2
-        assert len(self._emails({"limit": 2, "offset": 4}).json()) == 1
-        walked = [
-            (r["invocation_id"], r["action_id"])
-            for offset in (0, 2, 4)
-            for r in self._emails({"limit": 2, "offset": offset}).json()
-        ]
-        assert walked == [
-            ("inv-2", "step-a"),
-            ("inv-1", "step-b"),
-            ("inv-1", "step-a"),
-            ("inv-0", "step-b"),
-            ("inv-0", "step-a"),
-        ]
+        _assert_pagination_with_tied_sent_at(self, self._emails)
 
     def test_personal_api_key_requires_person_read_scope(self):
         self._seed("inv-1")
