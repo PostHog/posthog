@@ -61,6 +61,9 @@ _MAX_TOTAL_EVENT_ROWS = 50_000
 # Noisy SDK-internal events that add no signal for the LLM.
 _EVENTS_TO_IGNORE = ["$feature_flag_called"]
 
+# posthog-js stamps these with the URL the tab first loaded, not the page on screen, so they fake navigation.
+_EVENTS_WITHOUT_CURRENT_PAGE_URL = frozenset({"$web_vitals"})
+
 # `properties.*` is the HogQL prefix for JSON properties; `uuid` is surfaced to the LLM as the `event_uuid` citation handle.
 _EXTRA_FIELDS = [
     "uuid",
@@ -328,6 +331,7 @@ def _process_events(
     visible_columns = [c for i, c in enumerate(raw_columns) if i != uuid_index]
     url_index = visible_columns.index("$current_url") if "$current_url" in visible_columns else None
     window_index = visible_columns.index("$window_id") if "$window_id" in visible_columns else None
+    event_index = visible_columns.index("event") if "event" in visible_columns else None
 
     url_tokens: dict[str, str] = {}  # actual -> token; flipped at the end for the prompt
     window_tokens: dict[str, str] = {}
@@ -358,7 +362,8 @@ def _process_events(
             visible[url_index] = _intern(visible[url_index], url_tokens, _URL_PREFIX)
         if window_index is not None:
             visible[window_index] = _intern(visible[window_index], window_tokens, _WINDOW_PREFIX)
-        if isinstance(raw_url, str) and raw_url:
+        event_name = visible[event_index] if event_index is not None else None
+        if isinstance(raw_url, str) and raw_url and event_name not in _EVENTS_WITHOUT_CURRENT_PAGE_URL:
             window_token = visible[window_index] if window_index is not None else None
             navigation_points.append((relative_ms, window_token if isinstance(window_token, str) else None, raw_url))
         processed.append([uuid_str, *(_truncate(v) for v in visible)])
