@@ -46,10 +46,10 @@ export const SceneTags = ({
     }
 
     useEffect(() => {
-        // Keep local state in sync with prop. While editing, we still sync when suggestions arrive
-        // and update the insight's tags (which are merged with current tags before arriving).
-        setLocalTags(tags)
-    }, [tags]) // eslint-disable-line react-hooks/exhaustive-deps
+        if (!localIsEditing) {
+            setLocalTags(tags)
+        }
+    }, [tags, localIsEditing])
 
     const label = (
         <span className="flex items-center gap-1.5">
@@ -58,7 +58,14 @@ export const SceneTags = ({
             {onSuggest && canEdit && onSave ? (
                 <SuggestMetadataButton
                     label="Suggest tags"
-                    onClick={onSuggest}
+                    onClick={() => {
+                        // The inline editor keeps its own draft and does not read `tags` while open, so suggested
+                        // tags that arrive mid-edit would be dropped by the next save. Closing the editor here, and
+                        // keeping it closed while `suggesting`, means the draft is rebuilt from `tags` after the
+                        // suggestion lands.
+                        setLocalIsEditing(false)
+                        onSuggest()
+                    }}
                     loading={suggesting}
                     dataAttr={`${dataAttrKey}-tags-suggest`}
                     size="xsmall"
@@ -92,7 +99,7 @@ export const SceneTags = ({
                 className="hyphens-auto flex gap-1 items-center"
                 lang="en"
                 onClick={() => {
-                    if (onSave && canEdit) {
+                    if (onSave && canEdit && !suggesting) {
                         loadTagsIfNeeded()
                         setLocalIsEditing(true)
                     }
@@ -100,7 +107,7 @@ export const SceneTags = ({
                 tooltip={canEdit ? 'Edit tags' : 'Tags are read-only'}
                 autoHeight
                 menuItem
-                inert={!canEdit}
+                inert={!canEdit || suggesting}
                 data-attr={`${dataAttrKey}-tags-button`}
                 variant="panel"
             >
