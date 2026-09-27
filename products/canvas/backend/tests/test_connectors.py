@@ -20,7 +20,7 @@ from products.canvas.backend.connectors import (
     _bounded,
     _native_field_schema,
 )
-from products.canvas.backend.models import Canvas
+from products.canvas.backend.models import Canvas, CanvasState
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
 from products.tasks.backend.models import Task
@@ -406,6 +406,17 @@ class TestCanvasConnectors(CanvasAPIBaseTest):
             format="json",
         )
         assert state_response.status_code == 403
+        CanvasState.objects.for_team(self.team.id).create(
+            team_id=self.team.id, canvas_id=canvas_id, scope="shared", key="written_before", value="private"
+        )
+        read = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/")
+        assert read.status_code == 200
+        assert read.json()["entries"] == []
+        value = self.client.get(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/value/",
+            {"scope": "shared", "key": "written_before"},
+        )
+        assert value.status_code == 404
         mock_call.assert_not_called()
 
 

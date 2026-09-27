@@ -181,6 +181,10 @@ def _readable_state(
     # the scopes its head version declares, so narrowing capabilities also
     # stops reads of previously written entries.
     declared = declared_state_scopes(capabilities)
+    # Shared state is one value for every viewer, so a canvas that also calls
+    # connectors with each viewer's own connection could pass one viewer's data to another.
+    if declared_connectors(capabilities):
+        declared = declared - {CanvasState.SCOPE_SHARED}
     readable = Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user_id=user_id)
     return CanvasState.objects.for_team(team_id).filter(readable, canvas_id=canvas_id, scope__in=declared)
 

@@ -87,7 +87,6 @@ from products.canvas.backend.source import (
 from products.canvas.backend.source_edits import apply_source_edits as apply_source_edits
 from products.canvas.backend.teaching import (
     RESERVED_TEMPLATE_IDS as RESERVED_TEMPLATE_IDS,
-    TEACHING_CANVAS_NAME as TEACHING_CANVAS_NAME,
     seed_teaching_canvas as seed_teaching_canvas,
 )
 

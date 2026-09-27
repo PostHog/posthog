@@ -11,10 +11,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.models.user import User
 
-from products.canvas.backend.facade.api import (
-    TEACHING_CANVAS_NAME as TEACHING_CANVAS_NAME,
-    seed_teaching_canvas,
-)
+from products.canvas.backend.facade.enums import TEACHING_CANVAS_NAME as TEACHING_CANVAS_NAME
 
 
 @frozen
@@ -26,6 +23,10 @@ class TeachingCanvas:
 def ensure_teaching_canvas(
     team_id: int, channel_id: UUID, user: User, *, refresh: bool = False
 ) -> TeachingCanvas | None:
+    from products.canvas.backend.facade.api import (  # noqa: PLC0415 — keeps the canvas build path off task route setup
+        seed_teaching_canvas,
+    )
+
     canvas_id = seed_teaching_canvas(team_id=team_id, channel_id=channel_id, user=user, refresh=refresh)
     if canvas_id is None:
         return None

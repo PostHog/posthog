@@ -26,14 +26,14 @@ def authorized_canvases(viewer: CanvasViewer, access: CanvasAccess) -> QuerySet[
         public_canvas_q = tasks_facade.visible_channels_q(None, relation="channel")
         if viewer.user_id is None:
             return (queryset.filter(public_canvas_q) if access == CanvasAccess.READ else queryset.none()).order_by(
-                "-created_at"
+                "-created_at", "-id"
             )
         actor_canvas_q = Q(created_by_id=viewer.user_id) & tasks_facade.visible_channels_q(
             viewer.user_id, relation="channel"
         )
         return queryset.filter(
             public_canvas_q | actor_canvas_q if access in _SANDBOX_VISIBLE_ACCESS else actor_canvas_q
-        ).order_by("-created_at")
+        ).order_by("-created_at", "-id")
 
     # Channels are per-user for the personal kind: the facade's visibility
     # rule makes a canvas filed into someone else's personal channel
@@ -49,4 +49,4 @@ def authorized_canvases(viewer: CanvasViewer, access: CanvasAccess) -> QuerySet[
         if viewer.user_id is None:
             return queryset.none()
         queryset = queryset.filter(created_by_id=viewer.user_id)
-    return queryset.order_by("-created_at")
+    return queryset.order_by("-created_at", "-id")

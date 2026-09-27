@@ -81,12 +81,13 @@ def visible_canvas_ids(team_id: int, user: User | None) -> set[str]:
     """Ids of this team's canvases that the ordinary Canvas API exposes to the user.
 
     Used to restrict `Canvas`-scoped rows in the team activity feed; a canvas hidden
-    from `CanvasViewSet` must not leak its history here either. Includes soft-deleted
-    canvases so an owner still sees their deleted canvas's history.
+    from `CanvasViewSet` must not leak its history here either. Includes the user's own
+    soft-deleted canvases so an owner still sees their deleted canvas's history.
     """
     user_id = getattr(user, "id", None)
     canvases = Canvas.objects.for_team(team_id).filter(
         tasks_facade.visible_channels_q(user_id, relation="channel"),
+        _live_or_owned_q(user_id),
         source_policy=Canvas.SOURCE_POLICY_STANDARD,
     )
     return {str(canvas_id) for canvas_id in canvases.values_list("id", flat=True)}
@@ -121,7 +122,7 @@ def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: Iterable[
 
 
 def hidden_canvas_ids_for_org(organization_id: str | UUID, user: User | None) -> set[str]:
-    """Ids of canvases hidden by channel visibility or source policy across an org.
+    """Ids of canvases hidden by channel visibility, source policy, or deletion across an org.
 
     Cross-team by design, hence `unscoped()`.
     """
@@ -132,9 +133,15 @@ def hidden_canvas_ids_for_org(organization_id: str | UUID, user: User | None) ->
         .filter(
             ~tasks_facade.visible_channels_q(user_id, relation="channel")
             | ~Q(source_policy=Canvas.SOURCE_POLICY_STANDARD)
+            | ~_live_or_owned_q(user_id)
         )
     )
     return {str(canvas_id) for canvas_id in hidden.values_list("id", flat=True)}
+
+
+def _live_or_owned_q(user_id: int | None) -> Q:
+    """A soft-deleted canvas stays in the activity feeds of its owner only."""
+    return Q(deleted=False) | Q(created_by_id=user_id) if user_id is not None else Q(deleted=False)
 
 
 def _visible_canvases(team_id: int, user_id: int | None) -> QuerySet[Canvas]:

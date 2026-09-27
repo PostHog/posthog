@@ -2,7 +2,7 @@ import json
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from django.http import HttpRequest, HttpResponse, HttpResponseBase
@@ -26,6 +26,7 @@ from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.user import User
+from posthog.permissions import AccessControlPermission, is_service_auth
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
@@ -45,6 +46,7 @@ from products.canvas.backend.facade.api import (
     validate_source_project,
 )
 from products.canvas.backend.facade.contracts import (
+    CanvasAccessDeniedError,
     CanvasBuildCapacityExceeded,
     CanvasBuildNotFoundError,
     CanvasFieldChange,
@@ -66,7 +68,6 @@ from products.canvas.backend.presentation.serializers import (
     CanvasBuildActionSerializer,
     CanvasBuildSerializer,
     CanvasBuildsResponseSerializer,
-    CanvasCapabilityWideningSerializer,
     CanvasConnectorCallResultSerializer,
     CanvasConnectorCallSerializer,
     CanvasConnectorsResponseSerializer,
@@ -109,6 +110,9 @@ from products.canvas.backend.presentation.serializers import (
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -430,12 +434,28 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             return CanvasAccess.DELETE
         return CanvasAccess.WRITE
 
+    def _object_access(self) -> tuple["UserAccessControl | None", str | None]:
+        """The access control and level that `AccessControlPermission.has_object_permission` would check."""
+        # Service credentials are synthetic users that UserAccessControl cannot evaluate.
+        if is_service_auth(self.request):
+            return None, None
+        return self.user_access_control, AccessControlPermission()._get_required_access_level(self.request, self)
+
     def _canvas(self) -> CanvasRecord:
         """The canvas in the URL, or 404 when the current action may not reach it."""
+        user_access_control, required_level = self._object_access()
         try:
-            return canvas_api.get_canvas(self._viewer(), self._access(), self.kwargs["pk"])
+            return canvas_api.get_canvas(
+                self._viewer(),
+                self._access(),
+                self.kwargs["pk"],
+                user_access_control=user_access_control,
+                required_level=required_level,
+            )
         except CanvasNotFoundError:
             raise NotFound()
+        except CanvasAccessDeniedError as denied:
+            raise PermissionDenied(f"You do not have {denied.required_level} access to this resource.")
 
     def _paginated(self, request: Request, fetch: Callable[[int, int], Any], count: int) -> Response:
         """The standard limit/offset envelope around one facade page."""
@@ -472,10 +492,13 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         viewer = self._viewer()
-        filters = {
+        filters: dict[str, Any] = {
             "channel_id": request.query_params.get("channel"),
             "kind": request.query_params.get("kind"),
             "search": request.query_params.get("search"),
+            # Service credentials skip access-control filtering, as the model viewset list did.
+            "user_access_control": None if is_service_auth(request) else self.user_access_control,
+            "include_all_if_admin": request.query_params.get("admin_include_all") == "true",
         }
         return self._paginated(
             request,
@@ -640,10 +663,18 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         (freeform/component) or the layout document (grid). Send the response's
         ETag back as If-None-Match to revalidate without a body.
         """
+        user_access_control, required_level = self._object_access()
         try:
-            opened = canvas_api.open_canvas(self._viewer(), self.kwargs["pk"])
+            opened = canvas_api.open_canvas(
+                self._viewer(),
+                self.kwargs["pk"],
+                user_access_control=user_access_control,
+                required_level=required_level,
+            )
         except CanvasNotFoundError:
             raise NotFound()
+        except CanvasAccessDeniedError as denied:
+            raise PermissionDenied(f"You do not have {denied.required_level} access to this resource.")
         instance: dict[str, Any] = {
             "canvas": opened.canvas,
             "published_build": opened.published_build,
@@ -1004,12 +1035,14 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             is_sandbox_draft=task_id is not None,
         )
         return Response(
-            {
-                "version_id": str(drafted.version_id),
-                "build": CanvasBuildSerializer(drafted.build).data,
-                "diagnostics": diagnostics,
-                "capability_widening": CanvasCapabilityWideningSerializer(drafted.capability_widening).data,
-            }
+            CanvasSourceDraftResponseSerializer(
+                instance={
+                    "version_id": str(drafted.version_id),
+                    "build": drafted.build,
+                    "diagnostics": diagnostics,
+                    "capability_widening": drafted.capability_widening,
+                }
+            ).data
         )
 
     @extend_schema(
@@ -1130,7 +1163,7 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         try:
             lifecycle = canvas_api.canvas_builds(
                 self.team_id,
-                canvas.id,
+                canvas,
                 slim=request.query_params.get("scope") == "slim",
                 version_id=request.query_params.get("version_id"),
             )
@@ -1474,7 +1507,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
             error_type=report.error_type,
             report_outcome=report.outcome,
         )
-        return Response({"report_outcome": report.outcome}, status=status.HTTP_202_ACCEPTED)
+        return Response(
+            CanvasErrorReportResultSerializer(instance={"report_outcome": report.outcome}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         operation_id="canvases_request_fix_create",

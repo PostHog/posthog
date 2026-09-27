@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -14,9 +15,11 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.constants import AvailableFeature
 from posthog.models import Integration
 from posthog.models.activity_logging.activity_log import ActivityLog, Detail, log_activity
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
@@ -24,6 +27,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.models.annotation import Annotation
 from products.canvas.backend import build_service
 from products.canvas.backend.actions import CANVAS_ACTIONS, TaskCreatePayloadSerializer
@@ -236,6 +240,32 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             f"This sandbox can file canvases only in its task's space. Use the task's channel \"{self.channel.id}\"."
         )
         assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
+
+    def test_object_level_none_access_hides_the_canvas_from_a_member(self):
+        hidden_canvas_id = self._create_canvas(name="Hidden")
+        visible_canvas_id = self._create_canvas(name="Visible")
+        member = User.objects.create_and_join(self.organization, "restricted@example.com", None)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="canvas",
+            resource_id=hidden_canvas_id,
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=member),
+            access_level="none",
+        )
+        cache.clear()
+        self.client.force_login(member)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/canvases/")
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert {row["id"] for row in listed.json()["results"]} == {visible_canvas_id}
+        for path in ("", "view/", "source/"):
+            response = self.client.get(f"/api/projects/{self.team.id}/canvases/{hidden_canvas_id}/{path}")
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (path, response.json())
+        assert self.client.get(f"/api/projects/{self.team.id}/canvases/{visible_canvas_id}/").status_code == 200
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
         # A canvas filed into a teammate's personal channel is private to them:
