@@ -64,3 +64,52 @@ For the final evaluation, compare counts and metrics with the matching baked eve
 Check missing-partition metadata and grading runtime; the grader reads at most `max(horizon_days) + 1` scores objects per run.
 Existing baked-only consumers need no filter changes.
 New charts must opt into the daily event and select one revision per cohort as described above.
+
+## Classification metrics
+
+Every fitted head reports classification metrics next to AUC and calibration.
+They answer two questions: of the reports a head flags, how many have the outcome (precision), and of the outcomes, how many the head flags (recall).
+
+### Threshold
+
+A head predicts positive when `score >= classification_threshold`.
+A score equal to the threshold is a positive prediction.
+The threshold is the positive rate of the rows the booster was fit on.
+It means "at least as likely as the average fitting example", not a 50% probability.
+
+- **Holdout:** the threshold is the positive rate of the train-only rows. It is fixed before the holdout outcomes are read.
+- **Unseen:** the threshold is the positive rate of every row the refit was fit on. The candidate saves it per head as `refit_classification_threshold` in `metadata.json`. The scorer copies it onto each saved score as `classification_threshold`, and every daily and mature grade of those scores reads that value.
+- A champion keeps its own threshold. A candidate and a champion graded on the same reports use different cuts.
+
+The threshold is specific to the head, family, version and fitting population.
+A row budget keeps every positive and samples the negatives, so it raises the rate.
+Do not read the threshold as population prevalence, and do not compute it again from evaluation labels.
+
+### Metrics
+
+The metrics use the same eligible rows as the other metrics of the grade.
+
+- Counts: `true_positives`, `false_positives`, `true_negatives`, `false_negatives`.
+- Ratios: `precision`, `recall`, `f1`, `specificity`, `accuracy`, `balanced_accuracy` (the mean of recall and specificity), `predicted_positive_rate`.
+- `inbox_ranking_candidate_trained` carries them with a `holdout_` prefix, plus `refit_classification_threshold`.
+- `inbox_ranking_unseen_head_graded` and `inbox_ranking_unseen_head_evaluated` carry them without a prefix.
+
+Null values have three causes:
+
+- A ratio with a zero denominator is null. For example, a cohort without positives has a null recall.
+- An empty cohort with a known threshold has zero counts and null ratios.
+- A model or scores object saved before thresholds existed has null classification fields. Its other metrics stay.
+
+Readability and maturity rules do not change.
+An unbaked negative can still become a positive, so unbaked precision and recall are provisional.
+These metrics are evaluation-only: they do not change inbox order or champion promotion.
+
+### Pooling
+
+Read families and maturity levels apart.
+To pool cohorts or days, select one revision per cohort as described in [Reading the two versions](#reading-the-two-versions), sum the confusion counts, and then compute the ratios from the sums.
+Never average daily precision, recall or F1.
+A pooled line over several versions uses the frozen threshold of each version, so label it that way.
+
+After deployment and a new training and scoring run, check that the candidate events carry numeric `holdout_` fields and `refit_classification_threshold`, and that the unseen events carry `classification_threshold`.
+Check the mature grades as each head's horizon becomes available.
