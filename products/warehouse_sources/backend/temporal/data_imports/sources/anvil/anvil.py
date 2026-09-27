@@ -98,7 +98,9 @@ query WeldDatas($weldEid: String!, $limit: Int, $offset: Int) {{
 
 def _make_session(api_key: str) -> requests.Session:
     # Anvil authenticates with HTTP Basic auth: the API key as the username, empty password.
-    session = make_tracked_session(retry=_ANVIL_RETRY, redact_values=(api_key,))
+    # `capture=False`: responses carry signer names, emails, and document metadata that the
+    # name-based scrubbers can't recognise.
+    session = make_tracked_session(retry=_ANVIL_RETRY, redact_values=(api_key,), capture=False)
     session.auth = (api_key, "")
     return session
 
