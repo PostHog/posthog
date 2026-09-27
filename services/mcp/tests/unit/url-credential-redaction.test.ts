@@ -28,6 +28,14 @@ describe('redactUrlCredentials', () => {
             'url,count\nhttps://example.com/cb?code=fake-code,3\nhttps://example.com/pricing?plan=pro,5',
             'url,count\nhttps://example.com/cb?code=[REDACTED],3\nhttps://example.com/pricing?plan=pro,5',
         ],
+        [
+            'https://example.com/v1?api-key=fake-key&access-key=fake-access&page=2',
+            'https://example.com/v1?api-key=[REDACTED]&access-key=[REDACTED]&page=2',
+        ],
+        [
+            'https://example.com/login?redirect_uri=https://example.com/cb?code=fake-code&lang=en',
+            'https://example.com/login?redirect_uri=https://example.com/cb?code=[REDACTED]&lang=en',
+        ],
         ['{"url":"https://example.com/cb?code=fake-code"}', '{"url":"https://example.com/cb?code=[REDACTED]"}'],
     ])('masks credential values in %s', (input, expected) => {
         expect(redactUrlCredentials(input)).toBe(expected)
@@ -47,13 +55,13 @@ describe('redactUrlCredentialsDeep', () => {
         const results = [
             { breakdown_value: 'https://example.com/cb?code=fake-code', count: 4, data: [1, 2] },
             ['https://example.com/cb?token=fake-token', null, true],
-            { 'https://example.com/cb?code=fake-code': 1 },
+            { 'https://example.com/cb?code=fake-a': 1, 'https://example.com/cb?code=fake-b': 2 },
         ]
 
         expect(redactUrlCredentialsDeep(results)).toEqual([
             { breakdown_value: 'https://example.com/cb?code=[REDACTED]', count: 4, data: [1, 2] },
             ['https://example.com/cb?token=[REDACTED]', null, true],
-            { 'https://example.com/cb?code=[REDACTED]': 1 },
+            { 'https://example.com/cb?code=[REDACTED]': 1, 'https://example.com/cb?code=[REDACTED] (2)': 2 },
         ])
     })
 })

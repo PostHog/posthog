@@ -21,18 +21,19 @@ const EXACT_CREDENTIAL_NAMES = new Set(['code', 'state', 'key', 'sig', 'auth', '
 
 /**
  * Suffixes that mark a credential in any compound name, such as `access_token`,
- * `client_secret`, `X-Amz-Signature`, or `apiKey`.
+ * `client_secret`, `X-Amz-Signature`, `apiKey`, or `api-key`.
  */
 const CREDENTIAL_NAME_SUFFIX =
-    /(?:token|secret|password|passwd|signature|credential|credentials|api_?key|access_?key)$/i
+    /(?:token|secret|password|passwd|signature|credential|credentials|api[_-]?key|access[_-]?key)$/i
 
 /**
  * A parameter starts after `?`, `&`, `#`, or `;`, or after their percent-encoded
  * forms when a URL sits inside another parameter (a `redirect_uri`, for
- * example). The value stops at the next delimiter, or at a character that
- * cannot be part of a URL in CSV, JSON, or table output.
+ * example). The value stops at the next delimiter, at a nested `?` so that the
+ * inner query string gets its own match, or at a character that cannot be part
+ * of a URL in CSV, JSON, or table output.
  */
-const QUERY_PARAMETER = /((?:[?&#;]|%3F|%26|%23)([\w.\-[\]]+)(?:=|%3D))((?:(?!%26|%23|%3F)[^&#;\s"'<>,|\\`])+)/gi
+const QUERY_PARAMETER = /((?:[?&#;]|%3F|%26|%23)([\w.\-[\]]+)(?:=|%3D))((?:(?!%26|%23|%3F)[^?&#;\s"'<>,|\\`])+)/gi
 
 function isCredentialName(name: string): boolean {
     const normalized = name.replace(/\[\]$/, '').toLowerCase()
@@ -63,9 +64,21 @@ function redactValue(value: unknown): unknown {
     if (isRecord(value)) {
         const out: Record<string, unknown> = {}
         for (const [key, entry] of Object.entries(value)) {
-            assignKey(out, redactUrlCredentials(key), redactValue(entry))
+            assignKey(out, uniqueKey(out, redactUrlCredentials(key)), redactValue(entry))
         }
         return out
     }
     return value
+}
+
+/** Two keys can redact to the same string, so number the later ones rather than overwrite a result. */
+function uniqueKey(target: Record<string, unknown>, key: string): string {
+    if (!Object.prototype.hasOwnProperty.call(target, key)) {
+        return key
+    }
+    let index = 2
+    while (Object.prototype.hasOwnProperty.call(target, `${key} (${index})`)) {
+        index += 1
+    }
+    return `${key} (${index})`
 }
