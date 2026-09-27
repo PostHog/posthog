@@ -41,6 +41,7 @@ from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.sandbox import (
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
+    ExecutionResult,
     SandboxBase,
     build_agent_runtime_env_prefix,
     build_agent_server_capability_probe,
@@ -82,6 +83,7 @@ AGENT_SERVER_PREFLIGHT_SKILLS_EXIT_CODE = 90
 AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE = 91
 AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE = 92
 AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS = 60
+AGENT_SERVER_PREFLIGHT_OUTPUT_TAIL_CHARS = 500
 
 # The read probe wants a large file the agent-server boot never opens, so its first read is cold:
 # nothing at boot loads the global TypeScript compiler. Its prefix follows the Node install and its
@@ -236,6 +238,21 @@ def build_agent_server_preflight_script(*, probe_health: bool, executable_paths:
         )
     lines.append("exit 0")
     return "\n".join(lines)
+
+
+def _agent_server_preflight_failure_message(result: ExecutionResult) -> str:
+    """Name the exit code, the stderr tail, and the last stdout line in the message.
+
+    The activity interceptor captures only the message, so the context dict never reaches error
+    tracking. The last stdout line shows how far the script got before it exited.
+    """
+    stdout_lines = result.stdout.strip().splitlines()
+    stderr_tail = result.stderr.strip()[-AGENT_SERVER_PREFLIGHT_OUTPUT_TAIL_CHARS:] or "<empty>"
+    last_stdout = stdout_lines[-1][-AGENT_SERVER_PREFLIGHT_OUTPUT_TAIL_CHARS:] if stdout_lines else "<empty>"
+    message = f"Agent-server preflight failed with exit code {result.exit_code}: stderr={stderr_tail}"
+    if result.error:
+        message += f"; error={result.error[:AGENT_SERVER_PREFLIGHT_OUTPUT_TAIL_CHARS]}"
+    return f"{message}; last stdout={last_stdout}"
 
 
 def _health_duration_ms(stdout: str) -> int | None:
@@ -521,7 +538,7 @@ class AgentServerLaunchMixin(SandboxBase):
             )
         if result.exit_code != 0:
             raise SandboxExecutionError(
-                "Agent-server preflight failed",
+                _agent_server_preflight_failure_message(result),
                 {"sandbox_id": self.id, "exit_code": str(result.exit_code), "stderr": result.stderr},
                 cause=RuntimeError(result.stderr or "agent-server preflight returned a non-zero exit"),
             )
