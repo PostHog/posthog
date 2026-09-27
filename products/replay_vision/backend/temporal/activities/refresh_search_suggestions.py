@@ -41,7 +41,7 @@ def list_stale_search_suggestions_activity() -> list[RefreshScannerSuggestionsIn
 def refresh_scanner_search_suggestions_activity(inputs: RefreshScannerSuggestionsInputs) -> bool:
     """Regenerate one scanner's phrases, or the team's cross-scanner phrases when no scanner is named. False
     when nothing was regenerated: the scope is gone, consent was withdrawn since listing, too few new
-    observations, or no phrase the model gave finds anything."""
+    observations, or the model gave no usable phrase."""
     if inputs.scanner_id is None:
         return _refresh_team(inputs.team_id)
     scanner = (

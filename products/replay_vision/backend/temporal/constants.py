@@ -274,10 +274,11 @@ SEARCH_SUGGESTIONS_SCHEDULE_ID = "replay-vision-search-suggestions-refresher-sch
 # Short, so a new scanner or team has phrases minutes after its first observations land.
 SEARCH_SUGGESTIONS_REFRESH_INTERVAL = dt.timedelta(minutes=10)
 SEARCH_SUGGESTIONS_EXECUTION_TIMEOUT = dt.timedelta(minutes=9)
-SEARCH_SUGGESTIONS_MAX_PER_RUN = 300
+# With the concurrency below and a 30s model timeout, a full run of slow calls still ends inside the execution timeout.
+SEARCH_SUGGESTIONS_MAX_PER_RUN = 200
 # Backstop against a bug that makes every scope look stale. Sized for every active scanner and team refreshing
 # each REFRESH_INTERVAL, at a fraction of a cent per call.
 SEARCH_SUGGESTIONS_MAX_PER_DAY = 40_000
-SEARCH_SUGGESTIONS_CONCURRENCY = 8
+SEARCH_SUGGESTIONS_CONCURRENCY = 16
 LIST_STALE_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=60)
 REFRESH_SEARCH_SUGGESTIONS_TIMEOUT = dt.timedelta(seconds=90)

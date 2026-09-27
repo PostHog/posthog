@@ -53,6 +53,14 @@ class TestFinalize:
         assert _finalize(parsed) == ["coupon rejected at checkout", "gave up"]
         many = _LlmQueries(queries=[f"theme {i}" for i in range(MAX_SUGGESTED_QUERIES)])
         assert len(_finalize(many)) == MAX_SUGGESTED_QUERIES
+        broken = _LlmQueries(
+            queries=[
+                "see www.example.com",
+                "email a@example.com",
+                "one two three four five six seven eight nine ten eleven",
+            ]
+        )
+        assert _finalize(broken) == []
 
     def test_defangs_recording_derived_text(self) -> None:
         scanner = ReplayScanner(
@@ -102,7 +110,7 @@ class _SuggestionsTestCase(_VisionAPITestCase):
                 },
             )
             if created_at is not None:
-                ReplayObservation.objects.filter(pk=obs.pk).update(created_at=created_at)
+                ReplayObservation.objects.filter(pk=obs.pk).update(created_at=created_at, completed_at=created_at)
 
 
 class TestRefreshAndCandidates(_SuggestionsTestCase):
@@ -115,11 +123,15 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
             search_last_viewed_at=now - dt.timedelta(hours=1),
             search_suggestions_generated_at=now - FIRST_PHRASES_RETRY - dt.timedelta(minutes=1),
         )
-        self._seed(retrying, 1)
+        self._seed(retrying, MIN_OBSERVATIONS_FOR_FIRST_PHRASES)
+        stuck = self._scanner("stuck", search_last_viewed_at=now)
+        self._seed(stuck, 1)
         # Never viewed: phrases must exist before the first person opens the Search tab.
         unviewed = self._scanner("unviewed")
         self._seed(unviewed, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
         self._scanner("quiet", search_last_viewed_at=now)
+        disabled = self._scanner("disabled", search_last_viewed_at=now, enabled=False)
+        self._seed(disabled, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
         fresh = self._scanner("fresh", search_last_viewed_at=now, search_suggestions_generated_at=now)
         self._seed(fresh, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
         # Refreshed a while ago, but nothing landed since its watermark.
@@ -145,10 +157,10 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         self.assertTrue(refresh_scanner_suggestions(scanner))
         self.assertEqual(model_calls_today(), 1)
         scanner.refresh_from_db()
-        newest = ReplayObservation.objects.filter(scanner=scanner).order_by("-created_at").first()
+        newest = ReplayObservation.objects.filter(scanner=scanner).order_by("-completed_at").first()
         assert newest is not None
         self.assertEqual(scanner.search_suggestions, ["coupon rejected at checkout"])
-        self.assertEqual(scanner.search_suggestions_watermark, newest.created_at)
+        self.assertEqual(scanner.search_suggestions_watermark, newest.completed_at)
         self.assertIsNotNone(scanner.search_suggestions_generated_at)
         content = mock_generate.call_args.kwargs["user_content"]
         self.assertIn("<observations>", content)
@@ -158,6 +170,19 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         scanner.save()
         scanner.refresh_from_db()
         self.assertEqual(scanner.search_suggestions, ["coupon rejected at checkout"])
+
+        # A row created before the refresh but completed after it still counts as new.
+        self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
+        ReplayObservation.objects.filter(scanner=scanner, created_at__gt=newest.created_at).update(
+            created_at=newest.created_at - dt.timedelta(hours=1)
+        )
+        # The model found no theme: the stored phrases stay, and the scanner waits a full interval, not the retry.
+        mock_generate.return_value = _LlmQueries(queries=[])
+        self.assertFalse(refresh_scanner_suggestions(scanner))
+        self.assertEqual(model_calls_today(), 2)
+        scanner.refresh_from_db()
+        self.assertEqual(scanner.search_suggestions, ["coupon rejected at checkout"])
+        self.assertEqual(list(stale_suggestion_candidates(10)), [])
 
     @patch(_GENERATE_PATH)
     def test_rows_from_another_experiment_never_feed_the_phrases(self, mock_generate: MagicMock) -> None:
@@ -185,7 +210,7 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         )
         # Plenty before the watermark, too few after it.
         self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH, created_at=now - dt.timedelta(days=1))
-        self._seed(scanner, 1)
+        self._seed(scanner, MIN_OBSERVATIONS_FOR_FIRST_PHRASES)
         self.assertEqual([s.name for s in stale_suggestion_candidates(10)], ["checkout"])
         self.assertFalse(refresh_scanner_suggestions(scanner))
         mock_generate.assert_not_called()
@@ -252,6 +277,10 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         self.assertIsNone(cross_scanner_suggestions(self.team.id, [str(targeted.id)]))
         config = TeamReplayVisionConfig.objects.get(team_id=self.team.id)
         self.assertEqual(config.search_suggestions_sources, [str(checkout.id)])
+
+        checkout.delete()
+        config.refresh_from_db()
+        self.assertEqual(config.search_suggestions, [])
 
     @patch(_GENERATE_PATH, side_effect=SuggestionError("model down"))
     def test_activity_keeps_old_phrases_and_backs_off_on_model_failure(self, _mock: MagicMock) -> None:

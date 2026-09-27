@@ -8,9 +8,11 @@ first person to open the Search tab sees phrases drawn from their data rather th
 endpoint only reads the stored phrases and records the view.
 """
 
+import re
 import uuid
 import hashlib
 import datetime as dt
+from itertools import zip_longest
 
 from django.conf import settings
 from django.core.cache import cache
@@ -52,6 +54,9 @@ _CANDIDATE_ROWS = 200
 _SCANNER_PROMPT_CHARS = 600
 _TEAM_SCANNER_PROMPT_CHARS = 200
 _SAMPLE_CHARS = 280
+# The prompt asks for 3 to 8 words; a little slack keeps a good phrase that runs one word long.
+_MAX_PHRASE_WORDS = 10
+_IDENTIFIER = re.compile(r"https?://|www\.|@")
 # Refresh no more often than this even for a busy scanner.
 REFRESH_INTERVAL = dt.timedelta(hours=6)
 # A scope with no phrases shows the fixed examples, so it is looked at again this soon rather than after a full interval.
@@ -162,32 +167,36 @@ def stamp_search_viewed(team_id: int, scanner_ids: list[str]) -> None:
 # ---- refreshing ----
 
 
-def _due(prefix: str) -> Q:
-    """Never looked at, or past the back-off: a full interval with phrases, a short retry without them."""
+def _due() -> Q:
+    """Never looked at, or past the back-off. A scope that never had a model call shows the fixed examples, so
+    it is looked at again soon. After one, it waits a full interval, even when the model returned nothing."""
     now = timezone.now()
-    generated_at = f"{prefix}search_suggestions_generated_at"
-    phrases = f"{prefix}search_suggestions"
     return (
-        Q(**{f"{generated_at}__isnull": True})
-        | (Q(**{phrases: []}) & Q(**{f"{generated_at}__lt": now - FIRST_PHRASES_RETRY}))
-        | (~Q(**{phrases: []}) & Q(**{f"{generated_at}__lt": now - REFRESH_INTERVAL}))
+        Q(search_suggestions_generated_at__isnull=True)
+        | Q(search_suggestions_watermark__isnull=True, search_suggestions_generated_at__lt=now - FIRST_PHRASES_RETRY)
+        | Q(search_suggestions_watermark__isnull=False, search_suggestions_generated_at__lt=now - REFRESH_INTERVAL)
     )
+
+
+def _has_enough_new_rows(rows: QuerySet[ReplayObservation]) -> Exists:
+    # At least the smallest sample a model call is ever made on, so a scope stuck below it is never listed.
+    return Exists(rows.order_by()[MIN_OBSERVATIONS_FOR_FIRST_PHRASES - 1 : MIN_OBSERVATIONS_FOR_FIRST_PHRASES])
 
 
 def stale_suggestion_candidates(limit: int) -> QuerySet[ReplayScanner]:
-    """Scanners worth a look this run: AI processing on, past their back-off, and holding at least one
-    observation newer than their watermark. No view is needed, so phrases exist before anyone opens the Search
-    tab. Scanners someone watches come first, then the most recently active. Whether there are enough new
-    observations to spend a model call on is decided per scanner in `refresh_scanner_suggestions`."""
+    """Enabled scanners worth a look this run: AI processing on, past their back-off, and holding enough
+    observations completed after their watermark. No view is needed, so phrases exist before anyone opens the
+    Search tab. Scanners someone watches come first, then the most recently active. Whether there are enough
+    for a model call is decided per scanner in `refresh_scanner_suggestions`."""
     # A scanner with no watermark yet counts every observation as new.
     watermark = Coalesce(OuterRef("search_suggestions_watermark"), Value(_EPOCH), output_field=DateTimeField())
-    newer_observation = ReplayObservation.objects.filter(
-        scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED, created_at__gt=watermark
+    newer = ReplayObservation.objects.filter(
+        scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED, completed_at__gt=watermark
     )
     return (
-        ReplayScanner.objects.filter(team__organization__is_ai_data_processing_approved=True)
-        .filter(_due(""))
-        .filter(Exists(newer_observation))
+        ReplayScanner.objects.filter(enabled=True, team__organization__is_ai_data_processing_approved=True)
+        .filter(_due())
+        .filter(_has_enough_new_rows(newer))
         .order_by(F("search_last_viewed_at").desc(nulls_last=True), F("last_swept_at").desc(nulls_last=True))[:limit]
     )
 
@@ -201,25 +210,27 @@ def _team_rows() -> QuerySet[ReplayObservation]:
 
 
 def _team_sources() -> QuerySet[ReplayScanner]:
-    """Scanners that may feed a team's cross-scanner phrases. An experiment-targeted scanner's observations are
-    readable per experiment, so they never feed phrases every viewer of the team sees."""
-    return ReplayScanner.objects.filter(Q(experiment_targeting__isnull=True) | Q(experiment_targeting={}))
+    """Enabled scanners that may feed a team's cross-scanner phrases. An experiment-targeted scanner's
+    observations are readable per experiment, so they never feed phrases every viewer of the team sees."""
+    return ReplayScanner.objects.filter(enabled=True).filter(
+        Q(experiment_targeting__isnull=True) | Q(experiment_targeting={})
+    )
 
 
 def stale_team_candidates(limit: int) -> list[int]:
-    """Teams whose cross-scanner phrases are due: AI processing on, past their back-off, and with an observation
-    newer than their watermark on a scanner that may feed them."""
+    """Teams whose cross-scanner phrases are due: AI processing on, past their back-off, and with enough new
+    observations on a scanner that may feed them."""
     config = TeamReplayVisionConfig.objects.filter(team_id=OuterRef("team_id"))
     team_watermark = Coalesce(
         Subquery(config.values("search_suggestions_watermark")[:1]), Value(_EPOCH), output_field=DateTimeField()
     )
-    newer_observation = _team_rows().filter(scanner_id=OuterRef("pk"), created_at__gt=team_watermark)
-    not_due = TeamReplayVisionConfig.objects.exclude(_due("")).values("team_id")
+    newer = _team_rows().filter(scanner_id=OuterRef("pk"), completed_at__gt=team_watermark)
+    not_due = TeamReplayVisionConfig.objects.exclude(_due()).values("team_id")
     return list(
         _team_sources()
         .filter(team__organization__is_ai_data_processing_approved=True)
         .exclude(team_id__in=not_due)
-        .filter(Exists(newer_observation))
+        .filter(_has_enough_new_rows(newer))
         .values_list("team_id", flat=True)
         .distinct()[:limit]
     )
@@ -242,27 +253,33 @@ def _count_model_call() -> None:
         cache.set(key, 1, timeout=_BUDGET_TTL_S)
 
 
+def _min_samples(has_phrases: bool) -> int:
+    return MIN_NEW_OBSERVATIONS_FOR_REFRESH if has_phrases else MIN_OBSERVATIONS_FOR_FIRST_PHRASES
+
+
 def refresh_scanner_suggestions(scanner: ReplayScanner) -> bool:
-    """Regenerate one scanner's phrases from the observations newer than its watermark. Returns False without a
-    model call when too few landed; either way the scanner is stamped so it waits a full interval before the
-    next look. Raises `SuggestionError` when the model gave nothing usable; the stored phrases then stay."""
+    """Regenerate one scanner's phrases from the observations completed after its watermark. Returns False
+    without a model call when too few landed; either way the scanner is stamped so it waits before the next look.
+    When the model returns no usable phrase, the stored phrases stay. Raises `SuggestionError` when the model
+    call fails."""
     samples, watermark = _recent_observation_samples(scanner)
-    needed = MIN_NEW_OBSERVATIONS_FOR_REFRESH if scanner.search_suggestions else MIN_OBSERVATIONS_FOR_FIRST_PHRASES
-    if len(samples) < needed:
+    if len(samples) < _min_samples(bool(scanner.search_suggestions)):
         ReplayScanner.objects.filter(pk=scanner.pk).update(search_suggestions_generated_at=timezone.now())
         return False
     _count_model_call()
-    parsed = _generate(
-        user_content=_build_user_content([scanner], samples),
-        team_id=scanner.team_id,
-        distinct_id=f"scanner:{scanner.id}",
+    phrases = _finalize(
+        _generate(
+            user_content=_build_user_content([scanner], samples),
+            team_id=scanner.team_id,
+            distinct_id=f"scanner:{scanner.id}",
+        )
     )
     ReplayScanner.objects.filter(pk=scanner.pk).update(
-        search_suggestions=_finalize(parsed),
         search_suggestions_watermark=watermark,
         search_suggestions_generated_at=timezone.now(),
+        **({"search_suggestions": phrases} if phrases else {}),
     )
-    return True
+    return bool(phrases)
 
 
 def refresh_team_suggestions(team: Team) -> bool:
@@ -270,7 +287,7 @@ def refresh_team_suggestions(team: Team) -> bool:
     sampled evenly across them. Same contract as `refresh_scanner_suggestions`."""
     config = get_or_create_team_extension(team, TeamReplayVisionConfig)
     since = config.search_suggestions_watermark or _EPOCH
-    newer = _team_rows().filter(scanner_id=OuterRef("pk"), created_at__gt=since)
+    newer = _team_rows().filter(scanner_id=OuterRef("pk"), completed_at__gt=since)
     scanners = list(
         _team_sources()
         .filter(team_id=team.id)
@@ -284,33 +301,39 @@ def refresh_team_suggestions(team: Team) -> bool:
     for scanner in scanners:
         rows = list(
             _team_rows()
-            .filter(scanner_id=scanner.id, created_at__gt=since)
-            .order_by("-created_at")
-            .only("scanner_result", "created_at")[:_CANDIDATE_ROWS]
+            .filter(scanner_id=scanner.id, completed_at__gt=since)
+            .order_by("-completed_at")
+            .only("scanner_result", "completed_at")[:_CANDIDATE_ROWS]
         )
         samples += [f"[{scanner.name}] {line}" for line in _labeled_samples(scanner.scanner_type, rows)[:per_scanner]]
-        newest = max(filter(None, [newest, rows[0].created_at if rows else None]), default=None)
-    needed = MIN_NEW_OBSERVATIONS_FOR_REFRESH if config.search_suggestions else MIN_OBSERVATIONS_FOR_FIRST_PHRASES
-    if len(samples) < needed:
+        newest = max(filter(None, [newest, rows[0].completed_at if rows else None]), default=None)
+    if len(samples) < _min_samples(bool(config.search_suggestions)):
         TeamReplayVisionConfig.objects.filter(pk=team.id).update(search_suggestions_generated_at=timezone.now())
         return False
     _count_model_call()
-    parsed = _generate(
-        user_content=_build_user_content(scanners, samples[:_MAX_SAMPLES]),
-        team_id=team.id,
-        distinct_id=f"team:{team.id}",
+    phrases = _finalize(
+        _generate(
+            user_content=_build_user_content(scanners, samples[:_MAX_SAMPLES]),
+            team_id=team.id,
+            distinct_id=f"team:{team.id}",
+        )
     )
     TeamReplayVisionConfig.objects.filter(pk=team.id).update(
-        search_suggestions=_finalize(parsed),
-        search_suggestions_sources=[str(scanner.id) for scanner in scanners],
         search_suggestions_watermark=newest,
         search_suggestions_generated_at=timezone.now(),
+        **(
+            {"search_suggestions": phrases, "search_suggestions_sources": [str(scanner.id) for scanner in scanners]}
+            if phrases
+            else {}
+        ),
     )
-    return True
+    return bool(phrases)
 
 
 def _recent_observation_samples(scanner: ReplayScanner) -> tuple[list[str], dt.datetime | None]:
-    """Text of the newest observations since the watermark, and the created_at the next watermark moves to.
+    """Text of the newest observations completed since the watermark, and the completed_at the next watermark
+    moves to. Completion rather than creation, because a row still running at one refresh completes later
+    with an earlier created_at and would otherwise never count as new.
 
     Rows are gated like `scanner_access.accessible_observations`: a viewer of this scanner can read its
     current experiment, so only observations whose snapshot names no experiment or that same one may feed
@@ -321,9 +344,9 @@ def _recent_observation_samples(scanner: ReplayScanner) -> tuple[list[str], dt.d
         | Q(scanner_snapshot__experiment_targeting__experiment_id=current_experiment)
     )
     if scanner.search_suggestions_watermark is not None:
-        rows = rows.filter(created_at__gt=scanner.search_suggestions_watermark)
-    newest = list(rows.order_by("-created_at").only("scanner_result", "created_at")[:_CANDIDATE_ROWS])
-    return _labeled_samples(scanner.scanner_type, newest)[:_MAX_SAMPLES], newest[0].created_at if newest else None
+        rows = rows.filter(completed_at__gt=scanner.search_suggestions_watermark)
+    newest = list(rows.order_by("-completed_at").only("scanner_result", "completed_at")[:_CANDIDATE_ROWS])
+    return _labeled_samples(scanner.scanner_type, newest)[:_MAX_SAMPLES], newest[0].completed_at if newest else None
 
 
 def _labeled_samples(scanner_type: str, rows: list[ReplayObservation]) -> list[str]:
@@ -331,25 +354,17 @@ def _labeled_samples(scanner_type: str, rows: list[ReplayObservation]) -> list[s
     each outcome in turn. Round-robin keeps a rare outcome, like a monitor's occasional `yes`, from being
     crowded out by the common one. Which outcome matters is left to the model, because it depends on how the
     scanner's question is phrased."""
-    buckets: dict[str, list[str]] = {}
-    scores = sorted(score for obs in rows if isinstance(score := (read_output(obs) or {}).get("score"), int | float))
+    outputs = [output for obs in rows if (output := read_output(obs)) is not None]
+    scores = sorted(score for output in outputs if isinstance(score := output.get("score"), int | float))
     median = scores[len(scores) // 2] if scores else None
-    for obs in rows:
-        output = read_output(obs)
-        text = explanation_text(output)[:_SAMPLE_CHARS] if output is not None else ""
-        if output is None or not text:
-            continue
-        label = describe_output(output)
-        buckets.setdefault(_outcome_bucket(scanner_type, output, median), []).append(
-            f"[{label}] {text}" if label else text
-        )
-    interleaved: list[str] = []
-    queues = list(buckets.values())
-    while any(queues):
-        for queue in queues:
-            if queue:
-                interleaved.append(queue.pop(0))
-    return interleaved
+    buckets: dict[str, list[str]] = {}
+    for output in outputs:
+        if text := explanation_text(output)[:_SAMPLE_CHARS]:
+            label = describe_output(output)
+            buckets.setdefault(_outcome_bucket(scanner_type, output, median), []).append(
+                f"[{label}] {text}" if label else text
+            )
+    return [line for turn in zip_longest(*buckets.values()) for line in turn if line is not None]
 
 
 def _outcome_bucket(scanner_type: str, output: dict, median: float | None) -> str:
@@ -424,11 +439,13 @@ def _generate(*, user_content: str, team_id: int, distinct_id: str) -> _LlmQueri
 
 
 def _finalize(parsed: _LlmQueries) -> list[str]:
+    """Normalized phrases that keep the prompt's shape. Recording text steers the model, so a phrase that breaks
+    the rules, such as a long sentence or a URL or email copied from a session, is dropped rather than shown."""
     seen: set[str] = set()
     queries: list[str] = []
     for raw in parsed.queries:
         query = " ".join(raw.split()).strip().rstrip(".!?").lower()
-        if query and query not in seen:
+        if query and query not in seen and len(query.split()) <= _MAX_PHRASE_WORDS and not _IDENTIFIER.search(query):
             seen.add(query)
             queries.append(query)
     return queries[:MAX_SUGGESTED_QUERIES]
