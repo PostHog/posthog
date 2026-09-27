@@ -97574,7 +97574,7 @@ export namespace Schemas {
     export interface TaskCommentTarget {
       /** Stable target id. */
       id: string;
-      /** Target type: task, artifact, or canvas. */
+      /** Target type: task, artifact, canvas, preview, or browser. */
       type: string;
       /** Display name of the comment target. */
       name: string;
@@ -97611,7 +97611,7 @@ export namespace Schemas {
     export interface TaskCommentDetail {
       /** Root comment id. */
       id: string;
-      /** Task, artifact, or canvas receiving the comment. */
+      /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
       target: TaskCommentTarget;
       /** Whether the comment is resolved. */
       resolved: boolean;
@@ -97627,7 +97627,7 @@ export namespace Schemas {
     export interface TaskCommentSummary {
       /** Root comment id. */
       id: string;
-      /** Task, artifact, or canvas receiving the comment. */
+      /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
       target: TaskCommentTarget;
       /** Bounded excerpt of the root comment body. */
       content: string;
@@ -108125,7 +108125,7 @@ export namespace Schemas {
      */
     source_comment?: string;
     /**
-     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     * Owning task for task, task_artifact, task_preview, task_browser, and desktop_canvas comment scopes.
      */
     task_id?: string;
     };
