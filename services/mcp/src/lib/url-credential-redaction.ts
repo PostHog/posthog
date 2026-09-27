@@ -21,10 +21,10 @@ const EXACT_CREDENTIAL_NAMES = new Set(['code', 'state', 'key', 'sig', 'auth', '
 
 /**
  * Suffixes that mark a credential in any compound name, such as `access_token`,
- * `client_secret`, `X-Amz-Signature`, `apiKey`, or `api-key`.
+ * `client_secret`, `X-Amz-Signature`, `apiKey`, `api-key`, or `secret_key`.
  */
 const CREDENTIAL_NAME_SUFFIX =
-    /(?:token|secret|password|passwd|signature|credential|credentials|api[_-]?key|access[_-]?key)$/i
+    /(?:token|secret|password|passwd|signature|credential|credentials|api[_-]?key|access[_-]?key|secret[_-]?key)$/i
 
 /**
  * A parameter starts after `?`, `&`, `#`, or `;`, or after their percent-encoded

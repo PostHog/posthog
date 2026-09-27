@@ -29,8 +29,8 @@ describe('redactUrlCredentials', () => {
             'url,count\nhttps://example.com/cb?code=[REDACTED],3\nhttps://example.com/pricing?plan=pro,5',
         ],
         [
-            'https://example.com/v1?api-key=fake-key&access-key=fake-access&page=2',
-            'https://example.com/v1?api-key=[REDACTED]&access-key=[REDACTED]&page=2',
+            'https://example.com/v1?api-key=fake-key&access-key=fake-access&secret_key=fake-secret&page=2',
+            'https://example.com/v1?api-key=[REDACTED]&access-key=[REDACTED]&secret_key=[REDACTED]&page=2',
         ],
         [
             'https://example.com/login?redirect_uri=https://example.com/cb?code=fake-code&lang=en',
