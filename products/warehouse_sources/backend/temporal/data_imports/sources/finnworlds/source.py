@@ -136,7 +136,7 @@ Macroeconomic indicators are reported per country, so add the countries you want
                         name="tickers",
                         label="Tickers",
                         type=SourceFieldInputConfigType.TEXTAREA,
-                        required=True,
+                        required=False,
                         placeholder="AAPL, MSFT, GOOGL",
                         secret=False,
                     ),

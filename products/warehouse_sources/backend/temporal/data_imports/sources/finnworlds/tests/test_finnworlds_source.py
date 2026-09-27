@@ -98,6 +98,16 @@ class TestFinnworldsSource:
         assert "Too many countries" in message
         probe.assert_not_called()
 
+    def test_a_macro_only_source_needs_no_tickers(self) -> None:
+        config = FinnworldsSourceConfig(api_key="fw-test", countries="Germany")
+        inputs = _make_inputs(schema_name="macroeconomic_indicators")
+        with mock.patch.object(source_module, "finnworlds_source") as mocked:
+            self.source.source_for_pipeline(config, inputs)
+
+        _, kwargs = mocked.call_args
+        assert kwargs["tickers"] == []
+        assert kwargs["countries"] == ["Germany"]
+
     def test_source_for_pipeline_plumbs_parsed_tickers(self) -> None:
         inputs = _make_inputs(schema_name="dividends")
         with mock.patch.object(source_module, "finnworlds_source") as mocked:

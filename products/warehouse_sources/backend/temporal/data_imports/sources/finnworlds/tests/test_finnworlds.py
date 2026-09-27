@@ -408,9 +408,9 @@ class TestInsiderTransactions:
         rows = _extract_rows(_insider_payload(), FINNWORLDS_ENDPOINTS["insider_transactions"])
 
         assert [(r["transaction_table"], r["transaction_index"]) for r in rows] == [
-            ("non_derivative", 0),
             ("non_derivative", 1),
-            ("derivative", 0),
+            ("non_derivative", 2),
+            ("derivative", 3),
         ]
 
     def test_flattens_nested_transaction_objects(self) -> None:
@@ -468,6 +468,17 @@ class TestInsiderTransactions:
 
         keys = {tuple(row[key] for key in config.primary_keys) for row in rows}
         assert len(keys) == len(rows)
+
+    def test_primary_key_separates_two_filings_sharing_a_period_and_owner(self) -> None:
+        # The API exposes no filing identifier, so a ticker that files twice in one period would
+        # collide if the line index restarted per filing.
+        config = FINNWORLDS_ENDPOINTS["insider_transactions"]
+        payload = {"result": [_insider_payload()["result"], _insider_payload()["result"]]}
+        rows = [_normalize_row(row, config, "AAPL", None) for row in _extract_rows(payload, config)]
+
+        keys = {tuple(row[key] for key in config.primary_keys) for row in rows}
+        assert len(rows) == 6
+        assert len(keys) == 6
 
     @parameterized.expand(
         [

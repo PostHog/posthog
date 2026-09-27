@@ -38,7 +38,7 @@ class ResponseMode(StrEnum):
     TOP_LEVEL = "top_level"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FinnworldsEndpointConfig:
     name: str  # warehouse table name (and ExternalDataSchema.name)
     path: str  # API path segment under https://api.finnworlds.com/api/v1/
@@ -152,8 +152,8 @@ FINNWORLDS_ENDPOINTS: dict[str, FinnworldsEndpointConfig] = {
         name="insider_transactions",
         path="insidertransactions",
         response_mode=ResponseMode.INSIDER_FILING,
-        # A filing reports many transaction lines that repeat security, date and code, so the line's
-        # position in the filing is what separates them.
+        # Transaction lines repeat security, date and code, and a ticker can file more than once in a
+        # period, so the line's position in the whole response is what separates them.
         primary_keys=["ticker", "period_of_report", "owner_cik", "transaction_table", "transaction_index"],
         partition_key="activity_date",
     ),

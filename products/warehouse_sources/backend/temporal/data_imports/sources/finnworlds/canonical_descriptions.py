@@ -183,7 +183,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ticker": "Stock ticker symbol the filing belongs to.",
             "period_of_report": "Period the filing reports on.",
             "transaction_table": "Whether the line comes from the non-derivative or derivative table.",
-            "transaction_index": "Position of the line within its table in the filing.",
+            "transaction_index": "Position of the line within the API response for this ticker.",
             "owner_cik": "SEC Central Index Key of the reporting insider.",
             "owner_name": "Name of the reporting insider.",
             "owner_is_director": "Whether the insider is a director of the company.",

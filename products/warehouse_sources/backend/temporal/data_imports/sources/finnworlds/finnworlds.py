@@ -178,12 +178,15 @@ def _insider_filing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """Expand SEC Form 4 filings into one row per reported transaction line.
 
     A date range can return either one filing object or a list of them, so both are accepted. Joint
-    filers report the same lines, so a line is emitted once per reporting owner.
+    filers report the same lines, so a line is emitted once per reporting owner. The line index runs
+    across the whole response, because the API exposes no filing identifier to separate two filings
+    that share a period and an owner.
     """
     result = payload.get("result")
     filings = result if isinstance(result, list) else [result]
 
     rows: list[dict[str, Any]] = []
+    index = 0
     for filing in filings:
         if not isinstance(filing, dict):
             continue
@@ -194,7 +197,7 @@ def _insider_filing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
             entries = filing.get(table)
             if not isinstance(entries, list):
                 continue
-            for index, entry in enumerate(entries):
+            for entry in entries:
                 if not isinstance(entry, dict):
                     continue
                 # Derivative lines wrap the transaction in a "derivatives" object; non-derivative ones don't.
@@ -202,6 +205,7 @@ def _insider_filing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
                 if not isinstance(inner, dict):
                     continue
                 line = _flatten_nested(inner)
+                index += 1
                 rows.extend(
                     {
                         **line,
