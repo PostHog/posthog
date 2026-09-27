@@ -78,7 +78,10 @@ export const setSitePolicyInput = z.object({
 export const unregisterTabInput = z.object({
   browserId: z.string(),
   webContentsId: z.number().int(),
+  url: z.string().max(4_000).optional(),
 });
+
+export const forgetTabInput = z.object({ browserId: z.string() });
 
 export const setFullCdpAccessInput = z.object({ enabled: z.boolean() });
 

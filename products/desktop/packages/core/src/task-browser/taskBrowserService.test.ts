@@ -148,6 +148,29 @@ describe("TaskBrowserService", () => {
     await run.finish();
   });
 
+  it("keeps a user tab reachable after its frame unmounts, until the user closes it", async () => {
+    const { service, openTab, startRun, answers } = setup();
+    openTab("task-1", "tab-u", 1, "https://example.com/");
+    service.unregister("tab-u", 1, "https://example.com/deep/page");
+    service.on(TaskBrowserEvent.OpenRequest, ({ browserId, url }) =>
+      openTab("task-1", browserId, 2, url),
+    );
+    answers.push("allow-task");
+    const run = startRun("task-1");
+
+    await expect(run.call("tabs")).resolves.toEqual([
+      { id: "tab-u", kind: "browser", url: "https://example.com", title: "" },
+    ]);
+    await expect(run.call("snapshot", "tab-u")).resolves.toBe("result");
+
+    service.unregister("tab-u", 2, "https://example.com/deep/page");
+    service.forgetTab("tab-u");
+    await expect(run.call("snapshot", "tab-u")).rejects.toThrow(
+      "No open tab tab-u in this task.",
+    );
+    await run.finish();
+  });
+
   it("asks before the agent submits a filled form with Enter", async () => {
     const { openTab, startRun, answers, prompts, tabs } = setup({
       form: { password: false, payment: false, filled: true },

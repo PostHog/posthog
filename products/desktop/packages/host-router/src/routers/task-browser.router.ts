@@ -1,6 +1,7 @@
 import { TASK_BROWSER_SERVICE } from "@posthog/core/task-browser/identifiers";
 import {
   browserSettingsSchema,
+  forgetTabInput,
   permissionResponseInput,
   registerTabInput,
   setFullCdpAccessInput,
@@ -35,7 +36,11 @@ export const taskBrowserRouter = router({
   unregister: publicProcedure
     .input(unregisterTabInput)
     .mutation(({ ctx, input }) =>
-      svc(ctx.container).unregister(input.browserId, input.webContentsId),
+      svc(ctx.container).unregister(
+        input.browserId,
+        input.webContentsId,
+        input.url,
+      ),
     ),
 
   onOpenRequest: events(TaskBrowserEvent.OpenRequest),
@@ -63,6 +68,12 @@ export const taskBrowserRouter = router({
     .input(setFullCdpAccessInput)
     .mutation(({ ctx, input }) =>
       svc(ctx.container).setFullCdpAccess(input.enabled),
+    ),
+
+  forgetTab: publicProcedure
+    .input(forgetTabInput)
+    .mutation(({ ctx, input }) =>
+      svc(ctx.container).forgetTab(input.browserId),
     ),
 
   clearBrowsingData: publicProcedure.mutation(({ ctx }) =>

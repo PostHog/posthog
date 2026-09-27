@@ -162,10 +162,18 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     this.waiters.delete(input.browserId);
   }
 
-  unregister(browserId: string, webContentsId: number): void {
-    if (this.tabs.get(browserId)?.tabId === webContentsId) {
-      this.tabs.delete(browserId);
+  unregister(browserId: string, webContentsId: number, url?: string): void {
+    const tab = this.tabs.get(browserId);
+    if (tab?.tabId !== webContentsId) return;
+    this.tabs.delete(browserId);
+    if (tab.kind === "browser" && url && originOf(url)) {
+      this.reopenable.set(browserId, { taskId: tab.taskId, url });
     }
+  }
+
+  forgetTab(browserId: string): void {
+    this.reopenable.delete(browserId);
+    this.agentOpened.delete(browserId);
   }
 
   recordNetwork(webContentsId: number | undefined, text: string): void {
@@ -379,22 +387,38 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
   }
 
   private listTabs(taskId: string) {
-    return [...this.tabs.values()]
+    const describe = (
+      id: string,
+      kind: BrowserTabKind,
+      url: string,
+      title: string,
+    ) => {
+      const origin = originOf(url);
+      const visible =
+        origin !== null && this.sites.access(taskId, origin) === "allowed";
+      return {
+        id,
+        kind,
+        url: visible ? url : (origin ?? ""),
+        title: visible ? title : "",
+      };
+    };
+    const mounted = [...this.tabs.values()]
       .filter(
         (tab) => tab.taskId === taskId && !this.host.isDestroyed(tab.tabId),
       )
-      .map((tab) => {
-        const url = this.host.url(tab.tabId);
-        const origin = originOf(url);
-        const visible =
-          origin !== null && this.sites.access(taskId, origin) === "allowed";
-        return {
-          id: tab.browserId,
-          kind: tab.kind,
-          url: visible ? url : (origin ?? ""),
-          title: visible ? this.host.title(tab.tabId) : "",
-        };
-      });
+      .map((tab) =>
+        describe(
+          tab.browserId,
+          tab.kind,
+          this.host.url(tab.tabId),
+          this.host.title(tab.tabId),
+        ),
+      );
+    const unmounted = [...this.reopenable.entries()]
+      .filter(([id, saved]) => saved.taskId === taskId && !this.tabs.has(id))
+      .map(([id, saved]) => describe(id, "browser", saved.url, ""));
+    return [...mounted, ...unmounted];
   }
 
   private async open(context: CallContext, url: string) {

@@ -232,6 +232,8 @@ container.bind(TASK_BROWSER_HOST).toConstantValue({
     hostTrpcClient.taskBrowser.setFullCdpAccess.mutate({ enabled }),
   clearBrowsingData: () =>
     hostTrpcClient.taskBrowser.clearBrowsingData.mutate(),
+  forgetTab: (browserId) =>
+    hostTrpcClient.taskBrowser.forgetTab.mutate({ browserId }),
 });
 
 container.bind(SCREEN_CAPTURE_SERVICE).toConstantValue({

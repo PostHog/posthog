@@ -58,6 +58,7 @@ export interface ITaskBrowserHost {
     policy: TaskBrowserSitePolicy | null,
   ): Promise<void>;
   setFullCdpAccess(enabled: boolean): Promise<void>;
+  forgetTab(browserId: string): Promise<void>;
   clearBrowsingData(): Promise<void>;
 }
 

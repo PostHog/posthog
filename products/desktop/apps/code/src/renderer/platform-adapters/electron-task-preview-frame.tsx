@@ -270,8 +270,18 @@ export function ElectronTaskPreviewFrame({
     return () => {
       cancelled = true;
       if (registeredId !== null) {
+        let lastUrl: string | undefined;
+        try {
+          lastUrl = webview.getURL();
+        } catch {
+          lastUrl = undefined;
+        }
         void hostTrpcClient.taskBrowser.unregister
-          .mutate({ browserId: frameId, webContentsId: registeredId })
+          .mutate({
+            browserId: frameId,
+            webContentsId: registeredId,
+            url: lastUrl,
+          })
           .catch(() => undefined);
       }
       webview.removeEventListener("dom-ready", onReady);
