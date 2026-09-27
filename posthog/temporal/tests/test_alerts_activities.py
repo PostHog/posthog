@@ -32,7 +32,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.errors import CHQueryErrorQueryWasCancelled, wrap_clickhouse_query_error
+from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError, wrap_clickhouse_query_error
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -1072,6 +1072,7 @@ class TestEvaluateAlert:
         self, alert_with_user, code, message
     ) -> None:
         error = wrap_clickhouse_query_error(ServerException(message, code=code))
+        assert isinstance(error, ExposedCHQueryError)
         with (
             patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=error),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
