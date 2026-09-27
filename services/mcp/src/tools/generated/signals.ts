@@ -1453,11 +1453,8 @@ const scoutReportCheckCreate = (): ToolBase<
 })
 
 const ScoutReportCheckListSchema = () => {
-    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
-    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
-    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
-        SignalsScoutReportChecksListQueryParams.shape
-    )
+    const SignalsScoutReportCheckListQueryParams = orvalSchemas.SignalsScoutReportCheckListQueryParams()
+    return SignalsScoutReportCheckListQueryParams
 }
 
 const scoutReportCheckList = (): ToolBase<
@@ -1470,7 +1467,7 @@ const scoutReportCheckList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/report-checks/`,
             query: {
                 report_id: params.report_id,
             },
@@ -1480,11 +1477,8 @@ const scoutReportCheckList = (): ToolBase<
 })
 
 const ScoutReportChecksListSchema = () => {
-    const SignalsScoutReportChecksListParams = orvalSchemas.SignalsScoutReportChecksListParams()
-    const SignalsScoutReportChecksListQueryParams = orvalSchemas.SignalsScoutReportChecksListQueryParams()
-    return SignalsScoutReportChecksListParams.omit({ project_id: true }).extend(
-        SignalsScoutReportChecksListQueryParams.shape
-    )
+    const SignalsScoutReportCheckListQueryParams = orvalSchemas.SignalsScoutReportCheckListQueryParams()
+    return SignalsScoutReportCheckListQueryParams
 }
 
 const scoutReportChecksList = (): ToolBase<
@@ -1497,7 +1491,7 @@ const scoutReportChecksList = (): ToolBase<
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ScoutCheckSummary[]>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/report-checks/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/report-checks/`,
             query: {
                 report_id: params.report_id,
             },
