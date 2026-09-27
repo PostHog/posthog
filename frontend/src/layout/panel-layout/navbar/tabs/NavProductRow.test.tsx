@@ -9,13 +9,13 @@ import { AccessControlLevel, AccessControlResourceType, TeamType } from '~/types
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
-import { NavAppRow } from './NavAppRow'
+import { NavProductRow } from './NavProductRow'
 
 const defaultAccess = Object.fromEntries(
     Object.values(AccessControlResourceType).map((type) => [type, AccessControlLevel.Editor])
 ) as Record<AccessControlResourceType, AccessControlLevel>
 
-describe('NavAppRow', () => {
+describe('NavProductRow', () => {
     beforeEach(() => {
         useMocks({ get: { '/api/environments/:team_id/file_system_shortcut/': { results: [] } } })
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, conversations_enabled: true } as TeamType)
@@ -27,13 +27,13 @@ describe('NavAppRow', () => {
 
     afterEach(cleanup)
 
-    it('closes the temporary navigation when selecting the current app', () => {
+    it('closes the temporary navigation when selecting the current product', () => {
         router.actions.push('/project/1/feature_flags')
         panelLayoutLogic.mount()
         panelLayoutLogic.actions.toggleLayoutNavCollapsed(true)
         panelLayoutLogic.actions.setNavOverlayOpen(true)
         const { container } = render(
-            <NavAppRow item={{ path: 'Feature flags', iconType: 'feature_flag', href: '/feature_flags' }} />
+            <NavProductRow item={{ path: 'Feature flags', iconType: 'feature_flag', href: '/feature_flags' }} />
         )
 
         fireEvent.click(container.querySelector('[data-attr="nav-apps-item"]')!)
@@ -48,7 +48,7 @@ describe('NavAppRow', () => {
             effective_resource_access_control: { ...defaultAccess, feature_flag: AccessControlLevel.None },
         }
         const { container, getByLabelText } = render(
-            <NavAppRow
+            <NavProductRow
                 item={{
                     path: 'Feature flags',
                     iconType: 'feature_flag',
@@ -73,7 +73,7 @@ describe('NavAppRow', () => {
             post: { '/api/environments/:team_id/file_system_shortcut/': create },
             delete: { '/api/environments/:team_id/file_system_shortcut/star-test/': remove },
         })
-        const { getByLabelText, queryByLabelText, findByText } = render(<NavAppRow item={{ path, type, href }} />)
+        const { getByLabelText, queryByLabelText, findByText } = render(<NavProductRow item={{ path, type, href }} />)
         await waitFor(() => expect(projectTreeDataLogic.values.shortcutDataLoading).toBe(false))
         const initialPath = router.values.location.pathname
         const starButton = async (name: string): Promise<HTMLElement> => {
