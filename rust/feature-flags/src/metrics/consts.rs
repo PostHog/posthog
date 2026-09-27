@@ -1,11 +1,9 @@
-// Group type cache metrics
 pub const GROUP_TYPE_CACHE_HIT_COUNTER: &str = "flags_group_type_cache_hit_total";
 pub const GROUP_TYPE_CACHE_MISS_COUNTER: &str = "flags_group_type_cache_miss_total";
 pub const GROUP_TYPE_CACHE_ENTRIES_GAUGE: &str = "flags_group_type_cache_entries";
 pub const DB_GROUP_TYPE_READS_COUNTER: &str = "flags_db_group_type_reads_total";
 pub const DB_GROUP_TYPE_ERRORS_COUNTER: &str = "flags_db_group_type_errors_total";
 
-// Flag evaluation counters
 pub const FLAG_EVALUATION_ERROR_COUNTER: &str = "flags_flag_evaluation_error_total";
 pub const FLAG_HASH_KEY_WRITES_COUNTER: &str = "flags_flag_hash_key_writes_total";
 pub const FLAG_HASH_KEY_RETRIES_COUNTER: &str = "flags_hash_key_retries_total";
@@ -65,7 +63,6 @@ pub const FLAG_DEFINITIONS_INMEM_CACHE_ENTRIES_GAUGE: &str =
 //   reason="etag_redis_error" — the `get_etag` call itself failed.
 pub const FLAG_DEFINITIONS_INMEM_CACHE_NO_VERSION_COUNTER: &str =
     "flags_definitions_inmem_cache_no_version_total";
-// Cohort source for flag evaluation
 // Labels: source="preloaded" (from flags hypercache) | source="cache_manager" (CohortCacheManager fallback)
 pub const FLAG_COHORT_SOURCE_COUNTER: &str = "flags_cohort_source_total";
 pub const PROPERTY_CACHE_HITS_COUNTER: &str = "flags_property_cache_hits_total";
@@ -175,13 +172,11 @@ pub const FLAG_INFLIGHT_BY_PHASE: &str = "flags_inflight_by_phase";
 // from `miss_load_ok` so a PG-fallback storm is visible on its own.
 pub const FLAG_DEFINITIONS_INMEM_LOAD_MS: &str = "flags_definitions_inmem_load_ms";
 
-// Performance monitoring
 pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_active_total";
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
 pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
 
-// Billing aggregator metrics
 // See `src/billing/aggregator.rs`. The accounting identity
 //   flags_billing_records_total ≈ flags_billing_entries_flushed_total
 //                                + flags_billing_unflushed_requests_total{cause="cap_drop"}
@@ -299,7 +294,6 @@ pub const FLAGS_BILLING_UNFLUSHED_REQUESTS: &str = "flags_billing_unflushed_requ
 // `flags_billing_unflushed_requests_total{cause="flush_dropped_on_error"}`.
 pub const FLAGS_BILLING_FLUSH_BLOCKED_REQUESTS: &str = "flags_billing_flush_blocked_requests_total";
 
-// Flag evaluation timing
 pub const FLAG_EVALUATION_TIME: &str = "flags_evaluation_time";
 pub const FLAG_HASH_KEY_PROCESSING_TIME: &str = "flags_hash_key_processing_time";
 pub const FLAG_DB_PROPERTIES_FETCH_TIME: &str = "flags_properties_db_fetch_time";
@@ -327,56 +321,47 @@ pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
 // Flag request kludges (to see how often we have to massage our request data to be able to parse it)
 pub const FLAG_REQUEST_KLUDGE_COUNTER: &str = "flags_request_kludge_total";
 
-// New diagnostic metrics for pool exhaustion investigation
 pub const FLAG_POOL_UTILIZATION_GAUGE: &str = "flags_pool_utilization_ratio";
 pub const FLAG_CONNECTION_HOLD_TIME: &str = "flags_connection_hold_time_ms";
 pub const FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER: &str =
     "flags_experience_continuity_requests_total";
 
-// Experience continuity optimization metric
 // Tracks requests where optimization could apply, with status label:
 // - status="skipped": lookup was actually skipped (optimization enabled, no flags needed it)
 // - status="eligible": lookup could be skipped but wasn't (optimization feature is disabled)
 pub const FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED: &str =
     "flags_experience_continuity_optimized_total";
 
-// Hash key override query result metric
 // Tracks the result of hash key override queries to understand cache optimization potential
 // Labels: result="empty" (no overrides found) | result="has_overrides" (overrides exist)
 pub const FLAG_HASH_KEY_QUERY_RESULT: &str = "flags_hash_key_query_result_total";
 pub const FLAG_HASH_KEY_REPLICA_CHECK: &str = "flags_hash_key_override_replica_check_total";
 
-// Flag definitions rate limiting
 pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_rate_limited_total";
 pub const FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER: &str =
     "flags_flag_definitions_rate_limit_bypassed_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
 
-// Remote config rate limiting
 pub const REMOTE_CONFIG_RATE_LIMITED_COUNTER: &str = "flags_remote_config_rate_limited_total";
 pub const REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER: &str =
     "flags_remote_config_rate_limit_bypassed_total";
 pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_total";
 
-// Remote config auth method
 // Labels: method (project_secret_api_key, secret_api_key, personal_api_key). The secret-vs-personal
 // split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
 pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
 
-// Remote config ETag metrics
 // Labels: result (hit = 304, miss = 200 with stale etag, none = request sent no
 // If-None-Match; the 200 still carries an etag since it is computed per request). Unlike flag
 // definitions there is no redis_error case: no cache backs this endpoint, so the etag is
 // content-derived per request and can always be computed.
 pub const REMOTE_CONFIG_ETAG_COUNTER: &str = "flags_remote_config_etag_total";
 
-// Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)
 pub const FLAG_DEFINITIONS_CACHE_HIT_COUNTER: &str = "flags_flag_definitions_cache_hit_total";
 // Labels: reason (cache_miss, s3_error, redis_error, json_parse_error, timeout)
 pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_cache_miss_total";
 
-// Flag definitions ETag metrics
 // Labels: result (hit = 304, miss = 200 with stale etag, none = 200 without etag,
 // redis_missing = Redis answered and held no etag key,
 // redis_error = the etag read failed or the stored value did not decode)
@@ -394,7 +379,6 @@ pub const FLAG_DEFINITIONS_READS_DEDICATED_REDIS_GAUGE: &str =
 pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
     "flags_flag_definitions_rebuild_requested_total";
 
-// Flag definitions auth method
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
@@ -413,13 +397,10 @@ pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
 
-// Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
 
-// Error classification
 pub const FLAG_DATABASE_ERROR_COUNTER: &str = "flags_database_error_total";
 
-// Dependency graph build metrics
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_COUNTER: &str = "flags_dependency_graph_build_total";
 pub const FLAG_DEPENDENCY_GRAPH_BUILD_TIME: &str = "flags_dependency_graph_build_ms";
 pub const FLAG_MISSING_REQUESTED_FLAG_KEY: &str = "missing_requested_flag_key";
@@ -453,13 +434,10 @@ pub const FLAG_MALFORMED_FILTER_READ_COUNTER: &str = "flags_flag_malformed_filte
 // Different failure types are tracked via the "failure_type" label
 pub const TOMBSTONE_COUNTER: &str = "posthog_tombstone_total";
 
-// DB operations per request metric
-// Tracks the count of DB operations per request, labeled by team_id and operation_type.
 // This surfaces teams generating excessive DB load regardless of individual query latency.
 // Labels: team_id, operation_type (person_query, cohort_query, group_query)
 pub const FLAG_DB_OPERATIONS_PER_REQUEST: &str = "flags_db_operations_per_request";
 
-// Rayon dispatcher metrics
 // These track semaphore backpressure on the parallel evaluation path.
 
 // Time spent waiting for a semaphore permit before entering the Rayon pool (histogram, ms).
@@ -494,23 +472,18 @@ pub const RAYON_DISPATCHER_INFLIGHT_TASKS: &str = "flags_rayon_dispatcher_inflig
 pub const RAYON_DISPATCHER_SEMAPHORE_TIMEOUTS: &str =
     "flags_rayon_dispatcher_semaphore_timeouts_total";
 
-// Flag batch evaluation metrics
 // These track the performance difference between sequential and parallel evaluation strategies.
 // Used for A/B testing and tuning the PARALLEL_EVAL_THRESHOLD.
 
-// Time spent evaluating a batch of flags (histogram)
 // Labels: evaluation_type ("sequential" or "parallel")
 pub const FLAG_BATCH_EVALUATION_TIME: &str = "flags_batch_evaluation_time_ms";
 
-// Counter for evaluation batches by type
 // Labels: evaluation_type ("sequential" or "parallel")
 pub const FLAG_BATCH_EVALUATION_COUNTER: &str = "flags_batch_evaluation_total";
 
-// Histogram of flag counts per batch evaluation
 // Labels: evaluation_type ("sequential" or "parallel")
 pub const FLAG_BATCH_SIZE: &str = "flags_batch_size";
 
-// Tokio runtime metrics
 // These track worker thread utilization to inform thread pool sizing decisions.
 // Sampled periodically by TokioRuntimeMonitor (default: every 15s).
 
@@ -546,10 +519,8 @@ pub const TOKIO_WORKER_PARK_DELTA: &str = "flags_tokio_worker_park_delta";
 // Used to detect load imbalance across workers.
 pub const TOKIO_WORKER_BUSY_DURATION_DELTA: &str = "flags_tokio_worker_busy_duration_delta_secs";
 
-// Number of threads in the blocking thread pool (gauge).
 pub const TOKIO_BLOCKING_THREADS: &str = "flags_tokio_blocking_threads";
 
-// Idle threads in the blocking thread pool (gauge).
 pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "flags_tokio_idle_blocking_threads";
 
 // Tasks waiting for a blocking thread (gauge).
