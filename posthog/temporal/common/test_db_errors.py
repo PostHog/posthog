@@ -5,7 +5,6 @@ import pytest
 from django.db import InterfaceError, InternalError, OperationalError, ProgrammingError
 
 import psycopg.errors
-
 from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.db_errors import is_transient_db_error
