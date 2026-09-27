@@ -13,7 +13,9 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.organization import Organization
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.api.dashboard_templates import (
@@ -1458,6 +1460,39 @@ class TestDashboardTemplateCopyBetweenProjects(APIBaseTest):
         assert data["is_featured"] is False
         assert data["image_url"] in (None, "")
         assert len(data["tiles"]) == len(variable_template["tiles"])
+
+    @parameterized.expand(
+        [
+            ("json_schema_read_scope", "get", "json_schema", "dashboard_template:read", status.HTTP_200_OK),
+            ("json_schema_other_scope", "get", "json_schema", "dashboard:read", status.HTTP_403_FORBIDDEN),
+            ("copy_write_scope", "post", "copy_between_projects", "dashboard_template:write", status.HTTP_201_CREATED),
+            ("copy_read_scope", "post", "copy_between_projects", "dashboard_template:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_custom_actions_with_scoped_api_key(
+        self, _name: str, method: str, action: str, scope: str, expected_status: int
+    ) -> None:
+        src = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {**variable_template, "template_name": "Scoped copy source", "scope": "team"},
+        )
+        assert src.status_code == status.HTTP_201_CREATED, src.content
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="dashboard template scoped",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=[scope],
+        )
+        self.client.logout()
+
+        resp = getattr(self.client, method)(
+            f"/api/projects/{self.team_b.pk}/dashboard_templates/{action}/",
+            {"source_template_id": src.json()["id"]} if method == "post" else None,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert resp.status_code == expected_status, resp.content
 
     @patch("products.dashboards.backend.api.dashboard_templates.report_user_action")
     def test_copy_emits_distinct_analytics_event(self, mock_report: Any) -> None:

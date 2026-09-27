@@ -514,7 +514,7 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             )
 
     @method_decorator(cache_page(60 * 2))  # cache for 2 minutes
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, required_scopes=["dashboard_template:read"])
     def json_schema(self, request: request.Request, **kwargs) -> response.Response:
         # Could switch from this being a static file to being dynamically generated from the serializer
         return response.Response(dashboard_template_schema)
@@ -530,7 +530,12 @@ class DashboardTemplateViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, views
             "Conflicting `template_name` values on the destination are auto-suffixed with `(copy)`, `(copy 2)`, …"
         ),
     )
-    @action(detail=False, methods=["post"], url_path="copy_between_projects")
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="copy_between_projects",
+        required_scopes=["dashboard_template:write"],
+    )
     def copy_between_projects(self, request: Request, **kwargs) -> response.Response:
         body = CopyDashboardTemplateSerializer(data=request.data)
         body.is_valid(raise_exception=True)
