@@ -18,6 +18,7 @@ from pydantic import ValidationError
 
 from posthog.schema import InsightVizNode
 
+from posthog.cloud_utils import is_hobby
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import JsonValue, NoulAnswer, NoulQuestion, SystemOneResult
@@ -76,8 +77,12 @@ class TagSuggestion:
 
 
 def suggestions_enabled(team: Team) -> bool:
-    """Whether this team gets suggestions: the product flag must be on and a System One gateway must be
-    configured. Fails closed on a flag-eval blip, because the flag is how the rollout stays small."""
+    """Whether this team gets suggestions: the instance must be PostHog Cloud, the product flag must be on
+    and a System One gateway must be configured. Fails closed on a flag-eval blip, because the flag is how
+    the rollout stays small."""
+    # Jev runs only on PostHog's own inference hosts, so a self-hosted install has nothing to call.
+    if is_hobby():
+        return False
     try:
         flag_on = bool(
             posthoganalytics.feature_enabled(

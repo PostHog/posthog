@@ -5,6 +5,8 @@ from contextlib import contextmanager
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 import httpx
 from parameterized import parameterized
 from rest_framework import status
@@ -53,16 +55,24 @@ class TestMetadataSuggestionsApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off", False, True, True),
-            ("no_system_one_gateway", True, False, True),
-            ("ai_not_approved", True, True, False),
+            ("flag_off", False, True, True, False),
+            ("no_system_one_gateway", True, False, True, False),
+            ("ai_not_approved", True, True, False, False),
+            ("hobby_instance", True, True, True, True),
         ]
     )
-    def test_gate_sends_nothing_to_the_model(self, _name: str, flag: bool, configured: bool, approved: bool) -> None:
+    def test_gate_sends_nothing_to_the_model(
+        self, _name: str, flag: bool, configured: bool, approved: bool, hobby: bool
+    ) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
 
-        with patch(FLAG, return_value=flag), patch(CONFIGURED, return_value=configured), patch(BUILD) as build:
+        with (
+            override_settings(CLOUD_DEPLOYMENT=None, DEBUG=not hobby),
+            patch(FLAG, return_value=flag),
+            patch(CONFIGURED, return_value=configured),
+            patch(BUILD) as build,
+        ):
             response = self.client.post(f"{self.base_url}/tags/", {"query": _QUERY}, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN

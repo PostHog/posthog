@@ -26,6 +26,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -125,6 +126,7 @@ export interface insightLogicValues {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
     mathDefinitions: Partial<Record<string, MathDefinition>> // mathsLogic
     currentOrganization: OrganizationType | null // organizationLogic
+    isHobby: boolean // preflightLogic
     activeSceneId: string | null // sceneLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     currentTeamId: number | null // teamLogic
@@ -547,7 +549,8 @@ export interface insightLogicMeta {
         metadataSuggestionsAvailable: (
             featureFlags: FeatureFlagsSet,
             currentOrganization: OrganizationType | null,
-            canEditInsight: boolean
+            canEditInsight: boolean,
+            isHobby: boolean
         ) => boolean
         metadataSuggestionQuery: (query: Node<Record<string, any>> | null) => Node | null
         metadataSuggestionPayload: (
@@ -618,6 +621,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['currentTeamId', 'currentTeam'],
             organizationLogic,
             ['currentOrganization'],
+            preflightLogic,
+            ['isHobby'],
             groupsModel,
             ['aggregationLabel'],
             cohortsModel,
@@ -1034,12 +1039,15 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
     selectors({
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         metadataSuggestionsAvailable: [
-            (s) => [s.featureFlags, s.currentOrganization, s.canEditInsight],
+            (s) => [s.featureFlags, s.currentOrganization, s.canEditInsight, s.isHobby],
             (
                 featureFlags: FeatureFlagsSet,
                 currentOrganization: OrganizationType | null,
-                canEditInsight: boolean
+                canEditInsight: boolean,
+                isHobby: boolean
             ): boolean =>
+                // Jev runs only on PostHog's own inference hosts, so a self-hosted install has nothing to call.
+                !isHobby &&
                 !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_METADATA_SUGGESTIONS] &&
                 !!currentOrganization?.is_ai_data_processing_approved &&
                 !!canEditInsight,
