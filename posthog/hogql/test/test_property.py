@@ -78,9 +78,11 @@ class TestElementBreakdownExpression(SimpleTestCase):
     def test_tag_name_breakdown_matches_bare_inner_tag(self):
         self.assertEqual(
             clear_locations(element_property_key_to_breakdown_expr("tag_name")),
-            clear_locations(parse_expr(
-                "arrayElement(extractAll(elements_chain, '(?:^|;)([A-Za-z][A-Za-z0-9_-]*)(?:[.]|$|:|;)'), 1)"
-            )),
+            clear_locations(
+                parse_expr(
+                    "arrayElement(extractAll(elements_chain, '(?:^|;)([A-Za-z][A-Za-z0-9_-]*)(?:[.]|$|:|;)'), 1)"
+                )
+            ),
         )
 
 
