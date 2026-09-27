@@ -1,3 +1,5 @@
+import { MemoryHistory } from 'history'
+import { getPluginContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -22,6 +24,9 @@ jest.mock('products/metrics/frontend/generated/api', () => ({
     metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
 }))
+
+// initKeaTests routes through a memory history, which does not update window.history.
+const getMemoryHistory = (): MemoryHistory => getPluginContext('router').history
 
 const PICKER_ITEMS = [
     { name: 'requests_total', metric_type: 'sum' },
@@ -321,6 +326,59 @@ describe('metricsSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', activeTab: 'sql' })
+        })
+
+        it('returns to Explore on browser back after opening a metric from Explore', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { activeTab: 'explore' })
+            }).toFinishAllListeners()
+            const history = getMemoryHistory()
+            const exploreIndex = history.index
+
+            // Same order as metricsCatalogLogic.openMetric: the metric edit replaces the
+            // Explore entry, then the tab switch pushes a new one.
+            await expectLogic(logic, () => {
+                logic.actions.setMetricName('requests_total')
+            }).toFinishAllListeners()
+            const exploreLocation = { ...router.values.location, searchParams: router.values.searchParams }
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('viewer')
+            }).toFinishAllListeners()
+            expect(history.index).toEqual(exploreIndex + 1)
+
+            await expectLogic(logic, () => {
+                router.actions.locationChanged({
+                    method: 'POP',
+                    pathname: exploreLocation.pathname,
+                    search: exploreLocation.search,
+                    searchParams: exploreLocation.searchParams,
+                    hash: '',
+                    hashParams: {},
+                    url: `${exploreLocation.pathname}${exploreLocation.search}`,
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual('explore')
+            expect(logic.values.metricName).toEqual('requests_total')
+            // Applying the popped URL must not write the URL again.
+            expect(history.index).toEqual(exploreIndex + 1)
+        })
+
+        it('replaces the history entry for filter and date edits', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics', { activeTab: 'viewer' })
+            }).toFinishAllListeners()
+            const history = getMemoryHistory()
+            const viewerIndex = history.index
+
+            await expectLogic(logic, () => {
+                logic.actions.setMetricName('requests_total')
+                logic.actions.setAggregation('rate')
+                logic.actions.setDateFrom('-24h')
+            }).toFinishAllListeners()
+
+            expect(history.index).toEqual(viewerIndex)
+            expect(router.values.searchParams).toMatchObject({ metricName: 'requests_total', dateFrom: '-24h' })
         })
 
         it('does not write metrics params onto another scene URL', async () => {

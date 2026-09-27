@@ -356,7 +356,9 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
         return { [urls.metrics()]: applyUrlParams }
     }),
     trackedActionToUrl(({ values, cache }) => {
-        const syncUrl = (): [string, Params, Record<string, any>, { replace: boolean }] | undefined => {
+        const syncUrl = ({ pushHistory = false } = {}):
+            | [string, Params, Record<string, any>, { replace: boolean }]
+            | undefined => {
             // No writes during a restore (see applyUrlParams) or after navigating away —
             // an async cascade (e.g. the picker's late metric-type backfill) must not
             // splat metrics params onto another scene's URL.
@@ -413,10 +415,12 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
             queueMicrotask(() => {
                 cache.isSyncingUrl = false
             })
-            return result
+            // A tab switch is a navigation step, so browser back must return to the previous
+            // tab. Filter and date edits replace the entry, or each tweak would fill history.
+            return pushHistory ? [result[0], result[1], result[2], { replace: false }] : result
         }
         return {
-            setActiveTab: () => syncUrl(),
+            setActiveTab: () => syncUrl({ pushHistory: true }),
             setMetricName: () => syncUrl(),
             setSelectedMetricType: () => syncUrl(),
             setAggregation: () => syncUrl(),
