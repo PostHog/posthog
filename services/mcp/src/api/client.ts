@@ -48,6 +48,13 @@ const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 const TRANSPORT_MAX_RETRIES = 2
 const TRANSPORT_BASE_BACKOFF_MS = 250
 
+// Per-attempt deadline for skill reads. A healthy read answers in about a
+// second, but an attempt the upstream never answers otherwise holds the tool
+// call until the MCP client gives up, and the transport retry never runs. Three
+// attempts plus backoff must finish inside the 30 s default MCP request timeout.
+const SKILL_READ_ATTEMPT_TIMEOUT_MS = 8_000
+const SKILL_READ_PATH = /^\/api\/(?:projects|environments)\/[^/]+\/llm_skills\/name\//
+
 /** Methods that carry no upstream effect, so a repeat after a failed
  *  connection cannot apply the same work twice. */
 const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD'])
@@ -342,7 +349,9 @@ export class ApiClient {
             return (await response.text()) as T
         }
 
-        const result = await this.fetchJson<T>(url, fetchOptions)
+        const attemptTimeoutMs =
+            opts.method === 'GET' && SKILL_READ_PATH.test(opts.path) ? SKILL_READ_ATTEMPT_TIMEOUT_MS : undefined
+        const result = await this.fetchJson<T>(url, fetchOptions, attemptTimeoutMs)
 
         if (!result.success) {
             // Re-throw the original error instance so callers can instanceof-check
@@ -584,7 +593,7 @@ export class ApiClient {
         })
     }
 
-    private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
+    private async fetchJson<T>(url: string, options?: RequestInit, attemptTimeoutMs?: number): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
@@ -593,14 +602,31 @@ export class ApiClient {
         for (;;) {
             let response: Response
             let bodyText: string
+            const attempt = attemptTimeoutMs === undefined ? undefined : new AbortController()
+            const attemptTimer =
+                attempt &&
+                setTimeout(
+                    () => attempt.abort(new Error(`no response within ${attemptTimeoutMs} ms`)),
+                    attemptTimeoutMs
+                )
+            const attemptSignal = attempt?.signal
+            const signal =
+                attemptSignal && options?.signal
+                    ? AbortSignal.any([options.signal, attemptSignal])
+                    : (attemptSignal ?? options?.signal)
             try {
-                response = await this.fetch(url, options)
+                response = await this.fetch(url, { ...options, signal })
                 // Read the body inside the same guard as the connection: a stream cut
                 // short throws here, and that failure is transport, not a bad response.
                 bodyText = await response.text()
             } catch (error) {
                 const isSafeMethod = SAFE_HTTP_METHODS.has(method.toUpperCase())
-                const canRetry = !isAbortError(error) && isSafeMethod && transportRetries < TRANSPORT_MAX_RETRIES
+                // A spent attempt deadline is a stalled upstream, not the caller's own abort.
+                const attemptTimedOut = attemptSignal?.aborted === true && !options?.signal?.aborted
+                const canRetry =
+                    (attemptTimedOut || !isAbortError(error)) &&
+                    isSafeMethod &&
+                    transportRetries < TRANSPORT_MAX_RETRIES
                 if (!canRetry) {
                     console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
                     return {
@@ -623,6 +649,8 @@ export class ApiClient {
                 )
                 await new Promise((resolve) => setTimeout(resolve, delayMs))
                 continue
+            } finally {
+                clearTimeout(attemptTimer)
             }
 
             if (response.status === 429) {

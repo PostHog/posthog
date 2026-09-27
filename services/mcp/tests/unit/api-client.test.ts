@@ -520,6 +520,49 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2)
         })
 
+        it('cuts a stalled middle-page skill-get attempt and retries it before the client deadline', async () => {
+            const stalled = vi.fn(
+                (_url: string, init?: RequestInit) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+                    })
+            )
+            const mockFetch = vi
+                .fn()
+                .mockImplementationOnce(stalled)
+                .mockResolvedValueOnce(
+                    new Response(JSON.stringify({ name: 'skills-store', body: 'page three' }), { status: 200 })
+                )
+            vi.stubGlobal('fetch', mockFetch)
+            const startedAt = Date.now()
+
+            const result = await runTool('skill-get', {
+                skill_name: 'skills-store',
+                body_offset: 16000,
+                body_length: 2000,
+            })
+
+            expect(result).toEqual({ name: 'skills-store', body: 'page three' })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(Date.now() - startedAt).toBeLessThan(30_000)
+        })
+
+        it('does not cut a slow read outside the skill store', async () => {
+            const mockFetch = vi.fn(
+                () =>
+                    new Promise<Response>((resolve) =>
+                        setTimeout(() => resolve(new Response(JSON.stringify({ ok: true }), { status: 200 })), 20_000)
+                    )
+            )
+            vi.stubGlobal('fetch', mockFetch)
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+            const result = await settle(client.request({ method: 'GET', path: '/api/projects/17/insights/1/' }))
+
+            expect(result).toEqual({ ok: true })
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
         it('reports a retryable failure once the retry budget is spent', async () => {
             const mockFetch = stubFetch()
 
