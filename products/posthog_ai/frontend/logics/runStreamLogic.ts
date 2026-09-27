@@ -1502,6 +1502,9 @@ export function foldLogToThread(
     const unechoedSends = new Map<string, number>()
     // Sends whose echo was paired away in this turn — the same send's second wire form drops with it.
     let pairedSends = new Set<string>()
+    // Every placeholder a send drew. The ones still here at the end are the sends the agent has not
+    // picked up, and they belong at the foot of the thread rather than wherever the log put them.
+    const placeholderIds = new Set<string>()
     let humanCount = 0
     let bubbleSeq = 0
     let separatorSeq = 0
@@ -1524,7 +1527,7 @@ export function foldLogToThread(
      * starts. A send the agent has not picked up yet heads nothing — it waits at the foot of the
      * thread, below the answer still streaming, until its echo moves it into the turn it opens.
      */
-    const pushHuman = (text: string, attachments: ThreadAttachment[] = [], headTurn = true): void => {
+    const pushHuman = (text: string, attachments: ThreadAttachment[] = [], headTurn = true): string => {
         if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
             pendingMessageSeen = true
         }
@@ -1539,6 +1542,7 @@ export function foldLogToThread(
         }
         items = headTurn ? insertHumanMessageAtTurnStart(items, item) : [...items, item]
         bufferedAttachments = []
+        return item.id
     }
 
     /**
@@ -1665,6 +1669,17 @@ export function foldLogToThread(
         }
     }
 
+    /** The placeholder this send drew is now the agent's message, so it stops waiting. */
+    const settlePlaceholder = (text: string): void => {
+        for (let index = items.length - 1; index >= 0; index--) {
+            const item = items[index]
+            if (item.type === 'human_message' && item.text === text && placeholderIds.has(item.id)) {
+                placeholderIds.delete(item.id)
+                return
+            }
+        }
+    }
+
     /**
      * Drop the placeholder a send drew before the agent picked it up, handing its attachment
      * previews to the echo that takes its place.
@@ -1674,6 +1689,7 @@ export function foldLogToThread(
         for (let index = currentTurnStart - 1; index >= 0; index--) {
             const item = items[index]
             if (item.type === 'human_message' && item.text === text) {
+                placeholderIds.delete(item.id)
                 items = [...items.slice(0, index), ...items.slice(index + 1)]
                 return item.attachments ?? []
             }
@@ -1700,6 +1716,7 @@ export function foldLogToThread(
             if (unechoed > 0) {
                 unechoedSends.set(text, unechoed - 1)
                 pairedSends.add(text)
+                settlePlaceholder(text)
             }
             return
         }
@@ -1783,7 +1800,7 @@ export function foldLogToThread(
 
         if (method === '_client/human_message') {
             const optimisticText = String(params.content ?? '')
-            pushHuman(optimisticText, optimisticAttachments(params.attachments), false)
+            placeholderIds.add(pushHuman(optimisticText, optimisticAttachments(params.attachments), false))
             unechoedSends.set(optimisticText, (unechoedSends.get(optimisticText) ?? 0) + 1)
             continue
         }
@@ -2027,6 +2044,15 @@ export function foldLogToThread(
             case 'tool_call_update':
                 handleToolCallUpdate(update, notification)
                 break
+        }
+    }
+
+    // A send still waiting to be picked up sits below everything that has landed, in send order,
+    // however much arrived after the composer drew it.
+    if (placeholderIds.size > 0) {
+        const waiting = items.filter((item) => placeholderIds.has(item.id))
+        if (waiting.length > 0 && items[items.length - 1] !== waiting[waiting.length - 1]) {
+            items = [...items.filter((item) => !placeholderIds.has(item.id)), ...waiting]
         }
     }
 

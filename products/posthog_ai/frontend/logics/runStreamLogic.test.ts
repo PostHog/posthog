@@ -1145,19 +1145,46 @@ describe('runStreamLogic', () => {
         it('appends a human_message item ordered before subsequently ingested assistant frames', async () => {
             await expectLogic(logic, () => {
                 logic.actions.pushHumanMessage('hello agent')
+                // The agent takes the send up and echoes it, which is what places the message.
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'hello agent' }))
                 logic.actions.ingestAcpFrame(
                     sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hi!' } })
                 )
             }).toFinishAllListeners()
 
             expect(logic.values.threadItems).toHaveLength(2)
-            expect(logic.values.threadItems[0]).toEqual({
-                id: 'human-0',
+            expect(logic.values.threadItems[0]).toMatchObject({
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
+        })
+
+        it('keeps sends the agent has not taken up yet at the foot of the thread, in send order', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'still here' } })
+                )
+                logic.actions.pushHumanMessage('10')
+                logic.actions.pushHumanMessage('11')
+                // The agent takes up only the first, so the second keeps waiting below its answer.
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: '10' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        messageId: 'm2',
+                        content: { text: 'answer to 10' },
+                    })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['still here', '10', 'answer to 10', '11'])
         })
 
         it('leaves a send typed mid-answer below the text already streaming', async () => {
