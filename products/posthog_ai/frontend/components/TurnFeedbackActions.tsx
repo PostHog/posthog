@@ -68,7 +68,7 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
 
     return (
         <>
-            <div className="flex items-center ml-1">
+            <div className="group flex items-center ml-1">
                 {turnText && (
                     <LemonButton
                         icon={<IconCopy />}
@@ -99,7 +99,12 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
                         onClick={() => submitRating('bad')}
                     />
                 )}
-                {timestamp !== undefined && <TZLabel time={dayjs(timestamp)} className="text-xs text-muted ml-1" />}
+                {timestamp !== undefined && (
+                    <TZLabel
+                        time={dayjs(timestamp)}
+                        className="text-xs text-muted ml-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                    />
+                )}
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
