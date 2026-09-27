@@ -9,7 +9,12 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.stable_chunks import StableChunks, read_stable_chunks_manifest, stable_chunks_for_request
+from posthog.stable_chunks import (
+    StableChunks,
+    _resolve_stable_chunks,
+    read_stable_chunks_manifest,
+    stable_chunks_for_request,
+)
 from posthog.utils import get_context_for_template
 
 VALID_MANIFEST = {
@@ -105,3 +110,25 @@ class TestStableChunks(SimpleTestCase):
         context = self._context_with_stable_chunks(STABLE)
 
         assert "stable_preload_css_urls" not in context
+
+    @parameterized.expand(
+        [
+            ("debug", True, False, False),
+            ("test", False, True, False),
+            ("neither", False, False, True),
+        ]
+    )
+    def test_debug_and_test_settings_skip_the_manifest_read(
+        self, _name: str, debug: bool, test: bool, expect_manifest_read: bool
+    ) -> None:
+        _resolve_stable_chunks.cache_clear()
+        self.addCleanup(_resolve_stable_chunks.cache_clear)
+
+        with (
+            override_settings(DEBUG=debug, TEST=test),
+            patch("posthog.stable_chunks.read_stable_chunks_manifest", return_value=STABLE) as read_manifest,
+        ):
+            result = _resolve_stable_chunks()
+
+        assert read_manifest.called == expect_manifest_read
+        assert (result is not None) == expect_manifest_read
