@@ -163,8 +163,11 @@ tools:
         enrich_url: '{id}'
         title: Get support ticket
         description: >
-            Get a specific support ticket by ID or ticket number. Returns full ticket details including status,
-            priority, assignee, message count, channel info, person data, and session context.
+            Get a specific support ticket by ID or ticket number. Returns ticket details including status, priority,
+            assignee, message count, channel info, the page the customer was on, and a compact person summary (id, name,
+            is_identified). The response does not include person properties or the replay URL. To read the person's
+            properties, call persons-retrieve with person.id. To watch the session, call session-recording-get with
+            session_id.
         agent_note:
             The PostHog Assistant may have investigated this ticket and written self-driving reports into the Inbox. To
             surface them, call inbox-reports-list with source_id set to this ticket's `id` and
@@ -185,9 +188,11 @@ tools:
                 - tags
                 - sla_due_at
                 - anonymous_traits
-                - session_context
+                - session_context.current_url
                 - session_id
-                - person
+                - person.id
+                - person.name
+                - person.is_identified
                 - email_from
                 - email_to
                 - email_subject
