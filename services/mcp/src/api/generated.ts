@@ -116030,7 +116030,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Comma-separated artefact types. Only rows of these types are returned and counted, so a reader that needs one status type (a card showing the current suggested reviewers) does not download the whole log. Omit to list every artefact. One of: actionability_judgment, channel_assignment, code_reference, code_review, commit, dismissal, note, priority_judgment, pull_request, related_to, repo_selection, safety_judgment, signal_finding, suggested_reviewers, summary_change, task_run, title_change, video_segment, work_claim, work_release.
+     * Comma-separated artefact types. Only rows of these types are returned and counted, so a reader that needs one status type (a card showing the current suggested reviewers) does not download the whole log. Omit to list every artefact. One of: actionability_judgment, channel_assignment, check_cancelled, check_expired, check_result, check_scheduled, code_reference, code_review, commit, dismissal, implementation_decision, implementation_dispatch, implementation_handover, implementation_replacement, note, priority_judgment, pull_request, ranking_score, related_to, repo_selection, report_link, safety_judgment, signal_finding, suggested_reviewers, summary_change, task_run, title_change, video_segment, work_claim, work_release.
      * @minLength 1
      */
     type?: string;
