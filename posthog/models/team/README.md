@@ -28,14 +28,9 @@ Recent additions that should have been extensions include toggles for Experiment
 
 ```python
 # products/my_product/backend/models/team_my_product_config.py
-import logging
-
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamMyProductConfig(models.Model):
@@ -45,16 +40,28 @@ class TeamMyProductConfig(models.Model):
     # Your domain-specific fields
     some_setting = models.BooleanField(default=False)
     config_json = models.JSONField(default=dict)
-
-
-register_team_extension_signal(
-    TeamMyProductConfig,
-    defaults={"some_setting": True},  # optional
-    logger=logger,
-)
 ```
 
 Then run `python manage.py makemigrations`.
+
+By default, creating a team does not create its extension rows.
+A row is created on first access, through `get_or_create_team_extension`, so a team has no row until code first reads or writes that extension for it.
+Put default values on the model fields, not in a `defaults=` argument at a call site, so that every path that creates the row writes the same values.
+Code that reads the table outside Django (Node, Rust, raw SQL) must treat a missing row as the field defaults, for example with a `LEFT JOIN` from the team table and `COALESCE` on each field.
+
+### Creating the row at team creation (opt-in)
+
+Register the extension with `register_team_extension_signal` only when the row's default depends on other state at the moment the team is created, such as the organization's other teams.
+
+```python
+from posthog.models.team.extensions import register_team_extension_signal
+
+register_team_extension_signal(TeamMyProductConfig)
+```
+
+The hook connects a `post_save` receiver on `Team` that creates the row when a team is created.
+The receiver logs and ignores errors, and teams created before the registration have no row.
+Django code still reads the row through `get_or_create_team_extension`, and code outside Django still treats a missing row as the field defaults.
 
 ## Usage
 

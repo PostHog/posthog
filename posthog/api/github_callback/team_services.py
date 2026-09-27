@@ -19,8 +19,9 @@ from posthog.api.github_callback import (
 )
 from posthog.api.github_callback.install_requests import record_install_request
 from posthog.api.github_callback.personal_state import (
+    PersonalGitHubDiscovery,
     list_user_github_app_installations,
-    personal_github_login,
+    usable_personal_github_credential,
     usable_personal_github_token,
 )
 from posthog.api.github_callback.types import (
@@ -31,6 +32,7 @@ from posthog.api.github_callback.types import (
     is_valid_github_installation_id,
 )
 from posthog.auth import SessionAuthentication
+from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.event_usage import report_user_action
 from posthog.models import Team
@@ -43,9 +45,10 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     invalidate_github_repository_caches_for_installation,
 )
+from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.organization import Organization
 from posthog.models.user import User
-from posthog.models.user_integration import user_github_integration_from_installation
+from posthog.models.user_integration import UserGitHubIntegration, user_github_integration_from_installation
 from posthog.utils import is_relative_url
 
 logger = structlog.get_logger(__name__)
@@ -129,6 +132,13 @@ def link_github_installation_for_user(
     """
     if not is_valid_github_installation_id(installation_id):
         raise ValidationError("Invalid installation_id")
+    audit = GitHubAudit(
+        organization_id=Team.objects.get(pk=team_id).organization_id,
+        team_id=team_id,
+        user=user,
+        installation_id=installation_id,
+    )
+    audit.record("link_started", path="oauth")
     try:
         has_access = GitHubIntegration.verify_user_installation_access(installation_id, authorization.access_token)
     except (requests.RequestException, GitHubEgressBudgetExhausted):
@@ -138,6 +148,7 @@ def link_github_installation_for_user(
             user_id=user.id,
             exc_info=True,
         )
+        audit.record("link_rejected", path="oauth", rejection_reason="installation_verify_failed")
         raise ValidationError("Failed to verify installation access", code="installation_verify_failed")
     if not has_access:
         logger.warning(
@@ -145,6 +156,7 @@ def link_github_installation_for_user(
             installation_id=installation_id,
             user_id=user.id,
         )
+        audit.record("link_rejected", path="oauth", rejection_reason="installation_access_denied")
         raise ValidationError("You do not have access to this GitHub installation", code="installation_access_denied")
 
     instance = GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
@@ -165,8 +177,10 @@ def link_github_installation_for_user(
         ),
         authorization,
         create_only=True,
+        originating_organization_id=instance.team.organization_id,
     )
 
+    audit.record("link_completed", path="oauth", linked_integration_id=instance.pk, after_commit=True)
     return instance
 
 
@@ -214,7 +228,9 @@ GITHUB_ADOPTION_ADMIN_REQUIRED_MESSAGE = (
 )
 
 
-def adopt_orphan_installation(*, user: User, team: Team, installation_id: str) -> Integration:
+def adopt_orphan_installation(
+    *, user: User, team: Team, installation_id: str, discovery_id: str | None = None
+) -> Integration:
     """Create the team's first ``Integration`` row for a GitHub App installation that exists on
     GitHub but was never linked to any PostHog team — e.g. a non-admin clicked "Connect
     organization", GitHub created an install *request*, and a GitHub org admin approved it
@@ -228,19 +244,22 @@ def adopt_orphan_installation(*, user: User, team: Team, installation_id: str) -
     GitHub org admin reaches the callback with a valid installation_id); adoption has no such
     gate, so neither check here can be dropped.
     """
+    GitHubAudit(
+        organization_id=team.organization_id, team_id=team.id, user=user, installation_id=installation_id
+    ).record("link_path", path="adoption", discovery_id=discovery_id)
     if not github_callback_state.has_team_management_access(user, team):
         raise ValidationError(
             GITHUB_ADOPTION_ADMIN_REQUIRED_MESSAGE,
             code="github_adoption_admin_required",
         )
-    token = usable_personal_github_token(user)
-    if token is None:
+    credential = usable_personal_github_credential(user)
+    if credential is None:
         raise ValidationError(
             PERSONAL_GITHUB_REQUIRED_MESSAGE,
             code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
         )
     try:
-        has_access = GitHubIntegration.verify_user_installation_access(installation_id, token)
+        has_access = GitHubIntegration.verify_user_installation_access(installation_id, credential.token)
     except (requests.RequestException, GitHubEgressBudgetExhausted):
         raise ValidationError("Failed to verify installation access")
     if not has_access:
@@ -248,7 +267,7 @@ def adopt_orphan_installation(*, user: User, team: Team, installation_id: str) -
 
     instance = GitHubIntegration.integration_from_installation_id(installation_id, team.id, user)
 
-    login = personal_github_login(user)
+    login = UserGitHubIntegration(credential.integration).github_login
     if login:
         instance.config["connecting_user_github_login"] = login
         instance.save(update_fields=["config"])
@@ -489,6 +508,7 @@ def link_existing_team_github_integration(
     team_id: int,
     source_team_id: Any | None,
     installation_id_param: Any | None,
+    discovery_id: str | None = None,
 ) -> Integration:
     if installation_id_param and not is_valid_github_installation_id(installation_id_param):
         raise ValidationError("Invalid installation_id")
@@ -542,7 +562,9 @@ def link_existing_team_github_integration(
             target_team = organization.teams.filter(id=team_id).first()
             if target_team is None:
                 raise ValidationError("Target team not found in your organization")
-            return adopt_orphan_installation(user=user, team=target_team, installation_id=installation_id_str)
+            return adopt_orphan_installation(
+                user=user, team=target_team, installation_id=installation_id_str, discovery_id=discovery_id
+            )
         source = existing
     else:
         # No source specified: auto-resolve the org's existing GitHub installation. This backs the
@@ -583,6 +605,9 @@ def link_existing_team_github_integration(
     target_team = organization.teams.filter(id=team_id).first()
     if target_team is None:
         raise ValidationError("Target team not found in your organization")
+    GitHubAudit(
+        organization_id=organization.id, team_id=team_id, user=user, installation_id=str(installation_id)
+    ).record("link_path", path="sibling", source_team_id=source.team_id, discovery_id=discovery_id)
     authorize_link_existing_installation(user=user, team=target_team, source_installation_id=str(installation_id))
 
     instance = GitHubIntegration.integration_from_installation_id(str(installation_id), team_id, user)
@@ -595,11 +620,34 @@ def link_existing_team_github_integration(
     return instance
 
 
+@frozen
+class _InstallationAccount:
+    name: str | None
+    type: str | None
+
+
+def _sibling_installation_account(integration: Integration) -> _InstallationAccount:
+    """Account to show for an installation a project in the organization already has.
+
+    The name must be the GitHub account the app is installed on, never the login of the person who
+    connected it: a reader who sees a colleague's handle where an account belongs reads it as a
+    stranger's account in their settings. Missing names use the installation ID fallback so discovery
+    does not wait for a GitHub metadata request for each sibling installation.
+    """
+    github_integration = GitHubIntegration(integration)
+    account = (integration.config or {}).get("account") or {}
+    name = account.get("name")
+    if not name or str(name) == str(github_integration.github_installation_id):
+        return _InstallationAccount(name=None, type=account.get("type"))
+    return _InstallationAccount(name=str(name), type=account.get("type"))
+
+
 def list_org_github_installations(
     *,
     user: User,
     organization: Organization,
     exclude_team_id: int | None = None,
+    discovery: PersonalGitHubDiscovery | None = None,
 ) -> list[dict[str, Any]]:
     """List the distinct GitHub App installations ``user`` can link to a project in ``organization``.
 
@@ -621,13 +669,14 @@ def list_org_github_installations(
     """
     accessible_team_ids = _accessible_org_team_ids(user, organization)
     org_github = defer_repository_cache_fields(
-        Integration.objects.filter(team__organization_id=organization.id, kind="github")
+        Integration.objects.filter(team__organization_id=organization.id, kind="github").select_related("team")
     ).order_by("id")
 
     # One pass over the org's rows yields both the sibling entries and the org-wide linked set the
     # adoption merge below excludes against, instead of two near-identical queries.
     installations: dict[str, dict[str, Any]] = {}
     org_linked_installation_ids: set[str] = set()
+    filtered: list[dict[str, str]] = []
     for integration in org_github:
         config = integration.config or {}
         raw_installation_id = config.get("installation_id")
@@ -636,24 +685,40 @@ def list_org_github_installations(
         installation_id = str(raw_installation_id)
         org_linked_installation_ids.add(installation_id)
         if integration.team_id not in accessible_team_ids or integration.team_id == exclude_team_id:
+            filtered.append(
+                {
+                    "installation_id": installation_id,
+                    "source": "sibling",
+                    "reason": "current_project" if integration.team_id == exclude_team_id else "inaccessible_project",
+                }
+            )
             continue
         if installation_id in installations:
+            filtered.append(
+                {"installation_id": installation_id, "source": "sibling", "reason": "duplicate_installation"}
+            )
             continue
-        account = config.get("account") or {}
+        sibling_account = _sibling_installation_account(integration)
         installations[installation_id] = {
             "installation_id": installation_id,
-            "account_name": account.get("name") or config.get("connecting_user_github_login"),
-            "account_type": account.get("type"),
+            "account_name": sibling_account.name,
+            "account_type": sibling_account.type,
             "source_team_id": integration.team_id,
+            "source_team_name": integration.team.name,
         }
 
-    personal_installations = list_user_github_app_installations(user)
+    personal_installations = (
+        list_user_github_app_installations(user, discovery) if discovery else list_user_github_app_installations(user)
+    )
     for raw_installation in personal_installations or []:
         installation_id = str(raw_installation.get("id"))
         # Skip anything already linked in the org, even to a project this user can't access — those
         # aren't orphans, and offering them here would advertise an adoption that link_existing then
         # has to refuse.
         if installation_id in installations or installation_id in org_linked_installation_ids:
+            filtered.append(
+                {"installation_id": installation_id, "source": "personal", "reason": "already_linked_in_organization"}
+            )
             continue
         account = raw_installation.get("account") or {}
         installations[installation_id] = {
@@ -661,8 +726,12 @@ def list_org_github_installations(
             "account_name": account.get("login"),
             "account_type": account.get("type"),
             "source_team_id": None,
+            "source_team_name": None,
         }
 
+    # One record per request keeps repeated discovery refreshes from writing a row per filtered installation.
+    if discovery and filtered:
+        discovery.audit.record("discovery_candidates_filtered", discovery_id=discovery.discovery_id, filtered=filtered)
     return list(installations.values())
 
 

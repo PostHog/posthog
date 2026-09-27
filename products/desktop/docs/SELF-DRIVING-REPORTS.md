@@ -15,7 +15,7 @@ Marking a draft ready does not approve or merge it. Existing merge checks still 
 Eligible pull requests show Refund in the header. The existing feature flag, billing checks, and confirmation dialog still apply.
 
 The report ends with feedback after its evidence, reviewers, and other supporting sections.
-The suggested reviewer views show each reviewer source and reason. Reviewers with the same reason appear in one compact group.
+The suggested reviewer views show each reviewer source and reason. Each reason appears above its indented reviewer or reviewers, without a separate box. The remove control stays visible, and Add Reviewer appears as a button at the bottom of the section.
 The recommendation keeps its boxed layout and its Ask about it and Dismiss controls.
 
 Informational recommendations, including Likely already fixed, use a blue callout. Decisions use an amber callout.
@@ -36,6 +36,8 @@ Older servers that omit either field use cached task details instead. The cache 
 The triage count includes only loaded reports that need a decision. Load more reports to check the next page.
 A callback error after task startup does not change a successful start into a failed start. Older servers without task assignments keep their existing queue behavior.
 Triage hides the sidebar. Exiting triage or opening a report restores it without changing its saved width or open setting.
+Select Self-driving in the navigation rail during triage to return to the report list and open its sidebar.
+From an open report, the same control opens the sidebar and focuses its search without closing the report.
 Press T from the report list or an open report to start triage when triage is enabled. The shortcut does not run while you type in a field.
 
 To filter reports for a user, open Filter reports, then hover over Scope.

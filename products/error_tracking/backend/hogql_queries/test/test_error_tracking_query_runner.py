@@ -25,6 +25,7 @@ from posthog.schema import (
     DateRange,
     ErrorTrackingIssueFilter,
     ErrorTrackingQuery,
+    ErrorTrackingSimilarIssuesQuery,
     EventPropertyFilter,
     FilterLogicalOperator,
     PersonPropertyFilter,
@@ -60,6 +61,7 @@ from products.error_tracking.backend.hogql_queries.error_tracking_query_runner i
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import search_tokenizer
 from products.error_tracking.backend.hogql_queries.error_tracking_similar_issues_query_runner import (
     ErrorTrackingSimilarIssuesQueryRunner,
+    SimilarFingerprint,
 )
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     MAX_RECENT_ISSUE_STATES,
@@ -1036,6 +1038,150 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
     @parameterized.expand(
         [
+            ("exact_single", "name", PropertyOperator.EXACT, ["TypeError"], "equals(e.issue_name, 'TypeError')"),
+            (
+                "exact_multiple",
+                "name",
+                PropertyOperator.EXACT,
+                ["TypeError", "ReferenceError"],
+                "in(e.issue_name, tuple('TypeError', 'ReferenceError'))",
+            ),
+            ("is_not_single", "name", PropertyOperator.IS_NOT, ["TypeError"], "notEquals(e.issue_name, 'TypeError')"),
+            (
+                "is_not_multiple",
+                "name",
+                PropertyOperator.IS_NOT,
+                ["TypeError", "ReferenceError"],
+                "notIn(e.issue_name, tuple('TypeError', 'ReferenceError'))",
+            ),
+            ("icontains", "name", PropertyOperator.ICONTAINS, "Type", "ilike(e.issue_name, '%Type%')"),
+            (
+                "not_icontains",
+                "name",
+                PropertyOperator.NOT_ICONTAINS,
+                "Type",
+                "notILike(e.issue_name, '%Type%')",
+            ),
+            ("starts_with", "name", PropertyOperator.STARTS_WITH, "Type", "ilike(e.issue_name, 'Type%')"),
+            (
+                "not_starts_with",
+                "name",
+                PropertyOperator.NOT_STARTS_WITH,
+                "Type",
+                "notILike(e.issue_name, 'Type%')",
+            ),
+            ("ends_with", "name", PropertyOperator.ENDS_WITH, "Error", "ilike(e.issue_name, '%Error')"),
+            (
+                "not_ends_with",
+                "name",
+                PropertyOperator.NOT_ENDS_WITH,
+                "Error",
+                "notILike(e.issue_name, '%Error')",
+            ),
+            ("is_set", "severity", PropertyOperator.IS_SET, True, "notEquals(e.issue_severity, NULL)"),
+            ("is_not_set", "severity", PropertyOperator.IS_NOT_SET, True, "equals(e.issue_severity, NULL)"),
+            (
+                "description_key_alias",
+                "issue_description",
+                PropertyOperator.ICONTAINS,
+                "boom",
+                "ilike(e.issue_description, '%boom%')",
+            ),
+            (
+                "first_seen_gt",
+                "first_seen",
+                PropertyOperator.GT,
+                "2022-01-01",
+                "greater(e.issue_first_seen, toDateTime('2022-01-01'))",
+            ),
+            (
+                "first_seen_gte",
+                "first_seen",
+                PropertyOperator.GTE,
+                "2022-01-01",
+                "greaterOrEquals(e.issue_first_seen, toDateTime('2022-01-01'))",
+            ),
+            (
+                "first_seen_lt",
+                "first_seen",
+                PropertyOperator.LT,
+                "2022-01-01",
+                "less(e.issue_first_seen, toDateTime('2022-01-01'))",
+            ),
+            (
+                "first_seen_lte",
+                "first_seen",
+                PropertyOperator.LTE,
+                "2022-01-01",
+                "lessOrEquals(e.issue_first_seen, toDateTime('2022-01-01'))",
+            ),
+            (
+                "first_seen_is_date_after",
+                "first_seen",
+                PropertyOperator.IS_DATE_AFTER,
+                "2022-01-01",
+                "greater(e.issue_first_seen, toDateTime('2022-01-01'))",
+            ),
+            (
+                "first_seen_is_date_before",
+                "first_seen",
+                PropertyOperator.IS_DATE_BEFORE,
+                "2022-01-01",
+                "less(e.issue_first_seen, toDateTime('2022-01-01'))",
+            ),
+            (
+                "first_seen_exact_single",
+                "first_seen",
+                PropertyOperator.EXACT,
+                ["2022-01-01"],
+                "equals(e.issue_first_seen, toDateTime('2022-01-01'))",
+            ),
+            (
+                "first_seen_exact_multiple",
+                "first_seen",
+                PropertyOperator.EXACT,
+                ["2022-01-01", "2022-01-02"],
+                "in(e.issue_first_seen, tuple(toDateTime('2022-01-01'), toDateTime('2022-01-02')))",
+            ),
+            (
+                "description_key",
+                "description",
+                PropertyOperator.ICONTAINS,
+                "boom",
+                "ilike(e.issue_description, '%boom%')",
+            ),
+            ("unsupported_operator", "name", PropertyOperator.REGEX, "Type.*", None),
+            ("unsupported_key", "assignee", PropertyOperator.EXACT, ["1"], None),
+            ("empty_value", "name", PropertyOperator.EXACT, [], None),
+        ]
+    )
+    def test_issue_filter_operator_mapping(self, _name, key, operator, value, expected_hogql):
+        builder = ErrorTrackingQueryBuilder(
+            query=ErrorTrackingQuery(
+                kind="ErrorTrackingQuery",
+                dateRange=DateRange(date_from="-7d"),
+                filterGroup=PropertyGroupFilter(
+                    type=FilterLogicalOperator.AND_,
+                    values=[
+                        PropertyGroupFilterValue(
+                            type=FilterLogicalOperator.AND_,
+                            values=[ErrorTrackingIssueFilter(key=key, value=value, operator=operator)],
+                        )
+                    ],
+                ),
+                orderBy="last_seen",
+                volumeResolution=1,
+            ),
+            team=self.team,
+            date_from=datetime(2022, 1, 3, tzinfo=UTC),
+            date_to=datetime(2022, 1, 10, tzinfo=UTC),
+        )
+
+        expr = builder._user_filter_expr()
+        self.assertEqual(None if expr is None else expr.to_hogql(), expected_hogql)
+
+    @parameterized.expand(
+        [
             (
                 "or_returns_union",
                 FilterLogicalOperator.OR_,
@@ -1429,6 +1575,47 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
             ),
         )
         self.assertEqual(runner.query.issueId, "01936e7f-d7ff-7314-b2d4-7627981e34f0")
+
+    def test_similar_issues_rejects_malformed_issue_id(self):
+        with self.assertRaises(ValidationError):
+            ErrorTrackingSimilarIssuesQueryRunner(
+                team=self.team,
+                query=ErrorTrackingSimilarIssuesQuery(
+                    kind="ErrorTrackingSimilarIssuesQuery",
+                    issueId="not-a-uuid",
+                ),
+            )
+
+    def test_similar_issues_ignores_another_teams_fingerprint_row(self):
+        ErrorTrackingIssue.objects.filter(id=self.issue_id_one).update(description="Own team issue")
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        other_issue = ErrorTrackingIssue.objects.create(team=other_team, description="Other team issue")
+        # A higher version, so an unscoped DISTINCT ON would pick this row over the team's own.
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=other_team,
+            issue=other_issue,
+            fingerprint=self.issue_one_fingerprint,
+            version=99,
+        )
+        runner = ErrorTrackingSimilarIssuesQueryRunner(
+            team=self.team,
+            query=ErrorTrackingSimilarIssuesQuery(
+                kind="ErrorTrackingSimilarIssuesQuery",
+                issueId=self.issue_id_two,
+            ),
+        )
+
+        similar_issues = runner.get_similar_issues(
+            [
+                SimilarFingerprint(
+                    fingerprint=self.issue_one_fingerprint,
+                    timestamp=now(),
+                    distance=0.1,
+                )
+            ]
+        )
+
+        self.assertEqual([issue.id for issue in similar_issues], [self.issue_id_one])
 
     def test_requires_error_tracking_viewer_access(self):
         for runner_class in (

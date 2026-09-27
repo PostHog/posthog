@@ -15,6 +15,7 @@ from rest_framework import status
 from posthog.exceptions import generate_exception_response
 from posthog.models.utils import uuid7
 from posthog.sampling import sample_on_property
+from posthog.utils import get_ip_address
 from posthog.utils_cors import cors_response
 
 logger = structlog.get_logger(__name__)
@@ -207,7 +208,9 @@ def parse_crash_report(data: dict) -> dict:
 MAX_CRASH_REPORT_AGE_MS = 7 * 24 * 3600 * 1000
 
 
-def build_crash_event(props: dict, distinct_id: str, session_id: str, user_agent: Optional[str]) -> dict:
+def build_crash_event(
+    props: dict, distinct_id: str, session_id: str, user_agent: Optional[str], ip: Optional[str] = None
+) -> dict:
     timestamp = datetime.now(UTC)
     age_ms = props.get("age_ms")
     if isinstance(age_ms, (int, float)) and 0 <= age_ms <= MAX_CRASH_REPORT_AGE_MS:
@@ -224,16 +227,30 @@ def build_crash_event(props: dict, distinct_id: str, session_id: str, user_agent
             "$current_url": props["$browser_crash_document_url"],
             "$process_person_profile": False,
             "$raw_user_agent": props.get("$browser_crash_user_agent") or user_agent,
+            **_ip_property(ip),
             **props,
         },
     }
+
+
+# capture-rs records 127.0.0.1 for every internal capture, so the event carries the browser's
+# address as `$ip`. Ingestion keeps an explicit `$ip` and still drops it for teams that anonymize IPs.
+def _ip_property(ip: Optional[str]) -> dict:
+    return {"$ip": ip} if ip else {}
 
 
 class CSPReportTooLarge(Exception):
     pass
 
 
-def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str, user_agent: Optional[str]) -> dict:
+def build_csp_event(
+    props: dict,
+    distinct_id: str,
+    session_id: str,
+    version: str,
+    user_agent: Optional[str],
+    ip: Optional[str] = None,
+) -> dict:
     props = {f"$csp_{k}": v for k, v in props.items()}
 
     return {
@@ -246,6 +263,7 @@ def build_csp_event(props: dict, distinct_id: str, session_id: str, version: str
             "$current_url": props["$csp_document_url"],
             "$process_person_profile": False,
             "$raw_user_agent": user_agent,
+            **_ip_property(ip),
             **props,
         },
     }
@@ -295,6 +313,7 @@ def process_csp_report(request):
         session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
         user_agent = request.headers.get("User-Agent")
+        ip = get_ip_address(request)
 
         try:
             sample_rate = request.GET.get("sample_rate", 1.0)
@@ -325,6 +344,7 @@ def process_csp_report(request):
                     session_id,
                     version,
                     user_agent,
+                    ip,
                 ),
                 None,
             )
@@ -348,8 +368,8 @@ def process_csp_report(request):
             # Crash reports skip sampling: they are rare and each one is a dead tab, so
             # applying the CSP sample rate would silently discard most of the signal.
             events = [
-                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
-            ] + [build_crash_event(prop, distinct_id, session_id, user_agent) for prop in crash_props]
+                build_csp_event(prop, distinct_id, session_id, version, user_agent, ip) for prop in sampled_violations
+            ] + [build_crash_event(prop, distinct_id, session_id, user_agent, ip) for prop in crash_props]
 
             if not events:
                 logger.warning(

@@ -47,7 +47,7 @@ from ...api.skill_services import (
 )
 from ...api.skills import SKILL_SEARCH_RESULT_LIMIT
 from ...marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH, parse_skill_md
-from ...models.skills import LLMSkill, LLMSkillFile
+from ...models.skills import SCOUT_SKILL_CATEGORY, LLMSkill, LLMSkillFile
 
 COMMUNITY_FLAG = "products.skills.backend.api.community_skills.posthoganalytics.feature_enabled"
 
@@ -2154,6 +2154,26 @@ class TestLLMSkillAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
         assert mock_publish.call_args.kwargs["tags"] == expected
 
+    @parameterized.expand(
+        [
+            ("unsupported setting", {"network_access": "full"}),
+            ("too many tags", {"tags": [f"tag-{index}" for index in range(11)]}),
+        ]
+    )
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_scout_rejects_an_invalid_config(self, _label: str, scout_config: dict, mock_publish, _mock_flag):
+        skill = self.create_skill(name="signals-scout-feed", category="scout")
+
+        response = self.client.post(
+            self._url("name/signals-scout-feed/publish-community"),
+            data={"expected_skill_id": str(skill.id), "expected_version": skill.version, "scout_config": scout_config},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_publish.assert_not_called()
+
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")
     def test_publish_to_community_unknown_skill_returns_404(self, mock_publish, _mock_flag):
@@ -2178,6 +2198,46 @@ class TestLLMSkillAPI(APIBaseTest):
             "This skill changed after you reviewed it. Reopen the dialog and review the latest version."
         )
         mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_rejects_a_skill_registered_as_a_scout_after_review(self, mock_publish, _mock_flag):
+        # Registering a skill as a scout stamps `category` without raising the version, so version
+        # alone would let a skill reviewed as an ordinary one publish as a scout on a schedule.
+        skill = self.create_skill(name="make-pr")
+        LLMSkill.objects.filter(pk=skill.pk).update(category=SCOUT_SKILL_CATEGORY)
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={
+                "expected_skill_id": str(skill.id),
+                "expected_version": skill.version,
+                "expected_category": "",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        mock_publish.assert_not_called()
+
+    @patch(COMMUNITY_FLAG, return_value=True)
+    @patch("products.skills.backend.api.skills.publish_skill_to_community")
+    def test_publish_to_community_accepts_the_category_the_publisher_reviewed(self, mock_publish, _mock_flag):
+        mock_publish.return_value = {"pr_url": "https://github.com/PostHog/community-skills/pull/1", "pr_number": 1}
+        skill = self.create_skill(name="make-pr")
+
+        response = self.client.post(
+            self._url("name/make-pr/publish-community"),
+            data={
+                "expected_skill_id": str(skill.id),
+                "expected_version": skill.version,
+                "expected_category": skill.category,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        mock_publish.assert_called_once()
 
     @patch(COMMUNITY_FLAG, return_value=True)
     @patch("products.skills.backend.api.skills.publish_skill_to_community")

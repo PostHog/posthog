@@ -43,8 +43,6 @@ from posthog.settings.utils import get_list
 # without booting Django; re-exported here for existing callers.
 from posthog.week_start_day import WeekStartDay  # noqa: F401
 
-from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
-
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema_enums import CurrencyCode, PersonsOnEventsMode
 from .extensions import get_or_create_team_extension
@@ -704,41 +702,6 @@ class Team(UUIDTClassicModel):
         "admin",
     )
 
-    experiment_recalculation_time = field_access_control(
-        models.TimeField(
-            null=True,
-            blank=True,
-            help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
-        ),
-        "project",
-        "admin",
-    )
-
-    default_experiment_confidence_level = field_access_control(
-        models.DecimalField(
-            max_digits=3,
-            decimal_places=2,
-            null=True,
-            blank=True,
-            help_text="Default confidence level for new experiments in this environment. Valid values: 0.90, 0.95, 0.99.",
-        ),
-        "project",
-        "admin",
-    )
-
-    default_experiment_stats_method = field_access_control(
-        models.CharField(
-            max_length=20,
-            choices=Organization.DefaultExperimentStatsMethod,
-            default=Organization.DefaultExperimentStatsMethod.BAYESIAN,
-            help_text="Default statistical method for new experiments in this environment.",
-            null=True,
-            blank=True,
-        ),
-        "project",
-        "admin",
-    )
-
     business_model = field_access_control(
         models.CharField(
             max_length=10,
@@ -780,9 +743,7 @@ class Team(UUIDTClassicModel):
     def customer_analytics_config(self):
         from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 
-        return get_or_create_team_extension(
-            self, TeamCustomerAnalyticsConfig, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
-        )
+        return get_or_create_team_extension(self, TeamCustomerAnalyticsConfig)
 
     @cached_property
     def workflows_config(self):

@@ -101,9 +101,21 @@ import { insightUsageLogic } from './insightUsageLogic'
 import { crushDraftQueryForLocalStorage, isQueryTooLarge } from './utils'
 import { compareQuery, isDraftQueryWorthSaving } from './utils/queryUtils'
 
-export const isInsightSceneInstance = (props: InsightLogicProps): boolean =>
-    sceneLogic.values.activeSceneId === Scene.Insight &&
-    insightSceneLogic.findMounted()?.values.insightLogicRef?.logic.key === keyForInsightLogicProps('new')(props)
+// insightId/dashboardId are reducers set synchronously by the same action that matches the URL.
+// insightLogicRef is set by a separate listener that rebuilds and mounts a new logic instance, a
+// side effect that can still be running right after the scene mounts. Comparing against the ref
+// can read a stale value while insightId/dashboardId are already correct, letting a save through
+// while the editor is still showing this insight.
+export const isInsightSceneInstance = (props: InsightLogicProps): boolean => {
+    if (sceneLogic.values.activeSceneId !== Scene.Insight) {
+        return false
+    }
+    const sceneValues = insightSceneLogic.findMounted()?.values
+    return (
+        sceneValues?.insightId === props.dashboardItemId &&
+        (sceneValues?.dashboardId ?? null) === (props.dashboardId ?? null)
+    )
+}
 
 const isMatchingSqlQuery = (
     query: Node | null | undefined,

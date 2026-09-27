@@ -415,11 +415,60 @@ Metadata also uses Python when `variables` is not null or `debug` is true.
 Expression languages and non-`HogQLQuery` source contexts remain on Python because they can require surrounding query resolution.
 Service failures preserve the original request, including its source context, for Python fallback.
 
-Go metadata returns diagnostics and logical table names, not the full Python compiler metadata.
+Go metadata returns diagnostics, logical table names, and source-positioned notices for resolved table and field references, not the full Python compiler metadata.
 `indexUsage: true` does not force Python fallback or enable index analysis in Go.
-Go responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset, and return an empty `notices` list.
-Python-only heuristic warnings, type notices, and actionable index warnings are not added to a successful Go response.
+Go responses leave `index_usage`, `isUsingIndices`, and `ch_table_names` unset.
+The Django adapter maps Go notices into the existing metadata `notices` list, which the editor displays as hints.
+Older service responses without a `notices` field remain valid and produce an empty list.
+Malformed notices use the same Python fallback and sanitized error reporting as malformed diagnostics.
+Python-only heuristic warnings and actionable index warnings are not added to a successful Go response.
 Index analysis and compiler metadata parity remain separate follow-up work; this routing change does not add a second Python validation pass.
+
+### Table and field notices
+
+The Go validation response includes a separate `notices` array with `message`, `start`, and `end` fields.
+These notices identify resolved table references and report known types for fields written in the query.
+They use the published, permission-filtered catalog and the same scope resolution as validation.
+They do not execute a query, expand the Python compiler's internal expressions, or change whether a query is valid.
+Property definitions published as `Numeric` produce `Float` notices, matching Python's HogQL property conversion.
+
+```sql
+SELECT timestamp FROM events
+```
+
+This query produces a table notice for `events` and a `DateTime` field notice for `timestamp` when that type is published in the catalog.
+Warehouse alias notices identify the canonical catalog table, and CTE source notices identify the common table expression without adding it to `table_names`.
+Table notices mark named `FROM` and `JOIN` sources; alias declarations, qualifiers in field paths, and derived-subquery aliases do not receive separate table notices.
+
+```sql
+SELECT e.person.id FROM events AS e
+```
+
+The field notice uses the lazy relation's target schema when the catalog includes the `person` traversal.
+An older flat catalog cannot provide that traversal's type information.
+
+```sql
+SELECT * FROM events
+```
+
+This query produces a table notice, but no field notices for the columns represented by `*`.
+Generated field expressions have no matching token in the editor and must not produce hints at unrelated source positions.
+
+Notices remain separate from error and warning diagnostics, with at most 128 notices per response.
+Their source ranges follow the requested position encoding, including UTF-16 for the editor.
+Unknown or ambiguous fields do not receive a type hint.
+SELECT alias hints follow declaration order:
+
+```sql
+SELECT event AS v, v, timestamp AS v FROM events ORDER BY v
+```
+
+The middle `v` retains the `String` hint from `event`; the later duplicate declaration makes `ORDER BY v` ambiguous, so it receives no hint.
+Notice collection reuses the parsed query after validation and stops when its output or lookup budget is exhausted; it does not turn a valid query into an error.
+Expression type inference, physical ClickHouse table metadata, and property materialization details remain follow-up work.
+Unrecognized catalog type strings are omitted rather than converted into a guessed type.
+
+### Routing metrics
 
 For authenticated requests that have the service configured and the feature flag enabled, the Prometheus counter `hogql_editor_assist_responses_total` counts the backend that produced the final successful editor response.
 Its bounded attributes are the operation, backend, and routing reason.

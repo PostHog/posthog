@@ -741,9 +741,11 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
         self.assertEqual(response.status_code, 202)
         logger.warning.assert_not_called()
 
-    def test_every_provider_on_the_package_receives_in_the_primary_region(self) -> None:
+    def test_only_the_named_provider_receives_in_the_other_region(self) -> None:
         # The forward direction is shared machinery, so a provider that quietly overrides it
-        # redirects signed deliveries for an endpoint whose owners never asked for that.
+        # redirects signed deliveries for an endpoint whose owners never asked for that. A name
+        # on this list is a deliberate redirect, and every other provider forwards EU to US.
+        expected = ["posthog.ingress.vercel.provider.VercelProvider"]
         overriding: list[str] = []
         for module_name in _INCARNATION_MODULES:
             module = importlib.import_module(module_name)
@@ -753,7 +755,7 @@ class TestRegionalForwarding(_DispatchingViewTestCase):
                 if candidate.receiving_region_domain is not WebhookProvider.receiving_region_domain:
                     overriding.append(f"{module_name}.{candidate.__name__}")
 
-        self.assertEqual(overriding, [])
+        self.assertEqual(overriding, expected)
 
     def test_a_provider_registered_against_the_secondary_region_forwards_the_other_way(self) -> None:
         view = self._view(
