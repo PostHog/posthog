@@ -332,7 +332,7 @@ def _iter_fanned_out_analytics(
                 **extra_params,
             }
 
-            data = _make_request(session, url, params, timeout=ANALYTICS_REQUEST_TIMEOUT_SECONDS)
+            data = _make_request(session, url, params, timeout=(30, ANALYTICS_REQUEST_TIMEOUT_SECONDS))
 
             rows = parse_rows(data)
             if rows is None:

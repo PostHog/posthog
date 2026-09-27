@@ -525,8 +525,9 @@ class TestIterAnalyticsRowsFresh:
         # Single (batch, chunk) run → no next cursor → no save
         manager.save_state.assert_not_called()
         # A fanned-out request bundles a full id batch, every metric column and a full date chunk,
-        # so it needs more than the default 30s given to lightweight entity/list requests.
-        assert mock_request.call_args.kwargs["timeout"] == ANALYTICS_REQUEST_TIMEOUT_SECONDS
+        # so its response needs more than the default 30s given to lightweight entity/list
+        # requests. Only the read timeout is widened; the connect timeout stays at 30s.
+        assert mock_request.call_args.kwargs["timeout"] == (30, ANALYTICS_REQUEST_TIMEOUT_SECONDS)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pinterest_ads.pinterest_ads.fetch_account_currency"
