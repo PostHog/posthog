@@ -27,7 +27,7 @@ import { AIObservabilityStep } from './steps/AIObservabilityStep'
 import { AuthorizedUrlsStep } from './steps/AuthorizedUrlsStep'
 import { BillingStep } from './steps/BillingStep'
 import { InstallStep } from './steps/InstallStep'
-import { ToolsStep } from './steps/ToolsStep'
+import { ProductsStep } from './steps/ProductsStep'
 import { UseCasesStep } from './steps/UseCasesStep'
 import { WelcomeStep } from './steps/WelcomeStep'
 import { useCaseSelectionLogic } from './useCaseSelectionLogic'
@@ -72,11 +72,12 @@ function buildSteps(useCase: OnboardingUseCaseKey | null): StepDef[] {
             hideContinue: true,
             maxWidth: 'max-w-2xl',
         },
-        // The use case's tool collection is shown before install so the user knows what they are getting.
+        // The use case's product collection is shown before install so the user knows what they are getting.
+        // The step id stays 'tools' so existing funnel queries continue to work.
         {
             id: 'tools',
-            title: 'Your tools',
-            Content: ToolsStep,
+            title: 'Your products',
+            Content: ProductsStep,
             hideContinue: true,
             maxWidth: 'max-w-2xl',
         },
