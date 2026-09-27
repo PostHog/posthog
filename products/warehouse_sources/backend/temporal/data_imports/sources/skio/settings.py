@@ -194,6 +194,9 @@ ENDPOINTS: dict[str, SkioEndpointConfig] = {
         name="addresses",
         query_name="Addresses",
         graphql_type="Address",
+        # `doorCode` is deliberately not selected: it is a physical-access code for delivery,
+        # not shipping data, and warehouse access is granted at table/source scope with no
+        # column-specific redaction for it.
         fields=(
             "id",
             "platformId",
@@ -208,7 +211,6 @@ ENDPOINTS: dict[str, SkioEndpointConfig] = {
             "zip",
             "country",
             "phoneNumber",
-            "doorCode",
             "createdAt",
             "updatedAt",
         ),
