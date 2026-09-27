@@ -29,22 +29,25 @@ describe('loadPostHogJS', () => {
     })
 
     it.each([
-        ['hobby', { run_mode: 'HOBBY' }, false],
-        ['US cloud', { run_mode: 'US' }, undefined],
-        ['EU cloud', { run_mode: 'EU' }, undefined],
-        ['cloud development', { run_mode: 'DEV' }, undefined],
-        ['local development', { run_mode: 'LOCAL' }, undefined],
-        ['E2E', { run_mode: 'E2E' }, undefined],
-        ['older app context', {}, undefined],
-        ['missing app context', undefined, undefined],
-    ] as const)('selects script versioning for %s', (_, context, expected) => {
+        ['hobby with self-capture', { run_mode: 'HOBBY' }, true, false],
+        ['hobby with Cloud assets', { run_mode: 'HOBBY' }, false, undefined],
+        ['US cloud', { run_mode: 'US' }, false, undefined],
+        ['EU cloud', { run_mode: 'EU' }, false, undefined],
+        ['cloud development', { run_mode: 'DEV' }, false, undefined],
+        ['local development', { run_mode: 'LOCAL' }, false, undefined],
+        ['E2E', { run_mode: 'E2E' }, false, undefined],
+        ['older app context', {}, false, undefined],
+        ['missing app context', undefined, false, undefined],
+    ] as const)('selects script versioning for %s', (_, context, selfCapture, expected) => {
         const original = {
             key: window.JS_POSTHOG_API_KEY,
             host: window.JS_POSTHOG_HOST,
+            selfCapture: window.JS_POSTHOG_SELF_CAPTURE,
             context: window.POSTHOG_APP_CONTEXT,
         }
         window.JS_POSTHOG_API_KEY = 'phc_example'
         window.JS_POSTHOG_HOST = window.location.origin
+        window.JS_POSTHOG_SELF_CAPTURE = selfCapture
         window.POSTHOG_APP_CONTEXT = context as AppContext | undefined
         jest.mocked(posthog.get_session_id).mockReturnValue('example-session')
         jest.mocked(posthog.init).mockClear()
@@ -59,6 +62,7 @@ describe('loadPostHogJS', () => {
         } finally {
             window.JS_POSTHOG_API_KEY = original.key
             window.JS_POSTHOG_HOST = original.host
+            window.JS_POSTHOG_SELF_CAPTURE = original.selfCapture
             window.POSTHOG_APP_CONTEXT = original.context
         }
     })

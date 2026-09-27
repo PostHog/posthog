@@ -49,7 +49,9 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: SDK_DEFAULTS_DATE,
             // Hobby static files use /static/<asset>.js, without a version directory.
-            ...(isHobbyDeployment() ? { strict_script_versioning: false as const } : {}),
+            ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
+                ? { strict_script_versioning: false as const }
+                : {}),
             persistence: 'localStorage+cookie',
             cookie_persisted_properties: [
                 'prod_interest', // posthog.com sets these based on what docs were browsed
