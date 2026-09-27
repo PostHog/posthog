@@ -1,18 +1,22 @@
 import {
-  ArrowCounterClockwise,
+  ArrowBendUpLeftIcon,
+  ArrowCounterClockwiseIcon,
   ArrowSquareOutIcon,
-  ChatCircle,
-  CheckCircle,
-  WarningCircle,
+  CaretRightIcon,
+  CheckCircleIcon,
+  WarningCircleIcon,
 } from "@phosphor-icons/react";
+import { avatarColor } from "@posthog/core/auth/avatarColor";
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
   Button,
-  Card,
-  CardContent,
-  Separator,
+  cn,
+  Kbd,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { UserBasic } from "@posthog/shared/domain-types";
@@ -22,50 +26,111 @@ import type { CommentEntry } from "@posthog/ui/features/canvas/components/taskCo
 import { githubCommentComponents } from "@posthog/ui/features/editor/components/githubCommentImages";
 import { githubRehypePlugins } from "@posthog/ui/features/editor/components/githubMarkdownPlugins";
 import { MarkdownRenderer } from "@posthog/ui/features/editor/components/MarkdownRenderer";
+import { toast } from "@posthog/ui/primitives/toast";
 import { cachedImageUrl } from "@posthog/ui/shell/cachedImageUrl";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { type ReactNode, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactElement,
+  type ReactNode,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { CommentComposer } from "./CommentComposer";
 import type { HighlightResolution } from "./commentViewTypes";
+import { adjacentThread, moveThreadFocus } from "./threadListFocus";
 
-function CommentBody({ entry }: { entry: CommentEntry }) {
+const MAX_REPLIES_SHOWN = 2;
+const TEXT_INSET = "pl-7";
+
+function CommentBody({
+  entry,
+  actions,
+}: {
+  entry: CommentEntry;
+  actions?: ReactNode;
+}): ReactElement {
+  const color = avatarColor(entry.authorName);
   return (
-    <div className="flex gap-2 py-2">
-      {/* A PostHog author keeps the avatar and hue they have everywhere else;
-          a GitHub author only ever comes with a url. */}
-      {entry.user || !entry.avatarUrl ? (
-        <UserAvatar user={entry.user} size="sm" />
-      ) : (
-        <Avatar size="sm">
-          <AvatarImage src={cachedImageUrl(entry.avatarUrl)} alt="" />
-          <AvatarFallback>{entry.authorName.slice(0, 2)}</AvatarFallback>
-        </Avatar>
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="truncate font-medium text-xs">
-            {entry.authorName}
-          </span>
-          <span className="shrink-0 text-muted-foreground text-xs">
-            {formatRelativeTimeShort(entry.createdAt)}
-          </span>
-        </div>
-        {entry.format === "markdown" ? (
-          <div className="mt-1 break-words text-[13px] leading-relaxed [&_img]:max-w-full [&_p]:m-0 [&_pre]:max-w-full [&_pre]:overflow-x-auto">
-            <MarkdownRenderer
-              content={entry.body}
-              rehypePlugins={githubRehypePlugins}
-              componentsOverride={githubCommentComponents}
-            />
-          </div>
+    <div>
+      <div className="flex min-h-6 items-center gap-2">
+        {/* A PostHog author keeps the avatar and hue they have everywhere else;
+            a GitHub author only ever comes with a url. */}
+        {entry.user ? (
+          <UserAvatar user={entry.user} size="xs" />
         ) : (
-          <MentionText
-            content={entry.body}
-            className="mt-1 block whitespace-pre-wrap break-words text-[13px] leading-relaxed"
-          />
+          <Avatar size="xs">
+            {entry.avatarUrl && (
+              <AvatarImage src={cachedImageUrl(entry.avatarUrl)} alt="" />
+            )}
+            <AvatarFallback
+              style={{ backgroundColor: color.bg, color: color.text }}
+            >
+              {entry.authorName.slice(0, 2).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
         )}
+        <span className="truncate font-medium text-[13px]">
+          {entry.authorName}
+        </span>
+        <span className="shrink-0 text-muted-foreground text-xs">
+          {formatRelativeTimeShort(entry.createdAt)}
+        </span>
+        {actions}
       </div>
+      {entry.format === "markdown" ? (
+        <div
+          className={`${TEXT_INSET} break-words text-[13px] leading-relaxed [&_img]:max-w-full [&_p]:m-0 [&_pre]:max-w-full [&_pre]:overflow-x-auto`}
+        >
+          <MarkdownRenderer
+            content={entry.body}
+            rehypePlugins={githubRehypePlugins}
+            componentsOverride={githubCommentComponents}
+          />
+        </div>
+      ) : (
+        <MentionText
+          content={entry.body}
+          className={`${TEXT_INSET} block whitespace-pre-wrap break-words text-[13px] leading-relaxed`}
+        />
+      )}
     </div>
+  );
+}
+
+function ThreadAction({
+  label,
+  shortcut,
+  disabled,
+  onClick,
+  children,
+}: {
+  label: string;
+  shortcut: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}): ReactElement {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            size="icon-sm"
+            aria-label={label}
+            disabled={disabled}
+            onClick={onClick}
+          >
+            {children}
+          </Button>
+        }
+      />
+      <TooltipContent side="top" className="flex items-center gap-1.5">
+        {label}
+        <Kbd>{shortcut}</Kbd>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -112,108 +177,191 @@ export function CommentThreadCard({
   onResolve: (resolved: boolean) => void | Promise<void>;
 }) {
   const [replying, setReplying] = useState(false);
+  const openButtonRef = useRef<HTMLButtonElement>(null);
+  const focusAfterRemoval = useRef<HTMLElement | null>(null);
+  useEffect(
+    () => () => {
+      const next = focusAfterRemoval.current;
+      if (next?.isConnected && document.activeElement === document.body) {
+        next.focus();
+      }
+    },
+    [],
+  );
   const [reply, setReply] = useState("");
+  const [showAllReplies, setShowAllReplies] = useState(false);
   const [root, ...replies] = entries;
   if (!root) return null;
 
+  const hiddenReplies =
+    showAllReplies || replies.length <= MAX_REPLIES_SHOWN
+      ? 0
+      : replies.length - 1;
+  const shownReplies = replies.slice(hiddenReplies);
+  const stopReply = () => {
+    setReplying(false);
+    setReply("");
+  };
+
+  const setThreadResolved = (next: boolean) => {
+    Promise.resolve(onResolve(next))
+      .then(() => {
+        toast.success(next ? "Thread resolved" : "Thread reopened", {
+          id: `comment-thread-state-${threadId}`,
+          action: {
+            label: "Undo",
+            onClick: () => {
+              Promise.resolve(onResolve(!next)).catch(() => undefined);
+            },
+          },
+        });
+      })
+      .catch(() => {
+        focusAfterRemoval.current = null;
+      });
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
+    moveThreadFocus(event);
+    if (event.key === "r" && canReply) {
+      event.preventDefault();
+      setReplying(true);
+    } else if (event.key === "e" && canResolve && !busy) {
+      event.preventDefault();
+      focusAfterRemoval.current = adjacentThread(event.currentTarget);
+      setThreadResolved(!resolved);
+    }
+  };
+
+  const actions = (canReply || canResolve) && (
+    <span
+      className={cn(
+        "pointer-events-auto ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-focus-within/thread:opacity-100 group-hover/thread:opacity-100",
+        selected && "opacity-100",
+      )}
+    >
+      {canReply && (
+        <ThreadAction
+          label="Reply"
+          shortcut="R"
+          onClick={() => setReplying(true)}
+        >
+          <ArrowBendUpLeftIcon />
+        </ThreadAction>
+      )}
+      {canResolve && (
+        <ThreadAction
+          label={resolved ? "Reopen" : "Resolve"}
+          shortcut="E"
+          disabled={busy}
+          onClick={() => setThreadResolved(!resolved)}
+        >
+          {resolved ? <ArrowCounterClockwiseIcon /> : <CheckCircleIcon />}
+        </ThreadAction>
+      )}
+    </span>
+  );
+
   return (
-    <Card
-      className={`gap-0 p-0 transition-all duration-300 ${
-        selected ? "border-accent bg-accent/5" : ""
-      } ${
+    <div
+      className={cn(
+        "group/thread relative border-border/70 border-b p-3 transition-colors duration-300 has-[>[data-thread-focus]:focus-visible]:ring-2 has-[>[data-thread-focus]:focus-visible]:ring-ring/50 has-[>[data-thread-focus]:focus-visible]:ring-inset",
+        selected ? "bg-fill-selected" : "hover:bg-fill-hover",
         // Inset, so a pane that clips its overflow can't shave the highlight.
-        pulsing ? "ring-2 ring-accent ring-inset" : ""
-      } ${resolved ? "opacity-70" : ""}`}
+        pulsing && "ring-2 ring-primary ring-inset",
+      )}
       data-comment-thread-id={threadId}
     >
-      <CardContent className="relative p-3">
-        <Button
-          type="button"
-          variant="outline"
-          className="absolute inset-0 h-auto w-full opacity-0"
-          aria-label="Open comment thread"
-          onClick={onSelect}
-        />
-        <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
-          <div className="w-full text-left">
-            {source}
-            {resolution === "orphaned" && (
-              <div className="mb-1.5 flex items-center gap-1 text-amber-700 text-xs dark:text-amber-300">
-                <WarningCircle />
-                The highlighted text changed
-              </div>
-            )}
-            <CommentBody entry={root} />
+      <Button
+        type="button"
+        variant="outline"
+        className="absolute inset-0 h-auto w-full scroll-mt-8 rounded-none opacity-0"
+        ref={openButtonRef}
+        aria-label="Open comment thread"
+        data-thread-focus="thread"
+        onClick={onSelect}
+        onKeyDown={onKeyDown}
+      />
+      <div className="pointer-events-none relative [&_a]:pointer-events-auto [&_button]:pointer-events-auto">
+        {source && <div className="mb-2 min-w-0">{source}</div>}
+        {resolution === "orphaned" && (
+          <div className="mb-2 flex items-center gap-1 text-warning-foreground text-xs">
+            <WarningCircleIcon />
+            The highlighted text changed
           </div>
-        </div>
-        {/* Replies sit at the root's indentation: a thread this narrow reads as
-            one conversation, and nesting only stole width from the text. */}
-        <div className="pointer-events-none relative">
-          {replies.map((entry) => (
+        )}
+        <div className="flex flex-col gap-3">
+          <CommentBody entry={root} actions={actions} />
+          {hiddenReplies > 0 && (
+            <div className={TEXT_INSET}>
+              <Button
+                size="xs"
+                variant="link-muted"
+                className="-mt-2 -mb-1 h-5 self-start px-0"
+                onClick={() => {
+                  setShowAllReplies(true);
+                  openButtonRef.current?.focus();
+                }}
+              >
+                <CaretRightIcon />
+                Show {hiddenReplies} earlier{" "}
+                {hiddenReplies === 1 ? "reply" : "replies"}
+              </Button>
+            </div>
+          )}
+          {shownReplies.map((entry) => (
             <CommentBody key={entry.id} entry={entry} />
           ))}
         </div>
-        {/* A conversation comment can only be read here and acted on in GitHub;
-            dead Reply/Resolve buttons would just discard whatever was typed, so
-            it gets a link out instead. */}
-        {(canReply || canResolve || viewHref) && <Separator className="my-2" />}
-        {!canReply && !canResolve && viewHref ? (
-          <div className="relative">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openExternalUrl(viewHref)}
-            >
-              <ArrowSquareOutIcon />
-              View on GitHub
-            </Button>
+      </div>
+      {/* A conversation comment can only be read here and acted on in GitHub;
+          dead Reply/Resolve buttons would just discard whatever was typed, so
+          it gets a link out instead. */}
+      {!canReply && !canResolve && viewHref ? (
+        <div className={`relative ${TEXT_INSET} mt-2`}>
+          <Button
+            size="xs"
+            variant="link-muted"
+            className="px-0"
+            onClick={() => openExternalUrl(viewHref)}
+          >
+            View on GitHub
+            <ArrowSquareOutIcon />
+          </Button>
+        </div>
+      ) : (
+        canReply &&
+        (replying || selected || reply) && (
+          <div className={`relative ${TEXT_INSET} mt-3`}>
+            <CommentComposer
+              key={replying ? "replying" : "idle"}
+              value={reply}
+              onValueChange={setReply}
+              onSubmit={async (content, mentions) => {
+                await onReply(content, mentions);
+                stopReply();
+                setShowAllReplies(true);
+              }}
+              onCancel={
+                replying || reply
+                  ? () => {
+                      stopReply();
+                      openButtonRef.current?.focus();
+                    }
+                  : undefined
+              }
+              members={members}
+              placeholder="Reply…"
+              rows={1}
+              disabled={busy}
+              submitLabel="Reply"
+              autoFocus={replying}
+              compact
+            />
           </div>
-        ) : replying ? (
-          <CommentComposer
-            value={reply}
-            onValueChange={setReply}
-            onSubmit={async (content, mentions) => {
-              await onReply(content, mentions);
-              setReply("");
-              setReplying(false);
-            }}
-            onCancel={() => setReplying(false)}
-            members={members}
-            placeholder={
-              members.length > 0 ? "Reply… Type @ to mention someone" : "Reply…"
-            }
-            rows={2}
-            disabled={busy}
-            submitLabel="Reply"
-            autoFocus
-          />
-        ) : (
-          (canReply || canResolve) && (
-            <div className="relative flex gap-1">
-              {canReply && (
-                <Button size="sm" onClick={() => setReplying(true)}>
-                  <ChatCircle />
-                  Reply
-                </Button>
-              )}
-              {canResolve && (
-                <Button
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => {
-                    Promise.resolve(onResolve(!resolved)).catch(
-                      () => undefined,
-                    );
-                  }}
-                >
-                  {resolved ? <ArrowCounterClockwise /> : <CheckCircle />}
-                  {resolved ? "Reopen" : "Resolve"}
-                </Button>
-              )}
-            </div>
-          )
-        )}
-      </CardContent>
-    </Card>
+        )
+      )}
+    </div>
   );
 }
