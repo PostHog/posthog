@@ -99,6 +99,7 @@ describe('navProductsTabLogic', () => {
         const existing = [
             { id: 'folder', path: 'Feature flags', type: 'folder', ref: 'Feature flags' },
             { id: 'file', path: 'Feature flags', type: 'insight', ref: 'insight-1', href: '/insights/insight-1' },
+            { id: 'href-only', path: 'Feature flags', type: 'feature_flag', href: '/custom/feature-flags' },
             { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
         ]
         projectTreeDataLogic.actions.loadShortcutsSuccess(existing)
