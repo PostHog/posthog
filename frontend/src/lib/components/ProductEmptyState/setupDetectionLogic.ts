@@ -92,6 +92,9 @@ export type SetupDetectionLogicType = MakeLogicType<SetupDetectionValues, SetupD
 
 const HAS_DATA_CACHE_PREFIX = 'ph-product-setup-has-data/'
 
+/** How long the gate holds its spinner for a first answer before it fails open to the scene. */
+export const DETECTION_TIMEOUT_MS = 5000
+
 function hasDataCacheKey(teamId: number, productKey: ProductKey): string {
     return `${HAS_DATA_CACHE_PREFIX}${teamId}/${productKey}`
 }
@@ -258,6 +261,7 @@ export function createSetupDetectionLogic(options: SetupDetectionLogicOptions): 
             }
             runOnceProjectIsKnown(cache, values, actions.detectStatus)
             startPoll(cache, actions, values, pollIntervalMs)
+            failOpenAfterTimeout(cache, actions, values)
         }),
     ])
 }
@@ -280,6 +284,24 @@ function runOnceProjectIsKnown(
     } else {
         cache.runWhenProjectKnown = run
     }
+}
+
+// A slow or hung probe never errors, so the failure path alone can leave the gate on its
+// spinner indefinitely. A late answer still applies, except `needs-setup`, which never
+// replaces a scene that is already on screen.
+function failOpenAfterTimeout(
+    cache: Record<string, any>,
+    actions: Pick<SetupDetectionLogicType['actions'], 'setDetectedStatus'>,
+    values: Pick<SetupDetectionValues, 'setupStatus'>
+): void {
+    cache.disposables.add(() => {
+        const id = window.setTimeout(() => {
+            if (values.setupStatus === 'loading') {
+                actions.setDetectedStatus('unknown')
+            }
+        }, DETECTION_TIMEOUT_MS)
+        return () => clearTimeout(id)
+    }, 'detectionTimeout')
 }
 
 function startPoll(

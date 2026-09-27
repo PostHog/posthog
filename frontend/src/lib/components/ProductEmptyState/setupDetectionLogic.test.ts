@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { createSetupDetectionLogic } from './setupDetectionLogic'
+import { DETECTION_TIMEOUT_MS, createSetupDetectionLogic } from './setupDetectionLogic'
 import type { ProductSetupStatus } from './types'
 
 describe('createSetupDetectionLogic', () => {
@@ -101,6 +101,26 @@ describe('createSetupDetectionLogic', () => {
             await Promise.resolve()
         }
     }
+
+    // A hung probe never rejects, so only the timeout takes the gate off its spinner.
+    it.each([
+        ['has-data', 'has-data'],
+        ['needs-setup', 'unknown'],
+    ] as const)('fails open on a hung detection, then applies a late %s as %s', async (late, expected) => {
+        jest.useFakeTimers()
+        let answer: (status: ProductSetupStatus) => void = () => {}
+        const logic = buildLogic(jest.fn(() => new Promise<ProductSetupStatus>((resolve) => (answer = resolve))))
+        logic.mount()
+        jest.advanceTimersByTime(DETECTION_TIMEOUT_MS - 1)
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('loading')
+
+        jest.advanceTimersByTime(1)
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe('unknown')
+
+        answer(late)
+        await flushMicrotasks()
+        expect(productSetupStatusLogic({ productKey: ProductKey.LOGS }).values.status).toBe(expected)
+    })
 
     it('polls until data arrives, then stops for good', async () => {
         jest.useFakeTimers()
