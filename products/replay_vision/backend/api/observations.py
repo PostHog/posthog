@@ -1600,9 +1600,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         params.is_valid(raise_exception=True)
         scanner_id = params.validated_data.get("scanner_id")
         scanner_ids = self._searchable_scanner_ids(scanner_id)
-        queries = (cross_scanner_suggestions(self.team_id, scanner_ids) if scanner_id is None else None) or (
-            merge_suggestions([stored for _, stored in scope_sources(self.team_id, scanner_ids)])
-        )
+        queries = self._displayed_suggestions(scanner_id, scanner_ids, scope_sources(self.team_id, scanner_ids))
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
     @extend_schema(request=SearchSuggestionsQuerySerializer, responses={204: None})
@@ -1613,19 +1611,28 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
     )
     def search_viewed(self, request: Request, **kwargs: Any) -> Response:
-        """Record that the Search tab showed suggestions for this scope. A viewed scanner is what the scheduled
-        refresher keeps up to date, so the stamp lives on a CSRF-protected POST rather than the read."""
+        """Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
+        scanners first, so the stamp lives on a CSRF-protected POST rather than the read."""
         params = SearchSuggestionsQuerySerializer(data=request.data)
         params.is_valid(raise_exception=True)
-        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        scanner_id = params.validated_data.get("scanner_id")
+        scanner_ids = self._searchable_scanner_ids(scanner_id)
         sources = scope_sources(self.team_id, scanner_ids)
         # The same rows that a view shows are the ones it marks as wanted.
         stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in sources])
         # A suggestion is a likely next search, so its vector is cached before anyone clicks it. The phrases
         # derive from recordings, so they reach the embedding service only with AI data processing on.
         if is_ai_data_processing_approved(self.team.id):
-            warm_query_vectors(self.team, merge_suggestions([stored for _, stored in sources]))
+            warm_query_vectors(self.team, self._displayed_suggestions(scanner_id, scanner_ids, sources))
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _displayed_suggestions(
+        self, scanner_id: uuid.UUID | None, scanner_ids: list[str], sources: list[tuple[str, list[str]]]
+    ) -> list[str]:
+        """The phrases this viewer sees: the team's own set for the all-scanners view when they can read every
+        scanner it drew on, otherwise the per-scanner merge."""
+        team_phrases = cross_scanner_suggestions(self.team_id, scanner_ids) if scanner_id is None else None
+        return team_phrases or merge_suggestions([stored for _, stored in sources])
 
     def _search_response(
         self, results: list[ObservationSearchResult], truncated: bool = False, reranked: bool = False

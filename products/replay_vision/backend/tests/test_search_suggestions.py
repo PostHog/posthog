@@ -343,6 +343,10 @@ class TestSearchSuggestionsEndpoint(_SuggestionsTestCase):
             team=self.team, search_suggestions=["team phrase"], search_suggestions_sources=[str(scanner.id)]
         )
         self.assertEqual(self.client.get(self.url).json()["queries"], ["team phrase"])
+        # The view warms what it shows, so clicking a team phrase skips the embedding call.
+        with patch("products.replay_vision.backend.api.observations.warm_query_vectors") as mock_warm:
+            self.assertEqual(self.client.post(self.viewed_url, {}, format="json").status_code, 204)
+        mock_warm.assert_called_once_with(ANY, ["team phrase"])
         self.assertEqual(
             self.client.get(f"{self.url}?scanner_id={scanner.id}").json()["queries"], ["per scanner phrase"]
         )
