@@ -3867,6 +3867,18 @@ export interface DataDeletionPreviewApi {
     readonly count: number
 }
 
+export interface EmojiSuggestionApi {
+    /** The suggested emoji character. */
+    emoji: string
+    /** The emoji's English name. */
+    label: string
+}
+
+export interface EmojiSearchResponseApi {
+    /** Related emojis, or an empty list. */
+    suggestions: EmojiSuggestionApi[]
+}
+
 /**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
@@ -5627,6 +5639,15 @@ export type DataDeletionRequestsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string
 }
 
 export type ExportsListParams = {
