@@ -11,11 +11,11 @@ For each PR, the eval:
 
 ## Scores
 
-| Score          | What it measures                                                                                   |
-| -------------- | -------------------------------------------------------------------------------------------------- |
-| Files hit      | Share of the golden PR's files that the agent also changed.                                        |
-| Line F1        | Overlap between the added lines of the two diffs.                                                  |
-| Judge          | An Anthropic model reads the task and both diffs and scores behavioral equivalence from 0 to 1.    |
+| Score     | What it measures                                                                                |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| Files hit | Share of the golden PR's files that the agent also changed.                                     |
+| Line F1   | Overlap between the added lines of the two diffs.                                               |
+| Judge     | An Anthropic model reads the task and both diffs and scores behavioral equivalence from 0 to 1. |
 
 Snapshot files and images are ignored, because an agent cannot regenerate them without the test suite.
 The deterministic scores are strict, so a correct change written in a different way scores low on them. Read the judge score and its reasoning together with them.

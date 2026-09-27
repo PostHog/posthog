@@ -1,98 +1,98 @@
 [
-  {
-    "number": 18481,
-    "author": "Twixes",
-    "title": "fix(retention): Properly apply Monday as the first day of the week",
-    "merged_at": "2023-11-08T21:29:44Z",
-    "merge_commit_sha": "f986c242d506915d503f6a4675bbf2d52f4e79f9",
-    "body": "## Problem\n\nThe first day of the week setting did not apply in Retention, because Retention's `period` value starts with a capital letter, while other insights' `interval` is all-lowercase. 🙈 `date_from` was also incorrect for week-based Retention insights when Monday is the first day of the week.\n\n## Changes\n\nWe now properly handle uppercase `interval` (i.e. `period`) by delegating this to `get_trunc_func_ch()`.\nWe also are aware of the first day of the week in `RetentionDateDerivedMixin`'s `date_from` – which is a really bad design TBH, because this should all live in SQL – but that's how Retention is architected currently.\n\n## How did you test this code?\n\nAdded a query test."
-  },
-  {
-    "number": 18522,
-    "author": "mariusandra",
-    "title": "feat(hogql): better debug errors",
-    "merged_at": "2023-11-09T16:53:48Z",
-    "merge_commit_sha": "7cf0229cf72877a79cbfa51112fe7b3ad724a7eb",
-    "body": "## Problem\n\nIf a `HogQLQuery` errors when running the ClickHouse query, we eat up the error, and the query that was run. This makes it hard to debug if there's an error in the generated ClickHouse query.\n\n## Changes\n\nWhen running under the `/debug` URL, a HogQL error or a verified ClickHouse error will now be returned _together with_ the ClickHouse SQL that was run. This makes debugging much easier.\n\nBefore:\n\n<img width=\"1451\" alt=\"image\" src=\"https://github.com/PostHog/posthog/assets/53387/65fa367f-e083-42c5-9d21-dac73ac7a546\">\n\nAfter:\n\n<img width=\"1491\" alt=\"image\" src=\"https://github.com/PostHog/posthog/assets/53387/114e2b22-afc1-4e44-a7cd-09b7a7762331\">\n\n\n## How did you test this code?\n\n<!-- Briefly describe the steps you took. -->\n<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->\n"
-  },
-  {
-    "number": 18829,
-    "author": "pauldambra",
-    "title": "feat: hide seekbar preview for long recordings",
-    "merged_at": "2023-11-23T09:21:03Z",
-    "merge_commit_sha": "139da53b43c6209fc96524fcdcd059eb18d50916",
-    "body": "We've had some performance problem reports related to the seekbar.\n\nWe think this is to do with rrweb perf issues on complex or longer recordings.\n\nlet's hide the preview frame (and not init the logic) when the recording is over 20 minutes\nlet's allow a feature flag so we can force show the preview for those that really want it, and to test future versions of rrweb\n\n![2023-11-22 19 10 39](https://github.com/PostHog/posthog/assets/984817/12b93fa9-2ccf-4fc4-8ad2-5310ae5e66e3)\n"
-  },
-  {
-    "number": 19256,
-    "author": "benjackwhite",
-    "title": "feat: Show activity panel if there are any unread notifications",
-    "merged_at": "2023-12-20T14:57:04Z",
-    "merge_commit_sha": "d9429ffd3fc2d812f62cf27c121c5a7cce9e12a1",
-    "body": "## Problem\n\nYou sort of what to know about whats going on - lets show the activity panel if you have unread notifications!\n\n## Changes\n\n* Show the activity panel if you have unread notifications\n* The only badge color we currently have is the faded one... should we change that?\n* Also snuck in some icon updates for the Notebook menu 🙈 \n\n<img width=\"191\" alt=\"Screenshot 2023-12-11 at 18 18 29\" src=\"https://github.com/PostHog/posthog/assets/2536520/b48a6584-2fb4-40b0-b8dc-bd988946c1a4\">\n\n## Follow up\n* Cache the unread count so that we don't flash it on load?\n\n👉 *Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*\n\n## How did you test this code?\n\n<!-- Briefly describe the steps you took. -->\n<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->\n"
-  },
-  {
-    "number": 19390,
-    "author": "pauldambra",
-    "title": "fix: replay events table had duplicate columns",
-    "merged_at": "2023-12-19T09:28:50Z",
-    "merge_commit_sha": "a246a8cc5de63503fd75148b5dc11eb1082d0311",
-    "body": "The session replay events hogql table groups the raw_session_replay_events hogql table\n\n![Screenshot 2023-12-18 at 12 55 36](https://github.com/PostHog/posthog/assets/984817/5bd54b97-fb96-4b2f-a4aa-cd37d09d9289)\n\nIt already takes min of min_first_timestamp as start_time\nand max of max_first_timestamp as end_time\n\nBut then also shows min_first_timestamp and max_first_timestamp as columns... \n\nThat's confusing - we can hide them, since they're already accounted for in start_ and end_ time"
-  },
-  {
-    "number": 24988,
-    "author": "Twixes",
-    "title": "fix(projects): Fix project creation when `access_control` set",
-    "merged_at": "2024-09-16T13:43:33Z",
-    "merge_commit_sha": "86231b3a2dde306231efcfe57ef8171a909df628",
-    "body": "## Problem\n\nSince Thursday, project creation has been erroring when `access_control` was specified. This was not an issue in the app, which does not set this param on project creation, but a customer using the API this way experienced disruption.\n\n## Changes\n\nThe bug appeared after a refactor in #24154 that simplified one path a bit too much. The problem is that we didn't have a test for this path of project creation.\n\nThis fixes the bug and adds a few tests to better cover project creation (`access_control` and `primary_dashboard` were lacking coverage)."
-  },
-  {
-    "number": 25310,
-    "author": "mariusandra",
-    "title": "feat(persons): save persons as a static cohort",
-    "merged_at": "2024-10-01T21:27:39Z",
-    "merge_commit_sha": "efdc026751a50eb4fa2ec7be1b378b68c35972ab",
-    "body": "## Problem\n\n- We have the feature to save a list of persons (an `ActorsQuery`) as a static cohort. It's used in the \"persons modal\" when you click on an insight, but is not exposed anywhere else.\n- I've heard several requests to create a cohort from a HogQL query, mostly to include unapplied (not on persons) data warehouse data in the calculation.\n\n## Changes\n\nThe first step in making this possible: expose the existing cohort saving API on the persons table.\n\n![2024-10-01 16 19 13](https://github.com/user-attachments/assets/b10a7e00-fafb-4903-9c6d-3c4b8df09c82)\n\n## Next steps (future PRs)\n\n- [ ] Static cohorts from any HogQL query that returns a person_id column\n- [ ] Add option to save as dynamic query --> same system for inserts, it would just get refreshed on a schedule\n- [ ] Add option to save as inlined cohort (calculated while querying)\n\n## How did you test this code?\n\nJust in the UI. There are no backend changes."
-  },
-  {
-    "number": 25334,
-    "author": "pauldambra",
-    "title": "fix: replay will send nonsense strings that should be captured",
-    "merged_at": "2024-10-03T11:21:50Z",
-    "merge_commit_sha": "32e56c70a233453e11d1d088853caf8d71c8fa2f",
-    "body": "We know from experience that replay will send technically unrepresentable strings and that we still want to capture them\n\nAn example from prod is truncating strings from the console and getting only one half a surrogate pair\n\nWe need to be super tolerant of _some_ nonsense because replay is very sensitive to missing events\n\nRust is not super tolerant of nonsense so we have to de-fuckulate what we receive"
-  },
-  {
-    "number": 25349,
-    "author": "mariusandra",
-    "title": "fix(apps): transpile site apps on create",
-    "merged_at": "2024-10-03T08:02:12Z",
-    "merge_commit_sha": "8ef766a2deed4829a761fc29d6eac0b9b9457f5d",
-    "body": "## Problem\n\nThe \"Notification Bar\" site app stopped working for some reason. Reported by several users lately.\n\nIt appears that site apps, when installed/upgraded from a `.zip`, do not transpile their code. Transpilation only happens when you modify a source file of a \"source plugin/app\". My guess is we got to the degraded state with \"Notification Bar\" after someone upgraded a site app that pulled in a new zip.\n\nI moved the site app transpilation away from the plugin server to django at one point, and likely forgot to add the relevant code lines to the app-creation-from-zip part.\n\n## Changes\n\nAdds source transpilation for site apps on when installing/upgrading from a zip file\n\n## Does this work well for both Cloud and self-hosted?\n\nYup\n\n## How did you test this code?\n\nUpdated tests. Let's see if all will work in CI."
-  },
-  {
-    "number": 25832,
-    "author": "Twixes",
-    "title": "fix(events): Account for project timezone in absolute range `EventsQuery`",
-    "merged_at": "2024-11-05T13:29:32Z",
-    "merge_commit_sha": "674e8fe9e5c639c1a6a959a959f03a2cac536315",
-    "body": "## Problem\n\nAbsolute date ranges were always effectively treated as UTC in `EventsQueryRunner`. This was off for projects with a non-UTC timezone set.\n\n## Changes\n\nWe were using raw `isoparse()`, where `relative_date_parse()` already handles both absolute and relative datetimes correctly accounting for timezones. The fix is simply removing the needless `isoparse`.\n\n## How did you test this code?\n\nAdded a test case that fails on master and passes here."
-  },
-  {
-    "number": 26792,
-    "author": "benjackwhite",
-    "title": "feat: Added manual remoteconfig sync command",
-    "merged_at": "2024-12-10T15:34:56Z",
-    "merge_commit_sha": "298f1501f243810aedcb69be44620189f1cd753a",
-    "body": "## Problem\n\nWould be handy to have right now and maybe in the future\n\n## Changes\n\n* Also adds missing celery beat from launch.json (couldnt figure out why my tasks weren't running)\n\n👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._\n\n## Does this work well for both Cloud and self-hosted?\n\n<!-- Yes / no / it doesn't have an impact. -->\n\n## How did you test this code?\n\n<!-- Briefly describe the steps you took. -->\n<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->\n"
-  },
-  {
-    "number": 26893,
-    "author": "benjackwhite",
-    "title": "fix: Email validation tokens",
-    "merged_at": "2024-12-15T13:22:17Z",
-    "merge_commit_sha": "e1d346e2f6e91f15ec4f27599e586c0afef94db2",
-    "body": "## Problem\n\nSome investigation around email resetting revealed a few less-than-perfect things. Nothing major from what I can see but confusing APIs that make it look like you can do bad things (which you can't)\n\n## Changes\n\n* Adds some missing tests to verify a bunch of things such as not being able to use someone else's token or re-use a token for verifying a pending email (there were some tests here but not enough to immediately confirm some security doubts)\n* Fix an issue with the `login_timestamp` not being included in the token validation (which is what was allowing an email verification to be used multiple times) - this anyway had a 24 hour limit but now it is even more restrictive\n* Makes the unauthenticated endpoints non-detail specific which fixes confusion around where the `uuid` was coming from.\n\n👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._\n\n## Does this work well for both Cloud and self-hosted?\n\n<!-- Yes / no / it doesn't have an impact. -->\n\n## How did you test this code?\n\n<!-- Briefly describe the steps you took. -->\n<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->\n"
-  }
+    {
+        "number": 18481,
+        "author": "Twixes",
+        "title": "fix(retention): Properly apply Monday as the first day of the week",
+        "merged_at": "2023-11-08T21:29:44Z",
+        "merge_commit_sha": "f986c242d506915d503f6a4675bbf2d52f4e79f9",
+        "body": "## Problem\n\nThe first day of the week setting did not apply in Retention, because Retention's `period` value starts with a capital letter, while other insights' `interval` is all-lowercase. 🙈 `date_from` was also incorrect for week-based Retention insights when Monday is the first day of the week.\n\n## Changes\n\nWe now properly handle uppercase `interval` (i.e. `period`) by delegating this to `get_trunc_func_ch()`.\nWe also are aware of the first day of the week in `RetentionDateDerivedMixin`'s `date_from` – which is a really bad design TBH, because this should all live in SQL – but that's how Retention is architected currently.\n\n## How did you test this code?\n\nAdded a query test."
+    },
+    {
+        "number": 18522,
+        "author": "mariusandra",
+        "title": "feat(hogql): better debug errors",
+        "merged_at": "2023-11-09T16:53:48Z",
+        "merge_commit_sha": "7cf0229cf72877a79cbfa51112fe7b3ad724a7eb",
+        "body": "## Problem\n\nIf a `HogQLQuery` errors when running the ClickHouse query, we eat up the error, and the query that was run. This makes it hard to debug if there's an error in the generated ClickHouse query.\n\n## Changes\n\nWhen running under the `/debug` URL, a HogQL error or a verified ClickHouse error will now be returned _together with_ the ClickHouse SQL that was run. This makes debugging much easier.\n\nBefore:\n\n<img width=\"1451\" alt=\"image\" src=\"https://github.com/PostHog/posthog/assets/53387/65fa367f-e083-42c5-9d21-dac73ac7a546\">\n\nAfter:\n\n<img width=\"1491\" alt=\"image\" src=\"https://github.com/PostHog/posthog/assets/53387/114e2b22-afc1-4e44-a7cd-09b7a7762331\">\n\n\n## How did you test this code?\n\n<!-- Briefly describe the steps you took. -->\n<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->\n"
+    },
+    {
+        "number": 18829,
+        "author": "pauldambra",
+        "title": "feat: hide seekbar preview for long recordings",
+        "merged_at": "2023-11-23T09:21:03Z",
+        "merge_commit_sha": "139da53b43c6209fc96524fcdcd059eb18d50916",
+        "body": "We've had some performance problem reports related to the seekbar.\n\nWe think this is to do with rrweb perf issues on complex or longer recordings.\n\nlet's hide the preview frame (and not init the logic) when the recording is over 20 minutes\nlet's allow a feature flag so we can force show the preview for those that really want it, and to test future versions of rrweb\n\n![2023-11-22 19 10 39](https://github.com/PostHog/posthog/assets/984817/12b93fa9-2ccf-4fc4-8ad2-5310ae5e66e3)\n"
+    },
+    {
+        "number": 19256,
+        "author": "benjackwhite",
+        "title": "feat: Show activity panel if there are any unread notifications",
+        "merged_at": "2023-12-20T14:57:04Z",
+        "merge_commit_sha": "d9429ffd3fc2d812f62cf27c121c5a7cce9e12a1",
+        "body": "## Problem\n\nYou sort of what to know about whats going on - lets show the activity panel if you have unread notifications!\n\n## Changes\n\n* Show the activity panel if you have unread notifications\n* The only badge color we currently have is the faded one... should we change that?\n* Also snuck in some icon updates for the Notebook menu 🙈 \n\n<img width=\"191\" alt=\"Screenshot 2023-12-11 at 18 18 29\" src=\"https://github.com/PostHog/posthog/assets/2536520/b48a6584-2fb4-40b0-b8dc-bd988946c1a4\">\n\n## Follow up\n* Cache the unread count so that we don't flash it on load?\n\n👉 *Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review.*\n\n## How did you test this code?\n\n<!-- Briefly describe the steps you took. -->\n<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->\n"
+    },
+    {
+        "number": 19390,
+        "author": "pauldambra",
+        "title": "fix: replay events table had duplicate columns",
+        "merged_at": "2023-12-19T09:28:50Z",
+        "merge_commit_sha": "a246a8cc5de63503fd75148b5dc11eb1082d0311",
+        "body": "The session replay events hogql table groups the raw_session_replay_events hogql table\n\n![Screenshot 2023-12-18 at 12 55 36](https://github.com/PostHog/posthog/assets/984817/5bd54b97-fb96-4b2f-a4aa-cd37d09d9289)\n\nIt already takes min of min_first_timestamp as start_time\nand max of max_first_timestamp as end_time\n\nBut then also shows min_first_timestamp and max_first_timestamp as columns... \n\nThat's confusing - we can hide them, since they're already accounted for in start_ and end_ time"
+    },
+    {
+        "number": 24988,
+        "author": "Twixes",
+        "title": "fix(projects): Fix project creation when `access_control` set",
+        "merged_at": "2024-09-16T13:43:33Z",
+        "merge_commit_sha": "86231b3a2dde306231efcfe57ef8171a909df628",
+        "body": "## Problem\n\nSince Thursday, project creation has been erroring when `access_control` was specified. This was not an issue in the app, which does not set this param on project creation, but a customer using the API this way experienced disruption.\n\n## Changes\n\nThe bug appeared after a refactor in #24154 that simplified one path a bit too much. The problem is that we didn't have a test for this path of project creation.\n\nThis fixes the bug and adds a few tests to better cover project creation (`access_control` and `primary_dashboard` were lacking coverage)."
+    },
+    {
+        "number": 25310,
+        "author": "mariusandra",
+        "title": "feat(persons): save persons as a static cohort",
+        "merged_at": "2024-10-01T21:27:39Z",
+        "merge_commit_sha": "efdc026751a50eb4fa2ec7be1b378b68c35972ab",
+        "body": "## Problem\n\n- We have the feature to save a list of persons (an `ActorsQuery`) as a static cohort. It's used in the \"persons modal\" when you click on an insight, but is not exposed anywhere else.\n- I've heard several requests to create a cohort from a HogQL query, mostly to include unapplied (not on persons) data warehouse data in the calculation.\n\n## Changes\n\nThe first step in making this possible: expose the existing cohort saving API on the persons table.\n\n![2024-10-01 16 19 13](https://github.com/user-attachments/assets/b10a7e00-fafb-4903-9c6d-3c4b8df09c82)\n\n## Next steps (future PRs)\n\n- [ ] Static cohorts from any HogQL query that returns a person_id column\n- [ ] Add option to save as dynamic query --> same system for inserts, it would just get refreshed on a schedule\n- [ ] Add option to save as inlined cohort (calculated while querying)\n\n## How did you test this code?\n\nJust in the UI. There are no backend changes."
+    },
+    {
+        "number": 25334,
+        "author": "pauldambra",
+        "title": "fix: replay will send nonsense strings that should be captured",
+        "merged_at": "2024-10-03T11:21:50Z",
+        "merge_commit_sha": "32e56c70a233453e11d1d088853caf8d71c8fa2f",
+        "body": "We know from experience that replay will send technically unrepresentable strings and that we still want to capture them\n\nAn example from prod is truncating strings from the console and getting only one half a surrogate pair\n\nWe need to be super tolerant of _some_ nonsense because replay is very sensitive to missing events\n\nRust is not super tolerant of nonsense so we have to de-fuckulate what we receive"
+    },
+    {
+        "number": 25349,
+        "author": "mariusandra",
+        "title": "fix(apps): transpile site apps on create",
+        "merged_at": "2024-10-03T08:02:12Z",
+        "merge_commit_sha": "8ef766a2deed4829a761fc29d6eac0b9b9457f5d",
+        "body": "## Problem\n\nThe \"Notification Bar\" site app stopped working for some reason. Reported by several users lately.\n\nIt appears that site apps, when installed/upgraded from a `.zip`, do not transpile their code. Transpilation only happens when you modify a source file of a \"source plugin/app\". My guess is we got to the degraded state with \"Notification Bar\" after someone upgraded a site app that pulled in a new zip.\n\nI moved the site app transpilation away from the plugin server to django at one point, and likely forgot to add the relevant code lines to the app-creation-from-zip part.\n\n## Changes\n\nAdds source transpilation for site apps on when installing/upgrading from a zip file\n\n## Does this work well for both Cloud and self-hosted?\n\nYup\n\n## How did you test this code?\n\nUpdated tests. Let's see if all will work in CI."
+    },
+    {
+        "number": 25832,
+        "author": "Twixes",
+        "title": "fix(events): Account for project timezone in absolute range `EventsQuery`",
+        "merged_at": "2024-11-05T13:29:32Z",
+        "merge_commit_sha": "674e8fe9e5c639c1a6a959a959f03a2cac536315",
+        "body": "## Problem\n\nAbsolute date ranges were always effectively treated as UTC in `EventsQueryRunner`. This was off for projects with a non-UTC timezone set.\n\n## Changes\n\nWe were using raw `isoparse()`, where `relative_date_parse()` already handles both absolute and relative datetimes correctly accounting for timezones. The fix is simply removing the needless `isoparse`.\n\n## How did you test this code?\n\nAdded a test case that fails on master and passes here."
+    },
+    {
+        "number": 26792,
+        "author": "benjackwhite",
+        "title": "feat: Added manual remoteconfig sync command",
+        "merged_at": "2024-12-10T15:34:56Z",
+        "merge_commit_sha": "298f1501f243810aedcb69be44620189f1cd753a",
+        "body": "## Problem\n\nWould be handy to have right now and maybe in the future\n\n## Changes\n\n* Also adds missing celery beat from launch.json (couldnt figure out why my tasks weren't running)\n\n👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._\n\n## Does this work well for both Cloud and self-hosted?\n\n<!-- Yes / no / it doesn't have an impact. -->\n\n## How did you test this code?\n\n<!-- Briefly describe the steps you took. -->\n<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->\n"
+    },
+    {
+        "number": 26893,
+        "author": "benjackwhite",
+        "title": "fix: Email validation tokens",
+        "merged_at": "2024-12-15T13:22:17Z",
+        "merge_commit_sha": "e1d346e2f6e91f15ec4f27599e586c0afef94db2",
+        "body": "## Problem\n\nSome investigation around email resetting revealed a few less-than-perfect things. Nothing major from what I can see but confusing APIs that make it look like you can do bad things (which you can't)\n\n## Changes\n\n* Adds some missing tests to verify a bunch of things such as not being able to use someone else's token or re-use a token for verifying a pending email (there were some tests here but not enough to immediately confirm some security doubts)\n* Fix an issue with the `login_timestamp` not being included in the token validation (which is what was allowing an email verification to be used multiple times) - this anyway had a 24 hour limit but now it is even more restrictive\n* Makes the unauthenticated endpoints non-detail specific which fixes confusion around where the `uuid` was coming from.\n\n👉 _Stay up-to-date with [PostHog coding conventions](https://posthog.com/docs/contribute/coding-conventions) for a smoother review._\n\n## Does this work well for both Cloud and self-hosted?\n\n<!-- Yes / no / it doesn't have an impact. -->\n\n## How did you test this code?\n\n<!-- Briefly describe the steps you took. -->\n<!-- Include automated tests if possible, otherwise describe the manual testing routine. -->\n"
+    }
 ]
