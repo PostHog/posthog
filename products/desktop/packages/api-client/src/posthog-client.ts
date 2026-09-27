@@ -420,6 +420,7 @@ export interface TaskSessionStorageAccess {
 export type CommentScope =
   | "task_artifact"
   | "task_preview"
+  | "task_browser"
   | "desktop_canvas"
   | "task";
 

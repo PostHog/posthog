@@ -1,4 +1,5 @@
 import {
+  app,
   type Cookies,
   type Session,
   session,
@@ -117,9 +118,37 @@ function isPrivateNetworkHost(hostname: string): boolean {
   );
 }
 
+function isLoopbackHost(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host === "::1" ||
+    host.startsWith("127.")
+  );
+}
+
+function requestPort(url: URL): number {
+  if (url.port) return Number(url.port);
+  return url.protocol === "https:" || url.protocol === "wss:" ? 443 : 80;
+}
+
+export function protectedLoopbackPorts(
+  cdpPort: string | undefined,
+  rendererUrl: string | undefined,
+): ReadonlySet<number> {
+  const ports = new Set<number>();
+  const cdp = Number(cdpPort);
+  if (Number.isInteger(cdp) && cdp > 0) ports.add(cdp);
+  const renderer = rendererUrl ? parseUrl(rendererUrl) : null;
+  if (renderer) ports.add(requestPort(renderer));
+  return ports;
+}
+
 export function isBlockedPreviewRequest(
   pageUrl: string,
   requestUrl: string,
+  protectedPorts: ReadonlySet<number> = new Set(),
 ): boolean {
   const request = parseUrl(requestUrl);
   if (!request) return true;
@@ -130,19 +159,42 @@ export function isBlockedPreviewRequest(
   ) {
     return true;
   }
+  if (
+    isLoopbackHost(request.hostname) &&
+    protectedPorts.has(requestPort(request))
+  ) {
+    return true;
+  }
   const page = parseUrl(pageUrl);
-  if (!page || page.protocol !== "https:") return false;
-  return isPrivateNetworkHost(request.hostname);
+  if (!page) return false;
+  return (
+    !isPrivateNetworkHost(page.hostname) &&
+    isPrivateNetworkHost(request.hostname)
+  );
 }
 
 const lockedSessions = new WeakSet<Session>();
+const NEW_WINDOW_LIMIT = 3;
+const NEW_WINDOW_PERIOD_MS = 10_000;
+
+export function createNewWindowLimiter(now: () => number = Date.now) {
+  let opened: number[] = [];
+  return (): boolean => {
+    const time = now();
+    opened = opened.filter((at) => time - at < NEW_WINDOW_PERIOD_MS);
+    if (opened.length >= NEW_WINDOW_LIMIT) return false;
+    opened.push(time);
+    return true;
+  };
+}
 
 export function lockDownTaskPreview(
   guest: WebContents,
   openExternal: (url: string) => void,
 ): void {
+  const mayOpen = createNewWindowLimiter();
   guest.setWindowOpenHandler(({ url }) => {
-    openExternal(url);
+    if (mayOpen()) openExternal(url);
     return { action: "deny" };
   });
   guest.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
@@ -165,7 +217,10 @@ export function lockDownTaskPreview(
     }
   });
 
-  const guestSession = guest.session;
+  lockDownGuestSession(guest.session);
+}
+
+export function lockDownGuestSession(guestSession: Session): void {
   if (lockedSessions.has(guestSession)) return;
   lockedSessions.add(guestSession);
   guestSession.setPermissionCheckHandler(() => false);
@@ -173,12 +228,19 @@ export function lockDownTaskPreview(
     callback(false),
   );
   guestSession.on("will-download", (event) => event.preventDefault());
+  const protectedPorts = protectedLoopbackPorts(
+    app.commandLine.getSwitchValue("remote-debugging-port") || undefined,
+    process.env.ELECTRON_RENDERER_URL,
+  );
   guestSession.webRequest.onBeforeRequest((details, callback) => {
     const page =
+      details.resourceType === "mainFrame" ||
       details.webContentsId === undefined
         ? undefined
         : webContents.fromId(details.webContentsId);
     const pageUrl = page?.getURL() || details.url;
-    callback({ cancel: isBlockedPreviewRequest(pageUrl, details.url) });
+    callback({
+      cancel: isBlockedPreviewRequest(pageUrl, details.url, protectedPorts),
+    });
   });
 }

@@ -71,9 +71,12 @@ import {
   useSetCommentResolved,
 } from "@posthog/ui/features/sessions/components/useComments";
 import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
+import { browserCommentPage } from "@posthog/ui/features/task-preview/browserComments";
+import { openBrowserPage } from "@posthog/ui/features/task-preview/openBrowserPage";
 import { useTaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const EMPTY_COMMENTS: ResourceComment[] = [];
@@ -119,6 +122,7 @@ function sourceIcon(kind: SourceKind, label: string, size = 12) {
     case "task":
       return <ChatCircleIcon size={size} className="shrink-0 text-gray-11" />;
     case "preview":
+    case "browser":
       return <GlobeIcon size={size} className="shrink-0 text-gray-11" />;
     default:
       return <FileIcon filename={label} size={size} />;
@@ -182,7 +186,19 @@ function CommentReference({
  * A PostHog comment thread. Its own component so it can hold the mutations for
  * its thread's resource — the list spans several, each with its own target.
  */
-function commentResource(source: CommentSource): CommentResource {
+function commentResource(
+  source: CommentSource,
+  root: ResourceComment | null,
+): CommentResource {
+  if (source.kind === "browser") {
+    const anchor = root ? readCommentContext(root)?.anchor : null;
+    const page = browserCommentPage(anchor);
+    return {
+      kind: "browser",
+      name: page?.label ?? source.name,
+      origin: anchor?.kind === "element" ? (anchor.origin ?? "") : "",
+    };
+  }
   if (source.kind === "canvas") return { kind: "canvas", name: source.name };
   if (source.kind === "task") return { kind: "task", name: source.name };
   if (source.kind === "preview") {
@@ -197,7 +213,7 @@ function sendSourceCommentToAgent(
   root: ResourceComment | null,
   content: string,
 ): void {
-  const resource = commentResource(source);
+  const resource = commentResource(source, root);
   sendCommentToAgent({
     taskId,
     comment: content,
@@ -364,6 +380,7 @@ export function TaskCommentsList({
   const openArtifactTab = usePanelLayoutStore((state) => state.openArtifactTab);
   const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
   const previews = useTaskPreviewPorts(task);
+  const { taskBrowser } = useHostCapabilities();
   const activeArtifactId = useActiveArtifactId(taskId);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
@@ -393,8 +410,11 @@ export function TaskCommentsList({
     [task, timeline, runs, previews],
   );
   const sources = useMemo(
-    () => (onlySource ? [onlySource] : commentSources(taskId, rows)),
-    [taskId, rows, onlySource],
+    () =>
+      onlySource
+        ? [onlySource]
+        : commentSources(taskId, rows, { browser: taskBrowser }),
+    [taskId, rows, onlySource, taskBrowser],
   );
   const targets = useMemo(
     () =>
@@ -582,6 +602,14 @@ export function TaskCommentsList({
           return;
         }
         canvasArtifactOpenHandler(source.url)?.();
+        return;
+      }
+      if (source.kind === "browser") {
+        const page = browserCommentPage(readCommentContext(root)?.anchor);
+        if (page) openBrowserPage(taskId, page);
+        if (requestThreadFocus) {
+          requestCommentFocus(taskId, source.target, root.id);
+        }
         return;
       }
       if (source.kind === "preview") {

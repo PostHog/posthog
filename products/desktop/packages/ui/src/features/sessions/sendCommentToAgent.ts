@@ -36,7 +36,7 @@ export async function sendCommentToAgent({
   taskId: string;
   comment: string;
   context: CommentAgentContext | null;
-  surface: "preview" | "artifact" | "canvas" | "task";
+  surface: "preview" | "browser" | "artifact" | "canvas" | "task";
   openChat?: boolean;
 }): Promise<void> {
   const imagePath = context?.screenshot

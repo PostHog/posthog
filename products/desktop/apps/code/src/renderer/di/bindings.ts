@@ -182,6 +182,10 @@ import type {
   SETTINGS_BACKUP_FILES,
 } from "@posthog/platform/settings-backup-files";
 import { type ISpeech, SPEECH_SERVICE } from "@posthog/platform/speech";
+import type {
+  ITaskBrowserHost,
+  TASK_BROWSER_HOST,
+} from "@posthog/platform/task-browser";
 import {
   AUTH_SIDE_EFFECTS,
   type IAuthSideEffects,
@@ -319,6 +323,7 @@ export interface RendererBindings {
   [HOST_TRPC_CLIENT]: HostTrpcClient;
   [FEEDBACK_CONTEXT_SERVICE]: IFeedbackContext;
   [SCREEN_CAPTURE_SERVICE]: IScreenCapture;
+  [TASK_BROWSER_HOST]: ITaskBrowserHost;
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;

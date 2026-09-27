@@ -582,7 +582,7 @@ class CommentListQueryParamsSerializer(serializers.Serializer):
     )
     task_id = serializers.UUIDField(
         required=False,
-        help_text="Owning task for task, task_artifact, task_preview, and desktop_canvas comment scopes.",
+        help_text="Owning task for task, task_artifact, task_preview, task_browser, and desktop_canvas comment scopes.",
     )
     search = serializers.CharField(required=False, help_text="Full-text search within comment content.")
     source_comment = serializers.CharField(required=False, help_text="Filter replies to a specific parent comment.")

@@ -186,7 +186,10 @@ import { localMcpModule } from "@posthog/workspace-server/services/local-mcp/loc
 import { mcpCallbackModule } from "@posthog/workspace-server/services/mcp-callback/mcp-callback.module";
 import { MCP_PROXY_AUTH } from "@posthog/workspace-server/services/mcp-proxy/identifiers";
 import { mcpProxyModule } from "@posthog/workspace-server/services/mcp-proxy/mcp-proxy.module";
-import { MCP_RELAY_SERVICE } from "@posthog/workspace-server/services/mcp-relay/identifiers";
+import {
+  MCP_RELAY_SERVICE,
+  type McpRelayService,
+} from "@posthog/workspace-server/services/mcp-relay/identifiers";
 import { mcpRelayModule } from "@posthog/workspace-server/services/mcp-relay/mcp-relay.module";
 import { OAUTH_CALLBACK_SERVER } from "@posthog/workspace-server/services/oauth-callback/identifiers";
 import { oauthCallbackModule } from "@posthog/workspace-server/services/oauth-callback/oauth-callback.module";
@@ -263,6 +266,8 @@ import { ElectronUrlLauncher } from "../platform-adapters/electron-url-launcher"
 import { electronUsageThresholdStore } from "../platform-adapters/electron-usage-threshold-store";
 import { ElectronWorkspaceSettings } from "../platform-adapters/electron-workspace-settings";
 import { posthogNodeAnalytics } from "../platform-adapters/posthog-analytics";
+import { TaskBrowserHost } from "../platform-adapters/task-browser/host";
+import { TaskBrowserService } from "../platform-adapters/task-browser/service";
 import { AppLifecycleService } from "../services/app-lifecycle/service";
 import {
   AuthPreferencePortAdapter,
@@ -328,6 +333,8 @@ import {
   SLEEP_SERVICE as MAIN_SLEEP_SERVICE,
   SUSPENSION_REPOSITORY as MAIN_SUSPENSION_REPOSITORY,
   SUSPENSION_SERVICE as MAIN_SUSPENSION_SERVICE,
+  TASK_BROWSER_HOST as MAIN_TASK_BROWSER_HOST,
+  TASK_BROWSER_SERVICE as MAIN_TASK_BROWSER_SERVICE,
   TASK_LINK_SERVICE as MAIN_TASK_LINK_SERVICE,
   UPDATES_SERVICE as MAIN_UPDATES_SERVICE,
   WATCHER_REGISTRY_SERVICE as MAIN_WATCHER_REGISTRY_SERVICE,
@@ -653,8 +660,25 @@ container.load(mcpRelayModule);
 // the workspace relay service satisfies the core executor interface
 // structurally (docs/CLOUD-MCP-RELAY.md).
 container
+  .bind(MAIN_TASK_BROWSER_SERVICE)
+  .to(TaskBrowserService)
+  .inSingletonScope();
+container
+  .bind(MAIN_TASK_BROWSER_HOST)
+  .toDynamicValue(
+    (ctx) =>
+      new TaskBrowserHost(
+        ctx.get<TaskBrowserService>(MAIN_TASK_BROWSER_SERVICE),
+      ),
+  )
+  .inSingletonScope();
+container
   .bind(MCP_RELAY_EXECUTOR)
-  .toDynamicValue((ctx) => ctx.get(MCP_RELAY_SERVICE))
+  .toDynamicValue((ctx) =>
+    ctx
+      .get<TaskBrowserHost>(MAIN_TASK_BROWSER_HOST)
+      .relayExecutor(ctx.get<McpRelayService>(MCP_RELAY_SERVICE)),
+  )
   .inSingletonScope();
 container
   .bind(CLAUDE_SUBSCRIPTION_TOKEN_STORE)

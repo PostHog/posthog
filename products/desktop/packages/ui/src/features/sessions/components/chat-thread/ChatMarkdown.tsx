@@ -29,6 +29,7 @@ import {
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
 import { useSessionTaskId } from "@posthog/ui/features/sessions/useSessionTaskId";
 import { useCwd } from "@posthog/ui/features/sidebar/useCwd";
+import { useInAppLinkHandler } from "@posthog/ui/features/task-preview/InAppLinkContext";
 import { useThrottledValue } from "@posthog/ui/hooks/useThrottledValue";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { MermaidDiagram } from "@posthog/ui/primitives/MermaidDiagram";
@@ -189,6 +190,27 @@ function ChatCodeBlock({
  * product baggage). This one is a thin, generic react-markdown setup for chat bubble content:
  * GFM + sanitized HTML, minimal prose styling. Restyle the element map below per product.
  */
+function ChatLink({
+  href,
+  children,
+}: {
+  href: string | undefined;
+  children: ReactNode;
+}) {
+  const openInApp = useInAppLinkHandler();
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-primary underline underline-offset-2"
+      onClick={(event) => openInApp(event, href)}
+    >
+      {children}
+    </a>
+  );
+}
+
 const components: Components = {
   p: ({ children }) => (
     <Text className="text-sm leading-[1.5]">{children}</Text>
@@ -213,16 +235,7 @@ const components: Components = {
     }
     const githubChip = githubRefChipFor(href, children);
     if (githubChip) return githubChip;
-    const link = (
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        className="text-primary underline underline-offset-2"
-      >
-        {children}
-      </a>
-    );
+    const link = <ChatLink href={href}>{children}</ChatLink>;
     const artifactTarget = parseArtifactLink(href);
     if (!artifactTarget || !href) return link;
     return (

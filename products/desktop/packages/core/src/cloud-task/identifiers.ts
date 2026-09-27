@@ -39,6 +39,7 @@ export interface McpRelayExecutor {
     runId: string,
     server: string,
     payload: Record<string, unknown>,
+    taskId?: string,
   ): Promise<McpRelayExecution>;
   /** Release the run's live server connections; they reopen lazily on demand. */
   closeRun?(runId: string): Promise<void>;

@@ -22,6 +22,8 @@ interface SettingsSchema {
   customCloudUrl: string;
   customCloudOauthClientId: string;
   customCloudGatewayUrl: string;
+  browserSites: Record<string, "allow" | "block">;
+  browserFullCdpAccess: boolean;
 }
 
 function getWorktreePath(dir: string): string {
@@ -141,6 +143,15 @@ const schema = {
     type: "string" as const,
     default: "",
   },
+  browserSites: {
+    type: "object" as const,
+    default: {},
+    additionalProperties: { type: "string" as const, enum: ["allow", "block"] },
+  },
+  browserFullCdpAccess: {
+    type: "boolean" as const,
+    default: false,
+  },
 };
 
 export const settingsStore = new Store<SettingsSchema>({
@@ -160,6 +171,8 @@ export const settingsStore = new Store<SettingsSchema>({
     customCloudUrl: "",
     customCloudOauthClientId: "",
     customCloudGatewayUrl: "",
+    browserSites: {},
+    browserFullCdpAccess: false,
   },
 });
 

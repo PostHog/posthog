@@ -20,10 +20,11 @@ function comment(
   } as ResourceComment;
 }
 
-function elementContext(path: string, selector: string) {
+function elementContext(path: string, selector: string, origin?: string) {
   return {
     anchor: {
       kind: "element",
+      origin,
       path,
       selector,
       tag: "button",
@@ -73,5 +74,27 @@ describe("preview comment pins", () => {
         active: true,
       },
     ]);
+  });
+
+  it("pins a browser comment only on the site it was written on", () => {
+    const threads = previewThreads([
+      comment(
+        "a",
+        "2026-01-01T00:00:00Z",
+        elementContext("/", "#a", "https://a.example.com"),
+      ),
+      comment(
+        "b",
+        "2026-01-02T00:00:00Z",
+        elementContext("/", "#b", "https://b.example.com"),
+      ),
+    ]);
+
+    expect(
+      previewPins(threads, null, "https://b.example.com").map((pin) => [
+        pin.id,
+        pin.number,
+      ]),
+    ).toEqual([["b", 2]]);
   });
 });

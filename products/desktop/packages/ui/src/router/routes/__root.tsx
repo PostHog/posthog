@@ -62,6 +62,7 @@ import { TileLayout } from "@posthog/ui/features/tab-tiling/TileLayout";
 import { useInTile } from "@posthog/ui/features/tab-tiling/tileContext";
 import { ExistingWorktreeDialog } from "@posthog/ui/features/task-detail/components/ExistingWorktreeDialog";
 import { RemoteBranchCheckoutDialog } from "@posthog/ui/features/task-detail/components/RemoteBranchCheckoutDialog";
+import { TaskBrowserBridge } from "@posthog/ui/features/task-preview/TaskBrowserBridge";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { TourOverlay } from "@posthog/ui/features/tour/components/TourOverlay";
 import { WhatsNewModal } from "@posthog/ui/features/updates/WhatsNewModal";
@@ -472,6 +473,7 @@ function RootLayout() {
           open={shortcutsSheetOpen}
           onOpenChange={(open) => (open ? null : closeShortcutsSheet())}
         />
+        <TaskBrowserBridge />
         <GlobalEventHandlers
           allTasks={tasks ?? []}
           onToggleCommandMenu={toggleCommandMenu}

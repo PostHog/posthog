@@ -9,6 +9,8 @@ import type { Tab } from "../../panels/panelTypes";
 import { PiSessionView } from "../../pi-sessions/PiSessionView";
 import { PostHogObjectPage } from "../../posthog-objects/PostHogObjectPage";
 import { ArtifactPreview } from "../../sessions/components/ArtifactPreview";
+import { TaskInAppLinks } from "../../task-preview/InAppLinkContext";
+import { TaskBrowserPanel } from "../../task-preview/TaskBrowserPanel";
 import { TaskPreviewPanel } from "../../task-preview/TaskPreviewPanel";
 import { useIsCloudTask } from "../../workspace/useWorkspace";
 import { ActionPanel } from "./ActionPanel";
@@ -34,10 +36,14 @@ export function TabContentRenderer({
 
   switch (data.type) {
     case "logs":
-      return task.runtime === "pi" ? (
-        <PiSessionView key={taskId} task={task} isCloud={isCloud} />
-      ) : (
-        <TaskLogsPanel taskId={taskId} task={task} />
+      return (
+        <TaskInAppLinks taskId={taskId}>
+          {task.runtime === "pi" ? (
+            <PiSessionView key={taskId} task={task} isCloud={isCloud} />
+          ) : (
+            <TaskLogsPanel taskId={taskId} task={task} />
+          )}
+        </TaskInAppLinks>
       );
 
     case "terminal":
@@ -96,6 +102,16 @@ export function TabContentRenderer({
           local={!isCloud}
           port={data.port}
           label={tab.label}
+        />
+      );
+
+    case "browser":
+      return (
+        <TaskBrowserPanel
+          key={data.browserId}
+          taskId={taskId}
+          browserId={data.browserId}
+          initialUrl={data.url}
         />
       );
 

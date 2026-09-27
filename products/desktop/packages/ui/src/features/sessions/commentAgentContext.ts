@@ -3,7 +3,8 @@ import type { EditorContent } from "@posthog/core/message-editor/content";
 
 export type CommentResource =
   | { kind: "artifact" | "canvas" | "task"; name: string }
-  | { kind: "preview"; name: string; port: number };
+  | { kind: "preview"; name: string; port: number }
+  | { kind: "browser"; name: string; origin: string };
 
 export type CommentAgentContext = {
   label: string;
@@ -35,6 +36,9 @@ function resourceLine(resource: CommentResource): string {
   if (resource.kind === "preview") {
     return `- **Preview** ${resource.name} on port ${resource.port}`;
   }
+  if (resource.kind === "browser") {
+    return `- **Browser** ${resource.origin}`;
+  }
   const kind = resource.kind[0].toUpperCase() + resource.kind.slice(1);
   return `- **${kind}** ${resource.name}`;
 }
@@ -48,7 +52,12 @@ export function commentAgentContext(
   }
   if (anchor.kind === "element") {
     const port = resource.kind === "preview" ? resource.port : null;
-    const page = port ? `http://localhost:${port}${anchor.path}` : anchor.path;
+    const page =
+      resource.kind === "browser"
+        ? `${resource.origin}${anchor.path}`
+        : port
+          ? `http://localhost:${port}${anchor.path}`
+          : anchor.path;
     return {
       label: truncate(
         anchor.text

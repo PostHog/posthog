@@ -122,7 +122,10 @@ export function useTabInjection(
             const BlockIcon =
               INJECTED_BLOCK_PRESENTATION[tab.data.block.kind].icon;
             icon = <BlockIcon size={14} />;
-          } else if (tab.data.type === "preview") {
+          } else if (
+            tab.data.type === "preview" ||
+            tab.data.type === "browser"
+          ) {
             icon = <Globe size={14} />;
           } else if (tab.data.type === "autoresearch") {
             icon = <ChartLineUp size={14} />;

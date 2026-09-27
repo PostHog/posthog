@@ -14,11 +14,15 @@ import {
   type SessionServiceDeps,
 } from "@posthog/core/sessions/sessionService";
 import { extractSkillButtonId } from "@posthog/core/skill-buttons/prompts";
-import { resolveService } from "@posthog/di/container";
+import { resolveService, resolveServiceOptional } from "@posthog/di/container";
 import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
+import {
+  HOST_CAPABILITIES,
+  type HostCapabilities,
+} from "@posthog/platform/host-capabilities";
 import {
   BEDROCK_GATEWAY_VARIANTS,
   BEDROCK_LLM_GATEWAY_FLAG,
@@ -119,6 +123,9 @@ function buildSessionServiceDeps(): SessionServiceDeps {
 
   return {
     trpc,
+    hasTaskBrowser:
+      resolveServiceOptional<HostCapabilities>(HOST_CAPABILITIES)
+        ?.taskBrowser === true,
     store: sessionStoreSetters,
     log,
     toast: {

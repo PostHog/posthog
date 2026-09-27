@@ -5,11 +5,31 @@ const previewSession = vi.hoisted(() => ({
   setPermissionCheckHandler: vi.fn(),
   setPermissionRequestHandler: vi.fn(),
   on: vi.fn(),
-  webRequest: { onBeforeRequest: vi.fn() },
+  webRequest: {
+    onBeforeRequest: vi.fn(),
+    onCompleted: vi.fn(),
+    onErrorOccurred: vi.fn(),
+  },
+}));
+
+const browserSession = vi.hoisted(() => ({
+  setPermissionCheckHandler: vi.fn(),
+  setPermissionRequestHandler: vi.fn(),
+  on: vi.fn(),
+  webRequest: {
+    onBeforeRequest: vi.fn(),
+    onCompleted: vi.fn(),
+    onErrorOccurred: vi.fn(),
+  },
 }));
 
 vi.mock("electron", () => ({
-  session: { fromPartition: vi.fn(() => previewSession) },
+  app: { commandLine: { getSwitchValue: () => "9222" } },
+  session: {
+    fromPartition: vi.fn((partition: string) =>
+      partition === "persist:task-browser" ? browserSession : previewSession,
+    ),
+  },
   webContents: { fromId: vi.fn() },
 }));
 vi.mock("../external-links", () => ({ openExternalIfSafe: vi.fn() }));
@@ -20,18 +40,24 @@ vi.mock("../utils/logger", () => ({
 import {
   ARTIFACT_PREVIEW_ARG,
   ARTIFACT_PREVIEW_DATA_URL_PREFIX,
+  TASK_BROWSER_PARTITION,
   TASK_PREVIEW_ARG,
   TASK_PREVIEW_PARTITION,
 } from "../../shared/constants";
-import { setupGuestWebviews } from "./electron-guest-webviews";
+import {
+  setupGuestWebviews,
+  type TaskBrowserBridge,
+} from "./electron-guest-webviews";
 import {
   authorizeTaskPreview,
+  createNewWindowLimiter,
   isBlockedPreviewRequest,
+  protectedLoopbackPorts,
 } from "./electron-task-preview";
 
 type Handler = (...args: never[]) => void;
 
-function setup(): Map<string, Handler> {
+function setup(bridge?: TaskBrowserBridge): Map<string, Handler> {
   const handlers = new Map<string, Handler>();
   const window = {
     webContents: {
@@ -40,7 +66,7 @@ function setup(): Map<string, Handler> {
       }),
     },
   } as unknown as BrowserWindow;
-  setupGuestWebviews(window);
+  setupGuestWebviews(window, bridge);
   return handlers;
 }
 
@@ -117,6 +143,36 @@ describe("guest webviews", () => {
       name: "a plain http host on the network",
       src: "http://192.168.1.10:3000/",
       partition: TASK_PREVIEW_PARTITION,
+      allowed: false,
+    },
+    {
+      name: "any web site in a browser tab",
+      src: "https://example.com/docs",
+      partition: TASK_BROWSER_PARTITION,
+      allowed: true,
+    },
+    {
+      name: "a local server in a browser tab",
+      src: "http://localhost:3000/",
+      partition: TASK_BROWSER_PARTITION,
+      allowed: true,
+    },
+    {
+      name: "a file in a browser tab",
+      src: "file:///etc/passwd",
+      partition: TASK_BROWSER_PARTITION,
+      allowed: false,
+    },
+    {
+      name: "a sandbox token in a browser tab",
+      src: "https://abc-123.modal.host/?_modal_connect_token=t",
+      partition: TASK_BROWSER_PARTITION,
+      allowed: false,
+    },
+    {
+      name: "credentials in a browser tab URL",
+      src: "https://user:pass@example.com/",
+      partition: TASK_BROWSER_PARTITION,
       allowed: false,
     },
   ])("attaches $name only when allowed", ({ src, partition, allowed }) => {
@@ -206,6 +262,111 @@ describe("guest webviews", () => {
     const checkPermission =
       previewSession.setPermissionCheckHandler.mock.calls[0][0];
     expect(checkPermission()).toBe(false);
+  });
+
+  it("opens new windows of a browser tab as in-app tabs and keeps it on the web", async () => {
+    const { openExternalIfSafe } = await import("../external-links");
+    const bridge = {
+      taskForWebContents: vi.fn(() => "task-1"),
+      requestOpen: vi.fn(() => "browser-2"),
+      recordNetwork: vi.fn(),
+    };
+    const guestHandlers = new Map<string, Handler>();
+    let windowOpenHandler: ((details: { url: string }) => unknown) | undefined;
+    const guest = {
+      id: 7,
+      session: browserSession,
+      setWindowOpenHandler: vi.fn((handler) => {
+        windowOpenHandler = handler;
+      }),
+      setWebRTCIPHandlingPolicy: vi.fn(),
+      on: vi.fn((event: string, handler: Handler) => {
+        guestHandlers.set(event, handler);
+      }),
+    } as unknown as WebContents;
+
+    setup(bridge).get("did-attach-webview")?.({} as never, guest as never);
+
+    expect(windowOpenHandler?.({ url: "https://docs.example.com/" })).toEqual({
+      action: "deny",
+    });
+    expect(bridge.taskForWebContents).toHaveBeenCalledWith(7);
+    expect(bridge.requestOpen).toHaveBeenCalledWith(
+      "task-1",
+      "https://docs.example.com/",
+    );
+
+    windowOpenHandler?.({ url: "mailto:someone@example.com" });
+    expect(openExternalIfSafe).toHaveBeenCalledWith(
+      "mailto:someone@example.com",
+    );
+    expect(bridge.requestOpen).toHaveBeenCalledOnce();
+
+    const toOtherSite = vi.fn();
+    guestHandlers.get("will-navigate")?.(
+      { preventDefault: toOtherSite } as never,
+      "https://accounts.example.com/login" as never,
+    );
+    expect(toOtherSite).not.toHaveBeenCalled();
+
+    const toFile = vi.fn();
+    guestHandlers.get("will-navigate")?.(
+      { preventDefault: toFile } as never,
+      "file:///etc/passwd" as never,
+    );
+    expect(toFile).toHaveBeenCalledOnce();
+
+    const checkPermission =
+      browserSession.setPermissionCheckHandler.mock.calls[0][0];
+    expect(checkPermission()).toBe(false);
+
+    const { webContents } = await import("electron");
+    vi.mocked(webContents.fromId).mockReturnValue({
+      getURL: () => "https://posthog.com/",
+    } as unknown as WebContents);
+    const beforeRequest = browserSession.webRequest.onBeforeRequest.mock
+      .calls[0][0] as (
+      details: { url: string; resourceType: string; webContentsId: number },
+      callback: (response: { cancel: boolean }) => void,
+    ) => void;
+    const cancelled = (url: string, resourceType: string) => {
+      const callback = vi.fn();
+      beforeRequest({ url, resourceType, webContentsId: 7 }, callback);
+      return callback.mock.calls[0][0].cancel;
+    };
+    expect(cancelled("http://localhost:3000/", "mainFrame")).toBe(false);
+    expect(cancelled("http://localhost:3000/api", "xhr")).toBe(true);
+    expect(cancelled("http://localhost:9222/json", "mainFrame")).toBe(true);
+  });
+
+  it("lets a page open only a few new windows at a time", () => {
+    let now = 0;
+    const mayOpen = createNewWindowLimiter(() => now);
+    expect([mayOpen(), mayOpen(), mayOpen(), mayOpen()]).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    now = 10_000;
+    expect(mayOpen()).toBe(true);
+  });
+
+  it.each([
+    ["the debugging port", "http://localhost:9222/json"],
+    ["the app's own dev server", "http://127.0.0.1:5173/"],
+  ])("blocks a local page from reaching %s", (_name, requestUrl) => {
+    const ports = protectedLoopbackPorts("9222", "http://localhost:5173/");
+    expect(
+      isBlockedPreviewRequest("http://localhost:3000/", requestUrl, ports),
+    ).toBe(true);
+    expect(
+      isBlockedPreviewRequest(
+        "http://localhost:3000/",
+        "http://localhost:3000/app.js",
+        ports,
+      ),
+    ).toBe(false);
   });
 
   it.each([

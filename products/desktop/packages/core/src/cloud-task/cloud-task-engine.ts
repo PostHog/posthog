@@ -11,6 +11,7 @@ import {
   TypedEventEmitter,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
 import { z } from "zod";
 import type {
   ClaudeSubscriptionTokenStore,
@@ -729,8 +730,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     data: McpRequestEventData,
   ): Promise<void> {
     if (!this.mcpRelayExecutor) return;
+    const builtIn = data.server === TASK_BROWSER_MCP_SERVER;
     const designated = this.relayDesignations.get(watcher.runId);
-    if (!designated?.has(data.server)) {
+    if (!builtIn && !designated?.has(data.server)) {
       // Not created by this client, or a name the run never declared.
       return;
     }
@@ -747,11 +749,9 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
       return;
     }
 
-    const approvalRequest = relayApprovalRequest(
-      watcher.runId,
-      data.server,
-      data.payload,
-    );
+    const approvalRequest = builtIn
+      ? null
+      : relayApprovalRequest(watcher.runId, data.server, data.payload);
     if (approvalRequest) {
       const approval = await this.ensureRelayRequestApproval(
         watcher,
@@ -780,6 +780,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
         watcher.runId,
         data.server,
         data.payload,
+        watcher.taskId,
       );
     } catch (error) {
       execution = {

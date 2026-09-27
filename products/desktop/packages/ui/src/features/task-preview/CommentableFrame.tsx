@@ -1,10 +1,11 @@
 import {
-  type ElementCommentAnchor,
+  type CommentTarget,
   isSameCommentTarget,
 } from "@posthog/core/comments/anchors";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
 import {
+  type CommentResource,
   commentAgentContext,
   withScreenshot,
 } from "@posthog/ui/features/sessions/commentAgentContext";
@@ -20,28 +21,50 @@ import {
 } from "@posthog/ui/features/sessions/sendCommentToAgent";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { previewPins, previewThreads } from "./previewComments";
-import { previewCommentTarget } from "./previewCommentTarget";
+import { browserCommentPage } from "./browserComments";
+import { PickModeBanner } from "./PickModeBanner";
+import {
+  type PreviewThread,
+  previewPathname,
+  previewPins,
+  previewThreads,
+} from "./previewComments";
 import { TaskPreviewFrame } from "./TaskPreviewFrame";
 import type {
-  TaskPreviewElement,
   TaskPreviewLocateRequest,
   TaskPreviewLocation,
   TaskPreviewNavigationRequest,
-  TaskPreviewRect,
 } from "./taskPreviewFrameHost";
+import {
+  type PickedElement,
+  usePickedElementCard,
+} from "./usePickedElementCard";
 
-type PendingComment = {
-  anchor: ElementCommentAnchor;
-  screenshot: string | null;
-  position: { top: number; endX: number; bottom: number };
-};
+export type CommentableFrameSurface =
+  | { kind: "preview"; port: number }
+  | {
+      kind: "browser";
+      origin: string;
+      active: boolean;
+      onOpenPage: (url: string) => void;
+    };
 
-export function AnnotatedTaskPreview({
+function isOnPage(
+  thread: PreviewThread,
+  origin: string | undefined,
+  currentPath: string,
+): boolean {
+  if (origin !== undefined && thread.anchor.origin !== origin) return false;
+  return previewPathname(thread.anchor.path) === previewPathname(currentPath);
+}
+
+export function CommentableFrame({
   taskId,
-  port,
+  frameId,
   url,
   title,
+  target,
+  surface,
   commenting,
   chatVisible,
   navigationRequest,
@@ -50,9 +73,11 @@ export function AnnotatedTaskPreview({
   onLoadFailed,
 }: {
   taskId: string;
-  port: number;
+  frameId: string;
   url: string;
   title: string;
+  target: CommentTarget;
+  surface: CommentableFrameSurface;
   commenting: boolean;
   chatVisible: boolean;
   navigationRequest: TaskPreviewNavigationRequest | null;
@@ -60,17 +85,19 @@ export function AnnotatedTaskPreview({
   onCommentingChange: (commenting: boolean) => void;
   onLoadFailed: () => void;
 }) {
-  const target = useMemo(
-    () => previewCommentTarget(taskId, port),
-    [taskId, port],
-  );
   const commentsQuery = useCommentsQuery(target, taskId);
   const createComment = useCreateComment(target, taskId);
   const { members } = useOrgMembers();
   const frameRef = useRef<HTMLDivElement>(null);
   const [locateRequest, setLocateRequest] =
     useState<TaskPreviewLocateRequest | null>(null);
-  const [pending, setPending] = useState<PendingComment | null>(null);
+  const [currentPath, setCurrentPath] = useState(url);
+  const {
+    pending,
+    onPicked,
+    onTrackedRect,
+    dismiss: dismissPending,
+  } = usePickedElementCard(frameRef, onCommentingChange);
   const focus = useCommentNavigationStore((state) => state.focusByTask[taskId]);
   const requestCommentFocus = useCommentNavigationStore(
     (state) => state.requestCommentFocus,
@@ -80,72 +107,47 @@ export function AnnotatedTaskPreview({
   );
   const activeThreadId =
     focus && isSameCommentTarget(focus.target, target) ? focus.threadId : null;
+  const origin = surface.kind === "browser" ? surface.origin : undefined;
 
   const threads = useMemo(
     () => previewThreads(commentsQuery.data ?? []),
     [commentsQuery.data],
   );
   const pins = useMemo(
-    () => previewPins(threads, activeThreadId),
-    [threads, activeThreadId],
+    () => previewPins(threads, activeThreadId, origin),
+    [threads, activeThreadId, origin],
   );
 
+  const openPageRef = useRef(
+    surface.kind === "browser" ? surface.onOpenPage : null,
+  );
+  openPageRef.current = surface.kind === "browser" ? surface.onOpenPage : null;
+  const openedForNonce = useRef<number | null>(null);
+  const followsFocus = surface.kind === "preview" || surface.active;
   useEffect(() => {
+    if (!followsFocus) return;
     if (!focus || !activeThreadId || focus.intent !== "navigate") return;
-    if (!threads.some((thread) => thread.id === activeThreadId)) return;
+    const thread = threads.find((item) => item.id === activeThreadId);
+    if (!thread) return;
+    if (!isOnPage(thread, origin, currentPath)) {
+      const pageUrl = browserCommentPage(thread.anchor)?.url;
+      if (!pageUrl || openedForNonce.current === focus.nonce) return;
+      openedForNonce.current = focus.nonce;
+      openPageRef.current?.(pageUrl);
+      return;
+    }
     setLocateRequest((current) =>
       current?.nonce === focus.nonce
         ? current
         : { id: activeThreadId, nonce: focus.nonce },
     );
-  }, [focus, activeThreadId, threads]);
+  }, [followsFocus, focus, activeThreadId, threads, origin, currentPath]);
 
   const revealThread = useCallback(
     (id: string) =>
       requestCommentFocus(taskId, target, id, { intent: "reveal-thread" }),
     [requestCommentFocus, taskId, target],
   );
-
-  const placeCard = useCallback((rect: TaskPreviewRect) => {
-    const box = frameRef.current?.getBoundingClientRect();
-    if (!box) return null;
-    const clamp = (value: number) =>
-      Math.min(Math.max(value, box.top), box.bottom);
-    return {
-      top: clamp(box.top + rect.top),
-      endX: box.left + rect.right,
-      bottom: clamp(box.top + rect.bottom),
-    };
-  }, []);
-
-  const onTrackedRect = useCallback(
-    (rect: TaskPreviewRect) => {
-      const position = placeCard(rect);
-      if (!position) return;
-      setPending((current) => (current ? { ...current, position } : current));
-    },
-    [placeCard],
-  );
-
-  const onPicked = useCallback(
-    (
-      element: TaskPreviewElement,
-      rect: TaskPreviewRect,
-      screenshot: string | null,
-    ) => {
-      onCommentingChange(false);
-      const position = placeCard(rect);
-      if (!position) return;
-      setPending({
-        anchor: { kind: "element", ...element },
-        screenshot,
-        position,
-      });
-    },
-    [onCommentingChange, placeCard],
-  );
-
-  const dismissPending = useCallback(() => setPending(null), []);
 
   const onPinsChanged = useCallback(
     (ids: string[]) => {
@@ -158,32 +160,35 @@ export function AnnotatedTaskPreview({
     [pins, setCommentResolutions, target],
   );
 
+  const anchorOf = (comment: PickedElement) =>
+    origin ? { ...comment.anchor, origin } : comment.anchor;
+
   const submit = async (content: string, mentions: number[]) => {
     if (!pending) return;
     const created = await createComment.mutateAsync({
       content,
-      context: { anchor: pending.anchor },
+      context: { anchor: anchorOf(pending) },
       mentions,
     });
     requestCommentFocus(taskId, target, created.id, { intent: "focus-only" });
   };
 
-  const sendToAgent = (comment: PendingComment, content: string) => {
-    const context = commentAgentContext(comment.anchor, {
-      kind: "preview",
-      name: title,
-      port,
-    });
+  const sendToAgent = (comment: PickedElement, content: string) => {
+    const resource: CommentResource =
+      surface.kind === "browser"
+        ? { kind: "browser", name: title, origin: surface.origin }
+        : { kind: "preview", name: title, port: surface.port };
+    const context = commentAgentContext(anchorOf(comment), resource);
     void sendCommentToAgent({
       taskId,
       comment: content,
       context: withScreenshot(context, comment.screenshot),
-      surface: "preview",
+      surface: surface.kind,
       openChat: false,
     }).then(() => {
       if (chatVisible) return;
       toast.success("Added to your message", {
-        id: `preview-comment-queued-${taskId}`,
+        id: `${surface.kind}-comment-queued-${taskId}`,
         description: "Send it from the chat when you are ready.",
         alwaysShow: true,
         action: { label: "Open chat", onClick: () => openTaskChat(taskId) },
@@ -196,6 +201,9 @@ export function AnnotatedTaskPreview({
       <div ref={frameRef} className="relative min-w-0 flex-1">
         <TaskPreviewFrame
           url={url}
+          taskId={taskId}
+          frameId={frameId}
+          session={surface.kind === "browser" ? "browser" : "sandbox"}
           title={title}
           picking={commenting}
           pins={pins}
@@ -206,16 +214,15 @@ export function AnnotatedTaskPreview({
           onActivatePin={revealThread}
           onPinsChanged={onPinsChanged}
           navigationRequest={navigationRequest}
-          onLocationChange={onLocationChange}
+          onLocationChange={(location) => {
+            setCurrentPath(location.path);
+            onLocationChange(location);
+          }}
           tracking={!!pending}
           onTrackedRect={onTrackedRect}
         />
         {commenting && (
-          <div className="pointer-events-none absolute inset-x-0 top-2 flex justify-center">
-            <span className="rounded bg-background px-2 py-1 text-foreground text-xs shadow">
-              Click an element to comment on it.
-            </span>
-          </div>
+          <PickModeBanner onCancel={() => onCommentingChange(false)} />
         )}
       </div>
       <SelectionCommentOverlay

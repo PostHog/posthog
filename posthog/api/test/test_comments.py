@@ -76,10 +76,14 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         return task
 
-    @parameterized.expand([("task_artifact",), ("task_preview",)])
+    @parameterized.expand([("task_artifact",), ("task_preview",), ("task_browser",)])
     def test_task_comments_require_a_visible_owning_task(self, scope: str) -> None:
         task = self._task_artifact_target()
-        item_id = "artifact-1" if scope == "task_artifact" else f"{task.id}:3000"
+        item_id = {
+            "task_artifact": "artifact-1",
+            "task_preview": f"{task.id}:3000",
+            "task_browser": f"{task.id}:browser",
+        }[scope]
         payload: dict[str, Any] = {
             "content": "Review this",
             "scope": scope,
@@ -98,15 +102,24 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         )
         assert [row["id"] for row in with_task.json()["results"]] == [created.json()["id"]]
 
-    @parameterized.expand([("another_task", "{other}:3000"), ("no_port", "{task}"), ("bad_port", "{task}:http")])
-    def test_task_preview_comment_item_must_belong_to_the_task(self, _name: str, item_template: str) -> None:
+    @parameterized.expand(
+        [
+            ("preview_on_another_task", "task_preview", "{other}:3000"),
+            ("preview_without_port", "task_preview", "{task}"),
+            ("preview_with_bad_port", "task_preview", "{task}:http"),
+            ("browser_on_another_task", "task_browser", "{other}:browser"),
+            ("browser_without_suffix", "task_browser", "{task}"),
+            ("browser_with_a_port", "task_browser", "{task}:3000"),
+        ]
+    )
+    def test_task_comment_item_must_belong_to_the_task(self, _name: str, scope: str, item_template: str) -> None:
         task = self._task_artifact_target()
         other = self._task_artifact_target()
         response = self.client.post(
             f"/api/projects/{self.team.id}/comments",
             {
                 "content": "Review this",
-                "scope": "task_preview",
+                "scope": scope,
                 "item_id": item_template.format(task=task.id, other=other.id),
                 "item_context": {"anchor": {"kind": "document"}, "taskId": str(task.id)},
             },

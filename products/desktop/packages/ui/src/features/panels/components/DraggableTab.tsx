@@ -129,7 +129,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
       gap="1"
       pl="3"
       pr={onClose ? "2" : "3"}
-      className={`group relative h-[32px] min-w-[60px] flex-shrink-0 select-none border-r border-b-2 transition-colors ${draggable ? "cursor-grab" : "cursor-pointer"}`}
+      className={`group relative h-[32px] min-w-[88px] max-w-[240px] shrink select-none border-r border-b-2 transition-colors ${draggable ? "cursor-grab" : "cursor-pointer"}`}
       style={{
         borderRightColor: "var(--gray-6)",
         borderBottomColor: isActive ? "var(--accent-10)" : "transparent",
@@ -152,7 +152,7 @@ export const DraggableTab: React.FC<DraggableTabProps> = ({
     >
       {icon && <Box className="flex items-center">{icon}</Box>}
       <Text
-        className="max-w-[200px] select-none overflow-hidden text-ellipsis whitespace-nowrap text-[13px]"
+        className="min-w-0 flex-1 select-none overflow-hidden text-ellipsis whitespace-nowrap text-[13px]"
         style={{
           fontStyle: isPreview ? "italic" : "normal",
           opacity: isPreview ? 0.7 : 1,

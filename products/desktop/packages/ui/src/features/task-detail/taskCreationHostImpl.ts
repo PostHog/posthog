@@ -19,11 +19,15 @@ import type {
   TaskEnvironment,
   TaskFolderInfo,
 } from "@posthog/core/task-detail/taskCreationHost";
-import { resolveService } from "@posthog/di/container";
+import { resolveService, resolveServiceOptional } from "@posthog/di/container";
 import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
+import {
+  HOST_CAPABILITIES,
+  type HostCapabilities,
+} from "@posthog/platform/host-capabilities";
 import {
   type ExecutionMode,
   expandTildePath,
@@ -58,6 +62,13 @@ function hostClient(): HostTrpcClient {
 export class TrpcTaskCreationHost implements ITaskCreationHost {
   getAuthenticatedClient(): Promise<TaskCreationApiClient | null> {
     return getAuthenticatedClient() as Promise<TaskCreationApiClient | null>;
+  }
+
+  hasTaskBrowser(): boolean {
+    return (
+      resolveServiceOptional<HostCapabilities>(HOST_CAPABILITIES)
+        ?.taskBrowser === true
+    );
   }
 
   async assertCloudUsageAvailable(): Promise<void> {

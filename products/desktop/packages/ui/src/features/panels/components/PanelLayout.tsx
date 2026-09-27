@@ -72,6 +72,19 @@ const PanelLayoutRenderer: React.FC<{
     [layoutState, taskId],
   );
 
+  const handleAddBrowser = useCallback(
+    (panelId: string) => {
+      usePanelLayoutStore
+        .getState()
+        .openBrowserTab(
+          taskId,
+          { browserId: crypto.randomUUID(), url: "", label: "New tab" },
+          { panelId },
+        );
+    },
+    [taskId],
+  );
+
   const handleSplitPanel = useCallback(
     (panelId: string, direction: SplitDirection) => {
       const layout = usePanelLayoutStore.getState().getLayout(taskId);
@@ -128,6 +141,7 @@ const PanelLayoutRenderer: React.FC<{
             onActiveTabChange={handleSetActiveTab}
             onPanelFocus={handlePanelFocus}
             onAddTerminal={handleAddTerminal}
+            onAddBrowser={handleAddBrowser}
             onSplitPanel={handleSplitPanel}
           />
         );
@@ -156,6 +170,7 @@ const PanelLayoutRenderer: React.FC<{
       handleKeepTab,
       handlePanelFocus,
       handleAddTerminal,
+      handleAddBrowser,
       handleSplitPanel,
       setGroupRef,
       handleLayout,

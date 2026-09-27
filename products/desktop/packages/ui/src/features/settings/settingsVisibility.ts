@@ -13,10 +13,12 @@ const LOCAL_ONLY_CATEGORIES: ReadonlySet<SettingsCategory> = new Set([
 
 interface SettingsVisibility {
   localWorkspaces: boolean;
+  taskBrowser: boolean;
 }
 
 export function getHiddenSettingsCategories({
   localWorkspaces,
+  taskBrowser,
 }: SettingsVisibility): ReadonlySet<SettingsCategory> {
   // SettingsPanel drops these from its nav and its search, and redirects
   // direct navigation to one, so a deep link can't reach them either.
@@ -27,6 +29,8 @@ export function getHiddenSettingsCategories({
       hiddenCategories.add(category);
     }
   }
+
+  if (!taskBrowser) hiddenCategories.add("browser");
 
   return hiddenCategories;
 }

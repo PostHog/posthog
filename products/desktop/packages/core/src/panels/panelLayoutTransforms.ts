@@ -225,12 +225,14 @@ export function openTabInSplit(
 // Opens read-only content with inline tab data. Most callers use the right-side
 // split; generated artifacts opt into the main panel beside Chat. Re-opening
 // the same tab id just activates the existing tab.
+export type TabPlacement = "main" | "split" | { panelId: string };
+
 export function openReadonlyTab(
   layout: TaskLayout,
   tabId: string,
   label: string,
   data: TabData,
-  placement: "main" | "split" = "split",
+  placement: TabPlacement = "split",
 ): Partial<TaskLayout> {
   const buildTab = (): Tab => ({
     id: tabId,
@@ -257,10 +259,10 @@ export function openReadonlyTab(
     return { panelTree: updatedTree, focusedPanelId: existingTab.panelId };
   }
 
-  if (placement === "main") {
+  if (placement !== "split") {
     const mainPanel = getLeafPanel(
       layout.panelTree,
-      DEFAULT_PANEL_IDS.MAIN_PANEL,
+      placement === "main" ? DEFAULT_PANEL_IDS.MAIN_PANEL : placement.panelId,
     );
     if (!mainPanel) return {};
     const panelTree = updateTreeNode(
@@ -635,7 +637,7 @@ export function updateSizes(
 export function updateTabMetadata(
   layout: TaskLayout,
   tabId: string,
-  metadata: Partial<Pick<Tab, "hasUnsavedChanges">>,
+  metadata: Partial<Pick<Tab, "hasUnsavedChanges" | "label" | "data">>,
 ): Partial<TaskLayout> {
   const tabLocation = findTabInTree(layout.panelTree, tabId);
   if (!tabLocation) return {};

@@ -18,6 +18,7 @@ import type {
   TaskRun,
   TaskThreadMessage,
 } from "@posthog/shared/domain-types";
+import { browserCommentTarget } from "@posthog/ui/features/task-preview/browserComments";
 import { previewCommentTarget } from "@posthog/ui/features/task-preview/previewCommentTarget";
 import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
 import type { TaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
@@ -79,6 +80,7 @@ export type CommentSource =
     }
   | { kind: "canvas"; target: CommentTarget; name: string; url: string | null }
   | { kind: "task"; target: CommentTarget; name: string }
+  | { kind: "browser"; target: CommentTarget; name: string }
   | {
       kind: "preview";
       target: CommentTarget;
@@ -94,10 +96,18 @@ export function taskCommentTarget(taskId: string): CommentTarget {
 export function commentSources(
   taskId: string,
   rows: ArtifactRow[],
+  options: { browser?: boolean } = {},
 ): CommentSource[] {
   const sources: CommentSource[] = [
     { kind: "task", target: taskCommentTarget(taskId), name: "This task" },
   ];
+  if (options.browser) {
+    sources.push({
+      kind: "browser",
+      target: browserCommentTarget(taskId),
+      name: "Browser",
+    });
+  }
   const seen = new Set<string>();
   for (const row of rows) {
     const target = targetForRow(row);

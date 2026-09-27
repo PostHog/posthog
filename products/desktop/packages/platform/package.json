@@ -44,6 +44,10 @@
       "types": "./dist/screen-capture.d.ts",
       "import": "./dist/screen-capture.js"
     },
+    "./task-browser": {
+      "types": "./dist/task-browser.d.ts",
+      "import": "./dist/task-browser.js"
+    },
     "./secure-storage": {
       "types": "./dist/secure-storage.d.ts",
       "import": "./dist/secure-storage.js"

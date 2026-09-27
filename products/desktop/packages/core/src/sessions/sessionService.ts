@@ -58,6 +58,7 @@ import {
   TranscriptBoundaries,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
 import {
   type CloudTaskPermissionRequestUpdate,
   type CloudTaskUpdatePayload,
@@ -482,6 +483,7 @@ export interface SessionServiceHelpers {
 
 export interface SessionServiceDeps {
   trpc: SessionTrpc;
+  hasTaskBrowser?: boolean;
   store: ISessionStore;
   h: SessionServiceHelpers;
   log: {
@@ -5515,6 +5517,9 @@ export class SessionService {
               typeof previousState.signal_report_id === "string"
                 ? previousState.signal_report_id
                 : undefined,
+            relayedMcpServers: this.d.hasTaskBrowser
+              ? [{ name: TASK_BROWSER_MCP_SERVER }]
+              : undefined,
           },
         );
         if (

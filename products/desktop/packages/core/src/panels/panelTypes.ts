@@ -56,6 +56,11 @@ export type TabData =
       port: number;
     }
   | {
+      type: "browser";
+      browserId: string;
+      url: string;
+    }
+  | {
       type: "other";
     };
 

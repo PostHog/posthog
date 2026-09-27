@@ -7,6 +7,7 @@ import {
   buildCommentThreads,
   readCommentContext,
 } from "@posthog/ui/features/sessions/components/commentViewTypes";
+import { browserCommentPage } from "@posthog/ui/features/task-preview/browserComments";
 
 export type CommentEntry = {
   id: string;
@@ -50,7 +51,14 @@ export type TaskCommentThread = {
   /** Groups threads for the source filter. */
   sourceKey: string;
   sourceLabel: string;
-  sourceKind: "file" | "canvas" | "task" | "posthog_object" | "pr" | "preview";
+  sourceKind:
+    | "file"
+    | "canvas"
+    | "task"
+    | "posthog_object"
+    | "pr"
+    | "preview"
+    | "browser";
   entries: CommentEntry[];
   resolved: boolean;
   /** When the thread was opened, for ordering the list. Ordering on the newest
@@ -100,7 +108,11 @@ export function resourceCommentThreads(
       {
         id: thread.root.id,
         sourceKey: commentTargetKey(source.target),
-        sourceLabel: source.name,
+        sourceLabel:
+          source.kind === "browser"
+            ? (browserCommentPage(readCommentContext(thread.root)?.anchor)
+                ?.label ?? source.name)
+            : source.name,
         sourceKind: source.kind,
         entries: [thread.root, ...visibleReplies].map(resourceEntry),
         resolved: thread.resolved,

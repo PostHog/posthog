@@ -492,6 +492,7 @@ container.bind(POWER_MANAGER_SERVICE).toConstantValue(webPowerManager);
 container.bind(HOST_CAPABILITIES).toConstantValue({
   localWorkspaces: false,
   customCloud: false,
+  taskBrowser: false,
 } satisfies HostCapabilities);
 
 container.load(authUiModule);

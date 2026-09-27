@@ -39,6 +39,8 @@ def target_is_accessible(
         return False
     if scope == "task":
         return str(task.id) == str(item_id)
+    if scope == "task_browser":
+        return str(item_id) == f"{task.id}:browser"
     if scope == "task_preview":
         return is_task_preview_item(task.id, item_id)
     if scope != "task_artifact":

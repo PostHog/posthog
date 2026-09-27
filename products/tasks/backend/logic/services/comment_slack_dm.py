@@ -53,6 +53,7 @@ _ACCENT = "good"
 _LOCATIONS: Mapping[str, str] = {
     "task_artifact": "On an artifact",
     "task_preview": "On a preview",
+    "task_browser": "On a web page",
 }
 
 _HEADINGS: Mapping[str, str] = {

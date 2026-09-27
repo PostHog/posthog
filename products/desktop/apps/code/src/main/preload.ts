@@ -6,6 +6,10 @@ import {
   ARTIFACT_HOST_TO_PREVIEW_CHANNEL,
   ARTIFACT_OPEN_EXTERNAL_CHANNEL,
   ARTIFACT_PREVIEW_TO_HOST_CHANNEL,
+  BROWSER_RUNNER_ARG,
+  BROWSER_RUNNER_CALL_CHANNEL,
+  BROWSER_RUNNER_DONE_CHANNEL,
+  BROWSER_RUNNER_RUN_CHANNEL,
   HOST_TO_TASK_PREVIEW_CHANNEL,
   TASK_PREVIEW_ARG,
   TASK_PREVIEW_TO_HOST_CHANNEL,
@@ -57,6 +61,20 @@ function setupTaskPreviewPreload(): void {
   });
 }
 
+function setupBrowserRunnerPreload(): void {
+  contextBridge.exposeInMainWorld("phBrowserHost", {
+    call: (method: string, args: unknown[]) =>
+      ipcRenderer.invoke(BROWSER_RUNNER_CALL_CHANNEL, method, args),
+    done: (result: { ok: boolean; output: string }) =>
+      ipcRenderer.send(BROWSER_RUNNER_DONE_CHANNEL, result),
+    onRun: (callback: (code: string) => void) => {
+      ipcRenderer.once(BROWSER_RUNNER_RUN_CHANNEL, (_event, code: unknown) => {
+        if (typeof code === "string") callback(code);
+      });
+    },
+  });
+}
+
 function readDevFlags(argv: string[]): { devMode: boolean } {
   const arg = argv.find((a) => a.startsWith(DEV_FLAGS_CLI_PREFIX));
   if (!arg) return { devMode: false };
@@ -102,6 +120,8 @@ function setupApplicationPreload(argv: string[]): void {
 export function setupPreload(argv: string[]): void {
   if (argv.includes(APP_WINDOW_ARG)) {
     setupApplicationPreload(argv);
+  } else if (argv.includes(BROWSER_RUNNER_ARG)) {
+    setupBrowserRunnerPreload();
   } else if (argv.includes(TASK_PREVIEW_ARG)) {
     setupTaskPreviewPreload();
   } else {

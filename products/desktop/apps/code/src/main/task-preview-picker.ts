@@ -197,6 +197,7 @@ export function setupTaskPreviewPicker(
 
   let tracked: Element | null = null;
   let trackedKey = "";
+  let located: Element | null = null;
   const reportTracked = () => {
     if (!tracked?.isConnected) return;
     const rect = rectOf(tracked);
@@ -213,6 +214,11 @@ export function setupTaskPreviewPicker(
       renderFrame = 0;
       renderPins();
       reportTracked();
+      if (located?.isConnected && !picking) {
+        showHighlight(located);
+      } else if (tracked?.isConnected && !picking && !markedElement) {
+        showHighlight(tracked);
+      }
     });
   };
 
@@ -245,13 +251,13 @@ export function setupTaskPreviewPicker(
     releaseTimer = null;
     markedElement = null;
     if (marker) marker.style.display = "none";
-    if (!picking) showHighlight(null);
+    if (!picking) showHighlight(tracked?.isConnected ? tracked : null);
   };
 
   const stopPicking = () => {
     picking = false;
     hovered = null;
-    showHighlight(null);
+    showHighlight(tracked?.isConnected ? tracked : null);
     document.documentElement.style.removeProperty("cursor");
   };
 
@@ -311,6 +317,7 @@ export function setupTaskPreviewPicker(
     }
     if (message.type === "untrack") {
       tracked = null;
+      if (!picking) showHighlight(null);
       return;
     }
     if (message.type === "pick") {
@@ -332,9 +339,12 @@ export function setupTaskPreviewPicker(
     const target = pin ? resolvePin(pin.selector) : null;
     if (!target) return;
     target.scrollIntoView({ block: "center", behavior: "smooth" });
+    located = target;
     showHighlight(target);
     setTimeout(() => {
-      if (!picking) showHighlight(null);
+      if (located !== target) return;
+      located = null;
+      if (!picking) showHighlight(tracked?.isConnected ? tracked : null);
     }, 1_200);
   };
 }

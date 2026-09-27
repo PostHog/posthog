@@ -98,6 +98,7 @@ import {
   type IScreenCapture,
   SCREEN_CAPTURE_SERVICE,
 } from "@posthog/platform/screen-capture";
+import { TASK_BROWSER_HOST } from "@posthog/platform/task-browser";
 import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
@@ -168,6 +169,7 @@ import { trpcClient } from "@renderer/trpc";
 import { hostTrpcClient } from "@renderer/trpc/client";
 import type { TRPCClient } from "@trpc/client";
 import { hostLog, logger } from "@utils/logger";
+import { electronTaskBrowserHost } from "../platform-adapters/electron-task-browser-host";
 import type { RendererBindings } from "./bindings";
 import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
 
@@ -194,6 +196,8 @@ container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
   submitFeedback: (input) =>
     hostTrpcClient.feedbackContext.submitFeedback.mutate(input),
 } satisfies IFeedbackContext);
+
+container.bind(TASK_BROWSER_HOST).toConstantValue(electronTaskBrowserHost);
 
 container.bind(SCREEN_CAPTURE_SERVICE).toConstantValue({
   captureRegion: (region) =>

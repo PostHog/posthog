@@ -14,14 +14,18 @@ export function PreviewAddressBar({
   port,
   location,
   disabled,
+  placeholder,
+  autoFocus = false,
   onNavigate,
   onBack,
   onForward,
 }: {
-  label: string;
-  port: number;
+  label?: string;
+  port?: number;
   location: TaskPreviewLocation;
   disabled: boolean;
+  placeholder?: string;
+  autoFocus?: boolean;
   onNavigate: (input: string) => void;
   onBack: () => void;
   onForward: () => void;
@@ -67,17 +71,21 @@ export function PreviewAddressBar({
         }}
       >
         <InputGroup className="h-7">
-          <InputGroupAddon align="inline-start">
-            <span className="max-w-32 truncate text-foreground text-xs">
-              {label}
-            </span>
-            <span className="text-muted-foreground text-xs">:{port}</span>
-          </InputGroupAddon>
+          {label !== undefined && (
+            <InputGroupAddon align="inline-start">
+              <span className="max-w-32 truncate text-foreground text-xs">
+                {label}
+              </span>
+              <span className="text-muted-foreground text-xs">:{port}</span>
+            </InputGroupAddon>
+          )}
           <InputGroupInput
             aria-label="Page address"
             data-attr="task-preview-address"
             value={draft}
             disabled={disabled}
+            placeholder={placeholder}
+            autoFocus={autoFocus}
             spellCheck={false}
             className="text-xs"
             onChange={(event) => setDraft(event.target.value)}

@@ -1,6 +1,9 @@
 import { contentHash } from "@posthog/core/code-review/contentHash";
 import type { InjectedBlock } from "@posthog/core/editor/injectedBlocks";
-import { DEFAULT_PANEL_IDS } from "@posthog/core/panels/panelConstants";
+import {
+  DEFAULT_PANEL_IDS,
+  DEFAULT_TAB_IDS,
+} from "@posthog/core/panels/panelConstants";
 import {
   addRecentFile,
   addActionTab as coreAddActionTab,
@@ -20,9 +23,11 @@ import {
   updateTabMetadata as coreUpdateTabMetadata,
   createInitialTaskLayout,
   splitPanelTree,
+  type TabPlacement,
 } from "@posthog/core/panels/panelLayoutTransforms";
 import {
   activeArtifactId,
+  createBrowserTabId,
   createFileTabId,
   createPreviewTabId,
 } from "@posthog/core/panels/panelStoreHelpers";
@@ -80,6 +85,17 @@ interface PanelLayoutStore {
     taskId: string,
     preview: { runId: string; port: number; label: string },
     placement?: "main" | "split",
+  ) => void;
+  openBrowserTab: (
+    taskId: string,
+    browser: { browserId: string; url: string; label: string },
+    placement?: TabPlacement,
+  ) => void;
+  closeBrowserTab: (taskId: string, browserId: string) => void;
+  updateBrowserTab: (
+    taskId: string,
+    browserId: string,
+    browser: { url: string; label: string },
   ) => void;
   openPostHogObjectTab: (
     taskId: string,
@@ -317,14 +333,25 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
         set((state) =>
           updateTaskLayout(state, taskId, (layout) => {
             const existing = findTabInTree(layout.panelTree, tabId);
-            const current =
+            const movingOut =
               placement === "split" &&
-              existing?.panelId === DEFAULT_PANEL_IDS.MAIN_PANEL
+              existing?.panelId === DEFAULT_PANEL_IDS.MAIN_PANEL;
+            const closed = movingOut
+              ? { ...layout, ...coreCloseTab(layout, existing.panelId, tabId) }
+              : layout;
+            const current =
+              movingOut &&
+              findTabInTree(closed.panelTree, DEFAULT_TAB_IDS.LOGS)?.panelId ===
+                DEFAULT_PANEL_IDS.MAIN_PANEL
                 ? {
-                    ...layout,
-                    ...coreCloseTab(layout, existing.panelId, tabId),
+                    ...closed,
+                    ...coreSetActiveTab(
+                      closed,
+                      DEFAULT_PANEL_IDS.MAIN_PANEL,
+                      DEFAULT_TAB_IDS.LOGS,
+                    ),
                   }
-                : layout;
+                : closed;
             return coreOpenReadonlyTab(
               current,
               tabId,
@@ -373,6 +400,58 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
             (layout) =>
               coreKeepTab(layout, panelId, tabId) as Partial<TaskLayout>,
           ),
+        );
+      },
+
+      openBrowserTab: (taskId, browser, placement = "main") => {
+        const tabId = createBrowserTabId(browser.browserId);
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              coreOpenReadonlyTab(
+                layout,
+                tabId,
+                browser.label,
+                {
+                  type: "browser",
+                  browserId: browser.browserId,
+                  url: browser.url,
+                },
+                placement,
+              ) as Partial<TaskLayout>,
+          ),
+        );
+      },
+
+      updateBrowserTab: (taskId, browserId, browser) => {
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              coreUpdateTabMetadata(layout, createBrowserTabId(browserId), {
+                label: browser.label,
+                data: { type: "browser", browserId, url: browser.url },
+              }) as Partial<TaskLayout>,
+          ),
+        );
+      },
+
+      closeBrowserTab: (taskId, browserId) => {
+        const tabId = createBrowserTabId(browserId);
+        set((state) =>
+          updateTaskLayout(state, taskId, (layout) => {
+            const found = findTabInTree(layout.panelTree, tabId);
+            return found
+              ? (coreCloseTab(
+                  layout,
+                  found.panelId,
+                  tabId,
+                ) as Partial<TaskLayout>)
+              : layout;
+          }),
         );
       },
 

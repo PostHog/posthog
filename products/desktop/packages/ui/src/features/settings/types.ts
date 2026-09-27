@@ -14,6 +14,7 @@ export type SettingsCategory =
   | "mcp-servers"
   | "personalization"
   | "terminal"
+  | "browser"
   | "harness"
   | "shortcuts"
   | "github"
@@ -38,6 +39,7 @@ const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
   "mcp-servers",
   "personalization",
   "terminal",
+  "browser",
   "harness",
   "shortcuts",
   "github",
@@ -70,6 +72,7 @@ export const SETTINGS_PAGE_LABELS: Record<SettingsCategory, string> = {
   "mcp-servers": "MCP servers",
   personalization: "Personalization",
   terminal: "Terminal",
+  browser: "Browser",
   harness: "Harness",
   shortcuts: "Shortcuts",
   github: "GitHub",

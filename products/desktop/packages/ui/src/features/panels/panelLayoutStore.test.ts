@@ -198,6 +198,55 @@ describe("panelLayoutStore", () => {
     });
   });
 
+  describe("preview and browser tabs", () => {
+    beforeEach(() => {
+      usePanelLayoutStore.getState().initializeTask("task-1");
+    });
+
+    it("shows Chat in the main panel when a preview moves beside it", () => {
+      const store = usePanelLayoutStore.getState();
+      const preview = { runId: "run-1", port: 3000, label: "Web app" };
+      store.openBrowserTab("task-1", {
+        browserId: "b1",
+        url: "https://example.com/",
+        label: "example.com",
+      });
+      store.openPreviewTab("task-1", preview);
+      store.openPreviewTab("task-1", preview, "split");
+
+      const panels = leafPanels(getPanelTree("task-1"));
+      const main = panels.find((panel) => panel.id === "main-panel");
+      const side = panels.find((panel) => panel.id !== "main-panel");
+      expect(main?.content.activeTabId).toBe("logs");
+      expect(side?.content.tabs.map((tab) => tab.id)).toEqual([
+        "preview-run-1-3000",
+      ]);
+    });
+
+    it("opens a browser tab in the panel the user asked for", () => {
+      const store = usePanelLayoutStore.getState();
+      store.openPreviewTab(
+        "task-1",
+        { runId: "run-1", port: 3000, label: "Web app" },
+        "split",
+      );
+      const side = leafPanels(getPanelTree("task-1")).find(
+        (panel) => panel.id !== "main-panel",
+      );
+      if (!side) throw new Error("Expected a side panel");
+
+      store.openBrowserTab(
+        "task-1",
+        { browserId: "b2", url: "", label: "New tab" },
+        { panelId: side.id },
+      );
+
+      const updated = findPanelById(getPanelTree("task-1"), side.id);
+      if (updated?.type !== "leaf") throw new Error("Expected a leaf panel");
+      expect(updated.content.activeTabId).toBe("browser-b2");
+    });
+  });
+
   describe("openPostHogObjectTab", () => {
     beforeEach(() => {
       usePanelLayoutStore.getState().initializeTask("task-1");

@@ -71,6 +71,7 @@ export interface RecordClaudeCliImportArgs {
 
 export interface ITaskCreationHost {
   getAuthenticatedClient(): Promise<TaskCreationApiClient | null>;
+  hasTaskBrowser?(): boolean;
   assertCloudUsageAvailable(): Promise<void>;
   getTaskDirectory(taskId: string, repoKey?: string): Promise<string | null>;
   /**

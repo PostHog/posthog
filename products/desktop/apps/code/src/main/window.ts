@@ -12,13 +12,14 @@ import {
 } from "electron";
 import { APP_WINDOW_ARG } from "../shared/constants";
 import { container } from "./di/container";
-import { MISSION_CONTROL_SERVICE } from "./di/tokens";
+import { MISSION_CONTROL_SERVICE, TASK_BROWSER_SERVICE } from "./di/tokens";
 import { setupExternalLinkHandlers } from "./external-links";
 import { buildApplicationMenu } from "./menu";
 import { setupGuestWebviews } from "./platform-adapters/electron-guest-webviews";
 import type { ElectronMainWindow } from "./platform-adapters/electron-main-window";
 import type { MissionControlService } from "./platform-adapters/electron-mission-control";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
+import type { TaskBrowserService } from "./platform-adapters/task-browser/service";
 import { POSTHOG_SESSION_ID_ARG } from "./posthog-session-arg";
 import {
   encodeDevFlagsForArg,
@@ -366,7 +367,10 @@ export function createWindow(): void {
     : pathToFileURL(rendererFilePath);
 
   setupExternalLinkHandlers(mainWindow, appHome);
-  setupGuestWebviews(mainWindow);
+  setupGuestWebviews(
+    mainWindow,
+    container.get<TaskBrowserService>(TASK_BROWSER_SERVICE),
+  );
   setupEditableContextMenu(mainWindow);
   setupCrashLogging(mainWindow);
   buildApplicationMenu();

@@ -157,6 +157,7 @@ const mockNotificationService = vi.hoisted(() => ({
 }));
 
 vi.mock("@posthog/di/container", () => ({
+  resolveServiceOptional: () => null,
   resolveService: (token: unknown) => {
     if (token === Symbol.for("posthog.host.trpcClient")) {
       return {

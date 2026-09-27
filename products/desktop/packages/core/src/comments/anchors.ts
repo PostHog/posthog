@@ -55,6 +55,7 @@ const documentCommentAnchorSchema = z.object({
 });
 
 export const ELEMENT_ANCHOR_LIMITS = {
+  origin: 300,
   path: 2_000,
   selector: 1_000,
   tag: 64,
@@ -66,6 +67,7 @@ export const ELEMENT_ANCHOR_LIMITS = {
 
 export const elementCommentAnchorSchema = z.object({
   kind: z.literal("element"),
+  origin: z.string().max(ELEMENT_ANCHOR_LIMITS.origin).optional(),
   path: z.string().max(ELEMENT_ANCHOR_LIMITS.path),
   selector: z.string().min(1).max(ELEMENT_ANCHOR_LIMITS.selector),
   tag: z.string().max(ELEMENT_ANCHOR_LIMITS.tag),

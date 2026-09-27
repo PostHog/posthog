@@ -21,9 +21,10 @@ import { LoadingState } from "@posthog/ui/primitives/LoadingState";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useEffect, useState } from "react";
-import { AnnotatedTaskPreview } from "./AnnotatedTaskPreview";
+import { useEffect, useMemo, useState } from "react";
+import { CommentableFrame } from "./CommentableFrame";
 import { PreviewAddressBar } from "./PreviewAddressBar";
+import { previewCommentTarget } from "./previewCommentTarget";
 import { resolvePreviewNavigation } from "./previewNavigation";
 import { type PreviewProblem, previewProblem } from "./previewProblem";
 import type {
@@ -96,6 +97,11 @@ export function TaskPreviewPanel({
     useState<TaskPreviewNavigationRequest | null>(null);
   const annotationsSupported = useTaskPreviewAnnotationsSupported();
   const inMainPanel = usePreviewTabInMainPanel(taskId, runId, port);
+  const commentTarget = useMemo(
+    () => previewCommentTarget(taskId, port),
+    [taskId, port],
+  );
+  const surface = useMemo(() => ({ kind: "preview" as const, port }), [port]);
   const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
   const remoteSession = useTaskPreviewSession(
     taskId,
@@ -184,10 +190,12 @@ export function TaskPreviewPanel({
     );
   } else if (url) {
     body = (
-      <AnnotatedTaskPreview
+      <CommentableFrame
         key={attempt}
         taskId={taskId}
-        port={port}
+        frameId={`preview-${taskId}-${port}`}
+        target={commentTarget}
+        surface={surface}
         url={url}
         title={`Preview of ${label}`}
         commenting={commenting}

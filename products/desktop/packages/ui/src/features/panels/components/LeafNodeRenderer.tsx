@@ -1,4 +1,6 @@
 import { Cloud as CloudIcon } from "@phosphor-icons/react";
+import { useServiceOptional } from "@posthog/di/react";
+import { TASK_BROWSER_HOST } from "@posthog/platform/task-browser";
 import {
   Empty,
   EmptyDescription,
@@ -29,6 +31,7 @@ interface LeafNodeRendererProps {
   onActiveTabChange: (panelId: string, tabId: string) => void;
   onPanelFocus: (panelId: string) => void;
   onAddTerminal: (panelId: string) => void;
+  onAddBrowser: (panelId: string) => void;
   onSplitPanel: (panelId: string, direction: SplitDirection) => void;
 }
 
@@ -45,8 +48,10 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
   onActiveTabChange,
   onPanelFocus,
   onAddTerminal,
+  onAddBrowser,
   onSplitPanel,
 }) => {
+  const browserHost = useServiceOptional(TASK_BROWSER_HOST);
   const isCloud = useIsCloudTask(task);
   const { localWorkspaces } = useHostCapabilities();
   // Hide the terminal for cloud runs, and on cloud-only hosts (web).
@@ -109,6 +114,7 @@ export const LeafNodeRenderer: React.FC<LeafNodeRendererProps> = ({
       draggingTabPanelId={draggingTabPanelId}
       allowPanelSplit={!isCloud}
       onAddTerminal={hideTerminal ? undefined : () => onAddTerminal(node.id)}
+      onAddBrowser={browserHost ? () => onAddBrowser(node.id) : undefined}
       onSplitPanel={
         isCloud ? undefined : (direction) => onSplitPanel(node.id, direction)
       }

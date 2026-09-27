@@ -14,7 +14,7 @@ export function TaskPreviewFrame(props: TaskPreviewFrameProps) {
     <iframe
       src={props.url}
       title={props.title}
-      className="size-full border-0 bg-white"
+      className="size-full border-0 bg-[white]"
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
       referrerPolicy="no-referrer"
     />

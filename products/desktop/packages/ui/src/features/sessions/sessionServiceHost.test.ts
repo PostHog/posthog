@@ -331,6 +331,7 @@ vi.mock("@posthog/ui/primitives/toast", () => ({
   toast: mockToast,
 }));
 vi.mock("@posthog/di/container", () => ({
+  resolveServiceOptional: () => null,
   resolveService: (token: unknown) => {
     if (token === Symbol.for("posthog.host.trpcClient")) {
       return {

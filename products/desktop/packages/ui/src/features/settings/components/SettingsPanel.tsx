@@ -10,6 +10,7 @@ import {
   Gauge,
   GearSix,
   GithubLogo,
+  Globe,
   Keyboard,
   Lightbulb,
   PaintBrush,
@@ -82,6 +83,7 @@ const SIDEBAR_GROUPS: SidebarGroup[] = [
       { id: "worktrees", icon: <TreeStructure size={16} /> },
       { id: "environments", icon: <Cube size={16} /> },
       { id: "terminal", icon: <Terminal size={16} /> },
+      { id: "browser", icon: <Globe size={16} /> },
     ],
   },
   {
@@ -140,10 +142,13 @@ export function SettingsPanel({
   const setCategory =
     onCategoryChange ??
     ((cat: SettingsCategory) => nav.navigateToSettings(cat, { replace: true }));
-  const { localWorkspaces } = useHostCapabilities();
+  const { localWorkspaces, taskBrowser } = useHostCapabilities();
   const backupAvailable = useSettingsBackupAvailable();
 
-  const hiddenCategories = getHiddenSettingsCategories({ localWorkspaces });
+  const hiddenCategories = getHiddenSettingsCategories({
+    localWorkspaces,
+    taskBrowser,
+  });
   const sidebarGroups = SIDEBAR_GROUPS.map((group) => ({
     ...group,
     items: group.items.filter((item) => !hiddenCategories.has(item.id)),

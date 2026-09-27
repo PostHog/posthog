@@ -24,6 +24,10 @@ export function createPreviewTabId(runId: string, port: number): string {
   return `preview-${runId}-${port}`;
 }
 
+export function createBrowserTabId(browserId: string): string {
+  return `browser-${browserId}`;
+}
+
 function parseTabId(tabId: string): ParsedTabId & { status?: string } {
   if (tabId.startsWith("file-")) {
     return { type: "file", value: tabId.slice(5) };

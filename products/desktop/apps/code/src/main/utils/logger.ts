@@ -57,7 +57,7 @@ function createArchiveLogFn(
   };
 }
 
-log.initialize();
+log.initialize({ preload: false });
 
 log.transports.file.resolvePathFn = () => join(LOG_DIR, LOG_FILE);
 log.transports.file.maxSize = MAX_LOG_SIZE;

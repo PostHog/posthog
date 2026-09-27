@@ -21,6 +21,9 @@ vi.mock("../../sessions/components/ArtifactPreview", () => ({
 vi.mock("../../workspace/useWorkspace", () => ({
   useIsCloudTask: () => false,
 }));
+vi.mock("../../task-preview/InAppLinkContext", () => ({
+  TaskInAppLinks: ({ children }: { children: ReactElement }) => children,
+}));
 vi.mock("./ActionPanel", () => ({ ActionPanel: (): null => null }));
 vi.mock("./CanvasInstructionsTab", () => ({
   CanvasInstructionsTab: (): null => null,

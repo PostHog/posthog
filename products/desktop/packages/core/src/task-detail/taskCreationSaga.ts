@@ -9,6 +9,7 @@ import type {
   ConnectParams,
   SessionService,
 } from "@posthog/core/sessions/sessionService";
+import type { CloudMcpServerRelayDesignation } from "@posthog/shared";
 import {
   getTaskRepository,
   Saga,
@@ -18,6 +19,7 @@ import {
   type Workspace,
 } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
 import type { Task } from "@posthog/shared/domain-types";
 import type { FileReadClient } from "../files/identifiers";
 import type { PiRunner } from "../pi-runtime/piRunner";
@@ -71,6 +73,18 @@ function buildCloudFirstMessage(
       .filter((part): part is string => !!part)
       .join("\n\n") || undefined
   );
+}
+
+function withTaskBrowser(
+  servers: CloudMcpServerRelayDesignation[] | undefined,
+  enabled: boolean,
+): CloudMcpServerRelayDesignation[] | undefined {
+  if (!enabled) return servers;
+  const existing = servers ?? [];
+  if (existing.some((server) => server.name === TASK_BROWSER_MCP_SERVER)) {
+    return existing;
+  }
+  return [...existing, { name: TASK_BROWSER_MCP_SERVER }];
 }
 
 export class TaskCreationSaga extends Saga<
@@ -460,7 +474,10 @@ export class TaskCreationSaga extends Saga<
             runSource: input.cloudRunSource ?? "manual",
             signalReportId: input.signalReportId,
             importedMcpServers: input.importedMcpServers,
-            relayedMcpServers: input.relayedMcpServers,
+            relayedMcpServers: withTaskBrowser(
+              input.relayedMcpServers,
+              !isPiRuntime && this.deps.host.hasTaskBrowser?.() === true,
+            ),
             initialPermissionMode: cloudAdapter
               ? (input.executionMode ??
                 (cloudAdapter === "codex" ? "auto" : "plan"))

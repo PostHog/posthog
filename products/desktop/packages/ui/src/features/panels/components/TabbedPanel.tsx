@@ -1,6 +1,18 @@
 import { useDroppable } from "@dnd-kit/react";
-import { Plus, SquareSplitHorizontalIcon, X } from "@phosphor-icons/react";
+import {
+  Globe,
+  Plus,
+  SquareSplitHorizontalIcon,
+  Terminal,
+  X,
+} from "@phosphor-icons/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@posthog/quill";
 import { CONTENT_CHROME_RIGHT_VAR } from "@posthog/ui/features/navigation/rightPanelSide";
 import { PanelDropZones } from "@posthog/ui/features/panels/components/PanelDropZones";
 import type { SplitDirection } from "@posthog/ui/features/panels/panelLayoutStore";
@@ -29,33 +41,79 @@ const MAX_MOUNTED_TABS = 5;
 
 interface TabBarButtonProps {
   ariaLabel: string;
-  onClick: () => void;
+  onClick?: () => void;
   children: React.ReactNode;
+  "data-attr"?: string;
 }
 
 const TabBarButton = forwardRef<HTMLButtonElement, TabBarButtonProps>(
   function TabBarButton({ ariaLabel, onClick, children, ...props }, ref) {
-    const [isHovered, setIsHovered] = useState(false);
-
     return (
       <button
         ref={ref}
         type="button"
         aria-label={ariaLabel}
         onClick={onClick}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        style={{
-          background: isHovered ? "var(--gray-4)" : "var(--color-background)",
-        }}
         {...props}
-        className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center border-0 border-b border-b-(--gray-6) text-(--gray-11)"
+        className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center border-0 border-b border-b-(--gray-6) bg-(--color-background) text-(--gray-11) hover:bg-(--gray-4) aria-expanded:bg-(--gray-4)"
       >
         {children}
       </button>
     );
   },
 );
+
+function NewTabButton({
+  onAddTerminal,
+  onAddBrowser,
+}: {
+  onAddTerminal?: () => void;
+  onAddBrowser?: () => void;
+}) {
+  if (onAddTerminal && onAddBrowser) {
+    return (
+      <DropdownMenu>
+        <Tooltip content="New tab" side="bottom">
+          <span className="flex">
+            <DropdownMenuTrigger
+              render={
+                <TabBarButton ariaLabel="New tab" data-attr="panel-new-tab">
+                  <Plus size={14} />
+                </TabBarButton>
+              }
+            />
+          </span>
+        </Tooltip>
+        <DropdownMenuContent align="start" side="bottom" sideOffset={4}>
+          <DropdownMenuItem
+            data-attr="panel-new-terminal"
+            onClick={onAddTerminal}
+          >
+            <Terminal size={14} />
+            Terminal
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            data-attr="panel-new-browser"
+            onClick={onAddBrowser}
+          >
+            <Globe size={14} />
+            Browser
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }
+  const onAdd = onAddTerminal ?? onAddBrowser;
+  if (!onAdd) return null;
+  const label = onAddTerminal ? "New terminal" : "New browser tab";
+  return (
+    <Tooltip content={label} side="bottom">
+      <TabBarButton ariaLabel={label} data-attr="panel-new-tab" onClick={onAdd}>
+        <Plus size={14} />
+      </TabBarButton>
+    </Tooltip>
+  );
+}
 
 interface TabbedPanelProps {
   panelId: string;
@@ -70,6 +128,7 @@ interface TabbedPanelProps {
   draggingTabPanelId?: string | null;
   allowPanelSplit?: boolean;
   onAddTerminal?: () => void;
+  onAddBrowser?: () => void;
   onSplitPanel?: (direction: SplitDirection) => void;
   onClosePanel?: () => void;
   rightContent?: React.ReactNode;
@@ -89,6 +148,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
   draggingTabPanelId = null,
   allowPanelSplit = true,
   onAddTerminal,
+  onAddBrowser,
   onSplitPanel,
   onClosePanel,
   rightContent,
@@ -264,12 +324,13 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
                 badge={tab.badge}
               />
             ))}
-            {content.droppable && onAddTerminal && (
-              <Tooltip content="New terminal" side="bottom">
-                <TabBarButton ariaLabel="Add terminal" onClick={onAddTerminal}>
-                  <Plus size={14} />
-                </TabBarButton>
-              </Tooltip>
+            {content.droppable && (
+              <div className="sticky right-0 z-10 flex shrink-0">
+                <NewTabButton
+                  onAddTerminal={onAddTerminal}
+                  onAddBrowser={onAddBrowser}
+                />
+              </div>
             )}
             {/* Spacer to increase DND area */}
             {content.droppable && (

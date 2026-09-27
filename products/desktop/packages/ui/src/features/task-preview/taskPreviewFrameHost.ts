@@ -27,6 +27,7 @@ export type TaskPreviewLocation = {
   path: string;
   canGoBack: boolean;
   canGoForward: boolean;
+  title?: string;
 };
 
 export type TaskPreviewNavigation =
@@ -38,8 +39,13 @@ export type TaskPreviewNavigationRequest = TaskPreviewNavigation & {
   nonce: number;
 };
 
+export type TaskPreviewFrameSession = "sandbox" | "browser";
+
 export type TaskPreviewFrameProps = {
   url: string;
+  taskId: string;
+  frameId: string;
+  session: TaskPreviewFrameSession;
   title: string;
   picking: boolean;
   pins: TaskPreviewPin[];

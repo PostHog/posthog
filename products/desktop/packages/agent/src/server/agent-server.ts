@@ -60,6 +60,7 @@ import {
   sleepWithBackoff,
   toAcpMcpServers,
 } from "@posthog/shared";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
@@ -635,7 +636,9 @@ export class AgentServer {
       });
       await this.mcpRelayServer.start();
       // Relayed tools execute on the user's machine — always ask.
-      setAlwaysAskMcpServers(names);
+      setAlwaysAskMcpServers(
+        names.filter((name) => name !== TASK_BROWSER_MCP_SERVER),
+      );
     }
     return this.mcpRelayServer.mcpServers;
   }

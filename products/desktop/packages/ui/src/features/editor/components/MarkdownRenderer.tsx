@@ -3,6 +3,7 @@ import { ArtifactRefChip } from "@posthog/ui/features/editor/components/Artifact
 import { EvidenceRefChip } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { githubRefChipFor } from "@posthog/ui/features/editor/components/githubRefChipFor";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
+import { useInAppLinkHandler } from "@posthog/ui/features/task-preview/InAppLinkContext";
 import { CodeBlock } from "@posthog/ui/primitives/CodeBlock";
 import { Divider } from "@posthog/ui/primitives/Divider";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
@@ -84,11 +85,13 @@ function ExternalMarkdownLink({
   children: React.ReactNode;
 }) {
   const isDeeplink = isPostHogCodeDeeplink(href);
+  const openInApp = useInAppLinkHandler();
   return (
     <a
       href={href}
       onClick={(event) => {
         if (handleShareLinkClick(href, event)) return;
+        if (!isDeeplink && openInApp(event, href)) return;
         if (!isDeeplink || !href) return;
         event.preventDefault();
         openExternalUrl(href);

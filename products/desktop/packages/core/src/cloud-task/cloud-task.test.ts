@@ -1,4 +1,5 @@
 import { ANALYTICS_EVENTS, TRANSCRIPT_TAIL_WINDOW } from "@posthog/shared";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CloudTaskEvent } from "./schemas";
 
@@ -4741,6 +4742,28 @@ describe("CloudTaskEngine MCP relay", () => {
     expect(mcpRelayExecutor.execute).not.toHaveBeenCalled();
   });
 
+  it("executes a built-in browser tool call without designation or approval", async () => {
+    mockStreamFetch.mockResolvedValueOnce(
+      createOpenSseResponse(
+        mcpRequestSseLine({
+          server: TASK_BROWSER_MCP_SERVER,
+          payload: toolsCallPayload({ code: "return 1" }),
+        }),
+      ),
+    );
+    mockNetFetch.mockResolvedValueOnce(createJsonResponse({ result: {} }));
+    watchRun("run-1");
+
+    await waitFor(() => mcpRelayExecutor.execute.mock.calls.length > 0);
+
+    expect(mcpRelayExecutor.execute).toHaveBeenCalledWith(
+      "run-1",
+      TASK_BROWSER_MCP_SERVER,
+      expect.objectContaining({ method: "tools/call" }),
+      "task-1",
+    );
+  });
+
   it("executes a designated relay request exactly once and posts mcp_response", async () => {
     mockStreamFetch.mockResolvedValueOnce(
       createOpenSseResponse(
@@ -4761,6 +4784,7 @@ describe("CloudTaskEngine MCP relay", () => {
       "run-1",
       "slack",
       expect.objectContaining({ method: "initialize" }),
+      "task-1",
     );
 
     await waitFor(() =>
@@ -4981,6 +5005,7 @@ describe("CloudTaskEngine MCP relay", () => {
         "run-1",
         "slack",
         expect.objectContaining({ method: "resources/read" }),
+        "task-1",
       );
     });
 
@@ -5016,6 +5041,7 @@ describe("CloudTaskEngine MCP relay", () => {
         "run-1",
         "slack",
         expect.objectContaining({ method: "tools/call" }),
+        "task-1",
       );
       await waitFor(() =>
         commandPosts().some(

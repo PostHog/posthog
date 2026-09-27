@@ -3,6 +3,7 @@ import { McpServersView } from "@posthog/ui/features/mcp-servers/components/McpS
 import { AdvancedSettings } from "@posthog/ui/features/settings/sections/AdvancedSettings";
 import { AgentsSettings } from "@posthog/ui/features/settings/sections/AgentsSettings";
 import { AppearanceSettings } from "@posthog/ui/features/settings/sections/AppearanceSettings";
+import { BrowserSettings } from "@posthog/ui/features/settings/sections/BrowserSettings";
 import { DiscordSettings } from "@posthog/ui/features/settings/sections/DiscordSettings";
 import { EnvironmentsSettings } from "@posthog/ui/features/settings/sections/environments/EnvironmentsSettings";
 import { GeneralSettings } from "@posthog/ui/features/settings/sections/GeneralSettings";
@@ -81,6 +82,7 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
     PersonalizationSettings,
   ),
   terminal: defineSettingsPage("Terminal", TerminalSettings),
+  browser: defineSettingsPage("Browser", BrowserSettings),
   harness: defineSettingsPage("Harness", HarnessSettings),
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
   github: defineSettingsPage("GitHub", GitHubSettings),

@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   prReviewThreads: [] as unknown[],
   openArtifactTab: vi.fn(),
   openPreviewTab: vi.fn(),
+  openBrowserPage: vi.fn(),
+  taskBrowser: false,
   openPrInReview: vi.fn(),
   openExternalUrl: vi.fn(),
   requestScrollToFile: vi.fn(),
@@ -85,6 +87,16 @@ vi.mock("@posthog/ui/features/git-interaction/usePrDetails", () => ({
 }));
 vi.mock("@posthog/ui/features/task-preview/useTaskPreviewPorts", () => ({
   useTaskPreviewPorts: () => mocks.previewPorts,
+}));
+vi.mock("@posthog/ui/shell/useHostCapabilities", () => ({
+  useHostCapabilities: () => ({
+    localWorkspaces: true,
+    customCloud: false,
+    taskBrowser: mocks.taskBrowser,
+  }),
+}));
+vi.mock("@posthog/ui/features/task-preview/openBrowserPage", () => ({
+  openBrowserPage: mocks.openBrowserPage,
 }));
 vi.mock("@posthog/ui/shell/openExternal", () => ({
   openExternalUrl: (url: string) => mocks.openExternalUrl(url),
@@ -249,6 +261,8 @@ describe("TaskCommentsList", () => {
     mocks.prReviewThreads = [];
     mocks.openArtifactTab.mockReset();
     mocks.openPreviewTab.mockReset();
+    mocks.openBrowserPage.mockReset();
+    mocks.taskBrowser = false;
     mocks.openPrInReview.mockReset();
     mocks.openExternalUrl.mockReset();
     mocks.requestScrollToFile.mockReset();
@@ -487,6 +501,43 @@ describe("TaskCommentsList", () => {
     expect(
       useCommentNavigationStore.getState().focusByTask["task-1"]?.target,
     ).toEqual({ scope: "task_preview", itemId: "task-1:5173" });
+  });
+
+  it("lists a browser comment under its page and opens a browser tab on it", () => {
+    mocks.taskBrowser = true;
+    mocks.comments = [
+      comment({
+        id: "browser-comment",
+        content: "The price is wrong",
+        scope: "task_browser",
+        item_id: "task-1:browser",
+        item_context: {
+          anchor: {
+            kind: "element",
+            origin: "https://docs.example.com",
+            path: "/pricing",
+            selector: "h2",
+            tag: "h2",
+            text: "Pricing",
+            html: "<h2>Pricing</h2>",
+            attributes: {},
+          },
+          taskId: "task-1",
+        },
+      }),
+    ];
+    render(<TaskCommentsList taskId={task.id} task={task} timeline={[]} />);
+
+    expect(screen.getByText("docs.example.com/pricing")).toBeTruthy();
+    openThread("The price is wrong");
+
+    expect(mocks.openBrowserPage).toHaveBeenCalledWith("task-1", {
+      url: "https://docs.example.com/pricing",
+      label: "docs.example.com/pricing",
+    });
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"]?.target,
+    ).toEqual({ scope: "task_browser", itemId: "task-1:browser" });
   });
 
   it("opens an artifact when activity requests its comment thread", () => {

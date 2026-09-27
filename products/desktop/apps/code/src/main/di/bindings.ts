@@ -260,6 +260,8 @@ import type { ElectronStoragePaths } from "../platform-adapters/electron-storage
 import type { ElectronUpdater } from "../platform-adapters/electron-updater";
 import type { ElectronUrlLauncher } from "../platform-adapters/electron-url-launcher";
 import type { ElectronWorkspaceSettings } from "../platform-adapters/electron-workspace-settings";
+import type { TaskBrowserHost } from "../platform-adapters/task-browser/host";
+import type { TaskBrowserService } from "../platform-adapters/task-browser/service";
 import type { AppLifecycleService } from "../services/app-lifecycle/service";
 import type {
   AuthPreferencePortAdapter,
@@ -321,6 +323,8 @@ import type {
   SLEEP_SERVICE as MAIN_SLEEP_SERVICE,
   SUSPENSION_REPOSITORY as MAIN_SUSPENSION_REPOSITORY,
   SUSPENSION_SERVICE as MAIN_SUSPENSION_SERVICE,
+  TASK_BROWSER_HOST as MAIN_TASK_BROWSER_HOST,
+  TASK_BROWSER_SERVICE as MAIN_TASK_BROWSER_SERVICE,
   TASK_LINK_SERVICE as MAIN_TASK_LINK_SERVICE,
   UPDATES_SERVICE as MAIN_UPDATES_SERVICE,
   WATCHER_REGISTRY_SERVICE as MAIN_WATCHER_REGISTRY_SERVICE,
@@ -501,6 +505,8 @@ export interface MainBindings {
   [LOGS_SERVICE]: ILogsService;
   [MAIN_ENCRYPTION_SERVICE]: EncryptionService;
   [MAIN_DISCORD_PRESENCE_SERVICE]: DiscordPresenceService;
+  [MAIN_TASK_BROWSER_SERVICE]: TaskBrowserService;
+  [MAIN_TASK_BROWSER_HOST]: TaskBrowserHost;
   [MAIN_MISSION_CONTROL_SERVICE]: MissionControlService;
 
   // Dev toolbar diagnostics

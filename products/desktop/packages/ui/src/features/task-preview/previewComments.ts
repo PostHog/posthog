@@ -52,9 +52,11 @@ export function previewThreads(comments: ResourceComment[]): PreviewThread[] {
 export function previewPins(
   threads: PreviewThread[],
   activeThreadId: string | null,
+  origin?: string,
 ): TaskPreviewPin[] {
   return threads
     .filter((thread) => !thread.resolved)
+    .filter((thread) => origin === undefined || thread.anchor.origin === origin)
     .map((thread) => ({
       id: thread.id,
       number: thread.number,

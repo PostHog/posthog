@@ -210,6 +210,21 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
     keywords: ["webgl", "terminal"],
   },
   {
+    category: "browser",
+    label: "Allowed and blocked sites",
+    keywords: ["in-app browser", "websites", "permissions", "agent"],
+  },
+  {
+    category: "browser",
+    label: "Full DevTools access",
+    keywords: ["cdp", "devtools", "chrome devtools protocol"],
+  },
+  {
+    category: "browser",
+    label: "Clear browsing data",
+    keywords: ["cookies", "sign out", "storage", "cache"],
+  },
+  {
     category: "agents",
     label: "Agents",
     keywords: ["responders", "scouts", "signal sources", "setup agent"],
