@@ -300,6 +300,30 @@ class BaseTaskAPITest(TestCase):
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
         return client
 
+    def _sandbox_client_for(self, task_id: uuid.UUID) -> APIClient:
+        application = OAuthApplication.objects.create(
+            name="Peer test sandbox app",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            algorithm="RS256",
+            redirect_uris="https://example.com/callback",
+            organization=self.organization,
+            user=self.user,
+        )
+        access_token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_peer_agent_{uuid.uuid4().hex}",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scope="task:read task:write",
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task_id,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
+        return client
+
 
 class TestBuiltInAgentTaskAccess(BaseTaskAPITest):
     def _built_in_agent_client(self) -> APIClient:
@@ -16214,30 +16238,6 @@ class TestTaskRunPeersAPI(BaseTaskAPITest):
         )
         return task, run
 
-    def _sandbox_client_for(self, task_id: uuid.UUID) -> APIClient:
-        application = OAuthApplication.objects.create(
-            name="Peer test sandbox app",
-            client_id=ARRAY_APP_CLIENT_ID_DEV,
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            algorithm="RS256",
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            user=self.user,
-        )
-        access_token = OAuthAccessToken.objects.create(
-            user=self.user,
-            application=application,
-            token=f"pha_peer_agent_{uuid.uuid4().hex}",
-            expires=django_timezone.now() + timedelta(hours=1),
-            scope="task:read task:write",
-            scoped_teams=[self.team.id],
-            sandbox_task_id=task_id,
-        )
-        client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token.token}")
-        return client
-
     def test_sandbox_token_bound_to_other_task_cannot_use_peer_endpoints(self):
         # The token's user (the run owner) controls BOTH tasks, so the ordinary
         # task-access gate passes — only the sandbox_task_id binding check stands
@@ -17030,6 +17030,29 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
             port=DEV_STACK_PREVIEW_PORT, user_metadata={"user_id": self.user.id, "team_id": self.team.id}
         )
 
+    def test_preview_of_a_hogland_box_looks_up_the_box_with_hogland(self):
+        box_id = "box-0123456789ab"
+        task = self.create_task()
+        state = self._ready_state()
+        state["sandbox_id"] = box_id
+        state["dev_stack_preview"]["sandbox_id"] = box_id
+        run = self._create_run(task, state)
+        hogland_class = MagicMock(issues_tokenless_preview_urls=False)
+        hogland_class.get_by_id.return_value = self._running_sandbox()
+
+        with (
+            patch(self.SANDBOX_CLASS_TARGET) as default_class,
+            patch(
+                "products.tasks.backend.logic.services.sandbox._get_hogland_sandbox_class",
+                return_value=hogland_class,
+            ),
+        ):
+            response = self.client.get(self._preview_url(task, run))
+
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        hogland_class.get_by_id.assert_called_once_with(box_id)
+        default_class.return_value.get_by_id.assert_not_called()
+
     @parameterized.expand(
         [
             ("never_exposed", {"sandbox_id": "sandbox-1"}, "session", 3000),
@@ -17146,6 +17169,19 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
         self.assertNotIn(
             "exposed_ports", self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/").json()["state"]
         )
+
+    def test_a_sandbox_cannot_expose_a_port_of_another_task(self):
+        own_task = self._desktop_task()
+        other_task = self._desktop_task()
+        run = self._create_run(other_task, self._ready_state())
+
+        response = self._sandbox_client_for(own_task.id).post(
+            f"/api/projects/@current/tasks/{other_task.id}/runs/{run.id}/expose_port/", {"port": 3000}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        run.refresh_from_db()
+        self.assertNotIn("exposed_ports", run.state)
 
     @parameterized.expand(
         [

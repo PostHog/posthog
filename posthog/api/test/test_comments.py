@@ -345,6 +345,14 @@ class TestComments(APIBaseTest, QueryMatchingTest):
                 "https://example.com/pricing",
             ),
             (
+                "browser_page_with_a_huge_path",
+                "task_browser",
+                "{task}:browser",
+                {"kind": "document", "origin": "https://example.com", "path": "/" + "a" * 5000},
+                "browser",
+                ("https://example.com/" + "a" * 5000)[:500],
+            ),
+            (
                 "browser_without_page",
                 "task_browser",
                 "{task}:browser",

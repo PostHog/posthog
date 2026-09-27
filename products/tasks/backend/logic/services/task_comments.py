@@ -146,13 +146,17 @@ def _canvas_names(*, team_id: int, task_id: UUID, canvas_ids: Sequence[str]) -> 
     return names
 
 
+_MAX_BROWSER_TARGET_NAME_CHARS = 500
+
+
 def _browser_target_name(comment: Comment) -> str:
     anchor = _item_context(comment).get("anchor")
     origin = anchor.get("origin") if isinstance(anchor, dict) else None
     if not isinstance(origin, str) or not origin:
         return "In-app browser"
     path = anchor.get("path") if isinstance(anchor, dict) else None
-    return f"{origin}{path}" if isinstance(path, str) else origin
+    name = f"{origin}{path}" if isinstance(path, str) else origin
+    return name[:_MAX_BROWSER_TARGET_NAME_CHARS]
 
 
 def _target(comment: Comment, target_names: dict[tuple[str, str], str]) -> contracts.TaskCommentTargetDTO:

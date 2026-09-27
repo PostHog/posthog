@@ -866,7 +866,7 @@ def _task_detail_to_dto(
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=task.origin_key,
-        client_provenance=task.client_provenance,
+        client_provenance=contracts.TaskClientProvenance(task.client_provenance) if task.client_provenance else None,
     )
 
 
@@ -5294,6 +5294,7 @@ def expose_task_run_port(
 ) -> contracts.TaskRunExposePortResult | None:
     from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — keeps the sandbox providers off the api import path
         get_sandbox_class,
+        get_sandbox_class_for_sandbox_id,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
@@ -5301,7 +5302,11 @@ def expose_task_run_port(
         return None
     if run.task.client_provenance != TaskClientProvenance.POSTHOG_DESKTOP:
         return contracts.TaskRunExposePortResult(outcome="not_desktop_task")
-    supported_ports = get_sandbox_class().preview_ports
+    state = run.state if isinstance(run.state, dict) else {}
+    sandbox_class = (
+        get_sandbox_class_for_sandbox_id(str(state["sandbox_id"])) if state.get("sandbox_id") else get_sandbox_class()
+    )
+    supported_ports = sandbox_class.preview_ports
     if supported_ports is not None and port not in supported_ports:
         return contracts.TaskRunExposePortResult(outcome="port_not_supported", supported_ports=supported_ports)
 
@@ -5369,7 +5374,7 @@ def resolve_task_run_preview_redirect(
         SandboxNotFoundError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
     from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — keeps the sandbox providers off the api import path
-        get_sandbox_class,
+        get_sandbox_class_for_sandbox_id,
     )
 
     run = _get_visible_run(run_id, task_id, team_id)
@@ -5383,7 +5388,7 @@ def resolve_task_run_preview_redirect(
     target_port, health_probe = target
     sandbox_id = state["sandbox_id"]
 
-    sandbox_class = get_sandbox_class()
+    sandbox_class = get_sandbox_class_for_sandbox_id(str(sandbox_id))
     try:
         sandbox = sandbox_class.get_by_id(str(sandbox_id))
         running = sandbox.is_running()

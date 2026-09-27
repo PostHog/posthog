@@ -2821,6 +2821,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=True, methods=["post"], url_path="expose_port", required_scopes=["task:write"])
     def expose_port(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        bound_task_id = _sandbox_bound_task_id(request)
+        if bound_task_id is not None and bound_task_id != UUID(task_id):
+            raise NotFound("Task not found")
         name = request.validated_data.get("name") or None
         result = tasks_facade.expose_task_run_port(
             pk,
