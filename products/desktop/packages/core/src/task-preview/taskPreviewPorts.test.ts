@@ -1,6 +1,6 @@
 import type { AcpMessage } from "@posthog/shared";
 import { describe, expect, it } from "vitest";
-import { exposedPortsFromEvents } from "./exposedPortsFromEvents";
+import { exposedPortsFromEvents } from "./taskPreviewPorts";
 
 function toolUpdate(
   toolCallId: string,

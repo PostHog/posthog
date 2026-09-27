@@ -167,6 +167,24 @@ return {
   );
 }
 
+export function focusedFormScript(): string {
+  return script(
+    `
+const element = document.activeElement;
+const form = element && element.closest ? element.closest("form") : null;
+if (!form) return null;
+const fields = [...form.querySelectorAll("input,select,textarea")];
+const isPayment = (field) => /cc-|card|cvc|cvv|iban|expiry|exp-/i.test((field.getAttribute("autocomplete") || "") + " " + (field.name || "") + " " + (field.id || ""));
+return {
+  password: fields.some((field) => field.type === "password"),
+  payment: fields.some(isPayment),
+  filled: fields.some((field) => field.type !== "hidden" && field.type !== "submit" && typeof field.value === "string" && field.value.length > 0),
+};
+`,
+    {},
+  );
+}
+
 export function evaluateScript(source: string): string {
   return `(async () => { const fn = (${source}); const value = await (typeof fn === "function" ? fn() : fn); return JSON.parse(JSON.stringify(value ?? null)); })()`;
 }

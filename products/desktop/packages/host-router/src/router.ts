@@ -51,6 +51,8 @@ import { slackIntegrationRouter } from "./routers/slack-integration.router";
 import { sleepRouter } from "./routers/sleep.router";
 import { speechRouter } from "./routers/speech.router";
 import { suspensionRouter } from "./routers/suspension.router";
+import { taskBrowserRouter } from "./routers/task-browser.router";
+import { taskPreviewRouter } from "./routers/task-preview.router";
 import { uiRouter } from "./routers/ui.router";
 import { updatesRouter } from "./routers/updates.router";
 import { usageMonitorRouter } from "./routers/usage-monitor.router";
@@ -109,6 +111,8 @@ export const hostRouter = router({
   slackIntegration: slackIntegrationRouter,
   sleep: sleepRouter,
   suspension: suspensionRouter,
+  taskBrowser: taskBrowserRouter,
+  taskPreview: taskPreviewRouter,
   ui: uiRouter,
   updates: updatesRouter,
   usageMonitor: usageMonitorRouter,

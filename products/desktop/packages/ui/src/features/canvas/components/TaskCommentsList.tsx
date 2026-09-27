@@ -72,7 +72,7 @@ import {
 } from "@posthog/ui/features/sessions/components/useComments";
 import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
 import { browserCommentPage } from "@posthog/ui/features/task-preview/browserComments";
-import { openBrowserPage } from "@posthog/ui/features/task-preview/openBrowserPage";
+import { openBrowserPage } from "@posthog/ui/features/task-preview/taskBrowserTabs";
 import { useTaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import { FileIcon } from "@posthog/ui/primitives/FileIcon";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";

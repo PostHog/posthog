@@ -163,7 +163,7 @@ export function commentContextXml(
   body: string,
   imagePath?: string,
 ): string {
-  const safeBody = body.replaceAll(`</${COMMENT_CONTEXT_TAG}`, "");
+  const safeBody = escapeXmlText(body);
   if (!imagePath) {
     return `<${COMMENT_CONTEXT_TAG} label="${escapeXmlAttr(label)}">\n${safeBody}\n</${COMMENT_CONTEXT_TAG}>`;
   }
@@ -284,7 +284,7 @@ function commentContextChip(rawAttrs: string, body: string): MentionChip {
       : body;
   return {
     type: "comment_context",
-    id: text.trim(),
+    id: unescapeXmlAttr(text.trim()),
     label: attrs.label || "Comment",
     ...(imagePath ? { imagePath } : {}),
   };

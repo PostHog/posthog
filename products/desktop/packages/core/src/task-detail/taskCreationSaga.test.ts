@@ -1,4 +1,5 @@
 import type { SessionService } from "@posthog/core/sessions/sessionService";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
@@ -34,6 +35,7 @@ const mockHost = vi.hoisted(() => ({
   recordClaudeCliImport: vi.fn(),
   deleteClaudeCliImportRecord: vi.fn(),
   linkTaskBranch: vi.fn(),
+  hasTaskBrowser: vi.fn(() => false),
 }));
 
 import { TaskCreationSaga } from "./taskCreationSaga";
@@ -57,6 +59,7 @@ const sessionService = {
   markTaskCreationInFlight: vi.fn(),
   clearVisibleTaskStarting: vi.fn(),
   designateClaudeSubscription: vi.fn(),
+  designateRelayedMcpServers: vi.fn(async () => {}),
 } as unknown as SessionService;
 
 const createTask = (overrides: Partial<Task> = {}): Task => ({
@@ -181,6 +184,37 @@ describe("TaskCreationSaga", () => {
       );
     },
   );
+
+  it("designates the in-app browser for cloud runs made on a host that has it", async () => {
+    mockHost.hasTaskBrowser.mockReturnValue(true);
+    const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+    const saga = makeSaga({
+      createTask: vi.fn().mockResolvedValue(createTask()),
+      createTaskRun: createTaskRunMock,
+      startTaskRun: vi
+        .fn()
+        .mockResolvedValue(createTask({ latest_run: createRun() })),
+    });
+
+    const result = await saga.run({
+      content: "Ship the fix",
+      repository: "posthog/posthog",
+      workspaceMode: "cloud",
+    });
+
+    expect(result.success).toBe(true);
+    expect(createTaskRunMock).toHaveBeenCalledWith(
+      "task-123",
+      expect.objectContaining({
+        relayedMcpServers: [{ name: TASK_BROWSER_MCP_SERVER }],
+      }),
+    );
+    expect(sessionService.designateRelayedMcpServers).toHaveBeenCalledWith(
+      "run-123",
+      [TASK_BROWSER_MCP_SERVER],
+    );
+    mockHost.hasTaskBrowser.mockReturnValue(false);
+  });
 
   it("waits for the cloud run response before surfacing the task", async () => {
     const createdTask = createTask();

@@ -14,14 +14,11 @@ function store(initial: Record<string, SitePolicy> = {}) {
 
 describe("SitePolicyStore", () => {
   it.each([
-    ["a task sandbox", "https://abc-123.modal.host", "allowed"],
-    ["a local server", "http://localhost:3000", "allowed"],
-    ["a loopback address", "http://127.0.0.1:8000", "allowed"],
-    ["a plain http sandbox host", "http://abc-123.modal.host", "ask"],
-    ["a lookalike host", "https://modal.host.example.com", "ask"],
-    ["a public site", "https://example.com", "ask"],
-  ])("gives %s the default access", (_name, origin, access) => {
-    expect(store().access("task-1", origin)).toBe(access);
+    ["a task sandbox", "https://abc-123.modal.host"],
+    ["a local server", "http://localhost:3000"],
+    ["a public site", "https://example.com"],
+  ])("asks before the agent uses %s", (_name, origin) => {
+    expect(store().access("task-1", origin)).toBe("ask");
   });
 
   it("keeps an approval inside the task that got it", () => {
@@ -35,7 +32,7 @@ describe("SitePolicyStore", () => {
     expect(policy.access("task-1", "https://example.com")).toBe("ask");
   });
 
-  it("lets a block win over built-in access and task approvals", () => {
+  it("lets a block win over task approvals", () => {
     const policy = store();
     policy.approveForTask("task-1", "https://example.com");
 

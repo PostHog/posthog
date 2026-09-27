@@ -82,7 +82,7 @@ export function CommentComposer({
               data-attr="comment-send-to-agent"
               onCheckedChange={(value) => setSendToAgent(value === true)}
             />
-            Send to agent
+            Add to chat
           </Label>
         )}
         {onCancel && (

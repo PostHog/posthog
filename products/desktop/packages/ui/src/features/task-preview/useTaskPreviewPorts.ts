@@ -1,41 +1,30 @@
-import type { Task, TaskRunExposedPort } from "@posthog/shared/domain-types";
-import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import {
-  isCloudTask,
-  useWorkspace,
-} from "@posthog/ui/features/workspace/useWorkspace";
-import { useMemo } from "react";
-import { useExposedPortsFromEvents } from "./exposedPortsFromEvents";
-import { useTaskPreviewEnabled } from "./useTaskPreviewEnabled";
-import { useTaskRunExposedPorts } from "./useTaskRunExposedPorts";
-
-export type TaskPreviewPorts = { runId: string; ports: TaskRunExposedPort[] };
-
-const NO_EVENTS: never[] = [];
-export const LOCAL_PREVIEW_RUN_ID = "local";
+  TASK_PREVIEW_PORTS_POLL_INTERVAL_MS,
+  type TaskPreviewPorts,
+} from "@posthog/core/task-preview/taskPreviewPorts";
+import type { Task } from "@posthog/shared/domain-types";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import { useQuery } from "@tanstack/react-query";
+import {
+  taskPreviewPortsQueryKey,
+  taskPreviewPortsService,
+} from "./taskPreviewPortsService";
 
 export function useTaskPreviewPorts(
   task: Task | undefined,
 ): TaskPreviewPorts | null {
-  const enabled = useTaskPreviewEnabled();
-  const taskId = task?.id ?? "";
-  const workspace = useWorkspace(taskId);
-  const isCloud = task ? isCloudTask(task, workspace) : false;
-  const runId = task?.latest_run?.id;
-  const cloudPorts = useTaskRunExposedPorts(
-    taskId,
-    runId,
-    enabled && isCloud && !!task,
-  );
-  const events = useSessionSelector(taskId, (session) => session?.events);
-  const localPorts = useExposedPortsFromEvents(
-    enabled && !isCloud ? (events ?? NO_EVENTS) : NO_EVENTS,
-  );
-  return useMemo(() => {
-    if (!enabled || !task) return null;
-    if (isCloud) {
-      return runId ? { runId, ports: cloudPorts } : null;
-    }
-    return { runId: runId ?? LOCAL_PREVIEW_RUN_ID, ports: localPorts };
-  }, [enabled, task, isCloud, runId, cloudPorts, localPorts]);
+  const { data } = useQuery({
+    queryKey: [
+      ...taskPreviewPortsQueryKey(task?.id ?? ""),
+      task?.latest_run?.id ?? "none",
+    ],
+    queryFn: () =>
+      task ? taskPreviewPortsService.getPreviewPorts(task) : null,
+    enabled: !!task,
+    meta: AUTH_SCOPED_QUERY_META,
+    refetchInterval: (query) =>
+      query.state.data?.settled ? false : TASK_PREVIEW_PORTS_POLL_INTERVAL_MS,
+    placeholderData: (previous) => previous,
+  });
+  return data ?? null;
 }

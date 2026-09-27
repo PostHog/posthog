@@ -1,16 +1,10 @@
 import type { CommentAnchor } from "@posthog/core/comments/anchors";
-import type { EditorContent } from "@posthog/core/message-editor/content";
+import type { CommentAgentContext } from "@posthog/core/sessions/commentToAgent";
 
 export type CommentResource =
   | { kind: "artifact" | "canvas" | "task"; name: string }
   | { kind: "preview"; name: string; port: number }
   | { kind: "browser"; name: string; origin: string };
-
-export type CommentAgentContext = {
-  label: string;
-  body: string;
-  screenshot?: string;
-};
 
 const LABEL_LENGTH = 48;
 const QUOTE_LABEL_LENGTH = 32;
@@ -110,33 +104,4 @@ export function withScreenshot(
   screenshot: string | null,
 ): CommentAgentContext | null {
   return context && screenshot ? { ...context, screenshot } : context;
-}
-
-export function commentComposerContent({
-  comment,
-  draftEmpty,
-  context,
-}: {
-  comment: string;
-  draftEmpty: boolean;
-  context: (CommentAgentContext & { imagePath?: string }) | null;
-}): EditorContent {
-  const segments: EditorContent["segments"] = [];
-  if (!draftEmpty) segments.push({ type: "text", text: "\n" });
-  if (context) {
-    segments.push(
-      {
-        type: "chip",
-        chip: {
-          type: "comment_context",
-          id: context.body,
-          label: context.label,
-          ...(context.imagePath ? { imagePath: context.imagePath } : {}),
-        },
-      },
-      { type: "text", text: " " },
-    );
-  }
-  segments.push({ type: "text", text: comment });
-  return { segments };
 }

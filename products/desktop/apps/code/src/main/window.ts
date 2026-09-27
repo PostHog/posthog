@@ -1,5 +1,7 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { TASK_BROWSER_SERVICE } from "@posthog/core/task-browser/identifiers";
+import type { TaskBrowserService } from "@posthog/core/task-browser/taskBrowserService";
 import { createIPCHandler } from "@posthog/electron-trpc/main";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
 import { DARK_APP_BACKGROUND_COLOR } from "@posthog/shared/constants";
@@ -12,14 +14,13 @@ import {
 } from "electron";
 import { APP_WINDOW_ARG } from "../shared/constants";
 import { container } from "./di/container";
-import { MISSION_CONTROL_SERVICE, TASK_BROWSER_SERVICE } from "./di/tokens";
+import { MISSION_CONTROL_SERVICE } from "./di/tokens";
 import { setupExternalLinkHandlers } from "./external-links";
 import { buildApplicationMenu } from "./menu";
 import { setupGuestWebviews } from "./platform-adapters/electron-guest-webviews";
 import type { ElectronMainWindow } from "./platform-adapters/electron-main-window";
 import type { MissionControlService } from "./platform-adapters/electron-mission-control";
 import { posthogNodeAnalytics } from "./platform-adapters/posthog-analytics";
-import type { TaskBrowserService } from "./platform-adapters/task-browser/service";
 import { POSTHOG_SESSION_ID_ARG } from "./posthog-session-arg";
 import {
   encodeDevFlagsForArg,

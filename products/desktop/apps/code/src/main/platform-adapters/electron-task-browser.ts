@@ -36,6 +36,7 @@ export function lockDownTaskBrowser(
   guest: WebContents,
   handlers: {
     openInApp: (url: string, source: WebContents) => void;
+    mayNavigate: (url: string, source: WebContents) => boolean;
     openExternal: (url: string) => void;
   },
 ): void {
@@ -48,12 +49,16 @@ export function lockDownTaskBrowser(
   });
   guest.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
   guest.on("will-navigate", (event, url) => {
-    if (isAllowedTaskBrowserUrl(url)) return;
-    event.preventDefault();
-    handlers.openExternal(url);
+    if (!isAllowedTaskBrowserUrl(url)) {
+      event.preventDefault();
+      handlers.openExternal(url);
+      return;
+    }
+    if (!handlers.mayNavigate(url, guest)) event.preventDefault();
   });
   guest.on("will-redirect", (event, url) => {
-    if (event.isMainFrame && !isAllowedTaskBrowserUrl(url)) {
+    if (!event.isMainFrame) return;
+    if (!isAllowedTaskBrowserUrl(url) || !handlers.mayNavigate(url, guest)) {
       event.preventDefault();
     }
   });

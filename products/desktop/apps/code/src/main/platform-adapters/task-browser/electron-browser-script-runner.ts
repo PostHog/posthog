@@ -1,5 +1,11 @@
 import path from "node:path";
+import type {
+  BrowserScriptResult,
+  BrowserScriptRun,
+  IBrowserScriptRunner,
+} from "@posthog/platform/task-browser";
 import { BrowserWindow, ipcMain, session } from "electron";
+import { injectable } from "inversify";
 import {
   BROWSER_RUNNER_ARG,
   BROWSER_RUNNER_CALL_CHANNEL,
@@ -7,21 +13,12 @@ import {
   BROWSER_RUNNER_PARTITION,
   BROWSER_RUNNER_RUN_CHANNEL,
 } from "../../../shared/constants";
-import {
-  type BrowserCallContext,
-  type BrowserImage,
-  BrowserToolError,
-  type TaskBrowserService,
-} from "./service";
 
-const RUN_TIMEOUT_MS = 90_000;
-const MAX_CALLS_PER_RUN = 300;
-const MAX_OUTPUT_CHARS = 60_000;
+type BrowserCall = (method: string, args: unknown[]) => Promise<unknown>;
 
-export type BrowserRunResult = {
-  ok: boolean;
-  output: string;
-  images: BrowserImage[];
+type ActiveRun = {
+  call: BrowserCall;
+  finish: (result: BrowserScriptResult) => void;
 };
 
 const RUNNER_PAGE = `<!doctype html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'; worker-src 'none'; child-src 'none'"></head><body><script>
@@ -89,31 +86,20 @@ function runnerSession(): Electron.Session {
   return runner;
 }
 
-type ActiveRun = {
-  context: BrowserCallContext;
-  calls: number;
-  finish: (result: { ok: boolean; output: string }) => void;
-};
-
-export class BrowserRunner {
+@injectable()
+export class ElectronBrowserScriptRunner implements IBrowserScriptRunner {
   private readonly runs = new Map<number, ActiveRun>();
 
-  constructor(private readonly service: TaskBrowserService) {
+  constructor() {
     ipcMain.handle(
       BROWSER_RUNNER_CALL_CHANNEL,
       async (event, method: unknown, args: unknown) => {
         const run = this.runs.get(event.sender.id);
-        if (!run) throw new BrowserToolError("Unknown caller.");
-        run.calls += 1;
-        if (run.calls > MAX_CALLS_PER_RUN) {
-          throw new BrowserToolError(
-            `More than ${MAX_CALLS_PER_RUN} browser calls in one run.`,
-          );
-        }
+        if (!run) throw new Error("Unknown caller.");
         if (typeof method !== "string" || !Array.isArray(args)) {
-          throw new BrowserToolError("Malformed browser call.");
+          throw new Error("Malformed browser call.");
         }
-        return this.service.call(run.context, method, args);
+        return run.call(method, args);
       },
     );
     ipcMain.on(BROWSER_RUNNER_DONE_CHANNEL, (event, result: unknown) => {
@@ -125,8 +111,7 @@ export class BrowserRunner {
     });
   }
 
-  run(taskId: string, code: string): Promise<BrowserRunResult> {
-    const context: BrowserCallContext = { taskId, images: [] };
+  start(code: string, call: BrowserCall): BrowserScriptRun {
     const window = new BrowserWindow({
       show: false,
       webPreferences: {
@@ -141,62 +126,34 @@ export class BrowserRunner {
     });
     const contents = window.webContents;
     const contentsId = contents.id;
-
-    return new Promise<BrowserRunResult>((resolve) => {
-      let settled = false;
-      let remaining = RUN_TIMEOUT_MS;
-      let startedAt = Date.now();
-      let waitingForUser = 0;
-      const onTimeout = () =>
-        finish({
-          ok: false,
-          output: `Error: the code ran longer than ${RUN_TIMEOUT_MS / 1000} s.`,
-        });
-      let timer = setTimeout(onTimeout, remaining);
-      context.onWaitingForUser = (waiting) => {
-        if (settled) return;
-        if (waiting) {
-          waitingForUser += 1;
-          if (waitingForUser > 1) return;
-          clearTimeout(timer);
-          remaining -= Date.now() - startedAt;
-          return;
-        }
-        waitingForUser = Math.max(0, waitingForUser - 1);
-        if (waitingForUser > 0) return;
-        startedAt = Date.now();
-        timer = setTimeout(onTimeout, Math.max(remaining, 0));
+    let finish: (result: BrowserScriptResult) => void = () => undefined;
+    const stop = () => {
+      this.runs.delete(contentsId);
+      if (!window.isDestroyed()) window.destroy();
+    };
+    const done = new Promise<BrowserScriptResult>((resolve) => {
+      finish = (result) => {
+        stop();
+        resolve(result);
       };
-      const finish = (result: { ok: boolean; output: string }) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        this.service.cancelPrompts(context);
-        this.runs.delete(contentsId);
-        if (!window.isDestroyed()) window.destroy();
-        const output =
-          result.output.length > MAX_OUTPUT_CHARS
-            ? `${result.output.slice(0, MAX_OUTPUT_CHARS)}\n… output truncated`
-            : result.output;
-        resolve({ ok: result.ok, output, images: context.images });
-      };
-      this.runs.set(contentsId, { context, calls: 0, finish });
-      contents.once("render-process-gone", () =>
-        finish({
-          ok: false,
-          output: "Error: the code runner stopped unexpectedly.",
-        }),
-      );
-      contents.once("did-finish-load", () =>
-        contents.send(BROWSER_RUNNER_RUN_CHANNEL, code),
-      );
-      void window
-        .loadURL(
-          `data:text/html;charset=utf-8,${encodeURIComponent(RUNNER_PAGE)}`,
-        )
-        .catch((error: unknown) =>
-          finish({ ok: false, output: `Error: ${String(error)}` }),
-        );
     });
+    this.runs.set(contentsId, { call, finish });
+    contents.once("render-process-gone", () =>
+      finish({
+        ok: false,
+        output: "Error: the code runner stopped unexpectedly.",
+      }),
+    );
+    contents.once("did-finish-load", () =>
+      contents.send(BROWSER_RUNNER_RUN_CHANNEL, code),
+    );
+    void window
+      .loadURL(
+        `data:text/html;charset=utf-8,${encodeURIComponent(RUNNER_PAGE)}`,
+      )
+      .catch((error: unknown) =>
+        finish({ ok: false, output: `Error: ${String(error)}` }),
+      );
+    return { done, stop };
   }
 }

@@ -270,6 +270,7 @@ import { getSessionService } from "@posthog/ui/features/sessions/sessionServiceH
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
 import { taskCreationEffects } from "@posthog/ui/features/task-detail/taskCreationEffectsImpl";
 import { TrpcTaskCreationHost } from "@posthog/ui/features/task-detail/taskCreationHostImpl";
+import { taskPreviewUiModule } from "@posthog/ui/features/task-preview/taskPreview.module";
 import {
   SHELL_CLIENT,
   type ShellClient,
@@ -528,7 +529,7 @@ container.load(taskThreadCoreModule);
 // stores) — same construction the desktop renderer uses.
 container
   .bind(SESSION_SERVICE)
-  .toDynamicValue(() => getSessionService())
+  .toDynamicValue((ctx) => getSessionService(ctx.get(HOST_CAPABILITIES)))
   .inSingletonScope();
 
 // Shared UI resolves AGENT_PROMPT_SENDER for send-to-agent actions
@@ -825,6 +826,7 @@ container.bind(REVIEW_HOST).toConstantValue(webReviewHost);
 // the settings test harness; it needs these three providers.
 container.load(notificationsUiModule);
 container.load(taskActivityUiModule);
+container.load(taskPreviewUiModule);
 container.bind(NOTIFICATIONS_SERVICE).toConstantValue(webNotifications);
 container
   .bind(NOTIFICATION_SETTINGS_PROVIDER)

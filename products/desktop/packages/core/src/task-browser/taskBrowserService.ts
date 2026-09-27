@@ -1,20 +1,31 @@
-import { randomUUID } from "node:crypto";
+import type { McpRelayExecutor } from "@posthog/core/cloud-task/identifiers";
+import {
+  BROWSER_SCRIPT_RUNNER,
+  type IBrowserScriptRunner,
+  type ITaskBrowserSettings,
+  type ITaskBrowserTabs,
+  TASK_BROWSER_SETTINGS,
+  TASK_BROWSER_TABS,
+  type TaskBrowserImage,
+  type TaskBrowserRect,
+} from "@posthog/platform/task-browser";
 import { TypedEventEmitter } from "@posthog/shared";
-import { session, type WebContents, webContents } from "electron";
-import { injectable } from "inversify";
-import { TASK_BROWSER_PARTITION } from "../../../shared/constants";
-import { settingsStore } from "../../services/settingsStore";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
+import { inject, injectable } from "inversify";
 import { isTabScopedCdpMethod } from "./cdp-policy";
+import { BrowserMcpHandler, type BrowserRunResult } from "./mcp-handler";
 import {
   evaluateScript,
   findTextScript,
+  focusedFormScript,
   focusScript,
-  PAGE_WORLD_ID,
   rectScript,
   sensitivityScript,
   snapshotScript,
 } from "./page-scripts";
+import { PausableTimeout } from "./pausable-timeout";
 import {
+  type BrowserSettings,
   type BrowserTabKind,
   type PermissionDecision,
   type PermissionKind,
@@ -27,12 +38,11 @@ import { originOf, SitePolicyStore } from "./site-policy";
 
 const REGISTRATION_TIMEOUT_MS = 15_000;
 const PERMISSION_TIMEOUT_MS = 120_000;
-const CAPTURE_TIMEOUT_MS = 2_000;
-
+const RUN_TIMEOUT_MS = 90_000;
+const MAX_CALLS_PER_RUN = 300;
+const MAX_OUTPUT_CHARS = 60_000;
 const MAX_LOG_ENTRIES = 200;
 const SNAPSHOT_MAX_CHARS = 24_000;
-const SCREENSHOT_MAX_WIDTH = 1_280;
-const SCREENSHOT_QUALITY = 80;
 const MAX_WAIT_MS = 20_000;
 
 type LogEntry = { at: number; text: string };
@@ -41,25 +51,21 @@ type BrowserTab = {
   browserId: string;
   taskId: string;
   kind: BrowserTabKind;
-  contents: WebContents;
+  tabId: number;
   console: LogEntry[];
   network: LogEntry[];
 };
 
-export type BrowserImage = { data: string; mimeType: "image/jpeg" };
-
-export type BrowserCallContext = {
+type CallContext = {
   taskId: string;
-  images: BrowserImage[];
-  onWaitingForUser?: (waiting: boolean) => void;
+  images: TaskBrowserImage[];
+  timeout?: PausableTimeout;
 };
 
-export class BrowserToolError extends Error {}
-
 type PendingPermission = {
-  context: BrowserCallContext;
+  context: CallContext;
   resolve: (decision: PermissionDecision) => void;
-  timer: NodeJS.Timeout;
+  timer: ReturnType<typeof setTimeout>;
 };
 
 type Sensitivity = {
@@ -70,6 +76,25 @@ type Sensitivity = {
   destructive: boolean;
   label: string;
 };
+
+export class BrowserToolError extends Error {}
+
+export function siteDecisionResult(decision: PermissionDecision): {
+  save: SitePolicy | null;
+  allow: boolean;
+} {
+  switch (decision) {
+    case "allow-always":
+      return { save: "allow", allow: true };
+    case "allow-task":
+    case "allow-once":
+      return { save: null, allow: true };
+    case "block":
+      return { save: "block", allow: false };
+    case "deny":
+      return { save: null, allow: false };
+  }
+}
 
 function pushLog(entries: LogEntry[], text: string): void {
   entries.push({ at: Date.now(), text });
@@ -85,39 +110,49 @@ function stringArg(value: unknown, name: string): string {
 
 @injectable()
 export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
+  readonly mcp: BrowserMcpHandler;
   private readonly tabs = new Map<string, BrowserTab>();
   private readonly waiters = new Map<string, Array<() => void>>();
   private readonly pending = new Map<string, PendingPermission>();
-  private readonly cdpApprovedTasks = new Set<string>();
-  private readonly tabUrls = new Map<string, string>();
-  readonly sites = new SitePolicyStore(
-    () => settingsStore.get("browserSites", {}),
-    (sites) => settingsStore.set("browserSites", sites),
-  );
+  private readonly developerApprovals = new Set<string>();
+  private readonly reopenable = new Map<
+    string,
+    { taskId: string; url: string }
+  >();
+  private readonly activeRuns = new Map<string, number>();
+  private readonly sites: SitePolicyStore;
+
+  constructor(
+    @inject(TASK_BROWSER_TABS) private readonly host: ITaskBrowserTabs,
+    @inject(TASK_BROWSER_SETTINGS)
+    private readonly settingsStore: ITaskBrowserSettings,
+    @inject(BROWSER_SCRIPT_RUNNER)
+    private readonly runner: IBrowserScriptRunner,
+  ) {
+    super();
+    this.sites = new SitePolicyStore(
+      () => this.settingsStore.sites(),
+      (sites) => this.settingsStore.setSites(sites),
+    );
+    this.mcp = new BrowserMcpHandler((taskId, code) =>
+      this.runCode(taskId, code),
+    );
+  }
 
   register(input: RegisterTabInput): void {
-    const contents = webContents.fromId(input.webContentsId);
-    if (!contents || contents.getType() !== "webview") return;
+    if (!this.host.isWebview(input.webContentsId)) return;
     const tab: BrowserTab = {
       browserId: input.browserId,
       taskId: input.taskId,
       kind: input.kind,
-      contents,
+      tabId: input.webContentsId,
       console: [],
       network: [],
     };
     this.tabs.set(input.browserId, tab);
-    contents.on("console-message", (event: unknown, ...legacy: unknown[]) => {
-      const details = event as { message?: string; level?: string | number };
-      const message =
-        typeof details.message === "string"
-          ? details.message
-          : String(legacy[1] ?? "");
-      const level = details.level ?? legacy[0] ?? "log";
-      pushLog(tab.console, `[${level}] ${message}`);
-    });
-    contents.once("destroyed", () => {
-      if (this.tabs.get(input.browserId)?.contents === contents) {
+    this.host.onConsole(tab.tabId, (text) => pushLog(tab.console, text));
+    this.host.onDestroyed(tab.tabId, () => {
+      if (this.tabs.get(input.browserId)?.tabId === tab.tabId) {
         this.tabs.delete(input.browserId);
       }
     });
@@ -126,58 +161,137 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
   }
 
   unregister(browserId: string, webContentsId: number): void {
-    const tab = this.tabs.get(browserId);
-    if (tab && tab.contents.id === webContentsId) this.tabs.delete(browserId);
+    if (this.tabs.get(browserId)?.tabId === webContentsId) {
+      this.tabs.delete(browserId);
+    }
   }
 
   recordNetwork(webContentsId: number | undefined, text: string): void {
     if (webContentsId === undefined) return;
     for (const tab of this.tabs.values()) {
-      if (tab.contents.id === webContentsId) pushLog(tab.network, text);
+      if (tab.tabId === webContentsId) pushLog(tab.network, text);
     }
   }
 
-  taskForWebContents(webContentsId: number): string | null {
-    for (const tab of this.tabs.values()) {
-      if (tab.contents.id === webContentsId) return tab.taskId;
+  mayNavigate(webContentsId: number, url: string): boolean {
+    const tab = this.tabForWebContents(webContentsId);
+    if (!tab || tab.kind !== "browser" || !this.activeRuns.get(tab.taskId)) {
+      return true;
     }
-    return null;
+    const origin = originOf(url);
+    return !origin || this.sites.access(tab.taskId, origin) === "allowed";
   }
 
-  requestOpen(
-    taskId: string,
+  openFromPage(
+    webContentsId: number,
     url: string,
-    browserId: string = randomUUID(),
-  ): string {
-    this.tabUrls.set(browserId, url);
-    this.emit(TaskBrowserEvent.OpenRequest, { taskId, browserId, url });
-    return browserId;
+  ): "opened" | "blocked" | "untracked" {
+    const tab = this.tabForWebContents(webContentsId);
+    if (!tab) return "untracked";
+    if (!this.mayNavigate(webContentsId, url)) return "blocked";
+    this.requestOpen(tab.taskId, url);
+    return "opened";
+  }
+
+  forgetTask(taskId: string): void {
+    this.sites.forgetTask(taskId);
+    for (const key of this.developerApprovals) {
+      if (key.startsWith(`${taskId}|`)) this.developerApprovals.delete(key);
+    }
   }
 
   respondToPermission(requestId: string, decision: PermissionDecision): void {
     this.settlePrompt(requestId, decision);
   }
 
-  settings(): { sites: Record<string, SitePolicy>; fullCdpAccess: boolean } {
+  settings(): BrowserSettings {
     return {
       sites: this.sites.list(),
-      fullCdpAccess: settingsStore.get("browserFullCdpAccess", false),
+      fullCdpAccess: this.settingsStore.fullCdpAccess(),
     };
   }
 
-  async clearBrowsingData(): Promise<void> {
-    const browserSession = session.fromPartition(TASK_BROWSER_PARTITION);
-    await browserSession.clearStorageData();
-    await browserSession.clearCache();
+  setSitePolicy(origin: string, policy: SitePolicy | null): void {
+    this.sites.set(origin, policy);
   }
 
   setFullCdpAccess(enabled: boolean): void {
-    settingsStore.set("browserFullCdpAccess", enabled);
-    if (!enabled) this.cdpApprovedTasks.clear();
+    this.settingsStore.setFullCdpAccess(enabled);
+    if (!enabled) this.developerApprovals.clear();
+  }
+
+  clearBrowsingData(): Promise<void> {
+    return this.host.clearBrowsingData();
+  }
+
+  relayExecutor(fallback: McpRelayExecutor): McpRelayExecutor {
+    return {
+      execute: async (runId, server, payload, taskId) => {
+        if (server !== TASK_BROWSER_MCP_SERVER) {
+          return fallback.execute(runId, server, payload, taskId);
+        }
+        if (!taskId) {
+          return {
+            error: { code: -32000, message: "Unknown task for the browser." },
+          };
+        }
+        const response = await this.mcp.handle(taskId, payload);
+        return response ? { payload: response } : {};
+      },
+      closeRun: (runId) => fallback.closeRun?.(runId) ?? Promise.resolve(),
+    };
+  }
+
+  async runCode(taskId: string, code: string): Promise<BrowserRunResult> {
+    const context: CallContext = { taskId, images: [] };
+    let calls = 0;
+    this.activeRuns.set(taskId, (this.activeRuns.get(taskId) ?? 0) + 1);
+    const run = this.runner.start(code, async (method, args) => {
+      calls += 1;
+      if (calls > MAX_CALLS_PER_RUN) {
+        throw new BrowserToolError(
+          `More than ${MAX_CALLS_PER_RUN} browser calls in one run.`,
+        );
+      }
+      return this.call(context, method, args);
+    });
+    const timedOut = new Promise<{ ok: boolean; output: string }>((resolve) => {
+      context.timeout = new PausableTimeout(RUN_TIMEOUT_MS, () =>
+        resolve({
+          ok: false,
+          output: `Error: the code ran longer than ${RUN_TIMEOUT_MS / 1000} s.`,
+        }),
+      );
+    });
+    try {
+      const result = await Promise.race([run.done, timedOut]);
+      const output =
+        result.output.length > MAX_OUTPUT_CHARS
+          ? `${result.output.slice(0, MAX_OUTPUT_CHARS)}\n… output truncated`
+          : result.output;
+      return { ok: result.ok, output, images: context.images };
+    } finally {
+      context.timeout?.stop();
+      run.stop();
+      this.cancelPrompts(context);
+      const active = (this.activeRuns.get(taskId) ?? 1) - 1;
+      if (active > 0) this.activeRuns.set(taskId, active);
+      else this.activeRuns.delete(taskId);
+    }
+  }
+
+  requestOpen(
+    taskId: string,
+    url: string,
+    browserId: string = crypto.randomUUID(),
+  ): string {
+    this.reopenable.set(browserId, { taskId, url });
+    this.emit(TaskBrowserEvent.OpenRequest, { taskId, browserId, url });
+    return browserId;
   }
 
   async call(
-    context: BrowserCallContext,
+    context: CallContext,
     method: string,
     args: unknown[],
   ): Promise<unknown> {
@@ -219,7 +333,7 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
         );
       case "press":
         return this.withTab(context, args[0], (tab) =>
-          this.press(tab, stringArg(args[1], "key")),
+          this.press(context, tab, stringArg(args[1], "key")),
         );
       case "scroll":
         return this.withTab(context, args[0], (tab) =>
@@ -242,9 +356,10 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
           this.logsSince(tab.network, Number(args[1]) || 0),
         );
       case "evaluate":
-        return this.withTab(context, args[0], (tab) =>
-          this.run(tab, evaluateScript(stringArg(args[1], "source"))),
-        );
+        return this.withTab(context, args[0], async (tab) => {
+          await this.ensureDeveloperAccess(context, tab, "run scripts on");
+          return this.run(tab, evaluateScript(stringArg(args[1], "source")));
+        });
       case "cdp":
         return this.withTab(context, args[0], (tab) =>
           this.cdp(context, tab, stringArg(args[1], "method"), args[2]),
@@ -254,28 +369,37 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     }
   }
 
+  private tabForWebContents(webContentsId: number): BrowserTab | null {
+    for (const tab of this.tabs.values()) {
+      if (tab.tabId === webContentsId) return tab;
+    }
+    return null;
+  }
+
   private listTabs(taskId: string) {
     return [...this.tabs.values()]
-      .filter((tab) => tab.taskId === taskId && !tab.contents.isDestroyed())
+      .filter(
+        (tab) => tab.taskId === taskId && !this.host.isDestroyed(tab.tabId),
+      )
       .map((tab) => ({
         id: tab.browserId,
         kind: tab.kind,
-        url: tab.contents.getURL(),
-        title: tab.contents.getTitle(),
+        url: this.host.url(tab.tabId),
+        title: this.host.title(tab.tabId),
       }));
   }
 
-  private async open(context: BrowserCallContext, url: string) {
+  private async open(context: CallContext, url: string) {
     const origin = originOf(url);
     if (!origin) throw new BrowserToolError("Only http and https URLs open.");
     await this.ensureSiteAccess(context, origin);
     const browserId = this.requestOpen(context.taskId, url);
     const tab = await this.awaitTab(browserId);
-    await this.waitForLoad(tab.contents);
+    await this.host.waitForLoad(tab.tabId);
     return {
       id: tab.browserId,
-      url: tab.contents.getURL(),
-      title: tab.contents.getTitle(),
+      url: this.host.url(tab.tabId),
+      title: this.host.title(tab.tabId),
     };
   }
 
@@ -285,13 +409,13 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
       throw new BrowserToolError(`No open tab ${browserId} in this task.`);
     }
     this.tabs.delete(browserId);
-    this.tabUrls.delete(browserId);
+    this.reopenable.delete(browserId);
     this.emit(TaskBrowserEvent.CloseRequest, { taskId, browserId });
     return true;
   }
 
   private async withTab<T>(
-    context: BrowserCallContext,
+    context: CallContext,
     tabArg: unknown,
     action: (tab: BrowserTab) => Promise<T>,
   ): Promise<T> {
@@ -300,22 +424,22 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     if (tab && tab.taskId !== context.taskId) {
       throw new BrowserToolError(`No open tab ${browserId} in this task.`);
     }
-    if (!tab || tab.contents.isDestroyed()) {
-      const url = this.tabUrls.get(browserId);
-      if (!url) {
+    if (!tab || this.host.isDestroyed(tab.tabId)) {
+      const saved = this.reopenable.get(browserId);
+      if (!saved || saved.taskId !== context.taskId) {
         throw new BrowserToolError(`No open tab ${browserId} in this task.`);
       }
-      this.requestOpen(context.taskId, url, browserId);
+      this.requestOpen(context.taskId, saved.url, browserId);
       tab = await this.awaitTab(browserId);
     }
-    const origin = originOf(tab.contents.getURL());
+    const origin = originOf(this.host.url(tab.tabId));
     if (origin) await this.ensureSiteAccess(context, origin);
     return action(tab);
   }
 
   private awaitTab(browserId: string): Promise<BrowserTab> {
     const existing = this.tabs.get(browserId);
-    if (existing && !existing.contents.isDestroyed()) {
+    if (existing && !this.host.isDestroyed(existing.tabId)) {
       return Promise.resolve(existing);
     }
     return new Promise((resolve, reject) => {
@@ -336,31 +460,16 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     });
   }
 
-  private waitForLoad(contents: WebContents): Promise<void> {
-    if (!contents.isLoading()) return Promise.resolve();
-    return new Promise((resolve) => {
-      const done = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      const timer = setTimeout(done, 10_000);
-      contents.once("did-stop-loading", done);
-    });
-  }
-
-  private async run<T>(tab: BrowserTab, code: string): Promise<T> {
-    await this.waitForLoad(tab.contents);
-    return (await tab.contents.executeJavaScriptInIsolatedWorld(PAGE_WORLD_ID, [
-      { code },
-    ])) as T;
+  private run<T>(tab: BrowserTab, code: string): Promise<T> {
+    return this.host.runScript<T>(tab.tabId, code);
   }
 
   private async screenshot(
-    context: BrowserCallContext,
+    context: CallContext,
     tab: BrowserTab,
     refArg: unknown,
   ): Promise<string> {
-    let rect: Electron.Rectangle | undefined;
+    let rect: TaskBrowserRect | undefined;
     if (typeof refArg === "string" && refArg) {
       const box = await this.run<{
         left: number;
@@ -369,7 +478,7 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
         height: number;
       } | null>(tab, rectScript(refArg));
       if (!box) throw new BrowserToolError(`No element ${refArg} on the page.`);
-      const zoom = tab.contents.getZoomFactor();
+      const zoom = this.host.zoom(tab.tabId);
       rect = {
         x: Math.max(0, Math.round(box.left * zoom)),
         y: Math.max(0, Math.round(box.top * zoom)),
@@ -377,41 +486,21 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
         height: Math.max(1, Math.round(box.height * zoom)),
       };
     }
-    const image = await this.capture(tab, rect);
-    const { width } = image.getSize();
-    const resized =
-      width > SCREENSHOT_MAX_WIDTH
-        ? image.resize({ width: SCREENSHOT_MAX_WIDTH })
-        : image;
-    context.images.push({
-      data: resized.toJPEG(SCREENSHOT_QUALITY).toString("base64"),
-      mimeType: "image/jpeg",
-    });
-    return `screenshot ${context.images.length} attached`;
-  }
-
-  private async capture(tab: BrowserTab, rect: Electron.Rectangle | undefined) {
-    const attempt = () =>
-      Promise.race([
-        tab.contents.capturePage(rect).catch(() => null),
-        new Promise<null>((resolve) =>
-          setTimeout(() => resolve(null), CAPTURE_TIMEOUT_MS),
-        ),
-      ]);
-    const image = await attempt();
-    if (image && !image.isEmpty()) return image;
-    if (tab.kind !== "browser") {
+    let image = await this.host.capture(tab.tabId, rect);
+    if (!image && tab.kind === "browser") {
+      this.requestOpen(tab.taskId, this.host.url(tab.tabId), tab.browserId);
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      image = await this.host.capture(tab.tabId, rect);
+    }
+    if (!image) {
       throw new BrowserToolError(
-        "The preview is not on screen. Ask the user to open it, then try again.",
+        tab.kind === "browser"
+          ? "The tab could not be captured. Try again."
+          : "The preview is not on screen. Ask the user to open it, then try again.",
       );
     }
-    this.requestOpen(tab.taskId, tab.contents.getURL(), tab.browserId);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    const retry = await attempt();
-    if (!retry || retry.isEmpty()) {
-      throw new BrowserToolError("The tab could not be captured. Try again.");
-    }
-    return retry;
+    context.images.push(image);
+    return `screenshot ${context.images.length} attached`;
   }
 
   private async point(tab: BrowserTab, ref: string) {
@@ -420,22 +509,19 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
       rectScript(ref),
     );
     if (!box) throw new BrowserToolError(`No element ${ref} on the page.`);
-    const zoom = tab.contents.getZoomFactor();
+    const zoom = this.host.zoom(tab.tabId);
     return { x: Math.round(box.x * zoom), y: Math.round(box.y * zoom) };
   }
 
-  private async click(
-    context: BrowserCallContext,
-    tab: BrowserTab,
-    ref: string,
-  ) {
+  private async click(context: CallContext, tab: BrowserTab, ref: string) {
     const sensitivity = await this.run<Sensitivity | null>(
       tab,
       sensitivityScript(ref),
     );
-    if (!sensitivity)
+    if (!sensitivity) {
       throw new BrowserToolError(`No element ${ref} on the page.`);
-    const origin = originOf(tab.contents.getURL()) ?? "this page";
+    }
+    const origin = this.originOrPage(tab);
     if (
       sensitivity.payment ||
       sensitivity.submitsData ||
@@ -454,28 +540,13 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
       ]);
     }
     const { x, y } = await this.point(tab, ref);
-    tab.contents.focus();
-    tab.contents.sendInputEvent({ type: "mouseMove", x, y });
-    tab.contents.sendInputEvent({
-      type: "mouseDown",
-      x,
-      y,
-      button: "left",
-      clickCount: 1,
-    });
-    tab.contents.sendInputEvent({
-      type: "mouseUp",
-      x,
-      y,
-      button: "left",
-      clickCount: 1,
-    });
+    this.host.click(tab.tabId, x, y);
     await this.settle(tab);
     return true;
   }
 
   private async type(
-    context: BrowserCallContext,
+    context: CallContext,
     tab: BrowserTab,
     ref: string,
     text: string,
@@ -485,9 +556,10 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
       tab,
       sensitivityScript(ref),
     );
-    if (!sensitivity)
+    if (!sensitivity) {
       throw new BrowserToolError(`No element ${ref} on the page.`);
-    const origin = originOf(tab.contents.getURL()) ?? "this page";
+    }
+    const origin = this.originOrPage(tab);
     if (sensitivity.typesPassword) {
       await this.confirm(context, "sign-in", origin, [
         "type into a password field",
@@ -500,21 +572,27 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     const focused = await this.run<boolean>(tab, focusScript(ref, clear));
     if (!focused)
       throw new BrowserToolError(`Element ${ref} cannot take text.`);
-    tab.contents.focus();
-    if (clear) {
-      tab.contents.sendInputEvent({ type: "keyDown", keyCode: "Backspace" });
-      tab.contents.sendInputEvent({ type: "keyUp", keyCode: "Backspace" });
-    }
-    if (text) tab.contents.insertText(text);
+    this.host.insertText(tab.tabId, text, clear);
     return true;
   }
 
-  private async press(tab: BrowserTab, key: string) {
-    tab.contents.focus();
-    tab.contents.sendInputEvent({ type: "keyDown", keyCode: key });
-    if (key.length === 1)
-      tab.contents.sendInputEvent({ type: "char", keyCode: key });
-    tab.contents.sendInputEvent({ type: "keyUp", keyCode: key });
+  private async press(context: CallContext, tab: BrowserTab, key: string) {
+    if (key === "Enter") {
+      const form = await this.run<{
+        password: boolean;
+        payment: boolean;
+        filled: boolean;
+      } | null>(tab, focusedFormScript());
+      if (form && (form.password || form.payment || form.filled)) {
+        await this.confirm(
+          context,
+          form.password ? "sign-in" : "sensitive-action",
+          this.originOrPage(tab),
+          ["press Enter to submit the form"],
+        );
+      }
+    }
+    this.host.pressKey(tab.tabId, key);
     await this.settle(tab);
     return true;
   }
@@ -528,33 +606,31 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
   }
 
   private async navigate(
-    context: BrowserCallContext,
+    context: CallContext,
     tab: BrowserTab,
     target: string,
   ) {
-    const contents = tab.contents;
     if (target === "back") {
-      if (contents.navigationHistory.canGoBack())
-        contents.navigationHistory.goBack();
+      this.host.goBack(tab.tabId);
     } else if (target === "forward") {
-      if (contents.navigationHistory.canGoForward())
-        contents.navigationHistory.goForward();
+      this.host.goForward(tab.tabId);
     } else if (target === "reload") {
-      contents.reload();
+      this.host.reload(tab.tabId);
     } else {
-      const next = new URL(target, contents.getURL());
+      const current = this.host.url(tab.tabId);
+      const next = new URL(target, current);
       const origin = originOf(next.toString());
       if (!origin) throw new BrowserToolError("Only http and https URLs open.");
-      if (tab.kind === "preview" && origin !== originOf(contents.getURL())) {
+      if (tab.kind === "preview" && origin !== originOf(current)) {
         throw new BrowserToolError(
           "A preview tab stays on its own site. Open other sites with browser.open.",
         );
       }
       await this.ensureSiteAccess(context, origin);
-      await contents.loadURL(next.toString()).catch(() => undefined);
+      await this.host.load(tab.tabId, next.toString());
     }
     await this.settle(tab);
-    return { url: contents.getURL(), title: contents.getTitle() };
+    return { url: this.host.url(tab.tabId), title: this.host.title(tab.tabId) };
   }
 
   private async waitFor(tab: BrowserTab, text: string, timeoutArg: number) {
@@ -580,21 +656,26 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
   }
 
   private async cdp(
-    context: BrowserCallContext,
+    context: CallContext,
     tab: BrowserTab,
     method: string,
     params: unknown,
   ) {
-    if (!settingsStore.get("browserFullCdpAccess", false)) {
+    if (method.startsWith("Input.")) {
       throw new BrowserToolError(
-        "Full CDP access is off. The user can turn it on in Settings > Browser.",
+        `${method} is not available. Use tab.click, tab.type and tab.press, which ask the user before sensitive actions.`,
       );
     }
     if (!isTabScopedCdpMethod(method)) {
       throw new BrowserToolError(
-        `${method} is not available because it reaches beyond this tab.`,
+        `${method} is not available because it reaches beyond this site.`,
       );
     }
+    await this.ensureDeveloperAccess(
+      context,
+      tab,
+      "use the Chrome DevTools Protocol on",
+    );
     if (method === "Page.navigate") {
       const target = (params as { url?: unknown } | null)?.url;
       const origin = typeof target === "string" ? originOf(target) : null;
@@ -603,55 +684,61 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
       }
       await this.ensureSiteAccess(context, origin);
     }
-    if (!this.cdpApprovedTasks.has(context.taskId)) {
-      await this.confirm(
-        context,
-        "full-cdp",
-        originOf(tab.contents.getURL()) ?? "",
-        ["Use the Chrome DevTools Protocol on this tab"],
-      );
-      this.cdpApprovedTasks.add(context.taskId);
-    }
-    const debuggerApi = tab.contents.debugger;
-    if (!debuggerApi.isAttached()) debuggerApi.attach("1.3");
-    return debuggerApi.sendCommand(
+    return this.host.sendCdp(
+      tab.tabId,
       method,
-      params && typeof params === "object"
-        ? (params as Record<string, unknown>)
-        : {},
+      params && typeof params === "object" ? params : {},
     );
+  }
+
+  private async ensureDeveloperAccess(
+    context: CallContext,
+    tab: BrowserTab,
+    action: string,
+  ) {
+    if (!this.settingsStore.fullCdpAccess()) {
+      throw new BrowserToolError(
+        "Scripts and DevTools access are off. The user can turn on Full DevTools access in Settings > Browser.",
+      );
+    }
+    const origin = originOf(this.host.url(tab.tabId));
+    if (!origin) {
+      throw new BrowserToolError("This page is not an http or https page.");
+    }
+    const key = `${context.taskId}|${origin}`;
+    if (this.developerApprovals.has(key)) return;
+    await this.confirm(context, "full-cdp", origin, [`${action} this site`]);
+    this.developerApprovals.add(key);
+  }
+
+  private originOrPage(tab: BrowserTab): string {
+    return originOf(this.host.url(tab.tabId)) ?? "this page";
   }
 
   private async settle(tab: BrowserTab) {
     await new Promise((resolve) => setTimeout(resolve, 150));
-    await this.waitForLoad(tab.contents);
+    await this.host.waitForLoad(tab.tabId);
   }
 
-  private async ensureSiteAccess(context: BrowserCallContext, origin: string) {
-    const taskId = context.taskId;
-    const access = this.sites.access(taskId, origin);
+  private async ensureSiteAccess(context: CallContext, origin: string) {
+    const access = this.sites.access(context.taskId, origin);
     if (access === "allowed") return;
     if (access === "blocked") {
       throw new BrowserToolError(`The user blocked ${origin} for the agent.`);
     }
     const decision = await this.ask(context, "site", origin, `Use ${origin}`);
-    if (decision === "allow-always") this.sites.set(origin, "allow");
-    else if (decision === "block") this.sites.set(origin, "block");
-    if (
-      decision === "allow-task" ||
-      decision === "allow-always" ||
-      decision === "allow-once"
-    ) {
-      this.sites.approveForTask(taskId, origin);
-      return;
+    const result = siteDecisionResult(decision);
+    if (result.save) this.sites.set(origin, result.save);
+    if (!result.allow) {
+      throw new BrowserToolError(
+        `The user did not allow the agent to use ${origin}.`,
+      );
     }
-    throw new BrowserToolError(
-      `The user did not allow the agent to use ${origin}.`,
-    );
+    this.sites.approveForTask(context.taskId, origin);
   }
 
   private async confirm(
-    context: BrowserCallContext,
+    context: CallContext,
     kind: PermissionKind,
     origin: string,
     parts: Array<string | null>,
@@ -665,7 +752,7 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     }
   }
 
-  cancelPrompts(context: BrowserCallContext): void {
+  private cancelPrompts(context: CallContext): void {
     for (const [requestId, pending] of this.pending) {
       if (pending.context === context) this.settlePrompt(requestId, "deny");
     }
@@ -676,25 +763,25 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     if (!pending) return;
     clearTimeout(pending.timer);
     this.pending.delete(requestId);
-    pending.context.onWaitingForUser?.(false);
+    pending.context.timeout?.unpause();
     this.emit(TaskBrowserEvent.PermissionSettled, { requestId });
     pending.resolve(decision);
   }
 
   private ask(
-    context: BrowserCallContext,
+    context: CallContext,
     kind: PermissionKind,
     origin: string,
     detail: string,
   ): Promise<PermissionDecision> {
-    const requestId = randomUUID();
+    const requestId = crypto.randomUUID();
     return new Promise((resolve) => {
       const timer = setTimeout(
         () => this.settlePrompt(requestId, "deny"),
         PERMISSION_TIMEOUT_MS,
       );
       this.pending.set(requestId, { context, resolve, timer });
-      context.onWaitingForUser?.(true);
+      context.timeout?.pause();
       this.emit(TaskBrowserEvent.PermissionRequest, {
         requestId,
         taskId: context.taskId,

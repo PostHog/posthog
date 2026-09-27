@@ -12,6 +12,7 @@ import {
   type CommentTarget,
   commentTargetKey,
 } from "@posthog/core/comments/anchors";
+import type { TaskPreviewPorts } from "@posthog/core/task-preview/taskPreviewPorts";
 import { readPrUrls } from "@posthog/shared";
 import type {
   Task,
@@ -21,7 +22,6 @@ import type {
 import { browserCommentTarget } from "@posthog/ui/features/task-preview/browserComments";
 import { previewCommentTarget } from "@posthog/ui/features/task-preview/previewCommentTarget";
 import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
-import type { TaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
 
 export type RunFile = RunArtifact & { runId: string };
@@ -105,7 +105,7 @@ export function commentSources(
     sources.push({
       kind: "browser",
       target: browserCommentTarget(taskId),
-      name: "Browser",
+      name: "In-app browser",
     });
   }
   const seen = new Set<string>();

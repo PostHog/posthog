@@ -19,7 +19,7 @@ import type {
   TaskEnvironment,
   TaskFolderInfo,
 } from "@posthog/core/task-detail/taskCreationHost";
-import { resolveService, resolveServiceOptional } from "@posthog/di/container";
+import { resolveService } from "@posthog/di/container";
 import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
@@ -33,8 +33,9 @@ import {
   expandTildePath,
   type Workspace,
 } from "@posthog/shared";
-import { injectable } from "inversify";
+import { inject, injectable, optional } from "inversify";
 import { track } from "../../shell/analytics";
+import { hasTaskBrowserCapability } from "../../shell/hasTaskBrowserCapability";
 import { getAuthenticatedClient } from "../auth/authClientImperative";
 import { assertCloudUsageAvailable } from "../billing/preflightCloudUsage";
 import { resolveLocalSkillPrompt } from "../message-editor/commands";
@@ -60,15 +61,18 @@ function hostClient(): HostTrpcClient {
 
 @injectable()
 export class TrpcTaskCreationHost implements ITaskCreationHost {
+  constructor(
+    @inject(HOST_CAPABILITIES)
+    @optional()
+    private readonly hostCapabilities: HostCapabilities | null = null,
+  ) {}
+
   getAuthenticatedClient(): Promise<TaskCreationApiClient | null> {
     return getAuthenticatedClient() as Promise<TaskCreationApiClient | null>;
   }
 
   hasTaskBrowser(): boolean {
-    return (
-      resolveServiceOptional<HostCapabilities>(HOST_CAPABILITIES)
-        ?.taskBrowser === true
-    );
+    return hasTaskBrowserCapability(this.hostCapabilities);
   }
 
   async assertCloudUsageAvailable(): Promise<void> {

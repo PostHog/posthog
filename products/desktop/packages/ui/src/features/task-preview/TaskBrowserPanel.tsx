@@ -8,6 +8,7 @@ import { createBrowserTabId } from "@posthog/core/panels/panelStoreHelpers";
 import {
   Button,
   Empty,
+  EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
@@ -15,11 +16,17 @@ import {
 } from "@posthog/quill";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useMemo, useRef, useState } from "react";
-import { browserTabLabel, resolveBrowserAddress } from "./browserAddress";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  browserTabLabel,
+  originOf,
+  resolveBrowserAddress,
+} from "./browserAddress";
 import { browserCommentTarget } from "./browserComments";
+import { useBrowserNavigationStore } from "./browserNavigationStore";
 import { CommentableFrame } from "./CommentableFrame";
 import { PreviewAddressBar } from "./PreviewAddressBar";
 import type {
@@ -28,14 +35,6 @@ import type {
   TaskPreviewNavigationRequest,
 } from "./taskPreviewFrameHost";
 import { useTabInMainPanel, useTabIsActive } from "./usePreviewTabInMainPanel";
-
-function originOf(url: string): string {
-  try {
-    return new URL(url).origin;
-  } catch {
-    return "";
-  }
-}
 
 export function TaskBrowserPanel({
   taskId,
@@ -50,6 +49,7 @@ export function TaskBrowserPanel({
   const [attempt, setAttempt] = useState(0);
   const [failed, setFailed] = useState(false);
   const [commenting, setCommenting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState<TaskPreviewLocation>({
     path: initialUrl,
     canGoBack: false,
@@ -77,24 +77,55 @@ export function TaskBrowserPanel({
     });
   };
 
+  const openUrl = (next: string) => {
+    pendingUrl.current = null;
+    setUrl(next);
+    setFailed(false);
+    setAttempt((current) => current + 1);
+    showUrl(next);
+  };
+
   const navigate = (input: string) => {
     const next = resolveBrowserAddress(input);
     if (!next) return;
     if (!url || failed) {
-      pendingUrl.current = null;
-      setUrl(next);
-      setFailed(false);
-      setAttempt((current) => current + 1);
-      showUrl(next);
+      openUrl(next);
       return;
     }
     pendingUrl.current = next;
     requestNavigation({ kind: "load", path: next });
   };
 
+  const retry = () => {
+    setFailed(false);
+    setAttempt((current) => current + 1);
+  };
+
+  const reload = () => {
+    if (failed) {
+      retry();
+      return;
+    }
+    requestNavigation({ kind: "load", path: location.path || url });
+  };
+
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
-  const origin = originOf(location.path || url);
+  const openUrlRef = useRef(openUrl);
+  openUrlRef.current = openUrl;
+  const pageRequest = useBrowserNavigationStore(
+    (state) => state.requests[browserId],
+  );
+  const clearNavigation = useBrowserNavigationStore(
+    (state) => state.clearNavigation,
+  );
+  useEffect(() => {
+    if (!pageRequest) return;
+    openUrlRef.current(pageRequest.url);
+    clearNavigation(browserId, pageRequest.nonce);
+  }, [pageRequest, browserId, clearNavigation]);
+
+  const origin = originOf(location.path || url) ?? "";
   const commentTarget = useMemo(() => browserCommentTarget(taskId), [taskId]);
   const active = useTabIsActive(taskId, createBrowserTabId(browserId));
   const surface = useMemo(
@@ -145,16 +176,16 @@ export function TaskBrowserPanel({
             Check the address and your connection, then try again.
           </EmptyDescription>
         </EmptyHeader>
-        <Button
-          variant="outline"
-          size="default"
-          onClick={() => {
-            setFailed(false);
-            setAttempt((current) => current + 1);
-          }}
-        >
-          Try again
-        </Button>
+        <EmptyContent>
+          <Button
+            variant="outline"
+            size="default"
+            data-attr="task-browser-retry"
+            onClick={retry}
+          >
+            Try again
+          </Button>
+        </EmptyContent>
       </Empty>
     );
   } else {
@@ -183,6 +214,7 @@ export function TaskBrowserPanel({
           }
         }}
         onCommentingChange={setCommenting}
+        onLoadingChange={setLoading}
         onLoadFailed={onLoadFailed}
       />
     );
@@ -194,12 +226,9 @@ export function TaskBrowserPanel({
         inset="text"
         actions={
           <>
+            {loading && !failed && <Spinner size="sm" label="Loading page" />}
             <Tooltip
-              content={
-                commenting
-                  ? "Stop commenting"
-                  : "Comment on an element of the page"
-              }
+              content={commenting ? "Stop commenting" : "Comment on the page"}
               side="bottom"
             >
               <Button
@@ -216,18 +245,13 @@ export function TaskBrowserPanel({
                 <ChatCircle size={14} />
               </Button>
             </Tooltip>
-            <Tooltip content="Reload" side="bottom">
+            <Tooltip content="Reload page" side="bottom">
               <Button
                 size="icon-sm"
-                aria-label="Reload"
+                aria-label="Reload page"
                 data-attr="task-browser-reload"
                 disabled={!url}
-                onClick={() =>
-                  requestNavigation({
-                    kind: "load",
-                    path: location.path || url,
-                  })
-                }
+                onClick={reload}
               >
                 <ArrowClockwise size={14} />
               </Button>

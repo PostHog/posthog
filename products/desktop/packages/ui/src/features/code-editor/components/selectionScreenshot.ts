@@ -1,5 +1,5 @@
 import type { IScreenCapture } from "@posthog/platform/screen-capture";
-import { screenshotArea } from "@posthog/shared";
+import { screenshotArea } from "@posthog/shared/screenshot-area";
 
 const ACCENT = "#f54e00";
 const PIN_SIZE = 22;

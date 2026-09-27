@@ -1,4 +1,5 @@
-import { screenshotArea } from "@posthog/shared";
+import { screenshotArea } from "@posthog/shared/screenshot-area";
+import { WEB_PAGE_BACKGROUND } from "@posthog/ui/features/task-preview/pageBackground";
 import type {
   TaskPreviewFrameProps,
   TaskPreviewPin,
@@ -15,7 +16,7 @@ import {
   sanitizeTaskPreviewGuestMessage,
   type TaskPreviewHostMessage,
 } from "../../shared/task-preview-message";
-import { trpcClient } from "../trpc/client";
+import { hostTrpcClient } from "../trpc/client";
 
 type CapturedImage = {
   isEmpty: () => boolean;
@@ -97,6 +98,7 @@ export function ElectronTaskPreviewFrame({
   onPinsChanged,
   navigationRequest,
   onLocationChange,
+  onLoadingChange,
   tracking,
   onTrackedRect,
 }: TaskPreviewFrameProps) {
@@ -115,6 +117,7 @@ export function ElectronTaskPreviewFrame({
     onActivatePin,
     onPinsChanged,
     onLocationChange,
+    onLoadingChange,
     onTrackedRect,
   });
 
@@ -126,6 +129,7 @@ export function ElectronTaskPreviewFrame({
       onActivatePin,
       onPinsChanged,
       onLocationChange,
+      onLoadingChange,
       onTrackedRect,
     };
   }, [
@@ -136,6 +140,7 @@ export function ElectronTaskPreviewFrame({
     onActivatePin,
     onPinsChanged,
     onLocationChange,
+    onLoadingChange,
   ]);
 
   const send = (message: TaskPreviewHostMessage) => {
@@ -167,7 +172,7 @@ export function ElectronTaskPreviewFrame({
       const webContentsId = webview.getWebContentsId();
       if (registeredId !== webContentsId) {
         registeredId = webContentsId;
-        void trpcClient.taskBrowser.register
+        void hostTrpcClient.taskBrowser.register
           .mutate({
             browserId: frameId,
             taskId,
@@ -194,6 +199,8 @@ export function ElectronTaskPreviewFrame({
       callbacksRef.current.onLoadFailed();
     };
     const onGone = () => callbacksRef.current.onLoadFailed();
+    const onStartLoading = () => callbacksRef.current.onLoadingChange(true);
+    const onStopLoading = () => callbacksRef.current.onLoadingChange(false);
     const reportLocation = () =>
       callbacksRef.current.onLocationChange({
         path: locationPath(webview.getURL(), session),
@@ -239,10 +246,14 @@ export function ElectronTaskPreviewFrame({
     webview.addEventListener("did-navigate", onNavigated);
     webview.addEventListener("did-navigate-in-page", onNavigated);
     webview.addEventListener("page-title-updated", reportLocation);
+    webview.addEventListener("did-start-loading", onStartLoading);
+    webview.addEventListener("did-stop-loading", onStopLoading);
     const authorize =
       session === "browser"
         ? Promise.resolve(url)
-        : trpcClient.taskPreview.authorize.mutate({ url }).catch(() => null);
+        : hostTrpcClient.taskPreview.authorize
+            .mutate({ url })
+            .catch(() => null);
     void authorize.then((authorizedUrl) => {
       if (cancelled) return;
       if (!authorizedUrl) {
@@ -257,7 +268,7 @@ export function ElectronTaskPreviewFrame({
     return () => {
       cancelled = true;
       if (registeredId !== null) {
-        void trpcClient.taskBrowser.unregister
+        void hostTrpcClient.taskBrowser.unregister
           .mutate({ browserId: frameId, webContentsId: registeredId })
           .catch(() => undefined);
       }
@@ -268,6 +279,9 @@ export function ElectronTaskPreviewFrame({
       webview.removeEventListener("did-navigate", onNavigated);
       webview.removeEventListener("did-navigate-in-page", onNavigated);
       webview.removeEventListener("page-title-updated", reportLocation);
+      webview.removeEventListener("did-start-loading", onStartLoading);
+      webview.removeEventListener("did-stop-loading", onStopLoading);
+      callbacksRef.current.onLoadingChange(false);
       readyRef.current = false;
       webviewRef.current = null;
       webview.remove();
@@ -321,5 +335,5 @@ export function ElectronTaskPreviewFrame({
     webviewRef.current?.setAttribute("aria-label", title);
   }, [title]);
 
-  return <div ref={mountRef} className="size-full bg-[white]" />;
+  return <div ref={mountRef} className={`size-full ${WEB_PAGE_BACKGROUND}`} />;
 }

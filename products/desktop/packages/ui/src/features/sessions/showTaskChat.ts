@@ -1,9 +1,13 @@
 import { useReviewNavigationStore } from "../code-review/reviewNavigationStore";
+import { useDraftStore } from "../message-editor/draftStore";
 import { DEFAULT_TAB_IDS } from "../panels/panelConstants";
 import { usePanelLayoutStore } from "../panels/panelLayoutStore";
 import { findTabInTree } from "../panels/panelTree";
 
-export function showTaskChat(taskId: string): void {
+export function showTaskChat(
+  taskId: string,
+  { focus = false }: { focus?: boolean } = {},
+): void {
   const { getReviewMode, setReviewMode } = useReviewNavigationStore.getState();
   if (getReviewMode(taskId) === "expanded") {
     setReviewMode(taskId, "split");
@@ -17,4 +21,6 @@ export function showTaskChat(taskId: string): void {
       setActiveTab(taskId, result.panelId, DEFAULT_TAB_IDS.LOGS);
     }
   }
+
+  if (focus) useDraftStore.getState().actions.requestFocus(taskId);
 }

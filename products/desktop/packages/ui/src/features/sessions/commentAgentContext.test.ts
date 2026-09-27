@@ -4,7 +4,6 @@ import { parseCommentContextBody } from "../message-editor/components/commentCon
 import {
   type CommentResource,
   commentAgentContext,
-  commentComposerContent,
 } from "./commentAgentContext";
 
 describe("commentAgentContext", () => {
@@ -94,29 +93,5 @@ describe("commentAgentContext element snippets", () => {
     expect(details.fields.map((field) => field.value)).not.toContain(
       "https://evil.example.com",
     );
-  });
-});
-
-describe("commentComposerContent", () => {
-  it("puts the context chip before the editable comment", () => {
-    expect(
-      commentComposerContent({
-        comment: "Make this red",
-        draftEmpty: false,
-        context: { label: 'h1 "Hot stuff"', body: "- **Page** /" },
-      }).segments,
-    ).toEqual([
-      { type: "text", text: "\n" },
-      {
-        type: "chip",
-        chip: {
-          type: "comment_context",
-          id: "- **Page** /",
-          label: 'h1 "Hot stuff"',
-        },
-      },
-      { type: "text", text: " " },
-      { type: "text", text: "Make this red" },
-    ]);
   });
 });

@@ -87,6 +87,9 @@ import { PROVISIONING_SERVICE } from "@posthog/core/provisioning/identifiers";
 import { ProvisioningService } from "@posthog/core/provisioning/provisioning";
 import { SLEEP_SERVICE } from "@posthog/core/sleep/identifiers";
 import { SleepService } from "@posthog/core/sleep/sleep";
+import { TASK_BROWSER_SERVICE } from "@posthog/core/task-browser/identifiers";
+import { taskBrowserModule } from "@posthog/core/task-browser/task-browser.module";
+import type { TaskBrowserService } from "@posthog/core/task-browser/taskBrowserService";
 import { UI_AUTH } from "@posthog/core/ui/identifiers";
 import { uiModule } from "@posthog/core/ui/ui.module";
 import {
@@ -124,6 +127,12 @@ import { POWER_MANAGER_SERVICE } from "@posthog/platform/power-manager";
 import { SCREEN_CAPTURE_SERVICE } from "@posthog/platform/screen-capture";
 import { SECURE_STORAGE_SERVICE } from "@posthog/platform/secure-storage";
 import { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
+import {
+  BROWSER_SCRIPT_RUNNER,
+  TASK_BROWSER_SETTINGS,
+  TASK_BROWSER_TABS,
+  TASK_PREVIEW_SESSIONS,
+} from "@posthog/platform/task-browser";
 import { UPDATER_SERVICE } from "@posthog/platform/updater";
 import { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
@@ -267,8 +276,11 @@ import { ElectronUrlLauncher } from "../platform-adapters/electron-url-launcher"
 import { electronUsageThresholdStore } from "../platform-adapters/electron-usage-threshold-store";
 import { ElectronWorkspaceSettings } from "../platform-adapters/electron-workspace-settings";
 import { posthogNodeAnalytics } from "../platform-adapters/posthog-analytics";
-import { TaskBrowserHost } from "../platform-adapters/task-browser/host";
-import { TaskBrowserService } from "../platform-adapters/task-browser/service";
+import { ElectronBrowserScriptRunner } from "../platform-adapters/task-browser/electron-browser-script-runner";
+import { ElectronTaskBrowserSettings } from "../platform-adapters/task-browser/electron-task-browser-settings";
+import { ElectronTaskBrowserTabs } from "../platform-adapters/task-browser/electron-task-browser-tabs";
+import { ElectronTaskPreviewSessions } from "../platform-adapters/task-browser/electron-task-preview-sessions";
+import { BrowserMcpHttpServer } from "../platform-adapters/task-browser/mcp-http-server";
 import { AppLifecycleService } from "../services/app-lifecycle/service";
 import {
   AuthPreferencePortAdapter,
@@ -334,8 +346,6 @@ import {
   SLEEP_SERVICE as MAIN_SLEEP_SERVICE,
   SUSPENSION_REPOSITORY as MAIN_SUSPENSION_REPOSITORY,
   SUSPENSION_SERVICE as MAIN_SUSPENSION_SERVICE,
-  TASK_BROWSER_HOST as MAIN_TASK_BROWSER_HOST,
-  TASK_BROWSER_SERVICE as MAIN_TASK_BROWSER_SERVICE,
   TASK_LINK_SERVICE as MAIN_TASK_LINK_SERVICE,
   UPDATES_SERVICE as MAIN_UPDATES_SERVICE,
   WATCHER_REGISTRY_SERVICE as MAIN_WATCHER_REGISTRY_SERVICE,
@@ -657,31 +667,32 @@ container.load(skillsMarketplaceModule);
 container.load(releaseFeedModule);
 container.load(localMcpModule);
 container.load(mcpRelayModule);
+container.load(taskBrowserModule);
+container
+  .bind(TASK_BROWSER_TABS)
+  .to(ElectronTaskBrowserTabs)
+  .inSingletonScope();
+container
+  .bind(TASK_BROWSER_SETTINGS)
+  .to(ElectronTaskBrowserSettings)
+  .inSingletonScope();
+container
+  .bind(BROWSER_SCRIPT_RUNNER)
+  .to(ElectronBrowserScriptRunner)
+  .inSingletonScope();
+container
+  .bind(TASK_PREVIEW_SESSIONS)
+  .to(ElectronTaskPreviewSessions)
+  .inSingletonScope();
+container.bind(AGENT_TASK_BROWSER).to(BrowserMcpHttpServer).inSingletonScope();
 // Core's cloud-task service executes MCP relay requests through this seam;
 // the workspace relay service satisfies the core executor interface
 // structurally (docs/CLOUD-MCP-RELAY.md).
 container
-  .bind(MAIN_TASK_BROWSER_SERVICE)
-  .to(TaskBrowserService)
-  .inSingletonScope();
-container
-  .bind(MAIN_TASK_BROWSER_HOST)
-  .toDynamicValue(
-    (ctx) =>
-      new TaskBrowserHost(
-        ctx.get<TaskBrowserService>(MAIN_TASK_BROWSER_SERVICE),
-      ),
-  )
-  .inSingletonScope();
-container
-  .bind(AGENT_TASK_BROWSER)
-  .toDynamicValue((ctx) => ctx.get<TaskBrowserHost>(MAIN_TASK_BROWSER_HOST))
-  .inSingletonScope();
-container
   .bind(MCP_RELAY_EXECUTOR)
   .toDynamicValue((ctx) =>
     ctx
-      .get<TaskBrowserHost>(MAIN_TASK_BROWSER_HOST)
+      .get<TaskBrowserService>(TASK_BROWSER_SERVICE)
       .relayExecutor(ctx.get<McpRelayService>(MCP_RELAY_SERVICE)),
   )
   .inSingletonScope();

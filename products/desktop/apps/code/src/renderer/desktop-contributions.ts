@@ -23,6 +23,7 @@ import { notificationsUiModule } from "@posthog/ui/features/notifications/notifi
 import { provisioningUiModule } from "@posthog/ui/features/provisioning/provisioning.module";
 import { settingsUiModule } from "@posthog/ui/features/settings/settings.module";
 import { setupUiModule } from "@posthog/ui/features/setup/setup.module";
+import { taskPreviewUiModule } from "@posthog/ui/features/task-preview/taskPreview.module";
 import { workspaceUiModule } from "@posthog/ui/features/workspace/workspace.module";
 import {
   AnalyticsBootContribution,
@@ -56,6 +57,7 @@ export function registerDesktopContributions(): void {
     setupUiModule,
     skillsCoreModule,
     speechCoreModule,
+    taskPreviewUiModule,
     workspaceUiModule,
   ]) {
     container.load(module);

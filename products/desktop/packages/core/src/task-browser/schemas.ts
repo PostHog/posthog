@@ -1,6 +1,15 @@
+import type {
+  TaskBrowserPermissionDecision,
+  TaskBrowserPermissionKind,
+  TaskBrowserSitePolicy,
+  TaskBrowserTabKind,
+} from "@posthog/platform/task-browser";
 import { z } from "zod";
 
-export const browserTabKindSchema = z.enum(["browser", "preview"]);
+export const browserTabKindSchema = z.enum([
+  "browser",
+  "preview",
+]) satisfies z.ZodType<TaskBrowserTabKind>;
 export type BrowserTabKind = z.infer<typeof browserTabKindSchema>;
 
 export const registerTabInput = z.object({
@@ -23,7 +32,7 @@ export const permissionKindSchema = z.enum([
   "sensitive-action",
   "sign-in",
   "full-cdp",
-]);
+]) satisfies z.ZodType<TaskBrowserPermissionKind>;
 export type PermissionKind = z.infer<typeof permissionKindSchema>;
 
 export const permissionDecisionSchema = z.enum([
@@ -32,7 +41,7 @@ export const permissionDecisionSchema = z.enum([
   "allow-always",
   "deny",
   "block",
-]);
+]) satisfies z.ZodType<TaskBrowserPermissionDecision>;
 export type PermissionDecision = z.infer<typeof permissionDecisionSchema>;
 
 export const permissionRequestSchema = z.object({
@@ -49,7 +58,10 @@ export const permissionResponseInput = z.object({
   decision: permissionDecisionSchema,
 });
 
-export const sitePolicySchema = z.enum(["allow", "block"]);
+export const sitePolicySchema = z.enum([
+  "allow",
+  "block",
+]) satisfies z.ZodType<TaskBrowserSitePolicy>;
 export type SitePolicy = z.infer<typeof sitePolicySchema>;
 
 export const browserSettingsSchema = z.object({
@@ -62,6 +74,16 @@ export const setSitePolicyInput = z.object({
   origin: z.string().min(1).max(500),
   policy: sitePolicySchema.nullable(),
 });
+
+export const unregisterTabInput = z.object({
+  browserId: z.string(),
+  webContentsId: z.number().int(),
+});
+
+export const setFullCdpAccessInput = z.object({ enabled: z.boolean() });
+
+export const authorizePreviewInput = z.object({ url: z.string().max(4_000) });
+export const authorizePreviewOutput = z.string().nullable();
 
 export const closeRequestSchema = z.object({
   taskId: z.string(),

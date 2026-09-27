@@ -92,6 +92,8 @@ import type { PROVISIONING_SERVICE } from "@posthog/core/provisioning/identifier
 import type { ProvisioningService } from "@posthog/core/provisioning/provisioning";
 import type { SLEEP_SERVICE } from "@posthog/core/sleep/identifiers";
 import type { SleepService } from "@posthog/core/sleep/sleep";
+import { TASK_BROWSER_SERVICE } from "@posthog/core/task-browser/identifiers";
+import type { TaskBrowserService } from "@posthog/core/task-browser/taskBrowserService";
 import type { UI_AUTH, UI_SERVICE } from "@posthog/core/ui/identifiers";
 import type { UIService } from "@posthog/core/ui/ui";
 import type { UPDATE_LIFECYCLE_SERVICE } from "@posthog/core/updates/identifiers";
@@ -142,6 +144,16 @@ import type {
   SETTINGS_BACKUP_FILES,
 } from "@posthog/platform/settings-backup-files";
 import type { STORAGE_PATHS_SERVICE } from "@posthog/platform/storage-paths";
+import {
+  BROWSER_SCRIPT_RUNNER,
+  type IBrowserScriptRunner,
+  type ITaskBrowserSettings,
+  type ITaskBrowserTabs,
+  type ITaskPreviewSessions,
+  TASK_BROWSER_SETTINGS,
+  TASK_BROWSER_TABS,
+  TASK_PREVIEW_SESSIONS,
+} from "@posthog/platform/task-browser";
 import type { UPDATER_SERVICE } from "@posthog/platform/updater";
 import type { URL_LAUNCHER_SERVICE } from "@posthog/platform/url-launcher";
 import type { WORKSPACE_SETTINGS_SERVICE } from "@posthog/platform/workspace-settings";
@@ -262,8 +274,6 @@ import type { ElectronStoragePaths } from "../platform-adapters/electron-storage
 import type { ElectronUpdater } from "../platform-adapters/electron-updater";
 import type { ElectronUrlLauncher } from "../platform-adapters/electron-url-launcher";
 import type { ElectronWorkspaceSettings } from "../platform-adapters/electron-workspace-settings";
-import type { TaskBrowserHost } from "../platform-adapters/task-browser/host";
-import type { TaskBrowserService } from "../platform-adapters/task-browser/service";
 import type { AppLifecycleService } from "../services/app-lifecycle/service";
 import type {
   AuthPreferencePortAdapter,
@@ -325,8 +335,6 @@ import type {
   SLEEP_SERVICE as MAIN_SLEEP_SERVICE,
   SUSPENSION_REPOSITORY as MAIN_SUSPENSION_REPOSITORY,
   SUSPENSION_SERVICE as MAIN_SUSPENSION_SERVICE,
-  TASK_BROWSER_HOST as MAIN_TASK_BROWSER_HOST,
-  TASK_BROWSER_SERVICE as MAIN_TASK_BROWSER_SERVICE,
   TASK_LINK_SERVICE as MAIN_TASK_LINK_SERVICE,
   UPDATES_SERVICE as MAIN_UPDATES_SERVICE,
   WATCHER_REGISTRY_SERVICE as MAIN_WATCHER_REGISTRY_SERVICE,
@@ -508,8 +516,11 @@ export interface MainBindings {
   [LOGS_SERVICE]: ILogsService;
   [MAIN_ENCRYPTION_SERVICE]: EncryptionService;
   [MAIN_DISCORD_PRESENCE_SERVICE]: DiscordPresenceService;
-  [MAIN_TASK_BROWSER_SERVICE]: TaskBrowserService;
-  [MAIN_TASK_BROWSER_HOST]: TaskBrowserHost;
+  [TASK_BROWSER_SERVICE]: TaskBrowserService;
+  [TASK_BROWSER_TABS]: ITaskBrowserTabs;
+  [TASK_BROWSER_SETTINGS]: ITaskBrowserSettings;
+  [BROWSER_SCRIPT_RUNNER]: IBrowserScriptRunner;
+  [TASK_PREVIEW_SESSIONS]: ITaskPreviewSessions;
   [MAIN_MISSION_CONTROL_SERVICE]: MissionControlService;
 
   // Dev toolbar diagnostics

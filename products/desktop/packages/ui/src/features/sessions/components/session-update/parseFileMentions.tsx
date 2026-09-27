@@ -188,7 +188,7 @@ function parseMentionTags(content: string): ReactNode[] {
           tooltip={
             <CommentContextPreview
               label={label}
-              body={match[10].trim()}
+              body={unescapeXmlAttr(match[10].trim())}
               imagePath={imagePath}
             />
           }

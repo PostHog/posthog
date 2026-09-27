@@ -6,7 +6,6 @@ import {
 } from "@posthog/platform/task-browser";
 import {
   AlertDialog,
-  AlertDialogClose,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -83,6 +82,7 @@ function BrowserSettingsContent({ host }: { host: ITaskBrowserHost }) {
     setClearing(true);
     try {
       await host.clearBrowsingData();
+      setConfirmClear(false);
       toast.success("Browsing data cleared", { alwaysShow: true });
     } catch {
       toast.error("Couldn't clear browsing data. Try again.");
@@ -102,6 +102,8 @@ function BrowserSettingsContent({ host }: { host: ITaskBrowserHost }) {
           <Button
             variant="outline"
             size="sm"
+            data-attr="browser-settings-retry"
+            disabled={settingsQuery.isFetching}
             onClick={() => void settingsQuery.refetch()}
           >
             Try again
@@ -125,7 +127,7 @@ function BrowserSettingsContent({ host }: { host: ITaskBrowserHost }) {
           {sites.length === 0 ? (
             <SettingsCardRow
               label="No saved sites"
-              description="When you choose Always allow or Block for a site, it shows here."
+              description="When you choose Always allow or Always block for a site, it shows here."
             />
           ) : (
             sites.map(([origin, policy]) => (
@@ -162,7 +164,7 @@ function BrowserSettingsContent({ host }: { host: ITaskBrowserHost }) {
         <SettingsCard>
           <SettingsCardRow
             label="Full DevTools access"
-            description="Let the agent use the Chrome DevTools Protocol. It still asks you once for each task, because it can then read and change everything on the page, including network traffic."
+            description="Let the agent use the Chrome DevTools Protocol on a site. With it, the agent can read and change everything on that site's pages, including network traffic. The agent still asks you once for each site in a task."
           >
             <Switch
               data-attr="browser-settings-full-cdp"
@@ -183,7 +185,12 @@ function BrowserSettingsContent({ host }: { host: ITaskBrowserHost }) {
             >
               Clear data
             </Button>
-            <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
+            <AlertDialog
+              open={confirmClear}
+              onOpenChange={(next) => {
+                if (!next && !clearing) setConfirmClear(false);
+              }}
+            >
               <AlertDialogContent className="max-w-md">
                 <AlertDialogHeader>
                   <AlertDialogTitle>Clear browsing data?</AlertDialogTitle>
@@ -193,18 +200,20 @@ function BrowserSettingsContent({ host }: { host: ITaskBrowserHost }) {
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
-                  <AlertDialogClose
-                    render={<Button variant="outline">Cancel</Button>}
-                  />
                   <Button
-                    variant="primary"
+                    variant="outline"
+                    data-attr="browser-settings-clear-data-cancel"
+                    disabled={clearing}
+                    onClick={() => setConfirmClear(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="destructive"
                     loading={clearing}
+                    disabled={clearing}
                     data-attr="browser-settings-clear-data-confirm"
-                    onClick={() =>
-                      void clearBrowsingData().then(() =>
-                        setConfirmClear(false),
-                      )
-                    }
+                    onClick={() => void clearBrowsingData()}
                   >
                     Clear data
                   </Button>

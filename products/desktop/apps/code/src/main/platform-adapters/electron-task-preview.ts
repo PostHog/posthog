@@ -97,8 +97,21 @@ export function authorizePartitionPreview(
   );
 }
 
-function isPrivateNetworkHost(hostname: string): boolean {
+function normalizeHost(hostname: string): string {
   const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const mapped =
+    /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(
+      host,
+    );
+  if (!mapped) return host;
+  if (mapped[1]) return mapped[1];
+  const high = Number.parseInt(mapped[2], 16);
+  const low = Number.parseInt(mapped[3], 16);
+  return [high >> 8, high & 255, low >> 8, low & 255].join(".");
+}
+
+function isPrivateNetworkHost(hostname: string): boolean {
+  const host = normalizeHost(hostname);
   if (host === "localhost" || host.endsWith(".localhost")) return true;
   if (host === "::1" || host === "::" || host.startsWith("fe80:")) return true;
   if (host.startsWith("fc") || host.startsWith("fd")) return host.includes(":");
@@ -119,11 +132,13 @@ function isPrivateNetworkHost(hostname: string): boolean {
 }
 
 function isLoopbackHost(hostname: string): boolean {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  const host = normalizeHost(hostname);
   return (
     host === "localhost" ||
     host.endsWith(".localhost") ||
     host === "::1" ||
+    host === "::" ||
+    host === "0.0.0.0" ||
     host.startsWith("127.")
   );
 }
@@ -233,12 +248,13 @@ export function lockDownGuestSession(guestSession: Session): void {
     process.env.ELECTRON_RENDERER_URL,
   );
   guestSession.webRequest.onBeforeRequest((details, callback) => {
-    const page =
-      details.resourceType === "mainFrame" ||
-      details.webContentsId === undefined
-        ? undefined
-        : webContents.fromId(details.webContentsId);
-    const pageUrl = page?.getURL() || details.url;
+    const pageUrl =
+      details.resourceType === "mainFrame"
+        ? details.url
+        : (details.webContentsId === undefined
+            ? undefined
+            : webContents.fromId(details.webContentsId)?.getURL()) ||
+          "about:blank";
     callback({
       cancel: isBlockedPreviewRequest(pageUrl, details.url, protectedPorts),
     });

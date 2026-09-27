@@ -4729,20 +4729,23 @@ describe("CloudTaskEngine MCP relay", () => {
     });
   }
 
-  it("drops a relay request for a server the run never designated", async () => {
-    mockStreamFetch.mockResolvedValueOnce(
-      createOpenSseResponse(mcpRequestSseLine({ server: "slack" })),
-    );
-    relayService.designateRelayedMcpServers("run-1", ["grafana"]);
-    watchRun("run-1");
+  it.each(["slack", TASK_BROWSER_MCP_SERVER])(
+    "drops a relay request for %s when the run never designated it",
+    async (server) => {
+      mockStreamFetch.mockResolvedValueOnce(
+        createOpenSseResponse(mcpRequestSseLine({ server })),
+      );
+      relayService.designateRelayedMcpServers("run-1", ["grafana"]);
+      watchRun("run-1");
 
-    await waitFor(() => mockStreamFetch.mock.calls.length > 0);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+      await waitFor(() => mockStreamFetch.mock.calls.length > 0);
+      await new Promise((resolve) => setTimeout(resolve, 20));
 
-    expect(mcpRelayExecutor.execute).not.toHaveBeenCalled();
-  });
+      expect(mcpRelayExecutor.execute).not.toHaveBeenCalled();
+    },
+  );
 
-  it("executes a built-in browser tool call without designation or approval", async () => {
+  it("executes a designated browser tool call without a relay approval prompt", async () => {
     mockStreamFetch.mockResolvedValueOnce(
       createOpenSseResponse(
         mcpRequestSseLine({
@@ -4752,6 +4755,7 @@ describe("CloudTaskEngine MCP relay", () => {
       ),
     );
     mockNetFetch.mockResolvedValueOnce(createJsonResponse({ result: {} }));
+    relayService.designateRelayedMcpServers("run-1", [TASK_BROWSER_MCP_SERVER]);
     watchRun("run-1");
 
     await waitFor(() => mcpRelayExecutor.execute.mock.calls.length > 0);

@@ -5522,6 +5522,11 @@ export class SessionService {
               : undefined,
           },
         );
+        if (this.d.hasTaskBrowser && updatedTask.latest_run?.id) {
+          await this.designateRelayedMcpServers(updatedTask.latest_run.id, [
+            TASK_BROWSER_MCP_SERVER,
+          ]).catch(() => undefined);
+        }
         if (
           previousAccess.kind === "own-subscription" &&
           previousAccess.adapter === "claude" &&

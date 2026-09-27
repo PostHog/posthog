@@ -337,6 +337,37 @@ export function openReadonlyTab(
   return { panelTree: splitTree, focusedPanelId: newPanelId };
 }
 
+export function openPreviewTab(
+  layout: TaskLayout,
+  tabId: string,
+  label: string,
+  data: TabData,
+  placement: "main" | "split",
+): Partial<TaskLayout> {
+  const existing = findTabInTree(layout.panelTree, tabId);
+  if (
+    placement !== "split" ||
+    existing?.panelId !== DEFAULT_PANEL_IDS.MAIN_PANEL
+  ) {
+    return openReadonlyTab(layout, tabId, label, data, placement);
+  }
+  const closed = { ...layout, ...closeTab(layout, existing.panelId, tabId) };
+  const logsInMain =
+    findTabInTree(closed.panelTree, DEFAULT_TAB_IDS.LOGS)?.panelId ===
+    DEFAULT_PANEL_IDS.MAIN_PANEL;
+  const current = logsInMain
+    ? {
+        ...closed,
+        ...setActiveTab(
+          closed,
+          DEFAULT_PANEL_IDS.MAIN_PANEL,
+          DEFAULT_TAB_IDS.LOGS,
+        ),
+      }
+    : closed;
+  return openReadonlyTab(current, tabId, label, data, placement);
+}
+
 export function addRecentFile(
   recentFiles: string[] | undefined,
   filePath: string,

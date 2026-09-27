@@ -15,10 +15,8 @@ import {
   useCommentsQuery,
   useCreateComment,
 } from "@posthog/ui/features/sessions/components/useComments";
-import {
-  openTaskChat,
-  sendCommentToAgent,
-} from "@posthog/ui/features/sessions/sendCommentToAgent";
+import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
+import { showTaskChat } from "@posthog/ui/features/sessions/showTaskChat";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { browserCommentPage } from "./browserComments";
@@ -41,7 +39,7 @@ import {
 } from "./usePickedElementCard";
 
 export type CommentableFrameSurface =
-  | { kind: "preview"; port: number }
+  | { kind: "preview"; port: number; onOpenPage: (path: string) => void }
   | {
       kind: "browser";
       origin: string;
@@ -70,6 +68,7 @@ export function CommentableFrame({
   navigationRequest,
   onLocationChange,
   onCommentingChange,
+  onLoadingChange,
   onLoadFailed,
 }: {
   taskId: string;
@@ -83,6 +82,7 @@ export function CommentableFrame({
   navigationRequest: TaskPreviewNavigationRequest | null;
   onLocationChange: (location: TaskPreviewLocation) => void;
   onCommentingChange: (commenting: boolean) => void;
+  onLoadingChange: (loading: boolean) => void;
   onLoadFailed: () => void;
 }) {
   const commentsQuery = useCommentsQuery(target, taskId);
@@ -118,10 +118,8 @@ export function CommentableFrame({
     [threads, activeThreadId, origin],
   );
 
-  const openPageRef = useRef(
-    surface.kind === "browser" ? surface.onOpenPage : null,
-  );
-  openPageRef.current = surface.kind === "browser" ? surface.onOpenPage : null;
+  const openPageRef = useRef(surface.onOpenPage);
+  openPageRef.current = surface.onOpenPage;
   const openedForNonce = useRef<number | null>(null);
   const followsFocus = surface.kind === "preview" || surface.active;
   useEffect(() => {
@@ -130,10 +128,13 @@ export function CommentableFrame({
     const thread = threads.find((item) => item.id === activeThreadId);
     if (!thread) return;
     if (!isOnPage(thread, origin, currentPath)) {
-      const pageUrl = browserCommentPage(thread.anchor)?.url;
-      if (!pageUrl || openedForNonce.current === focus.nonce) return;
+      const page =
+        surface.kind === "browser"
+          ? browserCommentPage(thread.anchor)?.url
+          : thread.anchor.path;
+      if (!page || openedForNonce.current === focus.nonce) return;
       openedForNonce.current = focus.nonce;
-      openPageRef.current?.(pageUrl);
+      openPageRef.current(page);
       return;
     }
     setLocateRequest((current) =>
@@ -141,7 +142,15 @@ export function CommentableFrame({
         ? current
         : { id: activeThreadId, nonce: focus.nonce },
     );
-  }, [followsFocus, focus, activeThreadId, threads, origin, currentPath]);
+  }, [
+    followsFocus,
+    focus,
+    activeThreadId,
+    threads,
+    origin,
+    currentPath,
+    surface.kind,
+  ]);
 
   const revealThread = useCallback(
     (id: string) =>
@@ -191,7 +200,10 @@ export function CommentableFrame({
         id: `${surface.kind}-comment-queued-${taskId}`,
         description: "Send it from the chat when you are ready.",
         alwaysShow: true,
-        action: { label: "Open chat", onClick: () => openTaskChat(taskId) },
+        action: {
+          label: "Open chat",
+          onClick: () => showTaskChat(taskId, { focus: true }),
+        },
       });
     });
   };
@@ -208,6 +220,7 @@ export function CommentableFrame({
           picking={commenting}
           pins={pins}
           locateRequest={locateRequest}
+          onLoadingChange={onLoadingChange}
           onLoadFailed={onLoadFailed}
           onPicked={onPicked}
           onPickCancelled={() => onCommentingChange(false)}
@@ -237,6 +250,11 @@ export function CommentableFrame({
             : null
         }
         open={!!pending}
+        selectionKey={
+          pending
+            ? `${pending.anchor.path}:${pending.anchor.selector}`
+            : undefined
+        }
         filePath={title}
         placeholder="Add a comment…"
         submitLabel="Post comment"

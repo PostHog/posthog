@@ -94,6 +94,7 @@ import {
   FEEDBACK_CONTEXT_SERVICE,
   type IFeedbackContext,
 } from "@posthog/platform/feedback-context";
+import { HOST_CAPABILITIES } from "@posthog/platform/host-capabilities";
 import {
   type IScreenCapture,
   SCREEN_CAPTURE_SERVICE,
@@ -169,7 +170,6 @@ import { trpcClient } from "@renderer/trpc";
 import { hostTrpcClient } from "@renderer/trpc/client";
 import type { TRPCClient } from "@trpc/client";
 import { hostLog, logger } from "@utils/logger";
-import { electronTaskBrowserHost } from "../platform-adapters/electron-task-browser-host";
 import type { RendererBindings } from "./bindings";
 import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
 
@@ -197,7 +197,42 @@ container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
     hostTrpcClient.feedbackContext.submitFeedback.mutate(input),
 } satisfies IFeedbackContext);
 
-container.bind(TASK_BROWSER_HOST).toConstantValue(electronTaskBrowserHost);
+const subscribe = <T>(
+  procedure: {
+    subscribe: (
+      input: undefined,
+      opts: { onData: (data: T) => void },
+    ) => { unsubscribe: () => void };
+  },
+  listener: (data: T) => void,
+) => {
+  const subscription = procedure.subscribe(undefined, { onData: listener });
+  return () => subscription.unsubscribe();
+};
+container.bind(TASK_BROWSER_HOST).toConstantValue({
+  onOpenRequest: (listener) =>
+    subscribe(hostTrpcClient.taskBrowser.onOpenRequest, listener),
+  onCloseRequest: (listener) =>
+    subscribe(hostTrpcClient.taskBrowser.onCloseRequest, listener),
+  onPermissionRequest: (listener) =>
+    subscribe(hostTrpcClient.taskBrowser.onPermissionRequest, listener),
+  onPermissionSettled: (listener) =>
+    subscribe(hostTrpcClient.taskBrowser.onPermissionSettled, (data) =>
+      listener(data.requestId),
+    ),
+  respondToPermission: (requestId, decision) =>
+    hostTrpcClient.taskBrowser.respondToPermission.mutate({
+      requestId,
+      decision,
+    }),
+  getSettings: () => hostTrpcClient.taskBrowser.getSettings.query(),
+  setSitePolicy: (origin, policy) =>
+    hostTrpcClient.taskBrowser.setSitePolicy.mutate({ origin, policy }),
+  setFullCdpAccess: (enabled) =>
+    hostTrpcClient.taskBrowser.setFullCdpAccess.mutate({ enabled }),
+  clearBrowsingData: () =>
+    hostTrpcClient.taskBrowser.clearBrowsingData.mutate(),
+});
 
 container.bind(SCREEN_CAPTURE_SERVICE).toConstantValue({
   captureRegion: (region) =>
@@ -362,7 +397,7 @@ container
   .inSingletonScope();
 container
   .bind<SessionService>(SESSION_SERVICE)
-  .toDynamicValue(() => getSessionService())
+  .toDynamicValue((ctx) => getSessionService(ctx.get(HOST_CAPABILITIES)))
   .inSingletonScope();
 // git-interaction
 container.bind(GIT_WRITE_CLIENT).toConstantValue(gitWriteClient);

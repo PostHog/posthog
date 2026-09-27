@@ -51,6 +51,7 @@ export type TaskPreviewFrameProps = {
   pins: TaskPreviewPin[];
   locateRequest: TaskPreviewLocateRequest | null;
   navigationRequest: TaskPreviewNavigationRequest | null;
+  onLoadingChange: (loading: boolean) => void;
   onLoadFailed: () => void;
   onPicked: (
     element: TaskPreviewElement,

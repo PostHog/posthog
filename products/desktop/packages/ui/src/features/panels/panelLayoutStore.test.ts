@@ -5,6 +5,8 @@ vi.mock("@posthog/ui/shell/analytics", () => ({
   setActiveTaskContext: vi.fn(),
 }));
 
+import { useBrowserNavigationStore } from "@posthog/ui/features/task-preview/browserNavigationStore";
+import { openBrowserPage } from "@posthog/ui/features/task-preview/taskBrowserTabs";
 import { usePanelLayoutStore } from "./panelLayoutStore";
 import {
   assertActiveTab,
@@ -244,6 +246,60 @@ describe("panelLayoutStore", () => {
       const updated = findPanelById(getPanelTree("task-1"), side.id);
       if (updated?.type !== "leaf") throw new Error("Expected a leaf panel");
       expect(updated.content.activeTabId).toBe("browser-b2");
+    });
+
+    it("shows a comment's page in a tab of the same site, or in a new tab", () => {
+      const store = usePanelLayoutStore.getState();
+      store.openBrowserTab("task-1", {
+        browserId: "other",
+        url: "https://other.example.com/",
+        label: "other.example.com",
+      });
+      store.openBrowserTab("task-1", {
+        browserId: "same",
+        url: "https://example.com/",
+        label: "example.com",
+      });
+      store.openBrowserTab("task-1", {
+        browserId: "last",
+        url: "https://last.example.com/",
+        label: "last.example.com",
+      });
+
+      openBrowserPage("task-1", {
+        url: "https://example.com/pricing",
+        label: "example.com/pricing",
+      });
+
+      const browserTabIds = () =>
+        leafPanels(getPanelTree("task-1"))
+          .flatMap((panel) => panel.content.tabs)
+          .filter((tab) => tab.data.type === "browser")
+          .map((tab) => tab.id);
+      expect(browserTabIds()).toEqual([
+        "browser-other",
+        "browser-same",
+        "browser-last",
+      ]);
+      assertActiveTab(getPanelTree("task-1"), "main-panel", "browser-same");
+      expect(useBrowserNavigationStore.getState().requests.same?.url).toBe(
+        "https://example.com/pricing",
+      );
+
+      openBrowserPage("task-1", {
+        url: "https://new.example.com/docs",
+        label: "new.example.com/docs",
+      });
+
+      const opened = leafPanels(getPanelTree("task-1"))
+        .flatMap((panel) => panel.content.tabs)
+        .find(
+          (tab) =>
+            tab.data.type === "browser" &&
+            tab.data.url === "https://new.example.com/docs",
+        );
+      expect(opened).toBeDefined();
+      expect(browserTabIds()).toHaveLength(4);
     });
   });
 

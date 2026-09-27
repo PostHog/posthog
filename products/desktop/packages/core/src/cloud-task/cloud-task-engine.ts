@@ -732,7 +732,7 @@ export class CloudTaskEngine extends TypedEventEmitter<CloudTaskEvents> {
     if (!this.mcpRelayExecutor) return;
     const builtIn = data.server === TASK_BROWSER_MCP_SERVER;
     const designated = this.relayDesignations.get(watcher.runId);
-    if (!builtIn && !designated?.has(data.server)) {
+    if (!designated?.has(data.server)) {
       // Not created by this client, or a name the run never declared.
       return;
     }

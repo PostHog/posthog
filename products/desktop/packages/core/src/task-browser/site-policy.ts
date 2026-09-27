@@ -1,8 +1,5 @@
 import type { SitePolicy } from "./schemas";
 
-const SANDBOX_HOST_SUFFIX = ".modal.host";
-const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
 export function originOf(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -11,18 +8,6 @@ export function originOf(url: string): string | null {
       : null;
   } catch {
     return null;
-  }
-}
-
-export function isBuiltInOrigin(origin: string): boolean {
-  try {
-    const { hostname, protocol } = new URL(origin);
-    if (protocol === "https:" && hostname.endsWith(SANDBOX_HOST_SUFFIX)) {
-      return true;
-    }
-    return protocol === "http:" && LOCAL_HOSTS.has(hostname);
-  } catch {
-    return false;
   }
 }
 
@@ -39,7 +24,7 @@ export class SitePolicyStore {
   access(taskId: string, origin: string): SiteAccess {
     const saved = this.read()[origin];
     if (saved === "block") return "blocked";
-    if (saved === "allow" || isBuiltInOrigin(origin)) return "allowed";
+    if (saved === "allow") return "allowed";
     return this.taskApprovals.get(taskId)?.has(origin) ? "allowed" : "ask";
   }
 

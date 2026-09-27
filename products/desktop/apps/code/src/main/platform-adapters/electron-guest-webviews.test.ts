@@ -48,12 +48,6 @@ import {
   setupGuestWebviews,
   type TaskBrowserBridge,
 } from "./electron-guest-webviews";
-import {
-  authorizeTaskPreview,
-  createNewWindowLimiter,
-  isBlockedPreviewRequest,
-  protectedLoopbackPorts,
-} from "./electron-task-preview";
 
 type Handler = (...args: never[]) => void;
 
@@ -267,8 +261,10 @@ describe("guest webviews", () => {
   it("opens new windows of a browser tab as in-app tabs and keeps it on the web", async () => {
     const { openExternalIfSafe } = await import("../external-links");
     const bridge = {
-      taskForWebContents: vi.fn(() => "task-1"),
-      requestOpen: vi.fn(() => "browser-2"),
+      mayNavigate: vi.fn(
+        (_id: number, url: string) => !url.startsWith("https://blocked."),
+      ),
+      openFromPage: vi.fn(() => "opened" as const),
       recordNetwork: vi.fn(),
     };
     const guestHandlers = new Map<string, Handler>();
@@ -290,9 +286,8 @@ describe("guest webviews", () => {
     expect(windowOpenHandler?.({ url: "https://docs.example.com/" })).toEqual({
       action: "deny",
     });
-    expect(bridge.taskForWebContents).toHaveBeenCalledWith(7);
-    expect(bridge.requestOpen).toHaveBeenCalledWith(
-      "task-1",
+    expect(bridge.openFromPage).toHaveBeenCalledWith(
+      7,
       "https://docs.example.com/",
     );
 
@@ -300,7 +295,7 @@ describe("guest webviews", () => {
     expect(openExternalIfSafe).toHaveBeenCalledWith(
       "mailto:someone@example.com",
     );
-    expect(bridge.requestOpen).toHaveBeenCalledOnce();
+    expect(bridge.openFromPage).toHaveBeenCalledOnce();
 
     const toOtherSite = vi.fn();
     guestHandlers.get("will-navigate")?.(
@@ -308,6 +303,13 @@ describe("guest webviews", () => {
       "https://accounts.example.com/login" as never,
     );
     expect(toOtherSite).not.toHaveBeenCalled();
+
+    const toUnapprovedSite = vi.fn();
+    guestHandlers.get("will-navigate")?.(
+      { preventDefault: toUnapprovedSite } as never,
+      "https://blocked.example.com/" as never,
+    );
+    expect(toUnapprovedSite).toHaveBeenCalledOnce();
 
     const toFile = vi.fn();
     guestHandlers.get("will-navigate")?.(
@@ -337,112 +339,8 @@ describe("guest webviews", () => {
     expect(cancelled("http://localhost:3000/", "mainFrame")).toBe(false);
     expect(cancelled("http://localhost:3000/api", "xhr")).toBe(true);
     expect(cancelled("http://localhost:9222/json", "mainFrame")).toBe(true);
-  });
 
-  it("lets a page open only a few new windows at a time", () => {
-    let now = 0;
-    const mayOpen = createNewWindowLimiter(() => now);
-    expect([mayOpen(), mayOpen(), mayOpen(), mayOpen()]).toEqual([
-      true,
-      true,
-      true,
-      false,
-    ]);
-    now = 10_000;
-    expect(mayOpen()).toBe(true);
-  });
-
-  it.each([
-    ["the debugging port", "http://localhost:9222/json"],
-    ["the app's own dev server", "http://127.0.0.1:5173/"],
-  ])("blocks a local page from reaching %s", (_name, requestUrl) => {
-    const ports = protectedLoopbackPorts("9222", "http://localhost:5173/");
-    expect(
-      isBlockedPreviewRequest("http://localhost:3000/", requestUrl, ports),
-    ).toBe(true);
-    expect(
-      isBlockedPreviewRequest(
-        "http://localhost:3000/",
-        "http://localhost:3000/app.js",
-        ports,
-      ),
-    ).toBe(false);
-  });
-
-  it.each([
-    ["localhost", "https://a.modal.host/", "http://localhost:8000/", true],
-    [
-      "a loopback address",
-      "https://a.modal.host/",
-      "http://127.0.0.1:5432/",
-      true,
-    ],
-    ["an IPv6 loopback", "https://a.modal.host/", "http://[::1]:3000/", true],
-    ["a home router", "https://a.modal.host/", "http://192.168.1.1/", true],
-    ["a private network", "https://a.modal.host/", "ws://10.0.0.5:9000/", true],
-    [
-      "cloud metadata",
-      "https://a.modal.host/",
-      "http://169.254.169.254/",
-      true,
-    ],
-    ["a file", "https://a.modal.host/", "file:///etc/passwd", true],
-    [
-      "a public site",
-      "https://a.modal.host/",
-      "https://cdn.example.com/a.js",
-      false,
-    ],
-    [
-      "its own sandbox",
-      "https://a.modal.host/",
-      "wss://a.modal.host/hmr",
-      false,
-    ],
-    [
-      "a local preview's own server",
-      "http://localhost:5173/",
-      "http://localhost:5173/src/main.tsx",
-      false,
-    ],
-  ])(
-    "blocks a request from a preview to %s only when unsafe",
-    (_name, pageUrl, requestUrl, blocked) => {
-      expect(isBlockedPreviewRequest(pageUrl, requestUrl)).toBe(blocked);
-    },
-  );
-
-  it("moves the sandbox token into an http-only cookie", async () => {
-    const cookies = { set: vi.fn(async () => undefined) };
-
-    await expect(
-      authorizeTaskPreview(
-        "https://abc-123.modal.host/?_modal_connect_token=secret",
-        cookies,
-      ),
-    ).resolves.toBe("https://abc-123.modal.host/");
-    expect(cookies.set).toHaveBeenCalledWith({
-      url: "https://abc-123.modal.host",
-      name: "_modal_connect_token",
-      value: "secret",
-      path: "/",
-      secure: true,
-      httpOnly: true,
-      sameSite: "strict",
-    });
-
-    await expect(
-      authorizeTaskPreview(
-        "https://evil.example.com/?_modal_connect_token=secret",
-        cookies,
-      ),
-    ).resolves.toBeNull();
-    await expect(
-      authorizeTaskPreview(
-        "http://localhost:3000/?_modal_connect_token=secret",
-        cookies,
-      ),
-    ).resolves.toBeNull();
-    expect(cookies.set).toHaveBeenCalledOnce();
+    vi.mocked(webContents.fromId).mockReturnValue(undefined);
+    expect(cancelled("http://localhost:3000/api", "xhr")).toBe(true);
   });
 });

@@ -52,6 +52,8 @@ import { slackIntegrationRouter } from "@posthog/host-router/routers/slack-integ
 import { sleepRouter } from "@posthog/host-router/routers/sleep.router";
 import { speechRouter } from "@posthog/host-router/routers/speech.router";
 import { suspensionRouter } from "@posthog/host-router/routers/suspension.router";
+import { taskBrowserRouter } from "@posthog/host-router/routers/task-browser.router";
+import { taskPreviewRouter } from "@posthog/host-router/routers/task-preview.router";
 import { uiRouter } from "@posthog/host-router/routers/ui.router";
 import { updatesRouter } from "@posthog/host-router/routers/updates.router";
 import { usageMonitorRouter } from "@posthog/host-router/routers/usage-monitor.router";
@@ -60,8 +62,6 @@ import { devRouter } from "./routers/dev";
 import { discordPresenceRouter } from "./routers/discord-presence";
 import { encryptionRouter } from "./routers/encryption";
 import { missionControlRouter } from "./routers/mission-control";
-import { taskBrowserRouter } from "./routers/task-browser";
-import { taskPreviewRouter } from "./routers/task-preview";
 import { workspaceServerRouter } from "./routers/workspace-server";
 import { router } from "./trpc";
 

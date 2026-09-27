@@ -95,7 +95,7 @@ vi.mock("@posthog/ui/shell/useHostCapabilities", () => ({
     taskBrowser: mocks.taskBrowser,
   }),
 }));
-vi.mock("@posthog/ui/features/task-preview/openBrowserPage", () => ({
+vi.mock("@posthog/ui/features/task-preview/taskBrowserTabs", () => ({
   openBrowserPage: mocks.openBrowserPage,
 }));
 vi.mock("@posthog/ui/shell/openExternal", () => ({

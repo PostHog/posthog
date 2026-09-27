@@ -24,8 +24,11 @@ import {
 const log = logger.scope("guest-webviews");
 
 export interface TaskBrowserBridge {
-  taskForWebContents(webContentsId: number): string | null;
-  requestOpen(taskId: string, url: string): string;
+  mayNavigate(webContentsId: number, url: string): boolean;
+  openFromPage(
+    webContentsId: number,
+    url: string,
+  ): "opened" | "blocked" | "untracked";
   recordNetwork(webContentsId: number | undefined, text: string): void;
 }
 
@@ -77,10 +80,11 @@ export function setupGuestWebviews(
     if (guest.session === session.fromPartition(TASK_BROWSER_PARTITION)) {
       lockDownTaskBrowser(guest, {
         openInApp: (url, source) => {
-          const taskId = bridge?.taskForWebContents(source.id);
-          if (taskId) bridge?.requestOpen(taskId, url);
-          else openExternalIfSafe(url);
+          const outcome = bridge?.openFromPage(source.id, url) ?? "untracked";
+          if (outcome === "untracked") openExternalIfSafe(url);
         },
+        mayNavigate: (url, source) =>
+          bridge?.mayNavigate(source.id, url) ?? true,
         openExternal: openExternalIfSafe,
       });
       return;

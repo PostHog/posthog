@@ -1,11 +1,18 @@
-import { randomBytes } from "node:crypto";
-import http from "node:http";
-import type { AddressInfo } from "node:net";
+import type { TaskBrowserImage } from "@posthog/platform/task-browser";
 import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
-import type { BrowserRunner } from "./runner";
+
+export type BrowserRunResult = {
+  ok: boolean;
+  output: string;
+  images: TaskBrowserImage[];
+};
+
+export type RunBrowserCode = (
+  taskId: string,
+  code: string,
+) => Promise<BrowserRunResult>;
 
 const PROTOCOL_VERSION = "2025-06-18";
-const MAX_BODY_BYTES = 256_000;
 
 export const BROWSER_JS_TOOL_DESCRIPTION = `Control the in-app browser of PostHog Desktop, which the user sees next to the chat. Write a JavaScript async function body. It runs in a sandbox with one object, \`browser\`, and no network, Node or DOM access of its own. Use \`return\` or \`console.log\` for output. Screenshots are attached to the result.
 
@@ -22,8 +29,8 @@ API (all methods are async):
 - tab.waitFor(text, timeoutMs) -> ref: waits for text to appear (at most 20 s).
 - tab.screenshot(ref?) -> attaches an image of the page or of one element.
 - tab.console(since?) and tab.network(since?) -> [{ at, text }]: console messages and failed requests since a timestamp.
-- tab.evaluate(fn) -> JSON: runs a function in an isolated world of the page. It can read the DOM, not the page's own JavaScript.
-- tab.cdp(method, params): Chrome DevTools Protocol for this tab only (Page, Runtime, DOM, CSS, Network, Input, Emulation and other page domains). Only when the user turned on full CDP access.
+- tab.evaluate(fn) -> JSON: runs a function in an isolated world of the page. It needs the user's Full DevTools access, like tab.cdp.
+- tab.cdp(method, params): Chrome DevTools Protocol for this tab only (Page, Runtime, DOM, CSS, Network, Emulation and other page domains). It has no Input domain: use tab.click, tab.type and tab.press for input. Only when the user turned on full CDP access.
 - tab.close().
 
 Refs change when the page changes: take a new snapshot after navigation or big updates. The user approves each new site, and confirms sign-ins, purchases, submitting entered data and other sensitive actions.
@@ -50,7 +57,7 @@ type JsonRpcResponse = {
 };
 
 export class BrowserMcpHandler {
-  constructor(private readonly runner: BrowserRunner) {}
+  constructor(private readonly runCode: RunBrowserCode) {}
 
   async handle(
     taskId: string,
@@ -111,7 +118,7 @@ export class BrowserMcpHandler {
             },
           };
         }
-        const result = await this.runner.run(taskId, args.code);
+        const result = await this.runCode(taskId, args.code);
         return ok({
           isError: !result.ok,
           content: [
@@ -137,98 +144,5 @@ export class BrowserMcpHandler {
           },
         };
     }
-  }
-}
-
-export class BrowserMcpHttpServer {
-  private server: http.Server | null = null;
-  private port: number | null = null;
-  private readonly tokens = new Map<string, string>();
-
-  constructor(private readonly handler: BrowserMcpHandler) {}
-
-  async connectionFor(taskId: string): Promise<{ url: string; token: string }> {
-    const port = await this.start();
-    let token = [...this.tokens.entries()].find(([, id]) => id === taskId)?.[0];
-    if (!token) {
-      token = randomBytes(24).toString("hex");
-      this.tokens.set(token, taskId);
-    }
-    return { url: `http://127.0.0.1:${port}/mcp`, token };
-  }
-
-  revoke(taskId: string): void {
-    for (const [token, id] of this.tokens) {
-      if (id === taskId) this.tokens.delete(token);
-    }
-  }
-
-  private start(): Promise<number> {
-    if (this.port !== null) return Promise.resolve(this.port);
-    return new Promise((resolve, reject) => {
-      const server = http.createServer(
-        (req, res) => void this.onRequest(req, res),
-      );
-      server.once("error", reject);
-      server.listen(0, "127.0.0.1", () => {
-        this.server = server;
-        this.port = (server.address() as AddressInfo).port;
-        resolve(this.port);
-      });
-    });
-  }
-
-  private async onRequest(req: http.IncomingMessage, res: http.ServerResponse) {
-    const auth = req.headers.authorization ?? "";
-    const taskId = auth.startsWith("Bearer ")
-      ? this.tokens.get(auth.slice("Bearer ".length))
-      : undefined;
-    if (!taskId || req.url !== "/mcp") {
-      res.writeHead(401).end();
-      return;
-    }
-    if (req.method !== "POST") {
-      res.writeHead(405, { Allow: "POST" }).end();
-      return;
-    }
-    const chunks: Buffer[] = [];
-    let size = 0;
-    for await (const chunk of req) {
-      size += (chunk as Buffer).length;
-      if (size > MAX_BODY_BYTES) {
-        res.writeHead(413).end();
-        return;
-      }
-      chunks.push(chunk as Buffer);
-    }
-    let payload: unknown;
-    try {
-      payload = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    } catch {
-      res.writeHead(400).end();
-      return;
-    }
-    const messages = Array.isArray(payload) ? payload : [payload];
-    const responses = (
-      await Promise.all(
-        messages.map((message) =>
-          message && typeof message === "object"
-            ? this.handler.handle(taskId, message as Record<string, unknown>)
-            : null,
-        ),
-      )
-    ).filter((response) => response !== null);
-    if (responses.length === 0) {
-      res.writeHead(202).end();
-      return;
-    }
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(Array.isArray(payload) ? responses : responses[0]));
-  }
-
-  close(): void {
-    this.server?.close();
-    this.server = null;
-    this.port = null;
   }
 }

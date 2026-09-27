@@ -18,10 +18,11 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
+import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CommentableFrame } from "./CommentableFrame";
 import { PreviewAddressBar } from "./PreviewAddressBar";
 import { previewCommentTarget } from "./previewCommentTarget";
@@ -63,12 +64,13 @@ function problemCopy(
     case "unavailable":
       return {
         title: "The server isn't answering",
-        description: `Nothing answers on port ${port}. The server can still be starting. Try again in a moment.`,
+        description:
+          "The server might still be starting. Try again in a moment.",
       };
     case "load_failed":
       return {
         title: "The preview didn't load",
-        description: "Try again in a moment.",
+        description: `The page on port ${port} didn't respond. Check that the server is running, then try again.`,
       };
     case "error":
       return {
@@ -88,6 +90,7 @@ export function TaskPreviewPanel({
   const [attempt, setAttempt] = useState(0);
   const [failedAttempt, setFailedAttempt] = useState<number | null>(null);
   const [commenting, setCommenting] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [location, setLocation] = useState<TaskPreviewLocation>({
     path: "/",
     canGoBack: false,
@@ -101,7 +104,6 @@ export function TaskPreviewPanel({
     () => previewCommentTarget(taskId, port),
     [taskId, port],
   );
-  const surface = useMemo(() => ({ kind: "preview" as const, port }), [port]);
   const openPreviewTab = usePanelLayoutStore((state) => state.openPreviewTab);
   const remoteSession = useTaskPreviewSession(
     taskId,
@@ -143,6 +145,16 @@ export function TaskPreviewPanel({
     }
     requestNavigation(target);
   };
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
+  const surface = useMemo(
+    () => ({
+      kind: "preview" as const,
+      port,
+      onOpenPage: (path: string) => navigateRef.current(path),
+    }),
+    [port],
+  );
   const openSideBySide = () => {
     track(ANALYTICS_EVENTS.TASK_PREVIEW_OPENED, {
       source: "preview_tab",
@@ -180,6 +192,7 @@ export function TaskPreviewPanel({
           <Button
             variant="outline"
             size="default"
+            data-attr="task-preview-retry"
             disabled={session.isFetching}
             onClick={retry}
           >
@@ -203,6 +216,7 @@ export function TaskPreviewPanel({
         navigationRequest={navigationRequest}
         onLocationChange={setLocation}
         onCommentingChange={setCommenting}
+        onLoadingChange={setLoading}
         onLoadFailed={() => setFailedAttempt(attempt)}
       />
     );
@@ -214,13 +228,10 @@ export function TaskPreviewPanel({
         inset="text"
         actions={
           <>
+            {loading && !problem && <Spinner size="sm" label="Loading page" />}
             {annotationsSupported && (
               <Tooltip
-                content={
-                  commenting
-                    ? "Stop commenting"
-                    : "Comment on an element of the page"
-                }
+                content={commenting ? "Stop commenting" : "Comment on the page"}
                 side="bottom"
               >
                 <Button
@@ -250,10 +261,10 @@ export function TaskPreviewPanel({
                 </Button>
               </Tooltip>
             )}
-            <Tooltip content="Reload preview" side="bottom">
+            <Tooltip content="Reload page" side="bottom">
               <Button
                 size="icon-sm"
-                aria-label="Reload preview"
+                aria-label="Reload page"
                 data-attr="task-preview-reload"
                 disabled={session.isFetching}
                 onClick={retry}
@@ -262,10 +273,10 @@ export function TaskPreviewPanel({
               </Button>
             </Tooltip>
             {local && (
-              <Tooltip content="Open in browser" side="bottom">
+              <Tooltip content="Open in your browser" side="bottom">
                 <Button
                   size="icon-sm"
-                  aria-label="Open in browser"
+                  aria-label="Open in your browser"
                   data-attr="task-preview-open-in-browser"
                   disabled={!url}
                   onClick={openInBrowser}

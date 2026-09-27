@@ -454,6 +454,10 @@ export class TaskCreationSaga extends Saga<
           const cloudAdapter = isPiRuntime
             ? undefined
             : (input.adapter ?? "claude");
+          const relayedServers = withTaskBrowser(
+            input.relayedMcpServers,
+            !isPiRuntime && this.deps.host.hasTaskBrowser?.() === true,
+          );
           const taskRun = await this.deps.posthogClient.createTaskRun(task.id, {
             environment: "cloud",
             mode: "interactive",
@@ -474,10 +478,7 @@ export class TaskCreationSaga extends Saga<
             runSource: input.cloudRunSource ?? "manual",
             signalReportId: input.signalReportId,
             importedMcpServers: input.importedMcpServers,
-            relayedMcpServers: withTaskBrowser(
-              input.relayedMcpServers,
-              !isPiRuntime && this.deps.host.hasTaskBrowser?.() === true,
-            ),
+            relayedMcpServers: relayedServers,
             initialPermissionMode: cloudAdapter
               ? (input.executionMode ??
                 (cloudAdapter === "codex" ? "auto" : "plan"))
@@ -494,13 +495,13 @@ export class TaskCreationSaga extends Saga<
             );
           }
 
-          if (!isPiRuntime && input.relayedMcpServers?.length) {
+          if (!isPiRuntime && relayedServers?.length) {
             // Best-effort: relay designation failing must not fail creation —
             // the run still works, minus desktop-relayed servers.
             await this.deps.sessionService
               .designateRelayedMcpServers(
                 taskRun.id,
-                input.relayedMcpServers.map((server) => server.name),
+                relayedServers.map((server) => server.name),
               )
               .catch(() => undefined);
           }

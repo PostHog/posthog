@@ -46,6 +46,7 @@ interface SelectionCommentOverlayProps {
   onSendToAgent?: (text: string, screenshot: string | null) => void;
   captureScreenshot?: boolean;
   submitLabel?: string;
+  selectionKey?: string;
 }
 
 /**
@@ -67,12 +68,15 @@ export function SelectionCommentOverlay({
   onSendToAgent,
   captureScreenshot = true,
   submitLabel,
+  selectionKey,
 }: SelectionCommentOverlayProps) {
   if (!open || !selection?.anchor) return null;
-  // Key by the range so a fresh selection remounts the card back to the "+".
   return (
     <SelectionComposerCard
-      key={`${selection.fromLine}:${selection.toLine}`}
+      key={
+        selectionKey ??
+        `${selection.fromLine}:${selection.toLine}:${selection.text}`
+      }
       anchor={selection.anchor}
       fromLine={selection.fromLine}
       toLine={selection.toLine}

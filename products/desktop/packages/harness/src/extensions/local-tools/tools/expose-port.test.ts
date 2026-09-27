@@ -3,7 +3,6 @@ import { enabledLocalTools } from "../index";
 import {
   checkListener,
   EXPOSE_PORT_TOOL_NAME,
-  exposePortSchema,
   reservedPortProblem,
 } from "./expose-port";
 
@@ -62,10 +61,6 @@ describe("expose_port tool", () => {
       expect(tools.some((t) => t.name === EXPOSE_PORT_TOOL_NAME)).toBe(exposed);
     },
   );
-
-  it.each([80, 70000])("rejects port %i", (port) => {
-    expect(exposePortSchema.port.safeParse(port).success).toBe(false);
-  });
 
   it.each([
     { port: 8080, cloud: true, reserved: true },

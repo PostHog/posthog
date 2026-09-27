@@ -129,12 +129,6 @@ export const WORKSPACE_SERVER_SERVICE = Symbol.for(
 export const DISCORD_PRESENCE_SERVICE = Symbol.for(
   "posthog.host.main.discord-presence.service",
 );
-export const TASK_BROWSER_SERVICE = Symbol.for(
-  "posthog.host.main.task-browser.service",
-);
-export const TASK_BROWSER_HOST = Symbol.for(
-  "posthog.host.main.task-browser.host",
-);
 export const MISSION_CONTROL_SERVICE = Symbol.for(
   "posthog.host.main.mission-control.service",
 );

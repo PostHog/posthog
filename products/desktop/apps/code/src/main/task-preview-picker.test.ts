@@ -68,6 +68,8 @@ describe("task preview picker", () => {
     expect(send).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "picked" }),
     );
-    receive({ type: "pick", active: false });
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(send).toHaveBeenCalledWith({ type: "pick-cancelled" });
   });
 });

@@ -810,6 +810,81 @@ describe("AgentService", () => {
   });
 
   describe("MCP servers", () => {
+    function serviceWithBrowser(taskBrowser: {
+      localConnection: ReturnType<typeof vi.fn>;
+      release: ReturnType<typeof vi.fn>;
+    }) {
+      return new AgentService(
+        deps.processTracking as never,
+        deps.sleepService as never,
+        deps.fsService as never,
+        deps.posthogPluginService as never,
+        deps.agentAuthAdapter as never,
+        deps.mcpAppsService as never,
+        deps.powerManager as never,
+        deps.bundledResources as never,
+        deps.appMeta as never,
+        deps.storagePaths as never,
+        deps.workspaceRepository as never,
+        deps.workspaceSettings as never,
+        deps.loggerFactory as never,
+        taskBrowser as never,
+      );
+    }
+
+    it.each([
+      ["connects", true],
+      ["fails to connect", false],
+    ])(
+      "starts the session when the in-app browser %s",
+      async (_name, connects) => {
+        const taskBrowser = {
+          localConnection: vi.fn(async () => {
+            if (!connects) throw new Error("port in use");
+            return { url: "http://127.0.0.1:4000/mcp", token: "secret" };
+          }),
+          release: vi.fn(),
+        };
+
+        await serviceWithBrowser(taskBrowser).startSession({
+          ...baseSessionParams,
+          adapter: "claude",
+        });
+
+        expect(taskBrowser.localConnection).toHaveBeenCalledWith("task-1");
+        const names = mockNewSession.mock.calls[0][0].mcpServers.map(
+          (server: { name: string }) => server.name,
+        );
+        expect(names.includes("posthog-browser")).toBe(connects);
+        expect(names).toContain("posthog");
+      },
+    );
+
+    it("releases the in-app browser only when the task's last session ends", async () => {
+      const taskBrowser = { localConnection: vi.fn(), release: vi.fn() };
+      const svc = serviceWithBrowser(taskBrowser);
+      const sessions = (svc as unknown as { sessions: Map<string, unknown> })
+        .sessions;
+      for (const taskRunId of ["run-a", "run-b"]) {
+        sessions.set(taskRunId, {
+          taskRunId,
+          taskId: "task-1",
+          agent: { cleanup: vi.fn().mockResolvedValue(undefined) },
+          promptPending: false,
+          inFlightMcpToolCalls: new Map(),
+        });
+      }
+      const cleanup = (taskRunId: string) =>
+        (
+          svc as unknown as { cleanupSession: (id: string) => Promise<void> }
+        ).cleanupSession(taskRunId);
+
+      await cleanup("run-a");
+      expect(taskBrowser.release).not.toHaveBeenCalled();
+      await cleanup("run-b");
+      expect(taskBrowser.release).toHaveBeenCalledWith("task-1");
+    });
+
     it("marks desktop sessions as local even though they have a taskRunId", async () => {
       await service.startSession({
         ...baseSessionParams,

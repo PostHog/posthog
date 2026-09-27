@@ -21,4 +21,5 @@ export const AGENT_TASK_BROWSER = Symbol.for(
 
 export interface AgentTaskBrowser {
   localConnection(taskId: string): Promise<{ url: string; token: string }>;
+  release(taskId: string): void;
 }

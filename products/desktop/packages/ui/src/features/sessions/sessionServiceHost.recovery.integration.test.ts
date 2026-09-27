@@ -390,7 +390,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
   });
 
   it("recovers a stranded queue after an idle resumed run drops to disconnected", async () => {
-    const service = getSessionService();
+    const service = getSessionService(null);
 
     // Subscribe (captures the onUpdate.onData channel) without letting the
     // async hydrate clobber the state we control below.
@@ -487,7 +487,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
   });
 
   it("drains a queue stranded on an idle disconnected run via the real retry path (no injected status update)", async () => {
-    const service = getSessionService();
+    const service = getSessionService(null);
     service.watchCloudTask(
       TASK_ID,
       RUN_ID,
@@ -540,7 +540,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
   it.each<AgentSession["status"]>(["disconnected", "error"])(
     "drains a stranded queue when the server reports the sandbox stopped and the session is %s",
     async (status) => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       service.watchCloudTask(
         TASK_ID,
         RUN_ID,
@@ -585,7 +585,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
   );
 
   it("does not drain while the agent is still booting (boot race protected)", async () => {
-    const service = getSessionService();
+    const service = getSessionService(null);
     service.watchCloudTask(
       TASK_ID,
       RUN_ID,
@@ -627,7 +627,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
   });
 
   it("does not drain on a current-run run_started snapshot until turn_complete (initial/resume turn race)", async () => {
-    const service = getSessionService();
+    const service = getSessionService(null);
     service.watchCloudTask(
       TASK_ID,
       RUN_ID,
@@ -729,7 +729,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
   });
 
   it("does not dispatch a queued follow-up mid-turn after retryCloudTaskWatch clears isPromptPending", async () => {
-    const service = getSessionService();
+    const service = getSessionService(null);
     service.watchCloudTask(
       TASK_ID,
       RUN_ID,
@@ -848,7 +848,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
   });
 
   it("clears the idle marker when sendCloudPrompt starts a turn even if the session/prompt log never arrives", async () => {
-    const service = getSessionService();
+    const service = getSessionService(null);
     service.watchCloudTask(
       TASK_ID,
       RUN_ID,
@@ -956,7 +956,7 @@ describe("SessionService cloud queue recovery (real store, e2e)", () => {
   });
 
   it("does not recover from a prior run's turn_complete carried into the resumed session", async () => {
-    const service = getSessionService();
+    const service = getSessionService(null);
     service.watchCloudTask(
       TASK_ID,
       RUN_ID,

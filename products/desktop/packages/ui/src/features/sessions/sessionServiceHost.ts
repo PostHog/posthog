@@ -14,15 +14,12 @@ import {
   type SessionServiceDeps,
 } from "@posthog/core/sessions/sessionService";
 import { extractSkillButtonId } from "@posthog/core/skill-buttons/prompts";
-import { resolveService, resolveServiceOptional } from "@posthog/di/container";
+import { resolveService } from "@posthog/di/container";
 import {
   HOST_TRPC_CLIENT,
   type HostTrpcClient,
 } from "@posthog/host-router/client";
-import {
-  HOST_CAPABILITIES,
-  type HostCapabilities,
-} from "@posthog/platform/host-capabilities";
+import type { HostCapabilities } from "@posthog/platform/host-capabilities";
 import {
   BEDROCK_GATEWAY_VARIANTS,
   BEDROCK_LLM_GATEWAY_FLAG,
@@ -63,6 +60,7 @@ import {
   buildPermissionToolMetadata,
   track,
 } from "@posthog/ui/shell/posthogAnalyticsImpl";
+import { hasTaskBrowserCapability } from "../../shell/hasTaskBrowserCapability";
 import { logger } from "../../shell/logger";
 import {
   IMPERATIVE_QUERY_CLIENT,
@@ -110,7 +108,9 @@ function hostClient(): HostTrpcClient {
   return resolveService<HostTrpcClient>(HOST_TRPC_CLIENT);
 }
 
-function buildSessionServiceDeps(): SessionServiceDeps {
+function buildSessionServiceDeps(
+  hostCapabilities: HostCapabilities | null,
+): SessionServiceDeps {
   const trpc = hostClient();
   const queryClient = resolveService<ImperativeQueryClient>(
     IMPERATIVE_QUERY_CLIENT,
@@ -123,9 +123,7 @@ function buildSessionServiceDeps(): SessionServiceDeps {
 
   return {
     trpc,
-    hasTaskBrowser:
-      resolveServiceOptional<HostCapabilities>(HOST_CAPABILITIES)
-        ?.taskBrowser === true,
+    hasTaskBrowser: hasTaskBrowserCapability(hostCapabilities),
     store: sessionStoreSetters,
     log,
     toast: {
@@ -244,9 +242,13 @@ function buildSessionServiceDeps(): SessionServiceDeps {
 
 let serviceInstance: SessionService | null = null;
 
-export function getSessionService(): SessionService {
+export function getSessionService(
+  hostCapabilities: HostCapabilities | null,
+): SessionService {
   if (!serviceInstance) {
-    serviceInstance = new SessionService(buildSessionServiceDeps());
+    serviceInstance = new SessionService(
+      buildSessionServiceDeps(hostCapabilities),
+    );
   }
   return serviceInstance;
 }

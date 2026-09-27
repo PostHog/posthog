@@ -1003,6 +1003,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
   }
 
+  private releaseTaskBrowser(taskId: string | undefined): void {
+    if (!this.taskBrowser || !taskId) return;
+    const stillOpen = [...this.sessions.values()].some(
+      (session) => session.taskId === taskId,
+    );
+    if (!stillOpen) this.taskBrowser.release(taskId);
+  }
+
   private async getOrCreateSession(
     config: SessionConfig,
     isReconnect: false,
@@ -2031,6 +2039,7 @@ For git operations while detached:
 
       this.sessions.delete(taskRunId);
       this.lastNoListenerWarnAt.delete(taskRunId);
+      this.releaseTaskBrowser(session.taskId);
 
       const timeout = this.idleTimeouts.get(taskRunId);
       if (timeout) {

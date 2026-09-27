@@ -576,15 +576,15 @@ describe("SessionService", () => {
 
   describe("singleton management", () => {
     it("returns the same instance on multiple calls", () => {
-      const instance1 = getSessionService();
-      const instance2 = getSessionService();
+      const instance1 = getSessionService(null);
+      const instance2 = getSessionService(null);
       expect(instance1).toBe(instance2);
     });
 
     it("creates new instance after reset", () => {
-      const instance1 = getSessionService();
+      const instance1 = getSessionService(null);
       resetSessionService();
-      const instance2 = getSessionService();
+      const instance2 = getSessionService(null);
       expect(instance1).not.toBe(instance2);
     });
 
@@ -647,7 +647,7 @@ describe("SessionService", () => {
         async (_taskId, _runId, storagePath) =>
           `https://s3.example.com/${storagePath}`,
       );
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       await Promise.all([
         service.getCloudAttachmentPreviewUrl(
@@ -676,7 +676,7 @@ describe("SessionService", () => {
             resolvers.push(resolve);
           }),
       );
-      const service = getSessionService();
+      const service = getSessionService(null);
       const first = service.getCloudAttachmentPreviewUrl(
         "task-123",
         "run-123",
@@ -723,7 +723,7 @@ describe("SessionService", () => {
       );
 
       await expect(
-        getSessionService().getCloudAttachmentPreviewUrl(
+        getSessionService(null).getCloudAttachmentPreviewUrl(
           "task-123",
           "run-123",
           "artifact-456",
@@ -742,7 +742,7 @@ describe("SessionService", () => {
       mockAuthenticatedClient.getTaskRun.mockResolvedValue({ artifacts: [] });
 
       await expect(
-        getSessionService().getCloudAttachmentPreviewUrl(
+        getSessionService(null).getCloudAttachmentPreviewUrl(
           "task-123",
           "run-123",
           "missing",
@@ -760,7 +760,7 @@ describe("SessionService", () => {
       });
 
       await expect(
-        getSessionService().getCloudAttachmentPreviewUrl(
+        getSessionService(null).getCloudAttachmentPreviewUrl(
           "task-123",
           "run-123",
           "artifact-456",
@@ -783,7 +783,7 @@ describe("SessionService", () => {
       );
 
       await expect(
-        getSessionService().getCloudAttachmentPreviewUrl(
+        getSessionService(null).getCloudAttachmentPreviewUrl(
           "task-123",
           "run-123",
           "artifact-456",
@@ -794,7 +794,7 @@ describe("SessionService", () => {
 
   describe("connectToTask", () => {
     it("skips local connection for cloud runs", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       await service.connectToTask({
         task: createMockTask({
@@ -823,7 +823,7 @@ describe("SessionService", () => {
     });
 
     it("skips connection if already connected", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession({ status: "connected" });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
 
@@ -836,7 +836,7 @@ describe("SessionService", () => {
     });
 
     it("skips connection if already connecting", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession({ status: "connecting" });
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
 
@@ -853,7 +853,7 @@ describe("SessionService", () => {
       // the store through getEffectiveCustomInstructions, so the synced file -
       // not the hand-typed instructions - reaches agent.start. Reverting that
       // to a plain state.customInstructions pass-through would send "typed".
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSettingsState.customInstructions = "typed";
       mockSettingsState.syncCustomInstructionsFromFile = true;
       mockSettingsState.syncedCustomInstructions = {
@@ -888,7 +888,7 @@ describe("SessionService", () => {
     });
 
     it("starts Codex with the access selected for the task", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
       mockBuildAuthenticatedClient.mockReturnValue({
         ...mockAuthenticatedClient,
@@ -922,7 +922,7 @@ describe("SessionService", () => {
     });
 
     it("starts Claude with the access selected for the task", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
       mockBuildAuthenticatedClient.mockReturnValue({
         ...mockAuthenticatedClient,
@@ -956,7 +956,7 @@ describe("SessionService", () => {
     });
 
     it("deduplicates concurrent connection attempts", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       // Setup: no existing session initially
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
@@ -1010,7 +1010,7 @@ describe("SessionService", () => {
 
     it("creates error session when offline", async () => {
       mockGetIsOnline.mockReturnValue(false);
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       await service.connectToTask({
         task: createMockTask(),
@@ -1026,7 +1026,7 @@ describe("SessionService", () => {
     });
 
     it("creates error session when auth is missing", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       mockAuth.fetchAuthState.mockResolvedValue({
         status: "anonymous",
@@ -1056,7 +1056,7 @@ describe("SessionService", () => {
     it("keeps the session connecting while auth restores, then recovers", async () => {
       vi.useFakeTimers();
       try {
-        const service = getSessionService();
+        const service = getSessionService(null);
         const clearSpy = vi
           .spyOn(service, "clearSessionError")
           .mockResolvedValue(undefined);
@@ -1134,7 +1134,7 @@ describe("SessionService", () => {
         vi.useFakeTimers();
         try {
           setupFailingConnect();
-          const service = getSessionService();
+          const service = getSessionService(null);
           const clearSpy = vi
             .spyOn(service, "clearSessionError")
             .mockResolvedValue(undefined);
@@ -1166,7 +1166,7 @@ describe("SessionService", () => {
         vi.useFakeTimers();
         try {
           setupFailingConnect();
-          const service = getSessionService();
+          const service = getSessionService(null);
           const clearSpy = vi
             .spyOn(service, "clearSessionError")
             .mockRejectedValue(new Error("retry failed"));
@@ -1201,7 +1201,7 @@ describe("SessionService", () => {
         vi.useFakeTimers();
         try {
           setupFailingConnect();
-          const service = getSessionService();
+          const service = getSessionService(null);
           const clearSpy = vi
             .spyOn(service, "clearSessionError")
             .mockResolvedValue(undefined);
@@ -1237,7 +1237,7 @@ describe("SessionService", () => {
         vi.useFakeTimers();
         try {
           setupFailingConnect();
-          const service = getSessionService();
+          const service = getSessionService(null);
           const clearSpy = vi
             .spyOn(service, "clearSessionError")
             .mockRejectedValue(new Error("retry failed"));
@@ -1262,7 +1262,7 @@ describe("SessionService", () => {
 
   describe("disconnectFromTask", () => {
     it("does nothing if no session exists", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
       await service.disconnectFromTask("task-123");
@@ -1271,7 +1271,7 @@ describe("SessionService", () => {
     });
 
     it("cancels agent and removes session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
 
@@ -1286,7 +1286,7 @@ describe("SessionService", () => {
     });
 
     it("still removes session if cancel fails", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockTrpcAgent.cancel.mutate.mockRejectedValue(new Error("Cancel failed"));
@@ -1301,7 +1301,7 @@ describe("SessionService", () => {
 
   describe("watchCloudTask", () => {
     it("builds codex cloud mode options using native codex modes", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       service.watchCloudTask(
         "task-123",
@@ -1369,7 +1369,7 @@ describe("SessionService", () => {
       );
       mockTrpcCloudTask.sendCommand.mutate.mockResolvedValue({ success: true });
 
-      const initialService = getSessionService();
+      const initialService = getSessionService(null);
       await initialService.setSessionConfigOption(
         "task-123",
         "mode",
@@ -1389,7 +1389,7 @@ describe("SessionService", () => {
       resetSessionService();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
       mockSessionStoreSetters.setSession.mockClear();
-      const restoredService = getSessionService();
+      const restoredService = getSessionService(null);
       restoredService.watchCloudTask(
         "task-123",
         "run-123",
@@ -1424,7 +1424,7 @@ describe("SessionService", () => {
     });
 
     it("drops persisted options when the cloud adapter changes", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockAdapterFns.getAdapter.mockReturnValue("claude");
       mockSessionConfigStore.getPersistedConfigOptions.mockReturnValue([
         {
@@ -1503,7 +1503,7 @@ describe("SessionService", () => {
     });
 
     it("shows the selected cloud model and reasoning before preview config loads", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       service.watchCloudTask(
         "task-runtime-123",
@@ -1539,7 +1539,7 @@ describe("SessionService", () => {
     });
 
     it("resets a same-run preloaded session before the first cloud snapshot", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           taskRunId: "run-123",
@@ -1573,7 +1573,7 @@ describe("SessionService", () => {
     });
 
     it("subscribes to cloud updates before starting the watcher", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       service.watchCloudTask(
         "task-123",
@@ -1605,7 +1605,7 @@ describe("SessionService", () => {
     });
 
     it("keeps the cloud watcher alive when the caller cleanup runs", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const unsubscribe = vi.fn();
       mockTrpcCloudTask.onUpdate.subscribe.mockReturnValueOnce({
         unsubscribe,
@@ -1624,7 +1624,7 @@ describe("SessionService", () => {
     });
 
     it("reuses the existing watcher across effect churn", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const unsubscribe = vi.fn();
       mockTrpcCloudTask.onUpdate.subscribe.mockReturnValueOnce({
         unsubscribe,
@@ -1652,7 +1652,7 @@ describe("SessionService", () => {
     });
 
     it("marks a reused same-run watcher terminal when task data reports completion", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const unsubscribe = vi.fn();
       const onStatusChange = vi.fn();
       mockTrpcCloudTask.onUpdate.subscribe.mockReturnValueOnce({
@@ -1721,7 +1721,7 @@ describe("SessionService", () => {
         true,
       ],
     ])("watchCloudTask %s", (_name, sessionOverrides, shouldWatch) => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           taskId: "task-123",
@@ -1746,7 +1746,7 @@ describe("SessionService", () => {
     });
 
     it("hydrates a caller-reported terminal run without watching it", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const onStatusChange = vi.fn();
       const session = createMockSession({
         taskId: "task-123",
@@ -1853,7 +1853,7 @@ describe("SessionService", () => {
     });
 
     it("counts a truncated head into the stream cursors", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -1911,7 +1911,7 @@ describe("SessionService", () => {
     });
 
     it("renders the tail of an oversized chain and loads older pages on demand", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2014,7 +2014,7 @@ describe("SessionService", () => {
     });
 
     it("hydrates an uncached in-progress run from the transcript window, not the full log", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2098,7 +2098,7 @@ describe("SessionService", () => {
     });
 
     it("commits a windowed snapshot at its offset instead of refetching the whole log", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2167,7 +2167,7 @@ describe("SessionService", () => {
     });
 
     it("keeps paged-in older history when a windowed snapshot overlaps the transcript", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2233,7 +2233,7 @@ describe("SessionService", () => {
     });
 
     it("waits out a restoring auth before hydrating instead of bailing", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2281,7 +2281,7 @@ describe("SessionService", () => {
     });
 
     it("follows the log past a probe count the run grew behind", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2345,7 +2345,7 @@ describe("SessionService", () => {
     });
 
     it("falls back to the sequential fetch when the server omits the matching count", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2402,7 +2402,7 @@ describe("SessionService", () => {
     });
 
     it("recovers from a failed older-page fetch and can retry", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2445,7 +2445,7 @@ describe("SessionService", () => {
     });
 
     it("discards an older page when the window moved while it was in flight", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const sessionAtFetch = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2483,7 +2483,7 @@ describe("SessionService", () => {
     });
 
     it("falls back to the run log URL when terminal chain hydration is empty", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2558,7 +2558,7 @@ describe("SessionService", () => {
     });
 
     it("does not cache or seed an empty terminal hydration", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2603,7 +2603,7 @@ describe("SessionService", () => {
     });
 
     it("starts terminal hydration even when resume-chain hydration is already in flight", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2691,7 +2691,7 @@ describe("SessionService", () => {
     });
 
     it("keeps the settled terminal cursor when a resume-chain hydration resolves late", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskId: "task-123",
         taskRunId: "run-123",
@@ -2788,7 +2788,7 @@ describe("SessionService", () => {
     });
 
     it("does not re-subscribe across repeated calls for a hydrated terminal run", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           taskId: "task-123",
@@ -2816,7 +2816,7 @@ describe("SessionService", () => {
     });
 
     it("preserves an existing status callback when reusing a watcher without one", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const onStatusChange = vi.fn();
 
       service.watchCloudTask(
@@ -2853,7 +2853,7 @@ describe("SessionService", () => {
     });
 
     it("ignores stale non-terminal stream status after a terminal status", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const onStatusChange = vi.fn();
       const completedSession = createMockSession({
         taskId: "task-123",
@@ -2894,7 +2894,7 @@ describe("SessionService", () => {
     });
 
     it("hydrates a fresh cloud session from persisted logs before replay arrives", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const hydratedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -2947,7 +2947,7 @@ describe("SessionService", () => {
     });
 
     it("flips isPromptPending on hydration when the log tail has an in-flight prompt", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const hydratedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -2998,7 +2998,7 @@ describe("SessionService", () => {
     });
 
     it("leaves isPromptPending false on hydration when the log tail has a completed prompt", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const hydratedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -3069,7 +3069,7 @@ describe("SessionService", () => {
     });
 
     it("registers object references from a completed hydrated turn", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -3152,7 +3152,7 @@ describe("SessionService", () => {
     });
 
     it("retries a failed registration batch on the next flush", async () => {
-      const service = getSessionService() as unknown as {
+      const service = getSessionService(null) as unknown as {
         registerPostHogReferences(
           taskId: string,
           taskRunId: string,
@@ -3199,7 +3199,7 @@ describe("SessionService", () => {
     });
 
     it("flushes queued cloud messages on _posthog/turn_complete", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       // Reset auth client (a prior test may have set it to null).
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
@@ -3263,7 +3263,7 @@ describe("SessionService", () => {
     });
 
     it("flushes queued cloud messages when cloudStatus flips to in_progress on a connected, idle session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -3332,7 +3332,7 @@ describe("SessionService", () => {
     });
 
     it("coalesces repeated idle recovery status updates before the queued flush runs", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const queuedMessage = {
         id: "q-1",
         content: "follow up",
@@ -3427,7 +3427,7 @@ describe("SessionService", () => {
     });
 
     it("does not flush queued cloud messages when cloudStatus flips to in_progress while still connecting", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -3481,7 +3481,7 @@ describe("SessionService", () => {
     });
 
     it("re-enqueues queued cloud messages when the dispatch fails", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const queuedMessage = {
         id: "q-1",
         content: "follow up",
@@ -3538,7 +3538,7 @@ describe("SessionService", () => {
     });
 
     it("upgrades status to connected on turn_complete when run_started was never received", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -3619,7 +3619,7 @@ describe("SessionService", () => {
     });
 
     it("recovers a disconnected idle resumed run and drains the queue on an in_progress status update", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -3709,7 +3709,7 @@ describe("SessionService", () => {
     });
 
     it("recovers a disconnected run from a current-run run_started + turn_complete when the live flag was lost", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -3810,7 +3810,7 @@ describe("SessionService", () => {
     });
 
     it("restores idle evidence after a failed queued dispatch so recovery can retry", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -3918,7 +3918,7 @@ describe("SessionService", () => {
     });
 
     it("does not recover a disconnected run when boot evidence is from a different run id", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -3989,7 +3989,7 @@ describe("SessionService", () => {
     });
 
     it("does not recover from a carried-over prior-run turn_complete", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -4072,7 +4072,7 @@ describe("SessionService", () => {
     });
 
     it("does not recover when the current run started but its turn has not completed", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -4151,7 +4151,7 @@ describe("SessionService", () => {
     });
 
     it("does not recover a disconnected run while a prompt is in flight", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -4210,7 +4210,7 @@ describe("SessionService", () => {
     });
 
     it("does not recover a still-booting disconnected run with no boot evidence", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockBuildAuthenticatedClient.mockReturnValue(mockAuthenticatedClient);
       const queuedMessage = {
         id: "q-1",
@@ -4271,7 +4271,7 @@ describe("SessionService", () => {
     });
 
     it("clears isPromptPending from structured turn completion logs on hydration", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const hydratedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4338,7 +4338,7 @@ describe("SessionService", () => {
     });
 
     it("reconciles cloud log gaps from persisted logs", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const existingSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4417,7 +4417,7 @@ describe("SessionService", () => {
     });
 
     it("falls back to remote logs when local gap repair cache is stale", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const existingSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4498,7 +4498,7 @@ describe("SessionService", () => {
     });
 
     it("queues a pending cloud log gap when stale fetches can't fill it, keeping the live tail", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       let sessionState = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4610,7 +4610,7 @@ describe("SessionService", () => {
     });
 
     const setupReconcileLoopTest = (logContent: string) => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const existingSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4716,7 +4716,7 @@ describe("SessionService", () => {
     });
 
     it("flips status to connected on _posthog/run_started", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const hydratedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4773,7 +4773,7 @@ describe("SessionService", () => {
     });
 
     it("captures agent capabilities from run_started params onto the session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const hydratedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4830,7 +4830,7 @@ describe("SessionService", () => {
     });
 
     it("does not re-flip status when run_started arrives but session is already connected", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const connectedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4882,7 +4882,7 @@ describe("SessionService", () => {
     });
 
     it("seeds an optimistic user-message when hydrating a brand-new task with no prior history", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const freshSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4927,7 +4927,7 @@ describe("SessionService", () => {
     });
 
     it("seeds an optimistic user-message when persisted entries exist but no session/prompt yet (agent emitted lifecycle notifications first)", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const freshSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -4998,7 +4998,7 @@ describe("SessionService", () => {
     });
 
     it("restores a pending question from terminal cloud-run logs after restart", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const completedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -5125,7 +5125,7 @@ describe("SessionService", () => {
     });
 
     it("does NOT seed an optimistic user-message when hydration finds prior history", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const reopenedSession = createMockSession({
         taskRunId: "run-123",
         taskId: "task-123",
@@ -5199,7 +5199,7 @@ describe("SessionService", () => {
     ])(
       "hydrates an in-progress resumed run from a $name",
       async ({ responseShape }) => {
-        const service = getSessionService();
+        const service = getSessionService(null);
         const priorPrompt = {
           type: "acp_message" as const,
           ts: 1700000000,
@@ -5365,7 +5365,7 @@ describe("SessionService", () => {
     );
 
     it("reconciles repeated prompt occurrences and promptless live tails", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const ancestorPrompt = {
         type: "acp_message" as const,
         ts: 1700000010,
@@ -5517,7 +5517,7 @@ describe("SessionService", () => {
     });
 
     it("preserves a promptless current completion that only matches an ancestor turn", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const ancestorPrompt = {
         type: "acp_message" as const,
         ts: 1700000010,
@@ -5621,7 +5621,7 @@ describe("SessionService", () => {
     });
 
     it("keeps immediate-resume watcher counts leaf-local while flushing buffered updates", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const ancestorEvent = {
         type: "acp_message" as const,
         ts: 1700000000,
@@ -5785,7 +5785,7 @@ describe("SessionService", () => {
     });
 
     it("uses the full A→B transcript count when B resumes into C", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const aEvent = {
         type: "acp_message" as const,
         ts: 1700000000,
@@ -5992,7 +5992,7 @@ describe("SessionService", () => {
     });
 
     it("switches a cold-reload watcher to leaf-local counts after hydration recovers", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const resumePrompt = {
         type: "acp_message" as const,
         ts: 1700000060,
@@ -6209,7 +6209,7 @@ describe("SessionService", () => {
     });
 
     it("ignores stale async starts when the same watcher is replaced", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       let resolveFirstWatchStart!: () => void;
       let resolveSecondWatchStart!: () => void;
 
@@ -6253,7 +6253,7 @@ describe("SessionService", () => {
     });
 
     it("sends a compensating unwatch if teardown wins the race after watch starts", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       let resolveWatchStart!: () => void;
       mockTrpcCloudTask.unwatch.mutate.mockClear();
 
@@ -6286,7 +6286,7 @@ describe("SessionService", () => {
     });
 
     it("merges model and effort options fetched from preview-config into the cloud session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       const sessionAfterInit = createMockSession({
         taskRunId: "run-model-123",
@@ -6411,7 +6411,7 @@ describe("SessionService", () => {
     });
 
     it("does not inherit effort options from the preview default for an effort-less model", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskRunId: "run-kimi-123",
         taskId: "task-kimi-123",
@@ -6491,7 +6491,7 @@ describe("SessionService", () => {
     });
 
     it("keeps model-specific max reasoning when generic preview options omit it", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const session = createMockSession({
         taskRunId: "run-max-123",
         taskId: "task-max-123",
@@ -6592,7 +6592,7 @@ describe("SessionService", () => {
     });
 
     it("keeps runtime controls omitted from a partial preview response", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const reasoningOption: SessionConfigOption = {
         id: "reasoning_effort",
         name: "Reasoning",
@@ -6673,7 +6673,7 @@ describe("SessionService", () => {
     });
 
     it("adds a missing selected value to grouped preview options", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockGetConfigOptionByCategory.mockImplementation(
         (
           configOptions: Array<{ category?: string }> | undefined,
@@ -6762,7 +6762,7 @@ describe("SessionService", () => {
     });
 
     it("does not rewrite unchanged cloud preview options", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const previewOptions = [
         {
           id: "model",
@@ -6844,7 +6844,7 @@ describe("SessionService", () => {
     });
 
     it("retries an errored cloud watcher in place", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue({
         ...createMockSession({
           taskId: "task-123",
@@ -6874,7 +6874,7 @@ describe("SessionService", () => {
 
   describe("retryUnhealthyCloudSessions", () => {
     it("retries every errored cloud session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       const erroredCloudA: AgentSession = {
         ...createMockSession({
@@ -6952,7 +6952,7 @@ describe("SessionService", () => {
         }),
       ],
     ])("skips %s", (_label, session) => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessions.mockReturnValue({
         "run-skip": session,
       });
@@ -6963,7 +6963,7 @@ describe("SessionService", () => {
     });
 
     it("swallows failures so one bad retry doesn't block the rest", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const errored: AgentSession = {
         ...createMockSession({
           taskId: "task-a",
@@ -6988,13 +6988,13 @@ describe("SessionService", () => {
 
   describe("reset", () => {
     it("clears connecting tasks", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       // Access private map to verify it's cleared
       expect(() => service.reset()).not.toThrow();
     });
 
     it("unsubscribes from all active subscriptions", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       // Setup: create mocks for subscriptions
       const eventUnsubscribe = vi.fn();
@@ -7055,7 +7055,7 @@ describe("SessionService", () => {
   describe("sendPrompt", () => {
     it("throws when offline", async () => {
       mockGetIsOnline.mockReturnValue(false);
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow(
         "No internet connection",
@@ -7063,7 +7063,7 @@ describe("SessionService", () => {
     });
 
     it("throws when no session exists", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
       await expect(service.sendPrompt("task-123", "Hello")).rejects.toThrow(
@@ -7072,7 +7072,7 @@ describe("SessionService", () => {
     });
 
     it("throws when session is in error state", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           status: "error",
@@ -7087,7 +7087,7 @@ describe("SessionService", () => {
 
     it("queues message when session is connecting", async () => {
       vi.useFakeTimers();
-      const service = getSessionService();
+      const service = getSessionService(null);
       try {
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
           createMockSession({ status: "connecting" }),
@@ -7112,7 +7112,7 @@ describe("SessionService", () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
-        const service = getSessionService();
+        const service = getSessionService(null);
         const session = createMockSession({
           status: "connecting",
           startedAt: Date.now(),
@@ -7143,7 +7143,7 @@ describe("SessionService", () => {
 
     it("keeps a queued prompt without showing a notice when the session connects", async () => {
       vi.useFakeTimers();
-      const service = getSessionService();
+      const service = getSessionService(null);
       try {
         vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
         const session = createMockSession({
@@ -7175,7 +7175,7 @@ describe("SessionService", () => {
       vi.useFakeTimers();
       try {
         vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
-        const service = getSessionService();
+        const service = getSessionService(null);
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
           createMockSession({ status: "connecting", startedAt: Date.now() }),
         );
@@ -7193,7 +7193,7 @@ describe("SessionService", () => {
     });
 
     it("queues message when prompt is already pending", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({ isPromptPending: true }),
       );
@@ -7208,7 +7208,7 @@ describe("SessionService", () => {
     });
 
     it("queues message when compaction is in progress", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({ isCompacting: true }),
       );
@@ -7223,7 +7223,7 @@ describe("SessionService", () => {
     });
 
     it("queues cloud prompt when session.status is not connected (agent not ready)", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7246,7 +7246,7 @@ describe("SessionService", () => {
     });
 
     it("sends a native cloud steer immediately", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7281,7 +7281,7 @@ describe("SessionService", () => {
     });
 
     it("forwards a cloud steer when cached capability metadata is missing", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7312,7 +7312,7 @@ describe("SessionService", () => {
     });
 
     it("kicks an SSE retry when queueing on a disconnected cloud session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7334,7 +7334,7 @@ describe("SessionService", () => {
     });
 
     it("kicks an SSE retry when queueing on an errored cloud session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7357,7 +7357,7 @@ describe("SessionService", () => {
     });
 
     it("does not kick an SSE retry when queueing on a still-connecting cloud session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7375,7 +7375,7 @@ describe("SessionService", () => {
     });
 
     it("queues cloud prompt while auth is still restoring", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7410,7 +7410,7 @@ describe("SessionService", () => {
     it("flushes cloud prompt queued during auth restore after auth is restored", async () => {
       vi.useFakeTimers();
       try {
-        const service = getSessionService();
+        const service = getSessionService(null);
         const prompt: ContentBlock[] = [{ type: "text", text: "hold this" }];
         const queuedMessage = {
           id: "queue-1",
@@ -7461,7 +7461,7 @@ describe("SessionService", () => {
     it("does not drain the cloud queue while auth is still restoring", async () => {
       vi.useFakeTimers();
       try {
-        const service = getSessionService();
+        const service = getSessionService(null);
         const prompt: ContentBlock[] = [{ type: "text", text: "hold this" }];
         const queuedMessage = {
           id: "queue-1",
@@ -7505,7 +7505,7 @@ describe("SessionService", () => {
     });
 
     it("counts queued messages across cloud sessions only", () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const queued = (id: string) => ({
         id,
         content: "queued",
@@ -7531,7 +7531,7 @@ describe("SessionService", () => {
     });
 
     it("does not pin isPromptPending when queueing during sandbox boot", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7558,7 +7558,7 @@ describe("SessionService", () => {
     });
 
     it("preserves cloud attachment prompts when queueing a follow-up", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7588,7 +7588,7 @@ describe("SessionService", () => {
     });
 
     it("sends prompt via tRPC when session is ready", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession(),
       );
@@ -7604,7 +7604,7 @@ describe("SessionService", () => {
     });
 
     it("reuses attachments uploaded before sending cloud follow-ups", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7697,7 +7697,7 @@ describe("SessionService", () => {
     });
 
     it("resolves raw local skill slash commands before sending cloud follow-ups", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -7795,7 +7795,7 @@ describe("SessionService", () => {
       "resumes when the active workflow has already ended using %s",
       async (claudeModelAccess) => {
         mockFeatureFlags.isEnabled.mockReturnValue(true);
-        const service = getSessionService();
+        const service = getSessionService(null);
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
           createMockSession({
             isCloud: true,
@@ -7893,7 +7893,7 @@ describe("SessionService", () => {
     it.each(["claude", "codex"] as const)(
       "resumes a completed %s run with the selected Codex model",
       async (previousAdapter) => {
-        const service = getSessionService();
+        const service = getSessionService(null);
         mockSettingsState.spokenNotifications = true;
         mockFeatureFlags.isEnabled.mockReturnValue(true);
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
@@ -7995,7 +7995,7 @@ describe("SessionService", () => {
     it.each([false, true])(
       "checks the token before uploading resume attachments (missing: %s)",
       async (tokenMissing) => {
-        const service = getSessionService();
+        const service = getSessionService(null);
         mockFeatureFlags.isEnabled.mockReturnValue(true);
         if (tokenMissing)
           vi.spyOn(service, "resolveCloudModelAccess").mockRejectedValueOnce(
@@ -8142,7 +8142,7 @@ describe("SessionService", () => {
       );
 
     it("refuses to resume when the previous run failed before the agent booted", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockPreBootFailedSession({
         cloudErrorMessage: "Sandbox could not be provisioned",
       });
@@ -8154,7 +8154,7 @@ describe("SessionService", () => {
     });
 
     it("restarts a GitHub-blocked run after the connection is available", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockPreBootFailedSession({
         cloudErrorMessage: "GitHub is not connected for this project",
         cloudBranch: "main",
@@ -8210,7 +8210,7 @@ describe("SessionService", () => {
     });
 
     it("restarts a GitHub-blocked run reopened without a cached error", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockPreBootFailedSession({
         cloudErrorMessage: undefined,
         cloudBranch: "main",
@@ -8277,7 +8277,7 @@ describe("SessionService", () => {
     });
 
     it("refuses to restart a failed run blocked by something else", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockPreBootFailedSession({ cloudErrorMessage: undefined });
       mockAuthenticatedClient.getTaskRun.mockResolvedValue({
         id: "run-123",
@@ -8309,7 +8309,7 @@ describe("SessionService", () => {
     });
 
     it("falls back to a generic message when the failed run has no error", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockPreBootFailedSession();
 
       await expect(service.sendPrompt("task-123", "retry?")).rejects.toThrow(
@@ -8319,7 +8319,7 @@ describe("SessionService", () => {
     });
 
     it("refetches the run for the real error when none is cached", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockPreBootFailedSession();
       mockAuthenticatedClient.getTaskRun.mockResolvedValue({
         id: "run-123",
@@ -8354,7 +8354,7 @@ describe("SessionService", () => {
     });
 
     it("still resumes when a previously running agent failed mid-execution", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -8431,7 +8431,7 @@ describe("SessionService", () => {
         expected: /Failed request: \[500\]/,
       },
     ])("$name", async ({ isTaskAuthor, resumeError, expected }) => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -8467,7 +8467,7 @@ describe("SessionService", () => {
     });
 
     it("keeps a non-author 404 from the previous-run fetch as its real error", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -8488,7 +8488,7 @@ describe("SessionService", () => {
     });
 
     it("attempts automatic recovery on fatal error", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession({
         logUrl: "https://logs.example.com/run-123",
       });
@@ -8543,7 +8543,7 @@ describe("SessionService", () => {
       "Internal error: API Error: the operation timed out",
       "Internal error: API Error: Content block is not a thinking block",
     ])("does not run session recovery for %j", async (providerError) => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession();
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(mockSession);
       mockSessionStoreSetters.getSessions.mockReturnValue({
@@ -8571,7 +8571,7 @@ describe("SessionService", () => {
 
   describe("local turn_complete + JSON-RPC response ordering", () => {
     it("drains queued messages when turn_complete arrives before the JSON-RPC response (local Codex regression)", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       let session: AgentSession | undefined;
       mockSessionStoreSetters.getSessionByTaskId.mockImplementation(
@@ -8660,7 +8660,7 @@ describe("SessionService", () => {
 
   describe("turn-end queue drain gating", () => {
     async function connectWithLiveSession() {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       let session: AgentSession | undefined;
       mockSessionStoreSetters.getSessionByTaskId.mockImplementation(
@@ -8939,7 +8939,7 @@ describe("SessionService", () => {
     async function connectAndCaptureOnData(): Promise<
       (payload: unknown) => void
     > {
-      const service = getSessionService();
+      const service = getSessionService(null);
 
       let session: AgentSession | undefined;
       mockSessionStoreSetters.getSessionByTaskId.mockImplementation(
@@ -9045,7 +9045,7 @@ describe("SessionService", () => {
     };
 
     it("removes the message and resends it as a native steer", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           adapter: "claude",
@@ -9075,7 +9075,7 @@ describe("SessionService", () => {
     });
 
     it("is a no-op when the message id is not queued", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           adapter: "claude",
@@ -9093,7 +9093,7 @@ describe("SessionService", () => {
     });
 
     it("rolls the message back onto the queue when the steer fails", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           adapter: "claude",
@@ -9113,7 +9113,7 @@ describe("SessionService", () => {
     });
 
     it("is a no-op while compacting and keeps the queued message intact", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           adapter: "claude",
@@ -9133,7 +9133,7 @@ describe("SessionService", () => {
     });
 
     it("resends the original rawPrompt blocks, not the plain-text content", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const rawPrompt: ContentBlock[] = [{ type: "text", text: "rich blocks" }];
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
@@ -9184,7 +9184,7 @@ describe("SessionService", () => {
     it("saving an edit while the agent is idle clears the hold and drains the queue", async () => {
       vi.useFakeTimers();
       try {
-        const service = getSessionService();
+        const service = getSessionService(null);
         seedEditedIdleSession();
         mockSessionStoreSetters.dequeueMessages.mockReturnValue([
           { id: "q-1", content: "edited", queuedAt: 1 },
@@ -9220,7 +9220,7 @@ describe("SessionService", () => {
     });
 
     it("returns false and keeps the hold when the target is no longer queued", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       seedEditedIdleSession({
         messageQueue: [{ id: "q-other", content: "x", queuedAt: 1 }],
       });
@@ -9243,7 +9243,7 @@ describe("SessionService", () => {
     it("saving an edit while the agent is still busy does not send immediately", async () => {
       vi.useFakeTimers();
       try {
-        const service = getSessionService();
+        const service = getSessionService(null);
         seedEditedIdleSession({ isPromptPending: true });
 
         await service.updateQueuedMessage("task-123", "q-1", "edited");
@@ -9263,7 +9263,7 @@ describe("SessionService", () => {
     it("cancelling an edit while idle drains the messages the hold was blocking", async () => {
       vi.useFakeTimers();
       try {
-        const service = getSessionService();
+        const service = getSessionService(null);
         seedEditedIdleSession();
         mockSessionStoreSetters.dequeueMessages.mockReturnValue([
           { id: "q-1", content: "q-1", queuedAt: 1 },
@@ -9318,7 +9318,7 @@ describe("SessionService", () => {
     };
 
     it("saving a cloud edit while the run is idle flushes the queue", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       seedEditedIdleCloudSession();
 
       const updated = await service.updateQueuedMessage(
@@ -9343,7 +9343,7 @@ describe("SessionService", () => {
     });
 
     it("cancelling a cloud edit while the run is idle flushes the queue", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       seedEditedIdleCloudSession();
 
       service.clearEditingQueuedMessage("task-123");
@@ -9381,7 +9381,7 @@ describe("SessionService", () => {
       });
 
     it("returns false when the message drains while cloud normalization awaits", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       // Present for the initial membership check, gone for the post-await
       // re-check (a turn completed and drained it during normalization).
       mockSessionStoreSetters.getSessionByTaskId
@@ -9408,7 +9408,7 @@ describe("SessionService", () => {
     });
 
     it("updates in place when the message is still queued after normalization", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         cloudSession(),
       );
@@ -9430,7 +9430,7 @@ describe("SessionService", () => {
 
   describe("cancelPrompt", () => {
     it("returns false if no session exists", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
       const result = await service.cancelPrompt("task-123");
@@ -9439,7 +9439,7 @@ describe("SessionService", () => {
     });
 
     it("calls cancelPrompt mutation", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession(),
       );
@@ -9454,7 +9454,7 @@ describe("SessionService", () => {
     });
 
     it("returns false on error", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession(),
       );
@@ -9533,7 +9533,7 @@ describe("SessionService", () => {
 
   describe("respondToPermission", () => {
     it("does nothing if no session exists", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
       await service.respondToPermission("task-123", "tool-1", "allow");
@@ -9542,7 +9542,7 @@ describe("SessionService", () => {
     });
 
     it("removes permission from UI and sends response", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const permissions = new Map([["tool-1", { receivedAt: Date.now() }]]);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
@@ -9602,7 +9602,7 @@ describe("SessionService", () => {
     const selectedAnswerPrompt = "MIT";
 
     it("resumes a terminal cloud run with the selected answer as the prompt", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const permissions = new Map([
         [
           "tool-1",
@@ -9656,7 +9656,7 @@ describe("SessionService", () => {
     });
 
     it("refreshes stale cloud run status before answering a terminal question", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const permissions = new Map([
         [
           "tool-1",
@@ -9713,7 +9713,7 @@ describe("SessionService", () => {
     });
 
     it("drops a plain approval on a terminal cloud run instead of resuming", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const permissions = new Map([
         [
           "tool-1",
@@ -9743,7 +9743,7 @@ describe("SessionService", () => {
     });
 
     it("persists a durable resolved marker when answering a question on a terminal cloud run", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       surfaceCloudQuestion(service);
       mockTerminalCloudRun();
 
@@ -9778,7 +9778,7 @@ describe("SessionService", () => {
     });
 
     it("does not re-surface a question the user already answered when the stream re-delivers it", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const { session, onData, requestUpdate } = surfaceCloudQuestion(service);
       mockTerminalCloudRun();
 
@@ -9804,7 +9804,7 @@ describe("SessionService", () => {
 
   describe("cancelPermission", () => {
     it("does nothing if no session exists", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
       await service.cancelPermission("task-123", "tool-1");
@@ -9813,7 +9813,7 @@ describe("SessionService", () => {
     });
 
     it("persists a dismissal marker when cancelling a question on a terminal cloud run", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const { session } = surfaceCloudQuestion(service);
       session.cloudStatus = "completed";
 
@@ -9842,7 +9842,7 @@ describe("SessionService", () => {
     });
 
     it("removes permission from UI and cancels", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession(),
       );
@@ -9857,7 +9857,7 @@ describe("SessionService", () => {
     });
 
     it("resolves locally without proxying a command on a terminal cloud run", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({ isCloud: true, cloudStatus: "completed" }),
       );
@@ -9874,7 +9874,7 @@ describe("SessionService", () => {
     it.each(["completed", "failed", "cancelled"] as const)(
       "saves the next model without contacting a %s sandbox",
       async (cloudStatus) => {
-        const service = getSessionService();
+        const service = getSessionService(null);
         let session = createMockSession({
           isCloud: true,
           cloudStatus,
@@ -9939,7 +9939,7 @@ describe("SessionService", () => {
     ])(
       "rejects a model change while resuming or using Anthropic billing (%j)",
       async (overrides) => {
-        const service = getSessionService();
+        const service = getSessionService(null);
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
           createMockSession({
             isCloud: true,
@@ -9970,7 +9970,7 @@ describe("SessionService", () => {
     );
 
     it("loads models from all runtimes for a completed cloud session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       let session = createMockSession({
         isCloud: true,
         cloudStatus: "completed",
@@ -10027,7 +10027,7 @@ describe("SessionService", () => {
     });
 
     it("does nothing if no session exists", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
       const result = await service.setSessionConfigOption(
@@ -10041,7 +10041,7 @@ describe("SessionService", () => {
     });
 
     it("does nothing if config option not found", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           configOptions: [
@@ -10067,7 +10067,7 @@ describe("SessionService", () => {
     });
 
     it("optimistically updates and calls API", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           configOptions: [
@@ -10122,7 +10122,7 @@ describe("SessionService", () => {
     });
 
     it("rolls back on API failure", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       let currentSession = createMockSession({
         configOptions: [
           {
@@ -10171,7 +10171,7 @@ describe("SessionService", () => {
     });
 
     it("preserves a newer successful config change during rollback", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       let currentSession = createMockSession({
         configOptions: [
           {
@@ -10247,7 +10247,7 @@ describe("SessionService", () => {
     });
 
     it("skips backend call when local session is idle-killed so reconnect restore handles it", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           status: "error",
@@ -10300,7 +10300,7 @@ describe("SessionService", () => {
     });
 
     it("skips backend call when local session is reconnecting (disconnected status)", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           status: "disconnected",
@@ -10323,7 +10323,7 @@ describe("SessionService", () => {
     });
 
     it("routes cloud sessions through sendCommand with set_config_option", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
         createMockSession({
           isCloud: true,
@@ -10377,7 +10377,7 @@ describe("SessionService", () => {
 
   describe("clearSessionError", () => {
     it("cancels agent and reconnects in place (no teardown)", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession({
         status: "error",
         logUrl: "https://logs.example.com/run-123",
@@ -10410,7 +10410,7 @@ describe("SessionService", () => {
     });
 
     it("does not restore persisted options unsupported by the resumed session", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockTrpcAgent.setConfigOption.mutate.mockResolvedValue(undefined);
       const modelOption: SessionConfigOption = {
         id: "model",
@@ -10459,7 +10459,7 @@ describe("SessionService", () => {
     });
 
     it("drops a persisted value the resumed option no longer offers", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       // Same option id, but the resumed model only offers high/max — the
       // persisted "medium" is stale and must not be restored or displayed.
       const staleEffort: SessionConfigOption = {
@@ -10507,7 +10507,7 @@ describe("SessionService", () => {
     });
 
     it("restores nothing when the resumed session reports no options", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const effortOption: SessionConfigOption = {
         id: "effort",
         name: "Effort",
@@ -10539,7 +10539,7 @@ describe("SessionService", () => {
     });
 
     it("keeps the in-memory transcript when the log read returns nothing", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const previousEvents = [
         {
           type: "acp_message" as const,
@@ -10589,7 +10589,7 @@ describe("SessionService", () => {
     });
 
     it("carries the queue and its edit hold across an in-place reconnect", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const queued = [{ id: "q-1", content: "old", queuedAt: 1 }];
       const mockSession = createMockSession({
         status: "error",
@@ -10621,7 +10621,7 @@ describe("SessionService", () => {
 
     it("keeps a connecting notice timer when reconnect replaces the session", async () => {
       vi.useFakeTimers();
-      const service = getSessionService();
+      const service = getSessionService(null);
       try {
         vi.setSystemTime(new Date("2026-09-13T00:00:00Z"));
         const startedAt = Date.now();
@@ -10709,7 +10709,7 @@ describe("SessionService", () => {
     });
 
     it("creates fresh session when initialPrompt is set (prompt never delivered)", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession({
         status: "error",
         initialPrompt: [{ type: "text", text: "fix the bug" }],
@@ -10750,7 +10750,7 @@ describe("SessionService", () => {
     });
 
     it("rejects a retry when no session remains", async () => {
-      const service = getSessionService();
+      const service = getSessionService(null);
       mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(undefined);
 
       await expect(
@@ -10762,7 +10762,7 @@ describe("SessionService", () => {
   describe("automatic local recovery", () => {
     it("reconnects automatically after a subscription error", async () => {
       vi.useFakeTimers();
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession({
         status: "connected",
         logUrl: "https://logs.example.com/run-123",
@@ -10803,7 +10803,7 @@ describe("SessionService", () => {
 
     it("shows the error screen only after automatic reconnect attempts fail", async () => {
       vi.useFakeTimers();
-      const service = getSessionService();
+      const service = getSessionService(null);
       const mockSession = createMockSession({
         status: "connected",
         logUrl: "https://logs.example.com/run-123",

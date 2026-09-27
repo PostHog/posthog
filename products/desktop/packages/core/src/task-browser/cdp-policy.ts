@@ -3,18 +3,14 @@ const TAB_CDP_DOMAINS = new Set([
   "Animation",
   "Audits",
   "CSS",
-  "CacheStorage",
   "Console",
   "DOM",
   "DOMDebugger",
   "DOMSnapshot",
-  "DOMStorage",
   "Debugger",
   "Emulation",
   "Fetch",
   "HeapProfiler",
-  "IndexedDB",
-  "Input",
   "LayerTree",
   "Log",
   "Media",
@@ -27,7 +23,15 @@ const TAB_CDP_DOMAINS = new Set([
   "Runtime",
   "Security",
 ]);
-const TAB_CDP_DENIED_METHODS = new Set(["Network.getAllCookies"]);
+const TAB_CDP_DENIED_METHODS = new Set([
+  "Network.clearBrowserCache",
+  "Network.clearBrowserCookies",
+  "Network.deleteCookies",
+  "Network.getAllCookies",
+  "Network.getCookies",
+  "Network.setCookie",
+  "Network.setCookies",
+]);
 
 export function isTabScopedCdpMethod(method: string): boolean {
   const domain = method.split(".")[0] ?? "";

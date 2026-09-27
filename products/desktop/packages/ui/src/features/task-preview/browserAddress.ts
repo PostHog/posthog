@@ -38,3 +38,11 @@ export function siteName(origin: string): string {
     return origin;
   }
 }
+
+export function originOf(url: string): string | null {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return null;
+  }
+}

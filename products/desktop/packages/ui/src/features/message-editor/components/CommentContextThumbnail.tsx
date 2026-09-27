@@ -1,5 +1,6 @@
 import { ChatCircleTextIcon } from "@phosphor-icons/react";
 import { cn } from "@posthog/quill";
+import { WEB_PAGE_BACKGROUND } from "@posthog/ui/features/task-preview/pageBackground";
 import { useLocalImage } from "./useLocalImage";
 
 export function CommentContextThumbnail({
@@ -16,7 +17,8 @@ export function CommentContextThumbnail({
   return (
     <span
       className={cn(
-        "relative inline-block h-3.5 w-5 overflow-hidden rounded-[3px] bg-white align-middle ring-1 ring-current/25",
+        "relative inline-block h-3.5 w-5 overflow-hidden rounded-[3px] align-middle ring-1 ring-current/25",
+        WEB_PAGE_BACKGROUND,
         className,
       )}
     >

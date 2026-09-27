@@ -55,7 +55,7 @@ const TabBarButton = forwardRef<HTMLButtonElement, TabBarButtonProps>(
         aria-label={ariaLabel}
         onClick={onClick}
         {...props}
-        className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center border-0 border-b border-b-(--gray-6) bg-(--color-background) text-(--gray-11) hover:bg-(--gray-4) aria-expanded:bg-(--gray-4)"
+        className="flex h-[32px] w-[32px] cursor-pointer items-center justify-center border-0 border-border border-b bg-background text-muted-foreground hover:bg-fill-hover aria-expanded:bg-fill-selected"
       >
         {children}
       </button>
@@ -97,7 +97,7 @@ function NewTabButton({
             onClick={onAddBrowser}
           >
             <Globe size={14} />
-            Browser
+            Browser tab
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -106,9 +106,10 @@ function NewTabButton({
   const onAdd = onAddTerminal ?? onAddBrowser;
   if (!onAdd) return null;
   const label = onAddTerminal ? "New terminal" : "New browser tab";
+  const dataAttr = onAddTerminal ? "panel-new-terminal" : "panel-new-browser";
   return (
     <Tooltip content={label} side="bottom">
-      <TabBarButton ariaLabel={label} data-attr="panel-new-tab" onClick={onAdd}>
+      <TabBarButton ariaLabel={label} data-attr={dataAttr} onClick={onAdd}>
         <Plus size={14} />
       </TabBarButton>
     </Tooltip>
