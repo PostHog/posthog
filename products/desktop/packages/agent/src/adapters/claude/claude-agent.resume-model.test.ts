@@ -596,6 +596,29 @@ describe("ClaudeAcpAgent session creation", () => {
     },
   );
 
+  it("preserves RequestError metadata when naming a rejected startup control", async () => {
+    const requestError = new RequestError(42, "set model boom", {
+      source: "sdk",
+    });
+    nextSetModel = () => Promise.reject(requestError);
+    const agent = makeAgent();
+
+    const error = await agent
+      .resumeSession({
+        sessionId: "0197a000-0000-7000-8000-0000000000fc",
+        cwd,
+        mcpServers: [],
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBe(requestError);
+    expect(error).toMatchObject({
+      code: 42,
+      data: { source: "sdk" },
+      message: "Session model switch failed: set model boom",
+    });
+  });
+
   it("starts a fresh query when retrying failed session configuration", async () => {
     nextSetModel = () => Promise.reject(new Error("set model boom"));
     const agent = makeAgent();
