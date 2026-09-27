@@ -178,7 +178,11 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
             else:
                 # Django accepts any iterable here, so build a new list instead of mutating the caller's value
                 if kwargs.get("update_fields") is not None:
-                    kwargs["update_fields"] = [*kwargs["update_fields"], "query_metadata"]
+                    update_fields = [*kwargs["update_fields"]]
+                    # Skip metadata for an unsaved query, so it always describes the stored query
+                    if "query" in update_fields or self.query == self._original_query:
+                        update_fields.append("query_metadata")
+                    kwargs["update_fields"] = update_fields
         super().save(*args, **kwargs)
 
     def get_analytics_query_kinds(self) -> dict[str, str]:
