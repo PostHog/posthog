@@ -188,6 +188,7 @@ describe('taxonomicSearchIntentLogic', () => {
 
     it.each(['control', 'banner'])('promotes the predicted group on the All tab in the %s arm too', async (variant) => {
         enroll(variant)
+        answer = { ...PERSON_PROPERTIES_ANSWER, suggests_switch: false }
         const captureSpy = jest.spyOn(posthog, 'capture')
         await search('email')
 
