@@ -84,6 +84,10 @@
       "types": "./dist/screen-capture.d.ts",
       "import": "./dist/screen-capture.js"
     },
+    "./task-browser": {
+      "types": "./dist/task-browser.d.ts",
+      "import": "./dist/task-browser.js"
+    },
     "./image-processor": {
       "types": "./dist/image-processor.d.ts",
       "import": "./dist/image-processor.js"
