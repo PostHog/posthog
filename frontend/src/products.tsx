@@ -437,6 +437,7 @@ export const productRedirects: Record<
     '/data-warehouse/sources': () => urls.sources(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
+    '/data-management/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/engineering-analytics': (_params, searchParams, hashParams): string =>
         combineUrl(urls.engineeringAnalytics(), searchParams, hashParams).url,
     '/engineering-analytics/test-health': (_params, searchParams, hashParams): string =>
