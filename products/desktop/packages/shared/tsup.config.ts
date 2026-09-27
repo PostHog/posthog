@@ -16,6 +16,7 @@ export default defineConfig({
     "src/posthog-property-headers.ts",
     "src/product-engineer-prompt.ts",
     "src/rich-output-prompt.ts",
+    "src/screenshot-area.ts",
     "src/task-context.ts",
     "src/types.ts",
   ],
