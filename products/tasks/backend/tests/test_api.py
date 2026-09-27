@@ -16990,8 +16990,9 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
             },
         }
 
-    def _patch_sandbox_class(self, sandbox: MagicMock) -> Any:
+    def _patch_sandbox_class(self, sandbox: MagicMock, tokenless: bool = False) -> Any:
         sandbox_class = MagicMock()
+        sandbox_class.issues_tokenless_preview_urls = tokenless
         sandbox_class.get_by_id.return_value = sandbox
         return patch(self.SANDBOX_CLASS_TARGET, return_value=sandbox_class)
 
@@ -17032,17 +17033,28 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("never_exposed", {"sandbox_id": "sandbox-1"}, "session", 3000),
-            ("exposed_on_an_earlier_sandbox", {"sandbox_id": "sandbox-1", "exposed_ports": []}, "session", 3000),
-            ("another_port_exposed", {"sandbox_id": "sandbox-1", "exposed_ports": []}, "session", 5173),
-            ("exposed_port_through_the_browser_redirect", {}, "redirect", 3000),
+            (
+                "exposed_on_an_earlier_sandbox",
+                {"sandbox_id": "sandbox-1", "exposed_ports": [{"port": 3000, "sandbox_id": "sandbox-0"}]},
+                "session",
+                3000,
+            ),
+            (
+                "another_port_exposed",
+                {"sandbox_id": "sandbox-1", "exposed_ports": [{"port": 3000, "sandbox_id": "sandbox-1"}]},
+                "session",
+                5173,
+            ),
+            (
+                "exposed_port_through_the_browser_redirect",
+                {"sandbox_id": "sandbox-1", "exposed_ports": [{"port": 3000, "sandbox_id": "sandbox-1"}]},
+                "redirect",
+                3000,
+            ),
         ]
     )
-    def test_preview_of_a_port_the_sandbox_did_not_expose_never_reaches_the_sandbox(self, name, state, via, port):
+    def test_preview_of_a_port_the_sandbox_did_not_expose_never_reaches_the_sandbox(self, _name, state, via, port):
         task = self.create_task()
-        if name == "exposed_on_an_earlier_sandbox":
-            state = self._exposed_state(sandbox_id="sandbox-0")
-        elif name in ("another_port_exposed", "exposed_port_through_the_browser_redirect"):
-            state = self._exposed_state(port=3000)
         run = self._create_run(task, state)
 
         with (
@@ -17067,31 +17079,43 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("ready", True, True, "ready", "http://localhost:50003/"),
+            ("ready_on_a_tokenless_sandbox", True, True, "ready", "http://localhost:50003/"),
+            ("tokenless_url_from_a_sandbox_that_signs_urls", True, False, "unavailable", None),
             ("not_exposed", False, True, "not_ready", None),
-            ("not_the_desktop_app", True, False, None, None),
         ]
     )
     def test_preview_session_returns_the_url_only_when_ready(
-        self, _name, exposed, desktop, expected_outcome, expected_url
+        self, _name, exposed, tokenless, expected_outcome, expected_url
     ):
         task = self.create_task()
         run = self._create_run(task, self._exposed_state() if exposed else {"sandbox_id": "sandbox-1"})
         sandbox = self._running_sandbox(token=None)
         sandbox.create_preview_connect_credentials.return_value = MagicMock(url="http://localhost:50003", token=None)
 
-        with self._patch_sandbox_class(sandbox), patch(self.DESKTOP_GRANT_TARGET, return_value=desktop):
+        with (
+            self._patch_sandbox_class(sandbox, tokenless=tokenless),
+            patch(self.DESKTOP_GRANT_TARGET, return_value=True),
+        ):
             response = self.client.post(
                 f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/preview_session/", {"port": 3000}, format="json"
             )
 
-        if not desktop:
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            sandbox.create_preview_connect_credentials.assert_not_called()
-            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"outcome": expected_outcome, "url": expected_url})
         self.assertEqual(response["Cache-Control"], "no-store")
+
+    def test_preview_session_is_refused_outside_the_desktop_app(self):
+        task = self.create_task()
+        run = self._create_run(task, self._exposed_state())
+        sandbox = self._running_sandbox(token=None)
+
+        with self._patch_sandbox_class(sandbox, tokenless=True), patch(self.DESKTOP_GRANT_TARGET, return_value=False):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/preview_session/", {"port": 3000}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        sandbox.create_preview_connect_credentials.assert_not_called()
 
     def _desktop_task(self) -> Task:
         task = self.create_task()
@@ -17106,6 +17130,7 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
 
         self.client.post(url, {"port": 3000, "name": "Old name"}, format="json")
         self.client.post(url, {"port": 5173}, format="json")
+        self.client.post(url, {"port": DEV_STACK_PREVIEW_PORT, "name": "Dev stack again"}, format="json")
         response = self.client.post(url, {"port": 3000, "name": "Web app"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -17124,27 +17149,42 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("agent_server_port", {"sandbox_id": "sandbox-1"}, 8080),
-            ("privileged_port", {"sandbox_id": "sandbox-1"}, 80),
-            ("no_sandbox", {}, 3000),
-            ("limit_reached", None, 3000),
-            ("task_not_created_in_desktop", {"sandbox_id": "sandbox-1"}, 3000),
+            ("reserved_port", True, {"sandbox_id": "sandbox-1"}, 8080, None, "reserved"),
+            ("no_sandbox", True, {}, 3000, None, "no sandbox"),
+            (
+                "limit_reached",
+                True,
+                {
+                    "sandbox_id": "sandbox-1",
+                    "exposed_ports": [{"port": 4000 + index, "sandbox_id": "sandbox-1"} for index in range(10)],
+                },
+                3000,
+                None,
+                "at most 10 ports",
+            ),
+            ("task_not_created_in_desktop", False, {"sandbox_id": "sandbox-1"}, 3000, None, "PostHog Desktop"),
+            (
+                "port_the_docker_sandbox_does_not_publish",
+                True,
+                {"sandbox_id": "sandbox-1"},
+                4000,
+                (3000, 5173),
+                "3000, 5173",
+            ),
         ]
     )
-    def test_expose_port_is_rejected(self, name, state, port):
-        task = self.create_task() if name == "task_not_created_in_desktop" else self._desktop_task()
-        if state is None:
-            state = {
-                "sandbox_id": "sandbox-1",
-                "exposed_ports": [{"port": 4000 + index, "sandbox_id": "sandbox-1"} for index in range(10)],
-            }
+    def test_expose_port_is_rejected(self, _name, desktop, state, port, preview_ports, expected_error):
+        task = self._desktop_task() if desktop else self.create_task()
         run = self._create_run(task, state)
+        sandbox_class = MagicMock(preview_ports=preview_ports)
 
-        response = self.client.post(
-            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/expose_port/", {"port": port}, format="json"
-        )
+        with patch(self.SANDBOX_CLASS_TARGET, return_value=sandbox_class):
+            response = self.client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/expose_port/", {"port": port}, format="json"
+            )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_error, response.content.decode())
         run.refresh_from_db()
         self.assertEqual(run.state.get("exposed_ports"), state.get("exposed_ports"))
 
@@ -17213,15 +17253,17 @@ class TestTaskRunPreviewAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         mock_get_sandbox_class.assert_not_called()
 
-    def test_preview_is_refused_during_read_only_impersonation(self):
+    @parameterized.expand([("redirect", "get", "preview"), ("session", "post", "preview_session")])
+    def test_preview_is_refused_during_read_only_impersonation(self, _name, method, endpoint):
         task = self.create_task()
         run = self._create_run(task, self._ready_state())
 
         with (
             patch("products.tasks.backend.presentation.views.api.is_read_only_impersonation", return_value=True),
+            patch(self.DESKTOP_GRANT_TARGET, return_value=True),
             patch(self.SANDBOX_CLASS_TARGET) as mock_get_sandbox_class,
         ):
-            response = self.client.get(self._preview_url(task, run))
+            response = getattr(self.client, method)(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/{endpoint}/")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["code"], "impersonation_read_only")

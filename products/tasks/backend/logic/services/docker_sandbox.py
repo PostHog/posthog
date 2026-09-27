@@ -196,6 +196,8 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     supports_creation_cancellation = True
     creation_timeout_seconds = 30 * 60
+    issues_tokenless_preview_urls = True
+    preview_ports = DOCKER_PREVIEW_PORTS
 
     @staticmethod
     @contextmanager

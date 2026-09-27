@@ -36,6 +36,10 @@ class DesktopAccessReason(StrEnum):
 DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
 
 
+class TaskClientProvenance(StrEnum):
+    POSTHOG_DESKTOP = "posthog_desktop"
+
+
 @dataclass(frozen=True)
 class TaskDTO:
     """A code task."""
@@ -216,7 +220,7 @@ class TaskDetailDTO:
     channel: UUID | None = None
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
-    client_provenance: str | None = None
+    client_provenance: TaskClientProvenance | None = None
 
 
 @dataclass(frozen=True)
@@ -619,6 +623,16 @@ class TaskRunDetailDTO:
     preview_available: bool = False
     exposed_ports: list[TaskRunExposedPortDTO] = Field(default_factory=list)
     scheduled_at: datetime | None = None
+
+
+TaskRunExposePortOutcome = Literal["exposed", "no_sandbox", "limit_reached", "not_desktop_task", "port_not_supported"]
+
+
+@dataclass(frozen=True)
+class TaskRunExposePortResult:
+    outcome: TaskRunExposePortOutcome
+    run: TaskRunDetailDTO | None = None
+    supported_ports: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

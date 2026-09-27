@@ -433,6 +433,8 @@ class SandboxBase(ABC):
     config: SandboxConfig
     supports_creation_cancellation = False
     creation_timeout_seconds = 300
+    issues_tokenless_preview_urls = False
+    preview_ports: tuple[int, ...] | None = None
     # When True, the agent runtime is launched with the box's Bedrock env unset,
     # so the Claude CLI routes through the PostHog LLM gateway instead of direct
     # Bedrock. hogland opts in (see HoglandSandbox); Modal/Docker already use the

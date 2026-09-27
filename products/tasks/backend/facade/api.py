@@ -5282,15 +5282,6 @@ def task_run_exposed_ports(state: dict | None) -> list[contracts.TaskRunExposedP
     return ports
 
 
-TaskRunExposePortOutcome = Literal["exposed", "no_sandbox", "limit_reached", "not_desktop_task"]
-
-
-@frozen
-class TaskRunExposePortResult:
-    outcome: TaskRunExposePortOutcome
-    run: contracts.TaskRunDetailDTO | None = None
-
-
 def expose_task_run_port(
     run_id: str | UUID,
     task_id: str | UUID,
@@ -5300,14 +5291,21 @@ def expose_task_run_port(
     name: str | None,
     include_agent_state: bool = False,
     user_id: int | None = None,
-) -> TaskRunExposePortResult | None:
+) -> contracts.TaskRunExposePortResult | None:
+    from products.tasks.backend.logic.services.sandbox import (  # noqa: PLC0415 — keeps the sandbox providers off the api import path
+        get_sandbox_class,
+    )
+
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
     if run.task.client_provenance != TaskClientProvenance.POSTHOG_DESKTOP:
-        return TaskRunExposePortResult(outcome="not_desktop_task")
+        return contracts.TaskRunExposePortResult(outcome="not_desktop_task")
+    supported_ports = get_sandbox_class().preview_ports
+    if supported_ports is not None and port not in supported_ports:
+        return contracts.TaskRunExposePortResult(outcome="port_not_supported", supported_ports=supported_ports)
 
-    outcome: TaskRunExposePortOutcome = "exposed"
+    outcome: contracts.TaskRunExposePortOutcome = "exposed"
 
     def _register(state: dict[str, Any]) -> None:
         nonlocal outcome
@@ -5331,11 +5329,11 @@ def expose_task_run_port(
 
     TaskRun.mutate_state_atomic(run.id, _register)
     if outcome != "exposed":
-        return TaskRunExposePortResult(outcome=outcome)
+        return contracts.TaskRunExposePortResult(outcome=outcome)
 
     run.refresh_from_db()
     run.publish_stream_state_event()
-    return TaskRunExposePortResult(
+    return contracts.TaskRunExposePortResult(
         outcome=outcome,
         run=_task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id),
     )
@@ -5385,8 +5383,9 @@ def resolve_task_run_preview_redirect(
     target_port, health_probe = target
     sandbox_id = state["sandbox_id"]
 
+    sandbox_class = get_sandbox_class()
     try:
-        sandbox = get_sandbox_class().get_by_id(str(sandbox_id))
+        sandbox = sandbox_class.get_by_id(str(sandbox_id))
         running = sandbox.is_running()
     except SandboxNotFoundError:
         return _PREVIEW_ENDED
@@ -5419,7 +5418,7 @@ def resolve_task_run_preview_redirect(
         logger.exception("task_run_preview_token_mint_failed", extra={"run_id": str(run.id)})
         return _PREVIEW_UNAVAILABLE
 
-    if not credentials.url or (target_port == DEV_STACK_PREVIEW_PORT and not credentials.token):
+    if not credentials.url or (not credentials.token and not sandbox_class.issues_tokenless_preview_urls):
         return _PREVIEW_UNAVAILABLE
     return TaskRunPreviewRedirect(
         outcome="ready",

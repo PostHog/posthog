@@ -333,6 +333,49 @@ class TestComments(APIBaseTest, QueryMatchingTest):
         assert detail.json()["comments"][0]["canvas_version_id"] == "version-2"
         assert detail.json()["next"] is None
 
+    @parameterized.expand(
+        [
+            ("preview", "task_preview", "{task}:3000", {"kind": "document"}, "preview", "Preview of port 3000"),
+            (
+                "browser_page",
+                "task_browser",
+                "{task}:browser",
+                {"kind": "document", "origin": "https://example.com", "path": "/pricing"},
+                "browser",
+                "https://example.com/pricing",
+            ),
+            (
+                "browser_without_page",
+                "task_browser",
+                "{task}:browser",
+                {"kind": "document"},
+                "browser",
+                "In-app browser",
+            ),
+        ]
+    )
+    def test_task_comments_list_preview_and_browser_targets(
+        self, _name: str, scope: str, item_template: str, anchor: dict, expected_type: str, expected_name: str
+    ) -> None:
+        task = self._task_artifact_target()
+        item_id = item_template.format(task=task.id)
+        root = Comment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            scope=scope,
+            item_id=item_id,
+            item_context={"taskId": str(task.id), "anchor": anchor},
+            content="Check this",
+        )
+        client = self._sandbox_task_comment_client(task.id)
+
+        comments = client.get(f"/api/projects/{self.team.id}/tasks/{task.id}/comments/")
+
+        assert comments.status_code == status.HTTP_200_OK
+        assert [(row["id"], row["target"]) for row in comments.json()["comments"]] == [
+            (str(root.id), {"id": item_id, "type": expected_type, "name": expected_name})
+        ]
+
     def test_task_comment_retrieval_tolerates_malformed_stored_context(self) -> None:
         task = self._task_artifact_target()
         root = Comment.objects.create(

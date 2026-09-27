@@ -409,7 +409,9 @@ export const CommentsListQueryParams = () => zod.object({
     task_id: zod
         .string()
         .optional()
-        .describe('Owning task for task, task_artifact, task_preview, and desktop_canvas comment scopes.'),
+        .describe(
+            'Owning task for task, task_artifact, task_preview, task_browser, and desktop_canvas comment scopes.'
+        ),
 })
 
 /**

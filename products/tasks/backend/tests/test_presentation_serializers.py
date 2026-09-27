@@ -20,6 +20,7 @@ from posthog.temporal.oauth import (
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.model_catalogue import GatewayModel
+from products.tasks.backend.logic.services.agent_server_launcher import AGENT_SERVER_PORT
 from products.tasks.backend.presentation.serializers import (
     TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES,
     SandboxEnvironmentWriteSerializer,
@@ -28,10 +29,12 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunBootstrapCreateRequestSerializer,
     TaskRunCommandRequestSerializer,
     TaskRunCreateRequestSerializer,
+    TaskRunExposePortRequestSerializer,
     TaskRunLivingArtifactCreateRequestSerializer,
     TaskRunUpdateSerializer,
     TaskWriteSerializer,
 )
+from products.tasks.backend.sandbox.images.streamlit_auth_proxy import BRIDGE_LISTEN_PORT
 
 
 class TestSandboxEnvironmentWriteSerializer(SimpleTestCase):
@@ -100,6 +103,21 @@ class TestTaskRunLivingArtifactCreateRequestSerializer(SimpleTestCase):
     def test_content_source_exclusivity(self, _name: str, data: dict, expected_valid: bool) -> None:
         serializer = TaskRunLivingArtifactCreateRequestSerializer(data=data)
         assert serializer.is_valid() is expected_valid
+
+
+class TestTaskRunExposePortRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("agent_server_port", AGENT_SERVER_PORT, False),
+            ("auth_proxy_bridge_port", BRIDGE_LISTEN_PORT, False),
+            ("privileged_port", 80, False),
+            ("app_port", 3000, True),
+        ]
+    )
+    def test_only_app_ports_can_be_exposed(self, _name: str, port: int, expected_valid: bool) -> None:
+        serializer = TaskRunExposePortRequestSerializer(data={"port": port})
+        assert serializer.is_valid() is expected_valid
+        assert ("port" in serializer.errors) is not expected_valid
 
 
 class TestTaskRunCreateRequestSerializer(SimpleTestCase):

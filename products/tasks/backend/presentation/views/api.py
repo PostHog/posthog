@@ -2759,8 +2759,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=TaskRunPreviewSessionResponseSerializer,
                 description="The preview state, and a short-lived URL when the preview is ready",
             ),
-            403: OpenApiResponse(description="Refused outside PostHog Desktop, or during read-only impersonation"),
-            404: OpenApiResponse(description="Task run not found"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Refused outside PostHog Desktop, or during read-only impersonation",
+            ),
+            404: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Task run not found"),
         },
         summary="Start a preview session for a task run",
         description=(
@@ -2797,11 +2800,15 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             400: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description=(
-                    "The port is reserved, the task was not created in PostHog Desktop, the run has no "
-                    "sandbox, or the run exposes the maximum ports"
+                    "The port is reserved or the sandbox cannot publish it, the task was not created in "
+                    "PostHog Desktop, the run has no sandbox, or the run exposes the maximum ports"
                 ),
             ),
-            404: OpenApiResponse(description="Run not found"),
+            403: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="The token lacks the task:write scope or project access",
+            ),
+            404: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Run not found"),
         },
         summary="Expose a sandbox port for a task run",
         description=(
@@ -2836,6 +2843,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result.outcome == "no_sandbox":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "This run has no sandbox to expose a port from."}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if result.outcome == "port_not_supported":
+            supported = ", ".join(str(port) for port in result.supported_ports)
+            return Response(
+                TaskRunErrorResponseSerializer(
+                    {"error": f"This sandbox can expose only these ports: {supported}.", "code": "port_not_supported"}
+                ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if result.outcome == "limit_reached" or result.run is None:

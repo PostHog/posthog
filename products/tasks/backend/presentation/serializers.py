@@ -3152,13 +3152,15 @@ class TaskCommentDetailQuerySerializer(serializers.Serializer):
 
 class TaskCommentTargetSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable target id.")
-    type = serializers.CharField(help_text="Target type: task, artifact, or canvas.")
+    type = serializers.CharField(help_text="Target type: task, artifact, canvas, preview, or browser.")
     name = serializers.CharField(help_text="Display name of the comment target.")
 
 
 class TaskCommentSummarySerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Root comment id.")
-    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    target = TaskCommentTargetSerializer(
+        help_text="Task, artifact, canvas, preview, or in-app browser page receiving the comment."
+    )
     content = serializers.CharField(help_text="Bounded excerpt of the root comment body.")
     content_truncated = serializers.BooleanField(help_text="Whether the root comment body has more content.")
     selected_text = serializers.CharField(allow_null=True, help_text="Text selected when the comment was created.")
@@ -3201,7 +3203,9 @@ class TaskCommentEntrySerializer(serializers.Serializer):
 
 class TaskCommentDetailSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Root comment id.")
-    target = TaskCommentTargetSerializer(help_text="Task, artifact, or canvas receiving the comment.")
+    target = TaskCommentTargetSerializer(
+        help_text="Task, artifact, canvas, preview, or in-app browser page receiving the comment."
+    )
     resolved = serializers.BooleanField(help_text="Whether the comment is resolved.")
     comments = TaskCommentEntrySerializer(many=True, help_text="Comments in this page, oldest first.")
     next = serializers.CharField(allow_null=True, help_text="Opaque cursor for the next page, or null.")
