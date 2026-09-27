@@ -384,8 +384,6 @@ def _schema_split_aliases(
 
 
 def _relabel_table_names(rows: list[list[Any]], aliases: dict[str, str], indexes: tuple[int, ...]) -> list[list[Any]]:
-    if not aliases:
-        return rows
     relabeled = []
     for row in rows:
         row = list(row)
