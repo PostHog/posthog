@@ -218,16 +218,12 @@ def _dispatched_run_ids(team_id: int, checks: list[SignalReportCheck]) -> dict[s
     Bounded to runs created after the oldest dispatch, because the run row carries the check only
     in its metadata and the table grows with every scout run.
     """
-    dispatched = [check for check in checks if check.dispatched_at is not None]
+    dispatched = {str(check.id): check.dispatched_at for check in checks if check.dispatched_at is not None}
     if not dispatched:
         return {}
-    check_ids = [str(check.id) for check in dispatched]
     runs = (
         SignalScoutRun.objects.for_team(team_id)
-        .filter(
-            created_at__gte=min(check.dispatched_at for check in dispatched if check.dispatched_at),
-            metadata__check_id__in=check_ids,
-        )
+        .filter(created_at__gte=min(dispatched.values()), metadata__check_id__in=list(dispatched))
         .order_by("created_at")
         .values_list("id", "metadata__check_id")
     )
