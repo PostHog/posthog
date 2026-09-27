@@ -192,6 +192,14 @@ def stale_suggestion_candidates(limit: int) -> QuerySet[ReplayScanner]:
     )
 
 
+def _team_rows() -> QuerySet[ReplayObservation]:
+    """Observations that may feed a team's phrases. A row captured while its scanner targeted an experiment stays
+    readable only to that experiment's viewers, even after the targeting is removed, so it never feeds them."""
+    return ReplayObservation.objects.filter(
+        status=ObservationStatus.SUCCEEDED, scanner_snapshot__experiment_targeting__experiment_id__isnull=True
+    )
+
+
 def _team_sources() -> QuerySet[ReplayScanner]:
     """Scanners that may feed a team's cross-scanner phrases. An experiment-targeted scanner's observations are
     readable per experiment, so they never feed phrases every viewer of the team sees."""
@@ -205,9 +213,7 @@ def stale_team_candidates(limit: int) -> list[int]:
     team_watermark = Coalesce(
         Subquery(config.values("search_suggestions_watermark")[:1]), Value(_EPOCH), output_field=DateTimeField()
     )
-    newer_observation = ReplayObservation.objects.filter(
-        scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED, created_at__gt=team_watermark
-    )
+    newer_observation = _team_rows().filter(scanner_id=OuterRef("pk"), created_at__gt=team_watermark)
     not_due = TeamReplayVisionConfig.objects.exclude(_due("")).values("team_id")
     return list(
         _team_sources()
@@ -264,9 +270,7 @@ def refresh_team_suggestions(team: Team) -> bool:
     sampled evenly across them. Same contract as `refresh_scanner_suggestions`."""
     config = get_or_create_team_extension(team, TeamReplayVisionConfig)
     since = config.search_suggestions_watermark or _EPOCH
-    newer = ReplayObservation.objects.filter(
-        scanner_id=OuterRef("pk"), status=ObservationStatus.SUCCEEDED, created_at__gt=since
-    )
+    newer = _team_rows().filter(scanner_id=OuterRef("pk"), created_at__gt=since)
     scanners = list(
         _team_sources()
         .filter(team_id=team.id)
@@ -279,9 +283,8 @@ def refresh_team_suggestions(team: Team) -> bool:
     newest: dt.datetime | None = None
     for scanner in scanners:
         rows = list(
-            ReplayObservation.objects.filter(
-                scanner_id=scanner.id, status=ObservationStatus.SUCCEEDED, created_at__gt=since
-            )
+            _team_rows()
+            .filter(scanner_id=scanner.id, created_at__gt=since)
             .order_by("-created_at")
             .only("scanner_result", "created_at")[:_CANDIDATE_ROWS]
         )

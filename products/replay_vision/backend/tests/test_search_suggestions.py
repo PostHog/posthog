@@ -232,6 +232,13 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         # Its observations are readable per experiment, so they never feed phrases the whole team sees.
         targeted = self._scanner("targeted", experiment_targeting={"experiment_id": 1})
         self._seed(targeted, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
+        # Untargeted now, but these rows were captured under an experiment and stay readable only to its viewers.
+        self._seed(
+            checkout,
+            MIN_NEW_OBSERVATIONS_FOR_REFRESH,
+            snapshot={**snapshot_for(checkout), "experiment_targeting": {"experiment_id": 2}},
+            output={"scanner_type": "summarizer", "title": "t", "summary": "experiment only"},
+        )
         self.assertEqual(stale_team_candidates(10), [self.team.id])
         mock_generate.return_value = _LlmQueries(queries=["coupon rejected"])
 
@@ -239,6 +246,7 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
 
         self.assertIn("[checkout]", mock_generate.call_args.kwargs["user_content"])
         self.assertNotIn("[targeted]", mock_generate.call_args.kwargs["user_content"])
+        self.assertNotIn("experiment only", mock_generate.call_args.kwargs["user_content"])
         self.assertEqual(stale_team_candidates(10), [])
         self.assertEqual(cross_scanner_suggestions(self.team.id, [str(checkout.id)]), ["coupon rejected"])
         self.assertIsNone(cross_scanner_suggestions(self.team.id, [str(targeted.id)]))
