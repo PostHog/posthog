@@ -4,8 +4,8 @@ from typing import Any
 
 from parameterized import parameterized
 
-from products.tasks.evals.golden_prs.__main__ import report
-from products.tasks.evals.golden_prs.agents import agent_environment
+from products.tasks.evals.golden_prs.__main__ import report, verdict_for
+from products.tasks.evals.golden_prs.agents import AgentRun, agent_environment, agent_failure
 from products.tasks.evals.golden_prs.cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
 from products.tasks.evals.golden_prs.scoring import added_lines, changed_files, judge, score_diffs
 
@@ -106,6 +106,47 @@ def test_score_diffs_measures_overlap_with_the_golden_diff(_name: str, candidate
 def test_judge_scores_an_empty_diff_without_calling_the_model():
     verdict = judge("task", "   \n", GOLDEN, client=None)
     assert verdict.score == 0.0
+
+
+def agent_run(**overrides: Any) -> AgentRun:
+    fields: dict[str, Any] = {
+        "runtime": "claude",
+        "model": "m",
+        "agent_version": "1",
+        "exit_code": 0,
+        "timed_out": False,
+        "duration_seconds": 1.0,
+        "stdout": "",
+        "stderr": "",
+    }
+    return AgentRun(**(fields | overrides))
+
+
+@parameterized.expand(
+    [
+        ("clean exit", agent_run(), None),
+        (
+            "claude error report",
+            agent_run(exit_code=1, stdout='{"is_error": true, "result": "Not logged in"}'),
+            "Not logged in",
+        ),
+        (
+            "codex stderr",
+            agent_run(runtime="codex", exit_code=1, stderr="warn\nERROR invalid peer certificate\n"),
+            "ERROR invalid peer certificate",
+        ),
+        ("timeout", agent_run(exit_code=-1, timed_out=True), "The agent hit the case timeout."),
+        ("silent failure", agent_run(exit_code=2), "The agent exited with code 2."),
+    ]
+)
+def test_agent_failure_explains_a_non_zero_exit(_name: str, run: AgentRun, expected: str | None):
+    assert agent_failure(run) == expected
+
+
+def test_verdict_for_a_failed_agent_names_the_failure_instead_of_judging():
+    verdict = verdict_for(agent_run(exit_code=1, stderr="boom"), "task", "", GOLDEN, "judge-model")
+    assert verdict.score == 0.0
+    assert "boom" in verdict.reasoning
 
 
 def test_agent_environment_drops_github_credentials():

@@ -41,15 +41,32 @@ def agent_version(runtime: Runtime) -> str:
     return subprocess.run([runtime, "--version"], capture_output=True, text=True, check=True).stdout.strip()
 
 
-def agent_usage(run: AgentRun) -> dict[str, float | int]:
-    """Cost and turn count as the Claude CLI reports them; Codex emits an event stream we do not parse."""
+def _claude_report(run: AgentRun) -> dict:
     if run.runtime != "claude":
         return {}
     try:
-        report = json.loads(run.stdout)
+        return json.loads(run.stdout)
     except json.JSONDecodeError:
         return {}
+
+
+def agent_usage(run: AgentRun) -> dict[str, float | int]:
+    """Cost and turn count as the Claude CLI reports them; Codex emits an event stream we do not parse."""
+    report = _claude_report(run)
     return {key: report[key] for key in ("total_cost_usd", "num_turns") if key in report}
+
+
+def agent_failure(run: AgentRun) -> str | None:
+    """Why the agent exited non-zero, so a login or network failure never reads as a bad attempt."""
+    if run.exit_code == 0:
+        return None
+    if run.timed_out:
+        return "The agent hit the case timeout."
+    report = _claude_report(run)
+    if report.get("is_error") and report.get("result"):
+        return str(report["result"])
+    stderr_lines = [line for line in run.stderr.splitlines() if line.strip()]
+    return stderr_lines[-1] if stderr_lines else f"The agent exited with code {run.exit_code}."
 
 
 def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_seconds: int) -> AgentRun:

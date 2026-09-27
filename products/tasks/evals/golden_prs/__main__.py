@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
 
-from .agents import DEFAULT_MODELS, Runtime, agent_usage, run_agent
+from .agents import DEFAULT_MODELS, AgentRun, Runtime, agent_failure, agent_usage, run_agent
 from .cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
-from .scoring import DEFAULT_JUDGE_MODEL, DiffScores, changed_files, judge, score_diffs
+from .scoring import DEFAULT_JUDGE_MODEL, DiffScores, Verdict, changed_files, judge, score_diffs
 from .workspace import candidate_diff, checkout_parent, ensure_golden_commits, golden_diff
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -38,6 +38,13 @@ class CaseResult:
     candidate_files: list[str]
 
 
+def verdict_for(run: AgentRun, prompt: str, candidate: str, golden: str, judge_model: str) -> Verdict:
+    failure = agent_failure(run)
+    if failure and not candidate.strip():
+        return Verdict(score=0.0, reasoning=f"The agent failed before changing any file: {failure}")
+    return judge(prompt, candidate, golden, model=judge_model)
+
+
 def evaluate(
     pr: GoldenPR, runtime: Runtime, model: str, judge_model: str, timeout_seconds: int, repo: Path
 ) -> tuple[CaseResult, str, str]:
@@ -48,7 +55,7 @@ def evaluate(
     with checkout_parent(repo, pr) as workdir:
         run = run_agent(runtime, model, prompt, workdir, timeout_seconds)
         candidate = candidate_diff(workdir)
-    verdict = judge(prompt, candidate, golden, model=judge_model)
+    verdict = verdict_for(run, prompt, candidate, golden, judge_model)
     result = CaseResult(
         pr=pr.number,
         title=pr.title,
