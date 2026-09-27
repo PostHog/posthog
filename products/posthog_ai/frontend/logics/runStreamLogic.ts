@@ -669,11 +669,13 @@ function findLastBufferIndex(state: ThreadItem[], id: string, type: ThreadItemTy
 /**
  * A debug row carries a `_posthog/console` line from the agent server, and `threadItems` gates it on
  * `showDebugLogs`, so for most viewers it renders nothing. Ending a streamed message on one splits
- * the answer wherever the delta happened to end, with nothing between the halves to explain it.
+ * the answer wherever the delta happened to end, with nothing between the halves to explain it. A
+ * send the agent has not taken up yet sinks below the whole answer before it renders, so it splits
+ * the halves the same way and is passed over too.
  */
-function onlyDebugRowsFollow(state: ThreadItem[], idx: number): boolean {
+function onlyDebugRowsFollow(state: ThreadItem[], idx: number, waitingIds: ReadonlySet<string>): boolean {
     for (let i = idx + 1; i < state.length; i++) {
-        if (state[i].type !== 'debug') {
+        if (state[i].type !== 'debug' && !waitingIds.has(state[i].id)) {
             return false
         }
     }
@@ -1496,11 +1498,11 @@ export function foldLogToThread(
     // Texts already rendered by a `_posthog/user_message`, so a later identical `user_message_chunk`
     // (resume chains persist the same turn in both forms) is consumed once rather than doubled.
     const rememberedHumanTexts = new Map<string, number>()
-    // Placeholders the composer drew for sends the agent has not taken up, oldest first per text. A
-    // queued or steering send is echoed only when the agent takes it up, which is a turn later than
-    // the bubble, so the pairing outlives that turn. Text is the whole key because a client echo
-    // carries no id, and the queue keeps repeated sends of one text in order.
-    const waitingPlaceholders = new Map<string, string[]>()
+    // Placeholders the composer drew for sends the agent has not taken up, in send order. A queued or
+    // steering send is echoed only when the agent takes it up, which is a turn later than the bubble,
+    // so the pairing outlives that turn. Text is what an echo matches on, because a client echo
+    // carries no id, and send order keeps repeated sends of one text apart.
+    const waitingSends: { id: string; text: string }[] = []
     // Sends this turn already paired, counted per text so the same send's second wire form takes no
     // further placeholder while a second send of that text still takes its own.
     const pairedSends = new Map<string, number>()
@@ -1582,6 +1584,8 @@ export function foldLogToThread(
         }
     }
 
+    const waitingSendIds = (): ReadonlySet<string> => new Set(waitingSends.map((send) => send.id))
+
     const appendChunk = (id: string, type: ThreadItemType, delta: string): void => {
         const idx = findLastBufferIndex(items, id, type, false)
         // Continue the matched buffer only while it's incomplete and only debug rows followed it;
@@ -1591,7 +1595,7 @@ export function foldLogToThread(
         // the S3 replay always does, since the backend drops chunks), so the bare fallback id would
         // collide as a React key across messages. The continuation lookup matches the `${id}@`
         // prefix, so it still works.
-        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx)) {
+        if (idx === -1 || items[idx].complete || !onlyDebugRowsFollow(items, idx, waitingSendIds())) {
             items.push({
                 id: `${id}@${bubbleSeq++}`,
                 type,
@@ -1677,7 +1681,10 @@ export function foldLogToThread(
     }
 
     /** The oldest send of this text the agent has not taken up, which is the one it takes up next. */
-    const takeWaitingPlaceholder = (text: string): string | undefined => waitingPlaceholders.get(text)?.shift()
+    const takeWaitingPlaceholder = (text: string): string | undefined => {
+        const index = waitingSends.findIndex((send) => send.text === text)
+        return index === -1 ? undefined : waitingSends.splice(index, 1)[0].id
+    }
 
     const renderLiveHuman = (rawText: string, remember: boolean): void => {
         const { text, contextBlocks } = splitUserMessageContent(rawText)
@@ -1798,9 +1805,8 @@ export function foldLogToThread(
 
         if (method === '_client/human_message') {
             const optimisticText = String(params.content ?? '')
-            const waiting = waitingPlaceholders.get(optimisticText) ?? []
-            waiting.push(pushHuman(optimisticText, optimisticAttachments(params.attachments), { atFoot: true }))
-            waitingPlaceholders.set(optimisticText, waiting)
+            const id = pushHuman(optimisticText, optimisticAttachments(params.attachments), { atFoot: true })
+            waitingSends.push({ id, text: optimisticText })
             continue
         }
         if (method === '_client/error') {
@@ -1839,6 +1845,11 @@ export function foldLogToThread(
                 // The undelivered follow-up is a consequence of the run's error, so it rides the error
                 // card instead of a second failed row. Without a preceding error it becomes the card.
                 items = items.filter((item) => !(item.type === 'progress' && item.progressGroup === group))
+                // The notice follows the send that failed, which is the last one drawn. Retiring it
+                // stops a retry of the same text from taking its placeholder, and keeps a send that
+                // was never delivered where the composer drew it instead of sinking it below the
+                // answers that came after.
+                waitingSends.pop()
                 const last = items[items.length - 1]
                 if (last?.type === 'error' && last.variant !== 'crash') {
                     items[items.length - 1] = { ...last, undeliveredMessage: true }
@@ -2048,7 +2059,7 @@ export function foldLogToThread(
 
     // A send the agent has not taken up sits below everything that has landed, in send order, however
     // much arrived after the composer drew it.
-    const waiting = new Set([...waitingPlaceholders.values()].flat())
+    const waiting = waitingSendIds()
     if (waiting.size > 0) {
         items = [...items.filter((item) => !waiting.has(item.id)), ...items.filter((item) => waiting.has(item.id))]
     }

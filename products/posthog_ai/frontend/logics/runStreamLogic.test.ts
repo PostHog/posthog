@@ -2235,6 +2235,54 @@ describe('runStreamLogic', () => {
     })
 
     describe('chunk folding', () => {
+        it('keeps an answer in one bubble when a send waits between its chunks', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'Hel' } })
+                )
+                // The placeholder sinks below the whole answer before it renders, so it must not end
+                // the buffer and leave the half-written 'Hel' beside the finished text.
+                logic.actions.pushHumanMessage('typed while it wrote')
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { text: 'lo' } })
+                )
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm1', content: { text: 'Hello' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => [item.type, item.text])).toEqual([
+                ['assistant_message', 'Hello'],
+                ['human_message', 'typed while it wrote'],
+            ])
+        })
+
+        it('keeps an answer in one bubble when the send between its chunks is echoed in the same turn', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'agent_message_chunk',
+                        messageId: 'm1',
+                        content: { text: 'part one ' },
+                    })
+                )
+                logic.actions.pushHumanMessage('steer')
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'agent_message_chunk',
+                        messageId: 'm1',
+                        content: { text: 'part two' },
+                    })
+                )
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'steer' }))
+            }).toFinishAllListeners()
+
+            expect(logic.values.threadItems.map((item) => [item.type, item.text])).toEqual([
+                ['assistant_message', 'part one part two'],
+                ['human_message', 'steer'],
+            ])
+        })
+
         it('folds distinct chunks of the same message into one growing buffer', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
@@ -4515,6 +4563,62 @@ describe('runStreamLogic', () => {
     })
 
     describe('_posthog/progress handling', () => {
+        const undeliveredFollowup = notification('_posthog/progress', {
+            step: 'followup_delivery',
+            status: 'failed',
+            label: "Couldn't deliver your message",
+            group: 'followup-delivery:m1',
+            detail: 'send_followup failed',
+        })
+
+        it('leaves an undelivered send where it was drawn instead of below the turns that follow', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.pushHumanMessage('never arrived')
+                logic.actions.ingestAcpFrame(undeliveredFollowup)
+                logic.actions.pushHumanMessage('arrived')
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'arrived' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm9', content: { text: 'answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type !== 'turn_separator')
+                    .map((item) => [item.type, item.text ?? item.errorMessage])
+            ).toEqual([
+                ['human_message', 'never arrived'],
+                ['error', 'send_followup failed'],
+                ['human_message', 'arrived'],
+                ['assistant_message', 'answer'],
+            ])
+        })
+
+        it('gives a retry of an undelivered send its own bubble above the answer', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.pushHumanMessage('try again')
+                logic.actions.ingestAcpFrame(undeliveredFollowup)
+                logic.actions.pushHumanMessage('try again')
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'try again' }))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm9', content: { text: 'answer' } })
+                )
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type !== 'turn_separator')
+                    .map((item) => [item.type, item.text ?? item.errorMessage])
+            ).toEqual([
+                ['human_message', 'try again'],
+                ['error', 'send_followup failed'],
+                ['human_message', 'try again'],
+                ['assistant_message', 'answer'],
+            ])
+        })
+
         it('folds a failed follow-up delivery into the preceding error card', async () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(
