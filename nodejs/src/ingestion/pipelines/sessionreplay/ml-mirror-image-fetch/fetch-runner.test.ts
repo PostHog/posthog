@@ -21,6 +21,11 @@ const OPTIONS: FetchRunnerOptions = {
     maxRedirects: 3,
     seenTtlSeconds: 30 * 24 * 60 * 60,
 }
+const POOL_OPTIONS: FetchRunnerOptions = {
+    ...OPTIONS,
+    continuousPool: { refillRunnableUrls: 100, maxQueuedUrlsPerOwner: 1_000 },
+}
+const builtRunners: FetchRunner[] = []
 
 function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
     return {
@@ -101,12 +106,14 @@ function build(
         { createRepublishBatch, publishImage } as unknown as FrontierPublisher,
         new ImageFetchTopHogMetrics(recordingTopHog.registry)
     )
+    builtRunners.push(runner)
     return { runner, budget, fetch, check, createPass, republish, publishImage, topHogRecords: recordingTopHog.records }
 }
 
 describe('FetchRunner', () => {
     beforeEach(() => jest.useFakeTimers().setSystemTime(NOW_MS))
-    afterEach(() => {
+    afterEach(async () => {
+        await Promise.all(builtRunners.splice(0).map((runner) => runner.close()))
         jest.useRealTimers()
         jest.restoreAllMocks()
     })
@@ -143,9 +150,12 @@ describe('FetchRunner', () => {
         })
     })
 
-    it('publishes an accepted image and records a terminal URL result', async () => {
+    it.each([
+        ['a fetch pass', OPTIONS],
+        ['the pod candidate pool', POOL_OPTIONS],
+    ])('publishes an accepted image and records a terminal URL result through %s', async (_mode, options) => {
         const bytes = Buffer.from('image')
-        const harness = build({ bytes, contentType: 'image/png' })
+        const harness = build({ bytes, contentType: 'image/png' }, {}, 'queued', options)
 
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
@@ -419,6 +429,70 @@ describe('FetchRunner', () => {
         await Promise.all([firstRun, secondRun])
     })
 
+    it('finishes a pooled batch with queued candidates before close stops the pool', async () => {
+        const harness = build({}, {}, 'queued', { ...POOL_OPTIONS, maxInFlightRequests: 1 })
+        let releaseFirst: () => void = () => undefined
+        harness.fetch.mockImplementationOnce(
+            (url: string) =>
+                new Promise<ImageFetchResult>((resolve) => {
+                    releaseFirst = () => resolve({ outcome: 'ok', redirects: 0, currentUrl: url })
+                })
+        )
+        const queued = candidate({
+            originalRef: `imageurl:${'b'.repeat(22)}`,
+            currentUrl: 'https://cdn.other.net/b.png',
+            host: 'cdn.other.net',
+            origin: 'https://cdn.other.net',
+            registrableDomain: 'other.net',
+        })
+
+        const run = harness.runner.run([candidate(), queued], new Map())
+        await jest.advanceTimersByTimeAsync(0)
+        let closed = false
+        const close = harness.runner.close().then(() => {
+            closed = true
+        })
+        await jest.advanceTimersByTimeAsync(0)
+        expect(closed).toBe(false)
+        releaseFirst()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect((await run).map((attempt) => attempt.candidate.currentUrl)).toEqual([
+            candidate().currentUrl,
+            queued.currentUrl,
+        ])
+        await close
+    })
+
+    it('shares one registrable domain limit between batches in the pod candidate pool', async () => {
+        const harness = build({}, {}, 'queued', POOL_OPTIONS)
+        const releases: Array<() => void> = []
+        harness.fetch.mockImplementation(
+            (url: string) =>
+                new Promise<ImageFetchResult>((resolve) => {
+                    releases.push(() => resolve({ outcome: 'ok', redirects: 0, currentUrl: url }))
+                })
+        )
+        const onOrigin = (label: string): FetchCandidate =>
+            candidate({
+                originalRef: `imageurl:${label.repeat(22)}`,
+                currentUrl: `https://${label}.example.com/a.png`,
+                host: `${label}.example.com`,
+                origin: `https://${label}.example.com`,
+            })
+
+        const firstBatch = harness.runner.run([onOrigin('a'), onOrigin('b')], new Map())
+        const secondBatch = harness.runner.run([onOrigin('c'), onOrigin('d')], new Map())
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(harness.fetch).toHaveBeenCalledTimes(2)
+        releases.splice(0).forEach((release) => release())
+        await jest.advanceTimersByTimeAsync(0)
+        expect(harness.fetch).toHaveBeenCalledTimes(4)
+        releases.splice(0).forEach((release) => release())
+        await Promise.all([firstBatch, secondBatch])
+    })
+
     it('does not start a queued request after another worker aborts its pass', async () => {
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxInFlightRequests: 2 })
         let releaseBlocker: () => void = () => undefined
@@ -462,8 +536,11 @@ describe('FetchRunner', () => {
         await blockingRun
     })
 
-    it('stops taking queue work after a fatal candidate error', async () => {
-        const harness = build({}, {}, 'queued', { ...OPTIONS, maxInFlightRequests: 1 })
+    it.each([
+        ['a fetch pass', OPTIONS],
+        ['the pod candidate pool', POOL_OPTIONS],
+    ])('stops taking queue work after a fatal candidate error in %s', async (_mode, options) => {
+        const harness = build({}, {}, 'queued', { ...options, maxInFlightRequests: 1 })
         harness.fetch.mockRejectedValueOnce(new Error('dependency unavailable'))
         const second = candidate({ originalRef: `imageurl:${'b'.repeat(22)}` })
 
@@ -483,8 +560,11 @@ describe('FetchRunner', () => {
         expect(attempts[0].candidate).toMatchObject({ republishCount: 1, lastRepublishReason: 'retry' })
     })
 
-    it('marks an image publish failure as lost after all candidate work settles', async () => {
-        const harness = build({ bytes: Buffer.from('image'), contentType: 'image/png' })
+    it.each([
+        ['a fetch pass', OPTIONS],
+        ['the pod candidate pool', POOL_OPTIONS],
+    ])('marks an image publish failure as lost after all candidate work settles in %s', async (_mode, options) => {
+        const harness = build({ bytes: Buffer.from('image'), contentType: 'image/png' }, {}, 'queued', options)
         harness.publishImage.mockRejectedValue(new Error('queue full'))
 
         const [attempt] = await harness.runner.run([candidate()], new Map())
@@ -634,8 +714,11 @@ describe('FetchRunner', () => {
         expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'not_ready', 600_000)
     })
 
-    it('returns pass-deadline work directly to the frontier', async () => {
-        const harness = build({}, {}, 'queued', { ...OPTIONS, batchBudgetMs: -1 })
+    it.each([
+        ['a fetch pass', OPTIONS],
+        ['the pod candidate pool', POOL_OPTIONS],
+    ])('returns pass-deadline work directly to the frontier from %s', async (_mode, options) => {
+        const harness = build({}, {}, 'queued', { ...options, batchBudgetMs: -1 })
 
         await harness.runner.run([candidate()], new Map())
 
