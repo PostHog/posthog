@@ -47,6 +47,13 @@ from .linkedin_ads import (
     linkedin_ads_source,
 )
 
+_MISSING_INTEGRATION_ERROR = (
+    "The LinkedIn Ads connection for this source no longer exists. Reconnect your LinkedIn Ads account, then try again."
+)
+_LOAD_CONNECTION_ERROR = (
+    "PostHog couldn't load your LinkedIn Ads connection. Reconnect your LinkedIn Ads account, then try again."
+)
+
 # LinkedIn's Marketing API uses monthly date-based versioning (YYYYMM) sent as a request header.
 LINKEDIN_ADS_VERSION_202606 = "202606"
 LINKEDIN_ADS_VERSION_202607 = "202607"
@@ -260,10 +267,10 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
             return True, None
         except Integration.DoesNotExist:
-            return False, "LinkedIn Ads integration not found. Please re-authenticate."
+            return False, _MISSING_INTEGRATION_ERROR
         except Exception as e:
             capture_exception(e)
-            return False, f"Failed to validate LinkedIn Ads credentials: {str(e)}"
+            return False, _LOAD_CONNECTION_ERROR
 
     def get_schemas(
         self,
