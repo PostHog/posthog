@@ -63,6 +63,18 @@ def _dispatch_awaiting_input(run_id: str, task_id: str, team_id: int, turn_compl
     return False
 
 
+def _dispatch_turn_failed(run_id: str, task_id: str, team_id: int) -> bool:
+    try:
+        if not TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists():
+            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
+            return False
+        signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
+        return True
+    except Exception:
+        logger.exception("agent_proxy_callback.turn_failed_failed", extra={"run_id": run_id})
+    return False
+
+
 def _dispatch_callback(
     kind: str, agent_active: bool, run_id: str, task_id: str, team_id: int, turn_completed: bool = True
 ) -> bool:
@@ -75,13 +87,7 @@ def _dispatch_callback(
     if kind == "awaiting_input":
         return _dispatch_awaiting_input(run_id, task_id, team_id, turn_completed)
     if kind == "turn_failed":
-        try:
-            if TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists():
-                signal_workflow_completion(run_id, "failed", PI_RUNTIME_ERROR_MESSAGE)
-                return True
-            logger.warning("agent_proxy_callback.run_not_found", extra={"run_id": run_id})
-        except Exception:
-            logger.exception("agent_proxy_callback.turn_failed_failed", extra={"run_id": run_id})
+        return _dispatch_turn_failed(run_id, task_id, team_id)
     return False
 
 

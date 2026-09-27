@@ -226,13 +226,13 @@ class TestAgentProxyCallback(TestCase):
 
     @parameterized.expand(
         [
-            ("heartbeat", "heartbeat", True),
-            ("command_dispatched", "command_dispatched", False),
-            ("agent_activity", "agent_activity", True),
-            ("awaiting_input", "awaiting_input", False),
+            ("heartbeat", True),
+            ("command_dispatched", False),
+            ("agent_activity", True),
+            ("awaiting_input", False),
         ]
     )
-    def test_unknown_run_returns_200_not_dispatched(self, _name: str, kind: str, agent_active: bool) -> None:
+    def test_unknown_run_returns_200_not_dispatched(self, kind: str, agent_active: bool) -> None:
         run = self.task.create_run()
         run_id = str(run.id)
         token = self._token(run)
