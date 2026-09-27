@@ -4,22 +4,27 @@ from typing import Any, Literal
 from products.warehouse_sources.backend.types import IncrementalField
 
 # Which root listing a fan-out endpoint enumerates its parents from. Environments are
-# discovered project-by-project, so their prerequisite is the projects listing.
-ParentResource = Literal["organisation", "project", "environment"]
+# discovered project-by-project, so their prerequisite is the projects listing. The last two are
+# two-level parents: identities are listed per environment, and the feature-segments listing needs
+# an environment and a feature together, both enumerated per project.
+ParentResource = Literal["organisation", "project", "environment", "identity", "environment_feature"]
 
 
 @dataclass
 class FlagsmithEndpointConfig:
     name: str
     # Path under ``/api/v1``. A ``{parent}`` placeholder marks a fan-out endpoint queried
-    # once per parent resource (organisation id, project id, or environment api_key). The
-    # path may carry its own query string (e.g. the environments listing filter).
+    # once per parent resource (organisation id, project id, or environment api_key), and a
+    # ``{child}`` placeholder the inner identifier of a two-level parent. The path may carry
+    # its own query string (e.g. the environments listing filter).
     path: str
     primary_keys: list[str]
     parent: ParentResource | None = None
     # Row field the parent identifier is injected into, so a single table stays meaningful
     # (and uniquely keyed) across parents whose rows don't carry the parent id themselves.
     parent_field: str | None = None
+    # Same, for the inner identifier of a two-level parent (the ``{child}`` path placeholder).
+    child_field: str | None = None
     # Static query params for the initial request. Only endpoints whose OpenAPI spec
     # documents ``page_size`` get one — DRF silently ignores it elsewhere, so don't imply it.
     params: dict[str, Any] = field(default_factory=dict)
@@ -62,6 +67,14 @@ FLAGSMITH_ENDPOINTS: dict[str, FlagsmithEndpointConfig] = {
         params={"page_size": 100, "sort_field": "created_date", "sort_direction": "ASC"},
         partition_key="created_date",
     ),
+    # Project-level tag lookup resolving the tag ids carried on feature rows.
+    "tags": FlagsmithEndpointConfig(
+        name="tags",
+        path="/projects/{parent}/tags/",
+        primary_keys=["id"],
+        parent="project",
+        parent_field="_project_id",
+    ),
     # Current flag values per environment (environment defaults and segment overrides).
     "feature_states": FlagsmithEndpointConfig(
         name="feature_states",
@@ -79,6 +92,39 @@ FLAGSMITH_ENDPOINTS: dict[str, FlagsmithEndpointConfig] = {
         parent_field="_project_id",
         params={"page_size": 100},
         partition_key="created_at",
+    ),
+    # Segment overrides: the join rows tying a feature to a segment within one environment. The
+    # listing requires both an environment id and a feature id, so the fan-out walks every valid
+    # pair within each project.
+    "feature_segments": FlagsmithEndpointConfig(
+        name="feature_segments",
+        path="/features/feature-segments/?environment={parent}&feature={child}",
+        primary_keys=["id"],
+        parent="environment_feature",
+        parent_field="_environment_id",
+        # The response carries the segment and environment but not the feature it overrides.
+        child_field="_feature_id",
+    ),
+    # The end users flags are evaluated against, listed per environment.
+    "identities": FlagsmithEndpointConfig(
+        name="identities",
+        path="/environments/{parent}/identities/",
+        primary_keys=["id"],
+        parent="environment",
+        parent_field="_environment_api_key",
+        params={"page_size": 100},
+    ),
+    # Trait values per identity — the attributes segment rules match on. Flagsmith exposes no bulk
+    # traits listing, so this costs at least one request per identity and is bounded by the shared
+    # page budget on very large environments.
+    "identity_traits": FlagsmithEndpointConfig(
+        name="identity_traits",
+        path="/environments/{parent}/identities/{child}/traits/",
+        primary_keys=["id"],
+        parent="identity",
+        parent_field="_environment_api_key",
+        child_field="_identity_id",
+        partition_key="created_date",
     ),
     # Append-only change history for the organisation. Retention on Flagsmith SaaS is
     # plan-gated, so the table reflects the currently retained window.
