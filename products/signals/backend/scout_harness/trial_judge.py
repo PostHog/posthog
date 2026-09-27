@@ -141,6 +141,7 @@ def evidence_sources_from_logs(
         "current_mode_update",
         "available_commands_update",
         "config_option_update",
+        "session_info_update",
     }
     for line_number, line in enumerate(content.splitlines(), start=1):
         if not line.strip():

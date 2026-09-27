@@ -280,6 +280,7 @@ class TestScoutTrialTraceEvidence(SimpleTestCase):
                     _meta={"reasoning": "Hidden metadata marker"},
                 ),
                 _tool_line("tool_result", toolCallId="call-2", rawOutput={"count": 3}),
+                _tool_line("session_info_update", title="Weekly sample review"),
             ]
         )
         result = evidence_sources_from_logs(content)
@@ -291,6 +292,7 @@ class TestScoutTrialTraceEvidence(SimpleTestCase):
         assert "Private thought marker" not in text
         assert "Hidden reasoning marker" not in text
         assert "Hidden metadata marker" not in text
+        assert "Weekly sample review" not in text
         assert output in result.sources[1].text
         assert 'rawOutput["isError"] (json):\nfalse' in result.sources[1].text
         assert ('content[0]["content"]' in result.sources[1].text) == (output != "Inspect the saved history.")
@@ -338,10 +340,14 @@ class TestScoutTrialTraceEvidence(SimpleTestCase):
             assert f"status (text):\n{status}" in source.text
         assert result.limitations == []
 
-    def test_partial_and_unknown_trace_formats_have_explicit_limitations(self) -> None:
-        result = evidence_sources_from_logs(
-            "\n".join(["not JSON", json.dumps({"type": "pi_event", "event": {"type": "tool_call_started"}})])
-        )
+    @parameterized.expand(
+        [
+            ("pi_event", json.dumps({"type": "pi_event", "event": {"type": "tool_call_started"}})),
+            ("unknown_update", _tool_line("future_tool_result", toolCallId="call-future", rawOutput={"count": 7})),
+        ]
+    )
+    def test_partial_and_unknown_trace_formats_have_explicit_limitations(self, _name: str, line: str) -> None:
+        result = evidence_sources_from_logs("\n".join(["not JSON", line]))
         assert result.sources == []
         assert any("malformed" in limitation for limitation in result.limitations)
         assert any("unsupported format" in limitation for limitation in result.limitations)

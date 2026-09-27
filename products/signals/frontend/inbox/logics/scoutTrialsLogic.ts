@@ -47,6 +47,7 @@ import {
     initialTrialVariants,
     trialFormError,
     trialIsActive,
+    trialTaskIsActive,
 } from '../components/config/scouts/trials/scoutTrialUtils'
 
 const TRIAL_POLL_INTERVAL_MS = 10_000
@@ -842,7 +843,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                         !result ||
                         result.status === 'unknown' ||
                         trialIsActive(result.status) ||
-                        trialIsActive(result.task_status ?? ''))
+                        trialTaskIsActive(result.task_status))
                 )
             })
             if (!entries.length) {
@@ -930,7 +931,7 @@ export const scoutTrialsLogic: LogicWrapper<scoutTrialsLogicType> = kea<scoutTri
                         (row) =>
                             trialIsActive(row.status) ||
                             row.status === 'unknown' ||
-                            trialIsActive(row.result?.task_status ?? '')
+                            trialTaskIsActive(row.result?.task_status)
                     )
                 ) {
                     actions.refreshResults()

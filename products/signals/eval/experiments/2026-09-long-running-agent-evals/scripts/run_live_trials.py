@@ -4,10 +4,11 @@ import os
 import sys
 import json
 import time
+import fcntl
 import argparse
 import subprocess
 from datetime import UTC, datetime
-from http.client import IncompleteRead, RemoteDisconnected
+from http.client import IncompleteRead
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from urllib.error import HTTPError, URLError
@@ -68,7 +69,7 @@ class TrialClient:
                     raise RuntimeError(
                         f"HTTP {error.code}; retry this saved manifest to keep launch identities."
                     ) from error
-            except (TimeoutError, URLError, RemoteDisconnected, IncompleteRead) as error:
+            except (TimeoutError, URLError, ConnectionError, IncompleteRead) as error:
                 if attempt == 3:
                     raise RuntimeError("The API did not respond; retry this saved manifest.") from error
             time.sleep(2**attempt)
@@ -189,35 +190,13 @@ class Comparison:
         raise RuntimeError("Polling timed out. Runs retain their saved IDs; resume this manifest to continue polling.")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Run private live scout variants and save their results.")
-    parser.add_argument("--host", default="http://localhost:8000")
-    parser.add_argument("--project-id", type=int)
-    parser.add_argument("--config-id")
-    parser.add_argument(
-        "--variants",
-        type=Path,
-        help="JSON list with label and optional model, reasoning_effort, skill_body, or skill_file.",
-    )
-    parser.add_argument("--repeats", type=int, default=1)
-    parser.add_argument("--concurrency", type=int, default=2)
-    parser.add_argument("--effort", help="Common effort, required when the source has no effort pin.")
-    parser.add_argument("--note", default="")
-    parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--resume", action="store_true")
-    parser.add_argument("--timeout", type=int, default=3600)
-    args = parser.parse_args()
-    if args.concurrency < 1 or args.repeats < 1 or args.timeout < 1:
-        parser.error("Concurrency, repeats, and timeout must be positive.")
-    token = os.environ.get("POSTHOG_API_KEY")
-    if not token:
-        parser.error("Set POSTHOG_API_KEY to an operator key with scout and skill write scopes.")
-    output = private_output_directory(args.output)
+def run_comparison(args: argparse.Namespace, parser: argparse.ArgumentParser, output: Path, token: str) -> None:
     manifest_path = output / "manifest.json"
     if args.resume:
         manifest = json.loads(manifest_path.read_text())
         if manifest.get("host") != args.host.rstrip("/"):
             parser.error("The host must match the saved manifest.")
+        concurrency = args.concurrency if args.concurrency is not None else manifest.get("concurrency", 1)
     else:
         if manifest_path.exists():
             parser.error("A manifest already exists. Use --resume or a new output directory.")
@@ -259,15 +238,56 @@ def main() -> None:
             "created_at": datetime.now(UTC).isoformat(),
             "runs": runs,
         }
-        save_json(manifest_path, manifest)
+        concurrency = args.concurrency if args.concurrency is not None else 2
+    if not isinstance(concurrency, int) or isinstance(concurrency, bool) or concurrency < 1:
+        parser.error("The saved concurrency must be a positive integer. Use --concurrency to replace it.")
+    manifest["concurrency"] = concurrency
+    save_json(manifest_path, manifest)
     comparison = Comparison(TrialClient(args.host, token), output, manifest)
     try:
-        comparison.run(args.concurrency, args.timeout)
+        comparison.run(concurrency, args.timeout)
     except (RuntimeError, ValueError, KeyboardInterrupt) as error:
         comparison.manifest["last_error"] = str(error)
         comparison.save()
         print(f"Stopped: {error}. Saved manifest: {manifest_path}", file=sys.stderr)  # noqa: T201 -- eval script, stdout is the intended output channel
         raise SystemExit(1) from error
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run private live scout variants and save their results.")
+    parser.add_argument("--host", default="http://localhost:8000")
+    parser.add_argument("--project-id", type=int)
+    parser.add_argument("--config-id")
+    parser.add_argument(
+        "--variants",
+        type=Path,
+        help="JSON list with label and optional model, reasoning_effort, skill_body, or skill_file.",
+    )
+    parser.add_argument("--repeats", type=int, default=1)
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        help="Maximum active runs. Defaults to 2 for new batches or the saved limit on resume.",
+    )
+    parser.add_argument("--effort", help="Common effort, required when the source has no effort pin.")
+    parser.add_argument("--note", default="")
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--timeout", type=int, default=3600)
+    args = parser.parse_args()
+    if (args.concurrency is not None and args.concurrency < 1) or args.repeats < 1 or args.timeout < 1:
+        parser.error("Concurrency, repeats, and timeout must be positive.")
+    token = os.environ.get("POSTHOG_API_KEY")
+    if not token:
+        parser.error("Set POSTHOG_API_KEY to an operator key with scout and skill write scopes.")
+    output = private_output_directory(args.output)
+    # Keep the lock file so competing processes always lock the same inode.
+    with os.fdopen(os.open(output / ".controller.lock", os.O_CREAT | os.O_WRONLY, 0o600), "w") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            parser.error("Another controller is using this output directory. Wait for it to stop before resuming.")
+        run_comparison(args, parser, output, token)
 
 
 if __name__ == "__main__":

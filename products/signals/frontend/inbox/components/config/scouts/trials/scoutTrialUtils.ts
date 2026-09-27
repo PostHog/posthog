@@ -57,6 +57,10 @@ export function trialIsActive(status: string): boolean {
     return ['pending', 'running', 'queued', 'in_progress', 'starting'].includes(status)
 }
 
+export function trialTaskIsActive(status: string | null | undefined): boolean {
+    return !!status && ['not_started', 'queued', 'in_progress'].includes(status)
+}
+
 export function trialFormError(
     setup: ScoutTrialSetupApi | null,
     variants: ScoutTrialVariant[],
@@ -154,7 +158,7 @@ export function comparisonScoreDisabledReason(
         launches.some(
             (id) =>
                 !['completed', 'failed', 'cancelled', 'skipped'].includes(results[id].status) ||
-                trialIsActive(results[id].task_status ?? '')
+                trialTaskIsActive(results[id].task_status)
         )
     ) {
         return 'Wait for every run in this comparison to finish.'

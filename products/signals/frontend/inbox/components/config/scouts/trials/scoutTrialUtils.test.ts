@@ -28,8 +28,10 @@ describe('scout comparison validation', () => {
         ['unknown', null, 'confirmed result'],
         ['not_started', null, 'not started'],
         ['unexpected_status', null, 'finish'],
-        ['failed', 'running', 'finish'],
-        ['running', 'running', 'finish'],
+        ['failed', 'not_started', 'finish'],
+        ['failed', 'queued', 'finish'],
+        ['failed', 'in_progress', 'finish'],
+        ['running', 'in_progress', 'finish'],
     ])('does not score a comparison while a run has status=%s and task status=%s', (status, taskStatus, reason) => {
         const results = Object.fromEntries(
             trialFixtureComparison.groups.flatMap((group) =>

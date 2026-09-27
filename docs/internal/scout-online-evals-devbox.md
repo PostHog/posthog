@@ -231,7 +231,9 @@ The CLI reads an operator personal API key from `POSTHOG_API_KEY`. It needs the 
 
 Replace the angle-bracket placeholders. The output directory must be private (mode `700`) and outside Git or ignored. Use local HTTP only for `localhost`/`127.0.0.1`; other hosts require HTTPS. Redirects are rejected.
 
-A timeout does not cancel server runs. Resume with the same secret-loading wrapper and script, passing only the same `--host`, `--output`, and `--resume`. The manifest preserves launch IDs and the shared context; do not regenerate IDs to retry an uncertain submission.
+A timeout does not cancel server runs. Resume with the same secret-loading wrapper and script, passing only the same `--host`, `--output`, and `--resume`. The manifest preserves launch IDs, the shared context and the concurrency limit; do not regenerate IDs to retry an uncertain submission. An explicit `--concurrency` replaces the saved limit for this and later resumes. Older manifests without a saved limit resume one run at a time unless you provide one. Existing active runs keep polling even when they exceed a lower limit; new launches wait for space.
+
+Only one CLI controller can use an output directory at a time. A second controller stops before reading or changing its manifest or launching a run. The operating system releases the lock when the controller exits, including after a crash. Leave `.controller.lock` in place; its presence does not mean a controller is still running.
 
 For each saved launch, inspect:
 

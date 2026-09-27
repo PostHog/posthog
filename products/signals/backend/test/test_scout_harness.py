@@ -6,7 +6,7 @@ import json
 import random
 import asyncio
 from collections.abc import AsyncIterator, Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -1630,7 +1630,18 @@ async def test_successful_run_creates_bridge_row_pointing_at_task_run(ateam, aer
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@pytest.mark.parametrize("outcome_case", ["completed", "runtime_drift", "cancelled"])
+@pytest.mark.parametrize(
+    "outcome_case",
+    [
+        "completed",
+        "runtime_drift",
+        "cancelled",
+        "task_cancelled_no_message",
+        "task_cancelled_with_message",
+        "task_failed_no_message",
+        "final_metrics_failure",
+    ],
+)
 @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 @override_settings(
     SCOUT_LIVE_TRIALS_ENABLED=True,
@@ -1640,6 +1651,8 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     ateam: Team, aerrors_skill: LLMSkill, atrial_operator: User, outcome_case: str
 ) -> None:
     runtime_drift = outcome_case == "runtime_drift"
+    final_metrics_failure = outcome_case == "final_metrics_failure"
+    task_cancelled = outcome_case in {"task_cancelled_no_message", "task_cancelled_with_message"}
     await database_sync_to_async(LLMSkill.objects.filter(pk=aerrors_skill.pk).update)(allowed_tools=["emit_report"])
     config = await database_sync_to_async(SignalScoutConfig.objects.create)(
         team=ateam,
@@ -1718,6 +1731,13 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         assert persisted.state is not None
         assert persisted.state["scout_trial"]["launch_id"] == str(launch.id)
         assert "scout_trial_private" in persisted.state
+        if task_cancelled or outcome_case == "task_failed_no_message":
+            await database_sync_to_async(type(session.task_run).objects.filter(pk=session.task_run.pk).update)(
+                status="cancelled" if task_cancelled else "failed"
+            )
+            assert session.task_run.status == "in_progress"
+            if outcome_case != "task_cancelled_with_message":
+                raise RuntimeError("The agent stopped before a final message.")
         if outcome_case == "cancelled":
             running_task = asyncio.current_task()
             assert running_task is not None
@@ -1728,9 +1748,9 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         return context.model_dump_json() if "/contexts/" in key else launch.model_dump_json()
 
     async def end_session(*, status: str = "completed", error: str | None = None) -> None:
-        await database_sync_to_async(type(session.task_run).objects.filter(pk=session.task_run.pk).update)(
-            status=status
-        )
+        await database_sync_to_async(
+            type(session.task_run).objects.filter(pk=session.task_run.pk).exclude(status="cancelled").update
+        )(status=status)
 
     session.end.side_effect = end_session
     with (
@@ -1739,6 +1759,12 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
         patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=start_session),
         patch("products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env", return_value="env-id"),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+        patch(
+            "products.signals.backend.scout_harness.runner._read_run_metrics",
+            side_effect=[OperationalError("Final metrics are unavailable"), (0, str(session.task_run.id))],
+        )
+        if final_metrics_failure
+        else nullcontext(),
     ):
         if outcome_case == "cancelled":
             with pytest.raises(asyncio.CancelledError):
@@ -1756,7 +1782,14 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
             team_id=ateam.id, skill_name=aerrors_skill.name, trial_launch_id=str(launch.id)
         )
 
-    assert outcome.status == ("failed" if runtime_drift else outcome_case)
+    expected_status: str = (
+        "cancelled"
+        if task_cancelled
+        else "failed"
+        if runtime_drift or final_metrics_failure or outcome_case == "task_failed_no_message"
+        else outcome_case
+    )
+    assert outcome.status == expected_status
     assert replay.run_id == outcome.run_id
     assert len(captured) == 1
     sandbox_context = captured[0]["context"]
@@ -1765,6 +1798,11 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert sandbox_context.reasoning_effort == "high"
     assert sandbox_context.posthog_mcp_scopes == "signals_scout_experiment"
     bridge = await SignalScoutRun.objects.aget(id=outcome.run_id)
+    if task_cancelled:
+        assert bridge.summary == ""
+        assert outcome.last_message is None
+        assert replay.status == "cancelled"
+        assert outcome.task_run_id == replay.task_run_id == str(session.task_run.id)
     assert bridge.metadata is not None
     assert bridge.metadata["scout_trial"]["context_id"] == str(context.id)
     assert bridge.metadata["reasoning_effort"] == "high"
@@ -1772,7 +1810,8 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert export.call_args.args[0] == f"signals/scout-trials/{ateam.id}/results/{bridge.id}.json"
     saved_result = json.loads(export.call_args.args[1])
     assert saved_result["valid_comparison"] is not runtime_drift
-    assert saved_result["status"] == saved_result["task_status"] == outcome.status
+    assert saved_result["status"] == outcome.status
+    assert saved_result["task_status"] == ("completed" if final_metrics_failure else outcome.status)
     assert saved_result["token_usage"] == {"input_tokens": 100, "output_tokens": 20}
     assert saved_result["private_state"]["invalid_reason"] == saved_result["invalid_reason"]
     assert "skill_body" not in saved_result

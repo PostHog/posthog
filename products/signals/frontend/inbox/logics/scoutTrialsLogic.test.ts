@@ -155,7 +155,9 @@ describe('scoutTrialsLogic', () => {
     })
 
     test.each([
-        ['failed', 'running'],
+        ['failed', 'not_started'],
+        ['failed', 'queued'],
+        ['failed', 'in_progress'],
         ['unknown', null],
     ])('keeps polling status=%s with task status=%s', async (status, taskStatus) => {
         logic.unmount()

@@ -47,6 +47,7 @@ Task content retrieval tools retain call metrics but omit content spans and free
 Private trial tasks, logs, artifacts, and controls are available only to the launching operator or the sandbox bound to that task.
 Other project members do not discover them through ordinary task lists or searches, and trial ownership cannot be transferred.
 Polling preserves the runner's saved completion outcome, including cancellation, and reports the underlying task status separately.
+A trial stopped through the task controls records cancellation even when the agent has no final message or only an earlier partial response.
 A poll can recover a missing export without replacing an existing result.
 
 Individual skill reads and markdown downloads serve the run's pinned candidate.
@@ -90,6 +91,7 @@ Runs within a variant must use the same instructions, note, model, runtime, reas
 The server freezes the rubric, bounded evidence, judge model and prompt version before dispatching the judge.
 Evidence includes instructions, starting history, captured reports, memory changes, summaries and available tool calls and results.
 Missing or truncated evidence is recorded as a limitation; private thoughts and reasoning are excluded from the extracted trace.
+Session titles and other recognized metadata updates are not tool evidence; unknown event formats still produce coverage limitations.
 Trace extraction removes exact repeated updates and duplicate output content, then shares the available evidence budget across the retained tool events in their original order. Verbose early output cannot consume the space reserved for later results; source-count and size limits remain explicit limitations.
 Tool trace fields use labelled text blocks that preserve string values, including quotes, line breaks and literal backslashes. This lets the judge quote returned prose without copying an extra layer of JSON escaping. Call identity, status, errors and inputs remain part of the same bounded source.
 
@@ -106,6 +108,7 @@ A run's score is `pass / (pass + fail)`, or null when it has no decisive verdict
 A variant's score is the equal mean of its non-null run scores.
 Coverage is `(pass + fail) / (pass + fail + unknown)`; not applicable is excluded from both score and coverage denominators.
 Execution exclusions and judge errors have no quality score and are counted separately.
+A scout runner failure remains an execution exclusion even if its sandbox task completed; the saved trial outcome records the runner failure.
 Reports retain each run's verdicts, reasons, quotations and evidence limitations alongside aggregate counts.
 Baseline differences are withheld unless all selected runs were judged with complete, comparable verdicts.
 The differences describe these runs; they do not establish statistical significance or a reliable winner.

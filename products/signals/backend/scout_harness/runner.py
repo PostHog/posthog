@@ -151,6 +151,12 @@ class RunResult:
     skip_reason: str | None = None
 
 
+class _TrialTaskCancelled(Exception):
+    def __init__(self, *, task_run_id: str) -> None:
+        super().__init__("The scout task was cancelled.")
+        self.task_run_id = task_run_id
+
+
 def _get_trial_config(trial: TrialLaunch) -> SignalScoutConfig:
     return SignalScoutConfig.objects.for_team(trial.team_id).get(id=trial.config_id, skill_name=trial.skill_name)
 
@@ -177,7 +183,20 @@ def _existing_trial_result(team_id: int, trial: TrialLaunch) -> RunResult | None
 
 def _trial_invalid_reason(*, team_id: int, run_id: UUID, trial: TrialLaunch) -> str | None:
     run = SignalScoutRun.objects.for_team(team_id).select_related("task_run").get(id=run_id)
-    return validate_trial_runtime(run, trial)
+    invalid_reason = validate_trial_runtime(run, trial)
+    if run.task_run.status == tasks_facade.TaskRunStatus.CANCELLED.value:
+        raise _TrialTaskCancelled(task_run_id=str(run.task_run_id))
+    return invalid_reason
+
+
+def _cancelled_trial_task_run_id(*, team_id: int, run_id: UUID) -> str | None:
+    task_run_id = (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(id=run_id, task_run__status=tasks_facade.TaskRunStatus.CANCELLED.value)
+        .values_list("task_run_id", flat=True)
+        .first()
+    )
+    return str(task_run_id) if task_run_id is not None else None
 
 
 def _export_trial_result_safely(*, team_id: int, run_id: UUID, status: str) -> None:
@@ -527,7 +546,27 @@ async def _arun_signals_scout(
             skill_version=skill.version,
         )
     except Exception as exc:
+        trial_status = tasks_facade.TaskRunStatus.FAILED.value
         runtime_s = time.monotonic() - started
+        if trial is not None:
+            cancelled_task_run_id = (
+                exc.task_run_id
+                if isinstance(exc, _TrialTaskCancelled)
+                else await database_sync_to_async(_cancelled_trial_task_run_id, thread_sensitive=False)(
+                    team_id=team.parent_team_id or team.id, run_id=run_id
+                )
+            )
+            if cancelled_task_run_id is not None:
+                trial_status = tasks_facade.TaskRunStatus.CANCELLED.value
+                return RunResult(
+                    run_id=str(run_id),
+                    task_run_id=cancelled_task_run_id,
+                    status=trial_status,
+                    last_message=None,
+                    runtime_s=runtime_s,
+                    skill_name=skill.name,
+                    skill_version=skill.version,
+                )
         # A failure before the dispatch initializer fires means no row was persisted —
         # don't hand callers a run_id that resolves to nothing.
         row_persisted = await database_sync_to_async(_run_row_exists, thread_sensitive=False)(
@@ -1059,7 +1098,9 @@ async def _spawn_and_run(
         )
         return result.summary, str(session.task_run.id)
     except BaseException as error:
-        end_status = "failed" if isinstance(error, Exception) else "cancelled"
+        end_status = (
+            "failed" if isinstance(error, Exception) and not isinstance(error, _TrialTaskCancelled) else "cancelled"
+        )
         end_error = str(error)
         raise
     finally:

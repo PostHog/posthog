@@ -17,7 +17,7 @@ import type { scoutTrialsLogicActions, scoutTrialsLogicValues } from '../../../.
 import { scoutDisplayName } from '../../../../utils/scoutRunsWindow'
 import { ScoutTrialComparisonReport } from './ScoutTrialComparisonReport'
 import { ScoutTrialResultModal } from './ScoutTrialResultModal'
-import { MAX_TRIAL_RUNS, ScoutTrialRow, trialIsActive } from './scoutTrialUtils'
+import { MAX_TRIAL_RUNS, ScoutTrialRow, trialIsActive, trialTaskIsActive } from './scoutTrialUtils'
 import { ScoutTrialVariantEditor } from './ScoutTrialVariantEditor'
 
 type ViewAction =
@@ -453,7 +453,7 @@ export function ScoutTrialsView(props: ScoutTrialsViewProps): JSX.Element {
                                             {row.result?.task_id &&
                                                 row.result.task_run_id &&
                                                 (trialIsActive(row.status) ||
-                                                    trialIsActive(row.result.task_status ?? '')) && (
+                                                    trialTaskIsActive(row.result.task_status)) && (
                                                     <LemonButton
                                                         size="xsmall"
                                                         type="tertiary"

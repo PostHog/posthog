@@ -335,6 +335,9 @@ async def _handle_streaming_request(
     try:
         llm_response = await asyncio.wait_for(llm_call(**request_data), timeout=timeout)
         bind_private_stream_logging(llm_response)
+    except asyncio.CancelledError:
+        CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
+        raise
     except TimeoutError:
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type="timeout", product=product).inc()
