@@ -840,16 +840,18 @@ export function LLMProviderKeysSettings(): JSX.Element {
                             </LemonBanner>
                         )}
 
-                        <div className="flex justify-between items-start">
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPlus />}
-                                onClick={() => setNewKeyModalOpen(true)}
-                                disabledReason={restrictionReason}
-                            >
-                                Add API key
-                            </LemonButton>
-                        </div>
+                        {providerKeys.length > 0 && (
+                            <div className="flex justify-between items-start">
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPlus />}
+                                    onClick={() => setNewKeyModalOpen(true)}
+                                    disabledReason={restrictionReason}
+                                >
+                                    Add API key
+                                </LemonButton>
+                            </div>
+                        )}
 
                         {providerKeys.length === 0 ? (
                             <div className="border rounded-lg p-8 flex flex-col items-center">
