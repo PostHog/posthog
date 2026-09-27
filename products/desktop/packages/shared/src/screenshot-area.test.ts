@@ -25,6 +25,11 @@ describe("screenshotArea", () => {
       expected: { x: 0, y: 0, width: 360, height: 222 },
     },
     {
+      name: "a wide element that ends near the left edge keeps a small area",
+      element: rect(-10_000, 400, 10_020, 20),
+      expected: { x: 0, y: 300, width: 360, height: 220 },
+    },
+    {
       name: "an element bigger than the page is cut to the page",
       element: rect(-50, -50, 2_000, 2_000),
       expected: { x: 0, y: 0, width: 1200, height: 800 },
@@ -45,6 +50,11 @@ describe("screenshotArea", () => {
     {
       name: "an element above the page",
       element: rect(500, -80, 40, 20),
+      width: 1200,
+    },
+    {
+      name: "an element with a missing position",
+      element: rect(Number.NaN, 400, 40, 20),
       width: 1200,
     },
   ])("gives no area for $name", ({ element, width }) => {
