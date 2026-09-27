@@ -51,6 +51,27 @@ function findHogVMException(error: unknown): KindedError | undefined {
     return undefined
 }
 
+const BYTECODE_CONTRACT = 'bytecodeContract'
+
+/**
+ * Attaches the stamp of the bytecode that threw to the error, so the catch block that classifies it
+ * knows which runtime the program was compiled against. The message is untouched.
+ */
+export function withBytecodeContract<T>(error: T, bytecodeContract: string | undefined): T {
+    if (bytecodeContract !== undefined && typeof error === 'object' && error !== null) {
+        Object.defineProperty(error, BYTECODE_CONTRACT, { value: bytecodeContract, enumerable: false })
+    }
+    return error
+}
+
+export function bytecodeContractOf(error: unknown): string | undefined {
+    if (typeof error !== 'object' || error === null) {
+        return undefined
+    }
+    const value = (error as Record<string, unknown>)[BYTECODE_CONTRACT]
+    return typeof value === 'string' ? value : undefined
+}
+
 export function classifyHogError(error: unknown, contract: HogErrorContract): HogErrorClass {
     const vmError = findHogVMException(error)
     if (!vmError) {

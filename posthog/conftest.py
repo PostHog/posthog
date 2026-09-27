@@ -36,6 +36,20 @@ from posthog.test import flush_lock_guard
 logger = logging.getLogger(__name__)
 
 
+@pytest.fixture(scope="package")
+def clickhouse_database() -> None:
+    # SQL-only tests need a database without the Postgres setup tied to django_db_setup.
+    Database(
+        settings.CLICKHOUSE_DATABASE,
+        db_url=settings.CLICKHOUSE_HTTP_URL,
+        username=settings.CLICKHOUSE_USER,
+        password=settings.CLICKHOUSE_PASSWORD,
+        cluster=settings.CLICKHOUSE_CLUSTER,
+        verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
+        trust_env=False,
+    ).create_database()
+
+
 def create_clickhouse_tables():
     # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly

@@ -67,7 +67,6 @@ from products.feature_flags.backend.models.evaluation_context import EvaluationC
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.test.base import APILicensedTest
-from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 def _make(cls, **attrs):
@@ -1575,90 +1574,6 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["type"], "validation_error")
         self.assertEqual(response.json()["detail"], "Metadata must be an object")
-
-    @time_machine.travel("2025-02-10T13:00:00Z", tick=False)
-    def test_fetching_experiment_with_stale_metric_dates_applies_experiment_date_range(self):
-        test_feature_flag = FeatureFlag.objects.create(
-            name=f"Test experiment flag",
-            key="test-flag",
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {
-                            "key": "control",
-                            "name": "Control",
-                            "rollout_percentage": 50,
-                        },
-                        {
-                            "key": "test",
-                            "name": "Test",
-                            "rollout_percentage": 50,
-                        },
-                    ]
-                },
-            },
-            created_by=self.user,
-        )
-        trends_query = {
-            "kind": "ExperimentTrendsQuery",
-            "count_query": {
-                "kind": "TrendsQuery",
-                "series": [
-                    {
-                        "kind": "EventsNode",
-                        "math": "total",
-                        "name": "[jan-16-running] event one",
-                        "event": "[jan-16-running] event one",
-                    }
-                ],
-                "interval": "day",
-                "dateRange": {"date_to": "2025-01-16T23:59", "date_from": "2025-01-02T13:54", "explicitDate": True},
-                "trendsFilter": {"display": "ActionsLineGraph"},
-                "filterTestAccounts": True,
-            },
-        }
-        saved_trends_metric = ExperimentSavedMetric.objects.create(
-            name="Test saved metric",
-            description="Test description",
-            query=trends_query,
-            team=self.team,
-            created_by=self.user,
-        )
-        experiment = Experiment.objects.create(
-            name="Test Experiment with stale dates",
-            team=self.team,
-            feature_flag=test_feature_flag,
-            start_date=datetime(2025, 2, 1),
-            end_date=None,
-            metrics=[trends_query],
-            metrics_secondary=[trends_query],
-        )
-
-        saved_metric_serializer = ExperimentToSavedMetricSerializer(
-            data={
-                "experiment": experiment.id,
-                "saved_metric": saved_trends_metric.id,
-                "metadata": {"type": "secondary"},
-            },
-        )
-        saved_metric_serializer.is_valid(raise_exception=True)
-        saved_metric_serializer.save()
-
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["metrics"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z")
-        self.assertEqual(response.json()["metrics"][0]["count_query"]["dateRange"]["date_to"], "")
-        self.assertEqual(
-            response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_from"], "2025-02-01T00:00:00Z"
-        )
-        self.assertEqual(response.json()["metrics_secondary"][0]["count_query"]["dateRange"]["date_to"], "")
-        self.assertEqual(
-            response.json()["saved_metrics"][0]["query"]["count_query"]["dateRange"]["date_from"],
-            "2025-02-01T00:00:00Z",
-        )
-        self.assertEqual(response.json()["saved_metrics"][0]["query"]["count_query"]["dateRange"]["date_to"], "")
 
     def test_adding_behavioral_cohort_filter_to_experiment_fails(self):
         cohort = Cohort.objects.create(
@@ -7727,7 +7642,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 "query": {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": "test-uuid-001",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
@@ -7735,6 +7649,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         # Create experiment without saved metrics
         experiment_response = self.client.post(
@@ -7761,7 +7676,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         # Verify ordering was updated in the database
         experiment = Experiment.objects.get(id=experiment_id)
-        self.assertIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
+        self.assertIn(saved_metric_uuid, experiment.secondary_metrics_ordered_uuids or [])
 
         # Exactly 1 new log should be created (the saved_metric_config, not ordering changes)
         logs_after_add = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
@@ -7802,7 +7717,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         # Verify ordering was updated
         experiment.refresh_from_db()
-        self.assertNotIn("test-uuid-001", experiment.secondary_metrics_ordered_uuids or [])
+        self.assertNotIn(saved_metric_uuid, experiment.secondary_metrics_ordered_uuids or [])
 
         # Exactly 1 new log should be created (the saved_metric_config deletion)
         logs_after_remove = ActivityLog.objects.filter(item_id=str(experiment_id), scope="Experiment").count()
@@ -7884,7 +7799,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 "query": {
                     "kind": "ExperimentMetric",
                     "metric_type": "mean",
-                    "uuid": "combined-saved-uuid",
                     "source": {"kind": "EventsNode", "event": "$pageview"},
                 },
             },
@@ -7892,6 +7806,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         # Start with one inline primary metric so we have an existing ordering to permute
         experiment_response = self.client.post(
@@ -7922,7 +7837,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
             {
                 "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
-                "primary_metrics_ordered_uuids": ["combined-saved-uuid", "combined-inline-uuid"],
+                "primary_metrics_ordered_uuids": [saved_metric_uuid, "combined-inline-uuid"],
             },
             format="json",
         )
@@ -7931,7 +7846,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         experiment = Experiment.objects.get(id=experiment_id)
         self.assertEqual(
             experiment.primary_metrics_ordered_uuids,
-            ["combined-saved-uuid", "combined-inline-uuid"],
+            [saved_metric_uuid, "combined-inline-uuid"],
         )
 
         # Two new logs: the saved_metric_config add AND the experiment-level reorder.
@@ -7958,7 +7873,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         ]
         self.assertEqual(len(ordering_changes), 1, "User-supplied reorder must be logged once")
         self.assertEqual(ordering_changes[0]["before"], ["combined-inline-uuid"])
-        self.assertEqual(ordering_changes[0]["after"], ["combined-saved-uuid", "combined-inline-uuid"])
+        self.assertEqual(ordering_changes[0]["after"], [saved_metric_uuid, "combined-inline-uuid"])
 
     @parameterized.expand(
         [
@@ -7976,9 +7891,9 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         write is bookkeeping and must be muted. Only the per-link `saved_metric_config`
         deleted entries should appear.
         """
-        saved_metric_uuids = ["bulk-remove-uuid-1", "bulk-remove-uuid-2"]
+        saved_metric_uuids: list[str] = []
         saved_metric_ids: list[int] = []
-        for index, uuid in enumerate(saved_metric_uuids):
+        for index in range(2):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiment_saved_metrics/",
                 {
@@ -7986,7 +7901,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                     "query": {
                         "kind": "ExperimentMetric",
                         "metric_type": "mean",
-                        "uuid": uuid,
                         "source": {"kind": "EventsNode", "event": "$pageview"},
                     },
                 },
@@ -7994,6 +7908,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
             saved_metric_ids.append(response.json()["id"])
+            saved_metric_uuids.append(response.json()["query"]["uuid"])
 
         experiment_response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -8140,14 +8055,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
     def test_update_auto_syncs_ordering_when_saved_metric_added_with_empty_ordering(self):
         """Test that adding a saved metric with empty ordering auto-populates the ordering"""
-        saved_metric_uuid = "saved-metric-uuid-456"
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             {
                 "name": "Test Saved Metric",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
                     "metric_type": "funnel",
                     "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 },
@@ -8156,6 +8069,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -8185,14 +8099,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
     def test_update_succeeds_when_ordering_arrays_are_correct(self):
         """Test that updating an experiment succeeds when ordering arrays contain all metric UUIDs"""
-        saved_metric_uuid = "saved-metric-uuid-789"
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             {
                 "name": "Test Saved Metric",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
                     "metric_type": "funnel",
                     "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 },
@@ -8201,6 +8113,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -8502,14 +8415,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
     def test_update_auto_syncs_ordering_when_saved_metric_added_without_ordering(self):
         """Test that adding a saved metric without sending ordering auto-populates the ordering"""
-        saved_metric_uuid = "saved-metric-no-ordering-uuid"
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             {
                 "name": "Test Saved Metric",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
                     "metric_type": "funnel",
                     "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 },
@@ -8518,6 +8429,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -8546,8 +8458,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
     def test_update_removes_saved_metric_uuid_from_ordering_when_removed(self):
         """Test that removing a saved metric also removes its UUID from the ordering array"""
-        saved_metric_uuid_1 = "remove-saved-uuid-1"
-        saved_metric_uuid_2 = "remove-saved-uuid-2"
 
         # Create two saved metrics
         saved_metric_response_1 = self.client.post(
@@ -8556,7 +8466,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 "name": "Saved Metric 1",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid_1,
                     "metric_type": "funnel",
                     "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 },
@@ -8564,6 +8473,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             format="json",
         )
         saved_metric_id_1 = saved_metric_response_1.json()["id"]
+        saved_metric_uuid_1 = saved_metric_response_1.json()["query"]["uuid"]
 
         saved_metric_response_2 = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -8571,7 +8481,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 "name": "Saved Metric 2",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid_2,
                     "metric_type": "funnel",
                     "series": [{"kind": "EventsNode", "event": "$pageleave"}],
                 },
@@ -8579,6 +8488,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             format="json",
         )
         saved_metric_id_2 = saved_metric_response_2.json()["id"]
+        saved_metric_uuid_2 = saved_metric_response_2.json()["query"]["uuid"]
 
         # Create experiment with both saved metrics
         response = self.client.post(
@@ -8615,14 +8525,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
     def test_update_auto_syncs_secondary_saved_metric_ordering(self):
         """Test that adding a secondary saved metric auto-populates the secondary ordering array"""
-        saved_metric_uuid = "secondary-saved-metric-uuid"
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             {
                 "name": "Secondary Saved Metric",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
                     "metric_type": "funnel",
                     "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 },
@@ -8631,6 +8539,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -8711,14 +8620,12 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
     def test_create_auto_syncs_ordering_for_saved_metrics(self):
         """Test that creating an experiment with saved metrics auto-populates ordering"""
-        saved_metric_uuid = "create-saved-metric-uuid"
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
             {
                 "name": "Test Saved Metric",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
                     "metric_type": "funnel",
                     "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 },
@@ -8727,6 +8634,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         )
         self.assertEqual(saved_metric_response.status_code, status.HTTP_201_CREATED)
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         # Create experiment with saved metric but no ordering
         response = self.client.post(
@@ -8747,7 +8655,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
     def test_create_auto_syncs_ordering_for_mixed_metrics(self):
         """Test that creating an experiment with both inline and saved metrics auto-populates ordering"""
         inline_uuid = "create-mixed-inline-uuid"
-        saved_metric_uuid = "create-mixed-saved-uuid"
 
         saved_metric_response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
@@ -8755,7 +8662,6 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
                 "name": "Test Saved Metric",
                 "query": {
                     "kind": "ExperimentMetric",
-                    "uuid": saved_metric_uuid,
                     "metric_type": "funnel",
                     "series": [{"kind": "EventsNode", "event": "$pageview"}],
                 },
@@ -8763,6 +8669,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
             format="json",
         )
         saved_metric_id = saved_metric_response.json()["id"]
+        saved_metric_uuid = saved_metric_response.json()["query"]["uuid"]
 
         # Create experiment with both inline and saved metrics, no ordering
         response = self.client.post(

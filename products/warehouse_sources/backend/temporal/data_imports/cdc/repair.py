@@ -42,6 +42,10 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    CDC_RESET_PENDING_KEY,
+    hand_reset_to_capture_if_sync_running,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -113,6 +117,16 @@ def _repair_locked(source: ExternalDataSource) -> int:
     )
     all_cdc_schema_ids = [schema.id for schema in all_cdc_schemas]
     _cancel_running_cdc_jobs(source, all_cdc_schemas, log)
+    # A sync that hands over after its table's reset leaves the reset pending on a streaming table,
+    # whose next run wipes it. Capture finishes those resets once the syncs stop, after this repair.
+    # They wait for the slot as well, because the one they would snapshot against is gone until
+    # `recreate_slot` below, and a capture run firing meanwhile must not start that snapshot.
+    handed_over = {
+        schema.id
+        for schema in all_cdc_schemas
+        if hand_reset_to_capture_if_sync_running(schema, log, awaiting_slot=True)
+    }
+    reset_now = [schema for schema in cdc_schemas if schema.id not in handed_over]
 
     # Reset schemas before touching the slot (same ordering as the extraction activity's
     # slot-invalidation recovery): if recreation fails below, a re-run repeats idempotently
@@ -120,11 +134,13 @@ def _repair_locked(source: ExternalDataSource) -> int:
     # they reference WAL from the dead slot and the re-snapshot supersedes them. The
     # `cdc_broken` markers deliberately survive this step: they are the retry gate.
     for schema_id in all_cdc_schema_ids:
+        if schema_id in handed_over:
+            continue
         update_sync_type_config_keys(
             schema_id,
             source.team_id,
             updates={"cdc_mode": "snapshot", "reset_pipeline": True},
-            removes=["cdc_last_log_position", "cdc_deferred_runs"],
+            removes=["cdc_last_log_position", "cdc_deferred_runs", CDC_RESET_PENDING_KEY],
             extra_model_fields={"initial_sync_complete": False},
         )
 
@@ -152,7 +168,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
     source.status = ExternalDataSource.Status.RUNNING
     source.save(update_fields=["job_inputs", "status", "updated_at"])
 
-    _resume_schedules(source, cdc_schemas)
+    _resume_schedules(source, reset_now)
 
     # Only now that the new slot exists and the schedules are resumed: clear the broken
     # evidence. A failure before this point leaves the markers for the retry gate; a
@@ -165,7 +181,7 @@ def _repair_locked(source: ExternalDataSource) -> int:
             extra_model_fields={"latest_error": None},
         )
 
-    _trigger_resnapshots(cdc_schemas, log)
+    _trigger_resnapshots(reset_now, log)
 
     log.info("cdc_repair_complete", schemas_reset=len(cdc_schemas))
     return len(cdc_schemas)

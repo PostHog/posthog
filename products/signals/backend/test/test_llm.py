@@ -36,7 +36,7 @@ def _mock_anthropic_client() -> MagicMock:
 @override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
 async def test_gateway_mode_omits_legacy_stage_header():
     client = _mock_anthropic_client()
-    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client) as build_client:
         await call_llm(
             team_id=1,
             system_prompt="s",
@@ -44,8 +44,12 @@ async def test_gateway_mode_omits_legacy_stage_header():
             validate=lambda text: text,
             stage="match",
             ai_product="signals_grouping",
+            trace_id="decision-1",
+            properties={"signals_decision_id": "decision-1"},
         )
 
+    assert build_client.call_args.kwargs["trace_id"] == "decision-1"
+    assert build_client.call_args.kwargs["properties"] == {"signals_decision_id": "decision-1"}
     # In gateway mode the labels ride on the builder's X-PostHog-Properties blob; the per-key
     # ai_stage header (which the Go gateway drops) must not be sent.
     assert "extra_headers" not in client.messages.create.call_args.kwargs

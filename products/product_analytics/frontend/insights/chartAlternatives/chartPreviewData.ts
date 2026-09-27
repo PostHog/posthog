@@ -145,8 +145,6 @@ interface PreviewRecipe {
 
 const noBreakdown = (source: TrendsQuery): boolean => !hasBreakdown(source)
 const summable = (source: TrendsQuery, rows: PreviewRows): boolean => canSumBuckets(source, rows.results)
-const canSlope = (source: TrendsQuery): boolean =>
-    (source.trendsFilter?.smoothingIntervals ?? 1) <= 1 && !hasBreakdown(source)
 const completeCountries = (source: TrendsQuery, rows: PreviewRows): boolean =>
     hasCountryCodeBreakdown(source) && isCompleteBreakdown(rows.response)
 
@@ -159,7 +157,7 @@ const RECIPES: Partial<Record<ChartDisplayType, PreviewRecipe>> = {
     [ChartDisplayType.ActionsStackedBar]: { needs: 'buckets' },
     [ChartDisplayType.Metric]: { needs: 'buckets', when: noBreakdown },
     [ChartDisplayType.ActionsLineGraphCumulative]: { needs: 'buckets', when: summable, transform: toCumulative },
-    [ChartDisplayType.SlopeGraph]: { needs: 'buckets', when: canSlope, transform: toSlope },
+    [ChartDisplayType.SlopeGraph]: { needs: 'buckets', transform: toSlope },
     [ChartDisplayType.BoldNumber]: { needs: 'totals', when: noBreakdown },
     [ChartDisplayType.ActionsPie]: { needs: 'totals' },
     [ChartDisplayType.ActionsDonut]: { needs: 'totals' },

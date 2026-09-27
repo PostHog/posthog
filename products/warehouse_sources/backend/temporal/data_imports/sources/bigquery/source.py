@@ -278,6 +278,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # must fix the project reference. Matched on the stable guidance wording rather than the
             # volatile project id that appears earlier in the message.
             "Make sure it references valid GCP project": "BigQuery couldn't find the Google Cloud project this source references — it may have been deleted, or the Project ID in your service account key file (or the configured dataset project) may be incorrect. Verify the project exists in Google Cloud and correct the project details in your source configuration, then reconnect the source.",
+            # Raised as a 403 Forbidden by `bq_client.get_table(...)` in `_build_source_response` (and
+            # other direct REST calls) when the GCP project the source runs against has been deleted,
+            # e.g. "... Project #898288516447 has been deleted.". Unlike the "Make sure it references
+            # valid GCP project" key above (a 404 naming the friendly project id), this is a 403 naming
+            # the numeric project number, so it slips through and retries forever against a project that
+            # no longer exists. The `delete_table` cleanup path in `bigquery.py` already treats this
+            # wording as terminal (skips rather than raises); this key gives the same condition the same
+            # treatment on the main sync path. Matched on the stable "has been deleted" wording rather
+            # than the volatile project number.
+            "has been deleted": "BigQuery couldn't complete this sync because the Google Cloud project it uses has been deleted. Restore the project in Google Cloud, or update your source configuration to use a project that still exists, then reconnect the source.",
             # Raised by google-cloud-bigquery's `TableReference.from_string` when a table id has
             # more than the three `project.dataset.table` components. This happens when the
             # Dataset ID field is set to `project.dataset` instead of just `dataset` — we then
@@ -400,6 +410,15 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # every retry. The user must update the source's column selection to match the table's
             # current schema. Matched on the stable wording, not the volatile list of column names.
             "do not exist in the table schema": "BigQuery couldn't read this table because it referenced columns that no longer exist on it — usually columns selected for syncing were renamed or removed. Retrying won't help — please update the source's column selection to match the table's current schema, then reconnect the source.",
+            # Raised as a 400 BadRequest from `jobs.getQueryResults` (the same poll `_with_job_not_
+            # found_retry` in `bigquery.py` awaits) when the table or view being synced is guarded by
+            # a deprecation check the customer's own BigQuery team added to it — a query against that
+            # relation deliberately errors to redirect callers to its replacement. It's a deterministic
+            # property of which table the source reads, not of our query shape: the same table fails
+            # identically on every retry until the source is pointed at the replacement. Matched on
+            # BigQuery's stable "Deprecated legacy table/view" wording, not the volatile project name
+            # or job id that surround it.
+            "Deprecated legacy table/view": "BigQuery rejected a query for this source because the table or view it reads has been marked deprecated by your BigQuery team, in favor of a newer replacement. Retrying won't help — please update this source to sync the replacement table or view, then reconnect the source.",
         }
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
