@@ -91,6 +91,15 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
                 condition=Q(status=ExternalDataJobStatus.RUNNING),
                 name="idx_extdatajob_running",
             ),
+            # Serves the billing-limit row count (_rows_synced_in_billing_period): team IN
+            # (every team in the org) with a finished_at range. Without it the planner reads
+            # the org's whole job history and filters out most of it. The partial index holds
+            # only rows that bill, so it stays small.
+            models.Index(
+                fields=["team", "finished_at"],
+                condition=Q(status=ExternalDataJobStatus.COMPLETED, billable=True),
+                name="idx_extdatajob_billable_fin",
+            ),
         ]
 
     def folder_path(self) -> str:
