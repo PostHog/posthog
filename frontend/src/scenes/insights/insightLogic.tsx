@@ -824,8 +824,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         tagSuggestion: [
             null as InsightTagSuggestionApi | null,
             {
-                suggestTags: async () =>
-                    await metadataSuggestionsTagsCreate(String(values.currentTeamId), values.metadataSuggestionPayload),
+                suggestTags: async () => {
+                    const payload = values.metadataSuggestionPayload
+                    const suggestion = await metadataSuggestionsTagsCreate(String(values.currentTeamId), payload)
+                    // The query can change while the request is in flight, and tags picked for the old query
+                    // would otherwise be saved onto the new one.
+                    return objectsEqual(payload.query, values.metadataSuggestionPayload.query) ? suggestion : null
+                },
             },
         ],
     })),
@@ -1202,6 +1207,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         },
         suggestTagsSuccess: ({ tagSuggestion }) => {
             if (!tagSuggestion) {
+                lemonToast.info('The query changed while tags were being suggested, so none were added. Suggest again.')
                 return
             }
             const currentTags = values.insight.tags || []

@@ -17,6 +17,7 @@ from products.product_analytics.backend.presentation.metadata_suggestions import
     MAX_STATE_BYTES,
     MAX_TAG_NAME_CHARS,
     MAX_TAGS,
+    SUGGESTION_TIMEOUT_SECONDS,
     InsightContext,
     InsightTooLargeForSuggestions,
     build_insight_context,
@@ -67,6 +68,7 @@ class TestMetadataSuggestions(SimpleTestCase):
             "model": JEV_MODEL,
             "ai_product": "product_analytics",
             "distinct_id": "team-1",
+            "timeout": SUGGESTION_TIMEOUT_SECONDS,
         }
         sent = decide.call_args.kwargs
         assert sent["state"]["tags"] == {"t0": "growth", "t1": "billing", "t2": "marketing"}
@@ -77,11 +79,13 @@ class TestMetadataSuggestions(SimpleTestCase):
     def test_tags_split_into_requests_the_gateway_accepts(self) -> None:
         tags = [f"tag {index}" for index in range(GATEWAY_MAX_QUESTIONS + 8)]
         decide = _answer_all(0.9)
-        with _jev(decide):
+        with _jev(decide) as build:
             suggestion = suggest_tags(1, _CONTEXT, tags)
 
         assert [len(call.kwargs["questions"]) for call in decide.call_args_list] == [GATEWAY_MAX_QUESTIONS, 8]
         assert set(suggestion.tags) == set(tags)
+        # The batches run one after another, so together they wait no longer than one request may.
+        assert [call.kwargs["timeout"] for call in build.call_args_list] == [SUGGESTION_TIMEOUT_SECONDS / 2] * 2
 
     def test_tags_without_any_existing_tag_skip_the_call(self) -> None:
         decide = MagicMock()

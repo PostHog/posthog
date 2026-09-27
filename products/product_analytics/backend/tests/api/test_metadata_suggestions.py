@@ -108,6 +108,7 @@ class TestMetadataSuggestionsApi(APIBaseTest):
     @parameterized.expand(
         [
             ("saturated", SystemOneRequestFailed("busy", status_code=429), 503),
+            ("overloaded", SystemOneRequestFailed("overloaded", status_code=529), 503),
             ("gateway_timeout", SystemOneRequestFailed("timed out", status_code=504), 503),
             ("unreachable", _unreached(), 503),
             ("broken_contract", SystemOneRequestFailed("The System One server returned no answers"), 500),

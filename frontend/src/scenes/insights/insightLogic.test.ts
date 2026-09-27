@@ -1031,6 +1031,60 @@ describe('insightLogic', () => {
         })
     })
 
+    describe('tag suggestions', () => {
+        const query: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.TotalCount }],
+            },
+        }
+        let vizLogic: ReturnType<typeof insightVizDataLogic.build>
+        let answerSuggestion: () => void = () => {}
+
+        beforeEach(async () => {
+            const suggestionPending = new Promise<void>((resolve) => {
+                answerSuggestion = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team/metadata_suggestions/tags/': async () => {
+                        await suggestionPending
+                        return [200, { tags: ['growth'], scores: { growth: 0.9 } }]
+                    },
+                },
+            })
+            const insightProps: InsightLogicProps = { dashboardItemId: Insight42 }
+            logic = insightLogic(insightProps)
+            logic.mount()
+            insightDataLogic(insightProps).mount()
+            vizLogic = insightVizDataLogic(insightProps)
+            vizLogic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            vizLogic.actions.setQuery(query)
+        })
+
+        it('adds the suggested tags to the insight', async () => {
+            logic.actions.suggestTags()
+            answerSuggestion()
+
+            await expectLogic(logic).toDispatchActions([
+                'suggestTagsSuccess',
+                logic.actionCreators.setInsightMetadata({ tags: ['growth'] }),
+            ])
+        })
+
+        it('drops suggestions made for a query the person changed while waiting', async () => {
+            logic.actions.suggestTags()
+            vizLogic.actions.updateQuerySource({ filterTestAccounts: true })
+            answerSuggestion()
+
+            await expectLogic(logic)
+                .toDispatchActions(['suggestTagsSuccess'])
+                .toNotHaveDispatchedActions(['setInsightMetadata', 'setInsightMetadataLocal'])
+        })
+    })
+
     describe('confirmDeleteInsight', () => {
         beforeEach(async () => {
             const insightProps: InsightLogicProps = { dashboardItemId: Insight42 }

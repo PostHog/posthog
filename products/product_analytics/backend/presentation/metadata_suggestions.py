@@ -21,7 +21,12 @@ from posthog.schema import InsightVizNode
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import JsonValue, NoulAnswer, NoulQuestion, SystemOneResult
-from posthog.llm.system_one_client import GATEWAY_MAX_QUESTIONS, build_system_one_client, system_one_configured
+from posthog.llm.system_one_client import (
+    DEFAULT_TIMEOUT_SECONDS,
+    GATEWAY_MAX_QUESTIONS,
+    build_system_one_client,
+    system_one_configured,
+)
 from posthog.models import Team
 
 from products.product_analytics.backend.presentation.insight_metadata import summarize_query_for_naming
@@ -38,6 +43,9 @@ TAG_THRESHOLD = 0.6
 # one suggestion request to 3 gateway calls. The view offers the most used tags first, so increasing
 # MAX_TAGS requires increasing the 3x multiplier. Note: if GATEWAY_MAX_QUESTIONS changes, update this.
 MAX_TAGS = 3 * GATEWAY_MAX_QUESTIONS
+# The gateway calls run one after another inside the request, so they share one timeout between them.
+# Otherwise a slow gateway could hold a request worker for MAX_TAGS / GATEWAY_MAX_QUESTIONS timeouts.
+SUGGESTION_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 # A tag name holds up to 255 characters, and a full chunk of long names would push the state past MAX_STATE_BYTES.
 MAX_TAG_NAME_CHARS = 60
 MAX_SUMMARY_LINE_CHARS = 200
@@ -147,10 +155,10 @@ def _tag_question(key: str) -> NoulQuestion:
     )
 
 
-def _ask_jev(team_id: int, state: JsonValue, questions: Mapping[str, NoulQuestion]) -> SystemOneResult:
+def _ask_jev(team_id: int, state: JsonValue, questions: Mapping[str, NoulQuestion], timeout: float) -> SystemOneResult:
     # No TypeSafe fallback: the state holds a customer's insight metadata, which must not leave PostHog.
     client = build_system_one_client(
-        model=JEV_MODEL, ai_product="product_analytics", distinct_id=team_distinct_id(team_id)
+        model=JEV_MODEL, ai_product="product_analytics", distinct_id=team_distinct_id(team_id), timeout=timeout
     )
     return client.decide(state=state, questions=questions)
 
@@ -158,10 +166,12 @@ def _ask_jev(team_id: int, state: JsonValue, questions: Mapping[str, NoulQuestio
 def suggest_tags(team_id: int, context: InsightContext, available_tags: Sequence[str]) -> TagSuggestion:
     """Asks one yes/no question per tag. ``available_tags`` comes most used first, so the cap drops the rarest."""
     tags = list(dict.fromkeys(available_tags))[:MAX_TAGS]
+    batches = [tags[start : start + GATEWAY_MAX_QUESTIONS] for start in range(0, len(tags), GATEWAY_MAX_QUESTIONS)]
+    timeout = SUGGESTION_TIMEOUT_SECONDS / max(len(batches), 1)
     scores: dict[str, float] = {}
-    for start in range(0, len(tags), GATEWAY_MAX_QUESTIONS):
-        chunk = {f"t{start + offset}": tag for offset, tag in enumerate(tags[start : start + GATEWAY_MAX_QUESTIONS])}
-        result = _ask_jev(team_id, _state(context, chunk), {key: _tag_question(key) for key in chunk})
+    for batch in batches:
+        chunk = {f"t{offset}": tag for offset, tag in enumerate(batch)}
+        result = _ask_jev(team_id, _state(context, chunk), {key: _tag_question(key) for key in chunk}, timeout)
         for key, tag in chunk.items():
             answer = result.answers.get(key)
             if isinstance(answer, NoulAnswer):

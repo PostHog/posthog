@@ -58,14 +58,7 @@ export const SceneTags = ({
             {onSuggest && canEdit && onSave ? (
                 <SuggestMetadataButton
                     label="Suggest tags"
-                    onClick={() => {
-                        // The inline editor keeps its own draft and does not read `tags` while open, so suggested
-                        // tags that arrive mid-edit would be dropped by the next save. Closing the editor here, and
-                        // keeping it closed while `suggesting`, means the draft is rebuilt from `tags` after the
-                        // suggestion lands.
-                        setLocalIsEditing(false)
-                        onSuggest()
-                    }}
+                    onClick={onSuggest}
                     loading={suggesting}
                     dataAttr={`${dataAttrKey}-tags-suggest`}
                     size="xsmall"
@@ -74,25 +67,26 @@ export const SceneTags = ({
         </span>
     )
 
+    // Pressing the suggest button blurs the editor, which commits any typed tag and closes the editor before the
+    // click lands. Both branches render the same label element at the root, so the button survives that
+    // re-render and still receives the click. An `htmlFor` would turn the label into a different element.
     return localIsEditing ? (
-        <div className="flex flex-col gap-1">
-            <ScenePanelLabel htmlFor="new-tag-input" title={label}>
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
-                    value={localTags}
-                    options={availableTags.map((t) => ({ key: t, label: t }))}
-                    onChange={handleTagsChange}
-                    onBlur={() => setLocalIsEditing(false)}
-                    loading={tagsLoading}
-                    data-attr={`${dataAttrKey}-new-tag-input`}
-                    placeholder='try "official"'
-                    size="xsmall"
-                    autoFocus
-                    className="max-w-full"
-                />
-            </ScenePanelLabel>
-        </div>
+        <ScenePanelLabel title={label}>
+            <LemonInputSelect
+                mode="multiple"
+                allowCustomValues
+                value={localTags}
+                options={availableTags.map((t) => ({ key: t, label: t }))}
+                onChange={handleTagsChange}
+                onBlur={() => setLocalIsEditing(false)}
+                loading={tagsLoading}
+                data-attr={`${dataAttrKey}-new-tag-input`}
+                placeholder='try "official"'
+                size="xsmall"
+                autoFocus
+                className="max-w-full"
+            />
+        </ScenePanelLabel>
     ) : (
         <ScenePanelLabel title={label}>
             <ButtonPrimitive
