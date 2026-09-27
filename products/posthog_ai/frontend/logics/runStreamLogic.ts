@@ -1501,8 +1501,9 @@ export function foldLogToThread(
     // the bubble, so the pairing outlives that turn. Text is the whole key because a client echo
     // carries no id, and the queue keeps repeated sends of one text in order.
     const waitingPlaceholders = new Map<string, string[]>()
-    // Sends this turn already paired, so the same send's second wire form takes no further placeholder.
-    const pairedSends = new Set<string>()
+    // Sends this turn already paired, counted per text so the same send's second wire form takes no
+    // further placeholder while a second send of that text still takes its own.
+    const pairedSends = new Map<string, number>()
     let humanCount = 0
     let bubbleSeq = 0
     let separatorSeq = 0
@@ -1678,7 +1679,7 @@ export function foldLogToThread(
     /** The oldest send of this text the agent has not taken up, which is the one it takes up next. */
     const takeWaitingPlaceholder = (text: string): string | undefined => waitingPlaceholders.get(text)?.shift()
 
-    const renderLiveHuman = (rawText: string): void => {
+    const renderLiveHuman = (rawText: string, remember: boolean): void => {
         const { text, contextBlocks } = splitUserMessageContent(rawText)
         if (!text) {
             return
@@ -1686,10 +1687,15 @@ export function foldLogToThread(
         // The blocks ride only the server echo (the optimistic `_client/human_message` carries the raw
         // text), so push them even when the human text below dedupes against the optimistic render.
         pushContextBlocks(contextBlocks)
-        // A send echoed in two wire forms is one send: the first form places it, the second takes no
-        // further placeholder.
-        if (pairedSends.has(text)) {
-            return
+        // A send echoed in two wire forms is one send: the `_posthog/user_message` form places it and
+        // leaves a credit the `user_message_chunk` form spends. Counting rather than flagging the text
+        // keeps a second send of the same text in one turn from reading as the first send's echo.
+        if (!remember) {
+            const paired = pairedSends.get(text) ?? 0
+            if (paired > 0) {
+                pairedSends.set(text, paired - 1)
+                return
+            }
         }
         // The echo says the agent took the send up, so it is what places the message: the placeholder
         // leaves the foot of the thread and the message renders at the head of the turn it opens,
@@ -1697,7 +1703,9 @@ export function foldLogToThread(
         // turn is where it belongs, so it stays put.
         const waitingId = takeWaitingPlaceholder(text)
         if (waitingId !== undefined) {
-            pairedSends.add(text)
+            if (remember) {
+                pairedSends.set(text, (pairedSends.get(text) ?? 0) + 1)
+            }
             const index = items.findIndex((item) => item.id === waitingId)
             if (index >= items.findLastIndex((item) => item.type === 'turn_separator') + 1) {
                 // The placeholder already sits in this turn, which is where the echo would put it.
@@ -1930,7 +1938,7 @@ export function foldLogToThread(
             if (source === 'replay') {
                 renderReplayHuman(userText, true)
             } else {
-                renderLiveHuman(userText)
+                renderLiveHuman(userText, true)
             }
             if (Array.isArray(params.content)) {
                 for (const block of params.content) {
@@ -1986,7 +1994,7 @@ export function foldLogToThread(
             if (source === 'replay') {
                 renderReplayHuman(userText, false)
             } else {
-                renderLiveHuman(userText)
+                renderLiveHuman(userText, false)
             }
             continue
         }

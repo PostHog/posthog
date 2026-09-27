@@ -1758,6 +1758,40 @@ describe('runStreamLogic', () => {
             ).toEqual(['same words', 'answer', 'same words'])
         })
 
+        it('takes up both sends that read the same when one turn answers them in sequence', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId: 'm0', content: { text: 'busy' } })
+                )
+                logic.actions.pushHumanMessage('same words')
+                logic.actions.pushHumanMessage('same words')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                // Both sends are steered into one turn, each echoed in both wire forms.
+                for (const messageId of ['m1', 'm2']) {
+                    logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'same words' }))
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'user_message_chunk',
+                            content: { type: 'text', text: 'same words' },
+                        })
+                    )
+                    logic.actions.ingestAcpFrame(
+                        sessionUpdate({
+                            sessionUpdate: 'agent_message',
+                            messageId,
+                            content: { text: `answer ${messageId}` },
+                        })
+                    )
+                }
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['busy', 'same words', 'answer m1', 'same words', 'answer m2'])
+        })
+
         it.each(['posthog', 'chunk', 'both'])(
             'does not double a send the agent echoes as %s a turn after the composer drew it',
             async (format) => {
