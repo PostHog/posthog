@@ -25,7 +25,7 @@ const meta: Meta = {
     title: 'Replay/Filters/Add filter popover',
     decorators: [taxonomicFilterMocksDecorator],
     render: () => (
-        <div className="p-4 w-[40rem]">
+        <div className="p-4 w-160">
             <UniversalFilters
                 rootKey="replay-add-filter-story"
                 group={EMPTY_GROUP}
@@ -54,6 +54,6 @@ export const Open: Story = {
             return element
         })
         await userEvent.click(input)
-        await within(document.body).findByText('Events')
+        await within(document.body).findByTestId('taxonomic-category-dropdown-item-events')
     },
 }
