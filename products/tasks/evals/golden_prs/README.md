@@ -24,7 +24,8 @@ The deterministic scores are strict, so a correct change written in a different 
 
 From GitHub, open the **Golden PR Evals** workflow and choose **Run workflow**. Pick the runtime, the model, and the PR numbers. Each PR runs as its own job. The run summary shows the score table, and the artifacts hold every diff, agent log, and score file.
 
-From a devbox, with `claude` or `codex` on `PATH` and `ANTHROPIC_API_KEY` set:
+From a devbox, with `claude` or `codex` on `PATH`.
+The judge uses `ANTHROPIC_API_KEY` when it is set, and the signed-in `claude` CLI otherwise:
 
 ```bash
 python -m products.tasks.evals.golden_prs list

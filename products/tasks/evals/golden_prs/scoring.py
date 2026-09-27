@@ -1,4 +1,8 @@
+import os
 import re
+import json
+import tempfile
+import subprocess
 from collections import Counter
 from dataclasses import dataclass
 
@@ -100,22 +104,51 @@ def judge(
 ) -> Verdict:
     if not candidate.strip():
         return Verdict(score=0.0, reasoning="The agent changed no files.")
+    request = (
+        f"<task>\n{task}\n</task>\n\n"
+        f"<golden_diff>\n{_bounded(golden)}\n</golden_diff>\n\n"
+        f"<candidate_diff>\n{_bounded(candidate)}\n</candidate_diff>"
+    )
+    if client is None and not os.environ.get("ANTHROPIC_API_KEY"):
+        return _judge_with_claude_cli(model, request)
     client = client or anthropic.Anthropic()
     response = client.messages.parse(
         model=model,
         max_tokens=4096,
         system=JUDGE_SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": (
-                    f"<task>\n{task}\n</task>\n\n"
-                    f"<golden_diff>\n{_bounded(golden)}\n</golden_diff>\n\n"
-                    f"<candidate_diff>\n{_bounded(candidate)}\n</candidate_diff>"
-                ),
-            }
-        ],
+        messages=[{"role": "user", "content": request}],
         output_format=Verdict,
     )
     # A missing verdict is a broken judge, which must score 0 rather than vanish from the mean.
     return response.parsed_output or Verdict(score=0.0, reasoning="The judge returned no verdict.")
+
+
+def _judge_with_claude_cli(model: str, request: str) -> Verdict:
+    """The CLI signs in with its own credentials, so a devbox with `claude` logged in needs no API key."""
+    command = [
+        "claude",
+        "-p",
+        "--no-session-persistence",
+        "--model",
+        model,
+        "--tools",
+        "",
+        "--output-format",
+        "json",
+        "--system-prompt",
+        JUDGE_SYSTEM_PROMPT,
+        "--json-schema",
+        json.dumps(Verdict.model_json_schema()),
+    ]
+    # A neutral working directory, so the CLI does not load this repository's CLAUDE.md and hooks into the judge.
+    completed = subprocess.run(
+        command, cwd=tempfile.gettempdir(), input=request, capture_output=True, text=True, check=False
+    )
+    try:
+        report = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        report = {}
+    if report.get("structured_output"):
+        return Verdict.model_validate(report["structured_output"])
+    failure = report.get("result") or completed.stderr.strip() or f"exit code {completed.returncode}"
+    return Verdict(score=0.0, reasoning=f"The judge returned no verdict: {failure}")

@@ -1,6 +1,12 @@
+import os
+import tempfile
+import subprocess
 from collections import Counter
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
+
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -8,6 +14,7 @@ from products.tasks.evals.golden_prs.__main__ import report, verdict_for
 from products.tasks.evals.golden_prs.agents import AgentRun, agent_environment, agent_failure
 from products.tasks.evals.golden_prs.cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
 from products.tasks.evals.golden_prs.scoring import added_lines, changed_files, judge, score_diffs
+from products.tasks.evals.golden_prs.workspace import candidate_diff, checkout_parent
 
 GOLDEN_AUTHORS = {"pauldambra", "benjackwhite", "mariusandra", "Twixes"}
 
@@ -108,6 +115,28 @@ def test_judge_scores_an_empty_diff_without_calling_the_model():
     assert verdict.score == 0.0
 
 
+@parameterized.expand(
+    [
+        ("verdict", 0, '{"structured_output": {"score": 0.7, "reasoning": "Core done."}}', 0.7, "Core done."),
+        ("no verdict", 0, '{"structured_output": null, "result": "I cannot say."}', 0.0, "I cannot say."),
+        ("not logged in", 1, '{"is_error": true, "result": "Not logged in"}', 0.0, "Not logged in"),
+        ("no json", 1, "", 0.0, "exit code 1"),
+    ]
+)
+def test_judge_uses_the_claude_cli_when_no_api_key_is_set(
+    _name: str, exit_code: int, stdout: str, expected_score: float, expected_reasoning: str
+):
+    completed = subprocess.CompletedProcess(args=["claude"], returncode=exit_code, stdout=stdout, stderr="")
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("products.tasks.evals.golden_prs.scoring.subprocess.run", return_value=completed) as run,
+    ):
+        verdict = judge("task", GOLDEN, GOLDEN)
+    assert run.call_args.args[0][0] == "claude"
+    assert verdict.score == expected_score
+    assert expected_reasoning in verdict.reasoning
+
+
 def agent_run(**overrides: Any) -> AgentRun:
     fields: dict[str, Any] = {
         "runtime": "claude",
@@ -147,6 +176,37 @@ def test_verdict_for_a_failed_agent_names_the_failure_instead_of_judging():
     verdict = verdict_for(agent_run(exit_code=1, stderr="boom"), "task", "", GOLDEN, "judge-model")
     assert verdict.score == 0.0
     assert "boom" in verdict.reasoning
+
+
+@parameterized.expand([("mnemonic prefixes", "diff.mnemonicPrefix"), ("no prefixes", "diff.noprefix")])
+def test_candidate_diff_keeps_the_prefixes_the_scorer_reads(_name: str, host_git_setting: str):
+    host_config = {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": host_git_setting, "GIT_CONFIG_VALUE_0": "true"}
+    with tempfile.TemporaryDirectory() as workdir, patch.dict(os.environ, host_config):
+        subprocess.run(["git", "init", "-q"], cwd=workdir, check=True)
+        Path(workdir, "x.py").write_text("x = 1\n")
+        diff = candidate_diff(Path(workdir))
+    assert changed_files(diff) == {"x.py"}
+    assert added_lines(diff) == Counter({"x = 1": 1})
+
+
+def test_checkout_parent_keeps_the_export_ignored_gitignore_so_build_output_stays_out_of_the_diff():
+    with tempfile.TemporaryDirectory() as repo_dir:
+        repo = Path(repo_dir)
+        git = ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+        subprocess.run([*git, "init", "-q"], cwd=repo, check=True)
+        (repo / ".gitattributes").write_text(".gitignore export-ignore\n")
+        (repo / ".gitignore").write_text("build/\n")
+        (repo / "a.py").write_text("a = 1\n")
+        for message in ("parent", "merge"):
+            (repo / "a.py").write_text(f"# {message}\n")
+            subprocess.run([*git, "add", "-A"], cwd=repo, check=True)
+            subprocess.run([*git, "commit", "-q", "--no-verify", "-m", message], cwd=repo, check=True)
+        merge_sha = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True).stdout
+        with checkout_parent(repo, golden_pr(merge_commit_sha=merge_sha.strip())) as workdir:
+            (workdir / "build").mkdir()
+            (workdir / "build" / "out.txt").write_text("built\n")
+            (workdir / "a.py").write_text("a = 2\n")
+            assert changed_files(candidate_diff(workdir)) == {"a.py"}
 
 
 def test_agent_environment_drops_github_credentials():

@@ -16,9 +16,15 @@ COMMIT_IDENTITY = {
 }
 
 
-def _git(cwd: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _git(cwd: Path, *args: str, check: bool = True, input: str | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["git", *args], cwd=cwd, env=os.environ | COMMIT_IDENTITY, capture_output=True, text=True, check=check
+        ["git", *args],
+        cwd=cwd,
+        env=os.environ | COMMIT_IDENTITY,
+        input=input,
+        capture_output=True,
+        text=True,
+        check=check,
     )
 
 
@@ -33,8 +39,30 @@ def ensure_golden_commits(repo: Path, pr: GoldenPR) -> None:
     _git(repo, "fetch", "--no-tags", "--depth=2", "origin", pr.merge_commit_sha)
 
 
+def _diff(cwd: Path, *args: str) -> str:
+    # The scorer reads `a/` and `b/` from the diff headers, so a host `diff.mnemonicPrefix`
+    # or `diff.noprefix` setting must not change them.
+    return _git(cwd, "diff", "--src-prefix=a/", "--dst-prefix=b/", *args).stdout
+
+
 def golden_diff(repo: Path, pr: GoldenPR) -> str:
-    return _git(repo, "diff", pr.parent_sha, pr.merge_commit_sha).stdout
+    return _diff(repo, pr.parent_sha, pr.merge_commit_sha)
+
+
+def _restore_export_ignored_files(repo: Path, ref: str, workdir: Path) -> None:
+    """Copy the files that `git archive` drops because `.gitattributes` marks them export-ignore.
+
+    That set includes every `.gitignore`, and without those `git add -A` would stage the agent's
+    build output into the candidate diff.
+    """
+    paths = _git(repo, "ls-tree", "-r", "--name-only", ref).stdout.splitlines()
+    attributes = _git(repo, "check-attr", f"--source={ref}", "--stdin", "export-ignore", input="\n".join(paths))
+    for line in attributes.stdout.splitlines():
+        path, _, value = line.rsplit(": ", 2)
+        if value == "set":
+            target = workdir / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(subprocess.run(["git", "show", f"{ref}:{path}"], cwd=repo, capture_output=True).stdout)
 
 
 @contextmanager
@@ -50,6 +78,7 @@ def checkout_parent(repo: Path, pr: GoldenPR) -> Iterator[Path]:
         subprocess.run(["tar", "-x", "-C", workdir], stdin=archive.stdout, check=True)
         if archive.wait() != 0:
             raise subprocess.CalledProcessError(archive.returncode, "git archive")
+        _restore_export_ignored_files(repo, pr.parent_sha, workdir)
         _git(workdir, "init", "-q")
         _git(workdir, "add", "-A")
         # Plumbing rather than `git commit`, so a commit hook or signing policy on the host cannot interfere.
@@ -63,4 +92,4 @@ def checkout_parent(repo: Path, pr: GoldenPR) -> Iterator[Path]:
 
 def candidate_diff(workdir: Path) -> str:
     _git(workdir, "add", "-A")
-    return _git(workdir, "diff", "--cached").stdout
+    return _diff(workdir, "--cached")
