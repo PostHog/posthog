@@ -9,6 +9,7 @@ scanner ids in.
 import hashlib
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -193,6 +194,14 @@ class ObservationSearchFilters:
         clauses.append(clause)
 
 
+class _CutoffNotComputed:
+    pass
+
+
+# Distinct from None, which means the cutoff query ran and found no rows in scope.
+_CUTOFF_NOT_COMPUTED = _CutoffNotComputed()
+
+
 def candidate_cutoff(team: Team, scanner_ids: list[str], filters: ObservationSearchFilters) -> datetime | None:
     """Timestamp of the oldest of the most recent `_MAX_CANDIDATE_ROWS` rows in scope, or None when none are.
     Needs no query vector, so a caller can run it while the search text is embedded."""
@@ -240,7 +249,7 @@ def rank_observations(
     query_vector: list[float],
     limit: int,
     filters: ObservationSearchFilters,
-    cutoff: datetime | None = None,
+    cutoff: datetime | None | _CutoffNotComputed = _CUTOFF_NOT_COMPUTED,
 ) -> list[ObservationMatch]:
     """Closest observations by cosine distance, restricted to the given scanners and to the structured
     outcome filters via the embedding metadata. Reads the physical table directly because the HogQL
@@ -258,7 +267,7 @@ def rank_observations(
     observation appears once. Only rows written before summarizers embedded one document per observation
     have several renderings; once those age past the candidate cap the GROUP BY can go.
     """
-    if cutoff is None:
+    if isinstance(cutoff, _CutoffNotComputed):
         cutoff = candidate_cutoff(team, scanner_ids, filters)
     if cutoff is None:
         return []
@@ -379,7 +388,8 @@ def search_observations(
     cutoff, and any error it raises reaches the caller. With `rerank_query`, the head of the readable results is
     reordered by `search_rerank`, after hydration so the model reads only observations the caller can see."""
     rank_limit = limit * RANK_OVERFETCH_FACTOR
-    vector_future = _QUERY_VECTOR_EXECUTOR.submit(query_vector)
+    # Copying the context keeps the request's log fields and trace on the embedding call.
+    vector_future = _QUERY_VECTOR_EXECUTOR.submit(copy_context().run, query_vector)
     cutoff = candidate_cutoff(team, scanner_ids, filters)
     # Resolved even when the scope is empty, so an embedding failure still reaches the caller.
     vector = vector_future.result()
@@ -437,11 +447,18 @@ def query_vector_for(team: Team, text: str) -> list[float]:
     return vector
 
 
+def _in_current_context(fn: Callable[[Team, str], list[float]], team: Team, text: str) -> Callable[[], list[float]]:
+    context = copy_context()
+    return lambda: context.run(fn, team, text)
+
+
 def warm_query_vectors(team: Team, texts: list[str]) -> list[Future[list[float]]]:
     """Embed and cache texts a person is about to search for, such as the suggested searches on screen, so the
     search skips the embedding round trip. Runs in the background and returns at once. A failure only means the
     search embeds the text itself."""
-    futures = [_WARM_VECTOR_EXECUTOR.submit(query_vector_for, team, text) for text in texts]
+    cached = cache.get_many([_query_vector_cache_key(text) for text in texts])
+    misses = [text for text in texts if _query_vector_cache_key(text) not in cached]
+    futures = [_WARM_VECTOR_EXECUTOR.submit(_in_current_context(query_vector_for, team, text)) for text in misses]
     for future in futures:
         future.add_done_callback(_log_warm_failure)
     return futures

@@ -13,6 +13,7 @@ missing gateway returns the embedding order unchanged.
 import time
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, wait
+from contextvars import copy_context
 from dataclasses import dataclass
 
 import structlog
@@ -98,7 +99,7 @@ def rerank(query: str, candidates: Sequence[RerankCandidate], *, team_id: int) -
         return _outcome("not_configured", embedding_order, started)
     # Interleaved chunks give each request a similar spread of close and far candidates.
     chunks = [chunk for chunk in (candidates[i::RERANK_REQUESTS] for i in range(RERANK_REQUESTS)) if chunk]
-    futures = [_EXECUTOR.submit(_score_chunk, client, query, chunk) for chunk in chunks]
+    futures = [_EXECUTOR.submit(copy_context().run, _score_chunk, client, query, chunk) for chunk in chunks]
     done, pending = wait(futures, timeout=RERANK_DEADLINE_S)
     if pending:
         for future in pending:

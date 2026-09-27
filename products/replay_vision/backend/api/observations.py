@@ -1562,12 +1562,13 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             date_to=validated.get("date_to"),
             timezone_info=self.team.timezone_info,
         )
+        team, query = self.team, validated["q"]
         try:
             response = search_observations(
                 self.team,
                 self.user_access_control,
                 scanner_ids,
-                lambda: query_vector_for(self.team, validated["q"]),
+                lambda: query_vector_for(team, query),
                 validated["limit"],
                 filters,
                 rerank_query=validated["q"],
