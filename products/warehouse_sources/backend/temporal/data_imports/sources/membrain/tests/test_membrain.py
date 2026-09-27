@@ -200,6 +200,17 @@ class TestPagination:
         assert isinstance(auth, APIKeyAuth)
         assert (auth.name, auth.location) == ("APIKey", "header")
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_excludes_crm_rows_from_http_sample_capture(self, MockSession) -> None:
+        # CRM rows carry customer emails and free-text notes the name-based sample scrubbers
+        # aren't guaranteed to catch.
+        session = MockSession.return_value
+        _wire(session, [_response(_envelope([], count=0, start=0))])
+
+        _rows(_source(_make_manager()))
+
+        assert MockSession.call_args.kwargs.get("capture") is False
+
     @parameterized.expand(
         [
             ("companies", {"IncludeDeleted": "true", "SortBy": "CreatedDate ASC"}),
@@ -386,6 +397,16 @@ class TestValidateCredentials:
     def test_a_bare_user_list_is_valid(self) -> None:
         with self._probe(_response([{"Id": "u1", "Name": "Ada"}])):
             assert validate_credentials("mb-key", "acme") == (True, None)
+
+    @mock.patch(MEMBRAIN_SESSION_PATCH)
+    def test_probe_excludes_the_real_user_list_from_http_sample_capture(self, MockSession) -> None:
+        # The probe fetches a real user list, whose names and emails the name-based sample
+        # scrubbers aren't guaranteed to catch.
+        MockSession.return_value.get.return_value = _response([{"Id": "u1", "Name": "Ada"}])
+
+        validate_credentials("mb-key", "acme")
+
+        assert MockSession.call_args.kwargs.get("capture") is False
 
     @parameterized.expand(
         [

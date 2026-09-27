@@ -193,6 +193,10 @@ def membrain_source(
             # Defense-in-depth: a 30x must not replay the credentialed APIKey header off-host.
             "allow_redirects": False,
             "request_timeout": REQUEST_TIMEOUT_SECONDS,
+            # CRM rows carry customer emails and free-text notes the name-based sample scrubbers
+            # aren't guaranteed to catch; keep responses out of HTTP sample capture (still
+            # metered and logged).
+            "capture": False,
         },
         "resources": [
             {
@@ -250,7 +254,9 @@ def validate_credentials(api_key: str, subdomain: str) -> tuple[bool, str | None
     exception text is never surfaced.
     """
     try:
-        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+        # capture=False: the probe fetches a real user list, whose names and emails the
+        # name-based sample scrubbers aren't guaranteed to catch.
+        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
         response = session.get(
             f"{base_url(subdomain)}/users/",
             headers=_auth_headers(api_key),
