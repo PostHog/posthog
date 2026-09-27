@@ -167,13 +167,7 @@ export const useDraftStore = create<DraftStore>()(
           set((state) => {
             const pending = state.pendingInsert[sessionId];
             state.pendingInsert[sessionId] = pending
-              ? {
-                  segments: [...pending.segments, ...content.segments],
-                  attachments: [
-                    ...(pending.attachments ?? []),
-                    ...(content.attachments ?? []),
-                  ],
-                }
+              ? { segments: [...pending.segments, ...content.segments] }
               : content;
           }),
 

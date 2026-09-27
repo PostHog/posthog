@@ -7,7 +7,9 @@ import { showTaskChat } from "./showTaskChat";
 
 export const commentToAgentHost: CommentToAgentHost = {
   persistScreenshot: async (dataUrl) => {
-    const blob = await (await fetch(dataUrl)).blob();
+    const response = await fetch(dataUrl);
+    if (!response.ok) throw new Error("Screenshot data did not load");
+    const blob = await response.blob();
     const file = new File([blob], "comment-screenshot.png", {
       type: blob.type || "image/png",
     });
