@@ -1,14 +1,7 @@
 import { defineConfig } from "@playwright/test";
+import { isTranslated } from "./arch";
 
 const isCI = !!process.env.CI;
-
-// The x64 app is built and smoke tested on an Apple silicon runner, so it runs
-// under Rosetta. Translation makes each launch roughly ten times slower than a
-// native one, and the first launch of the run is slower still.
-const isTranslated =
-  process.platform === "darwin" &&
-  !!process.env.E2E_APP_ARCH &&
-  process.env.E2E_APP_ARCH !== process.arch;
 
 export default defineConfig({
   testDir: "./tests",
