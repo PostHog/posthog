@@ -10,6 +10,10 @@ import type { ElectronMainWindow } from "./electron-main-window";
 const CAPTURE_DEADLINE_MS = 2_000;
 const MAX_SIDE = 1_280;
 
+function clamp(value: number, limit: number): number {
+  return Math.min(Math.max(value, 0), limit);
+}
+
 @injectable()
 export class ElectronScreenCapture implements IScreenCapture {
   public constructor(
@@ -21,12 +25,24 @@ export class ElectronScreenCapture implements IScreenCapture {
     const browserWindow = this.mainWindow.getBrowserWindow();
     if (!browserWindow) return null;
     const zoom = browserWindow.webContents.getZoomFactor();
+    const [contentWidth, contentHeight] = browserWindow.getContentSize();
+    const left = clamp(Math.round(region.x * zoom), contentWidth);
+    const top = clamp(Math.round(region.y * zoom), contentHeight);
+    const right = clamp(
+      Math.round((region.x + region.width) * zoom),
+      contentWidth,
+    );
+    const bottom = clamp(
+      Math.round((region.y + region.height) * zoom),
+      contentHeight,
+    );
+    if (right - left < 1 || bottom - top < 1) return null;
     const capture = await withTimeout(
       browserWindow.webContents.capturePage({
-        x: Math.round(region.x * zoom),
-        y: Math.round(region.y * zoom),
-        width: Math.round(region.width * zoom),
-        height: Math.round(region.height * zoom),
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
       }),
       CAPTURE_DEADLINE_MS,
     ).catch(() => null);

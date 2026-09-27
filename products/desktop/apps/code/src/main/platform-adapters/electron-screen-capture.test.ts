@@ -24,12 +24,18 @@ function image(width: number, height: number) {
 function makeCapture(
   capturePage: (rect: unknown) => Promise<unknown>,
   zoom = 1,
+  contentSize: [number, number] = [2_000, 5_000],
 ) {
   const webContents = {
     capturePage: vi.fn(capturePage),
     getZoomFactor: () => zoom,
   };
-  const mainWindow = { getBrowserWindow: () => ({ webContents }) };
+  const mainWindow = {
+    getBrowserWindow: () => ({
+      webContents,
+      getContentSize: () => contentSize,
+    }),
+  };
   return {
     capture: new ElectronScreenCapture(mainWindow as never),
     webContents,
@@ -65,6 +71,37 @@ describe("ElectronScreenCapture.captureRegion", () => {
     await expect(
       capture.captureRegion({ x: 0, y: 0, width: 1_000, height: 4_000 }),
     ).resolves.toBe("data:image/png;320x1280");
+  });
+
+  it("clips the region to the window before it captures", async () => {
+    const { capture, webContents } = makeCapture(
+      async () => image(200, 100),
+      1,
+      [1_000, 700],
+    );
+
+    await capture.captureRegion({
+      x: 800,
+      y: 600,
+      width: 9_000,
+      height: 9_000,
+    });
+    expect(webContents.capturePage).toHaveBeenCalledWith({
+      x: 800,
+      y: 600,
+      width: 200,
+      height: 100,
+    });
+  });
+
+  it.each([
+    ["smaller than a pixel", { x: 10, y: 10, width: 0.2, height: 0.2 }],
+    ["outside the window", { x: 3_000, y: 10, width: 50, height: 50 }],
+  ])("never captures the whole page for a region %s", async (_name, region) => {
+    const { capture, webContents } = makeCapture(async () => image(1, 1));
+
+    await expect(capture.captureRegion(region)).resolves.toBeNull();
+    expect(webContents.capturePage).not.toHaveBeenCalled();
   });
 
   it.each([
