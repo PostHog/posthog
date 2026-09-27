@@ -36,6 +36,10 @@ describe('redactUrlCredentials', () => {
             'https://example.com/login?redirect_uri=https://example.com/cb?code=fake-code&lang=en',
             'https://example.com/login?redirect_uri=https://example.com/cb?code=[REDACTED]&lang=en',
         ],
+        [
+            'https://example.com/login?redirect_uri=https%3A%2F%2Fexample.com%2Fcb%3Fmode%3Dlogin%3Bstate%3Dfake-state',
+            'https://example.com/login?redirect_uri=https%3A%2F%2Fexample.com%2Fcb%3Fmode%3Dlogin%3Bstate%3D[REDACTED]',
+        ],
         ['{"url":"https://example.com/cb?code=fake-code"}', '{"url":"https://example.com/cb?code=[REDACTED]"}'],
     ])('masks credential values in %s', (input, expected) => {
         expect(redactUrlCredentials(input)).toBe(expected)

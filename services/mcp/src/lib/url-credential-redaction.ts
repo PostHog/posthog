@@ -33,7 +33,8 @@ const CREDENTIAL_NAME_SUFFIX =
  * inner query string gets its own match, or at a character that cannot be part
  * of a URL in CSV, JSON, or table output.
  */
-const QUERY_PARAMETER = /((?:[?&#;]|%3F|%26|%23)([\w.\-[\]]+)(?:=|%3D))((?:(?!%26|%23|%3F)[^?&#;\s"'<>,|\\`])+)/gi
+const QUERY_PARAMETER =
+    /((?:[?&#;]|%3F|%26|%23|%3B)([\w.\-[\]]+)(?:=|%3D))((?:(?!%26|%23|%3F|%3B)[^?&#;\s"'<>,|\\`])+)/gi
 
 function isCredentialName(name: string): boolean {
     const normalized = name.replace(/\[\]$/, '').toLowerCase()
