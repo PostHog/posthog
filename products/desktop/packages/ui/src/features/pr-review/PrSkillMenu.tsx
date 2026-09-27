@@ -41,9 +41,11 @@ export function PrSkillMenu({ prUrl }: { prUrl: string }) {
   if (!pr) return null;
 
   const skills = (
-    listing
-      ? listing.skills.map((skill) => skill.name)
-      : Object.keys(counts ?? {})
+    isError || listing?.available === false
+      ? []
+      : listing
+        ? listing.skills.map((skill) => skill.name)
+        : Object.keys(counts ?? {})
   ).sort(
     (first, second) =>
       (counts?.[second] ?? 0) - (counts?.[first] ?? 0) ||
@@ -54,7 +56,7 @@ export function PrSkillMenu({ prUrl }: { prUrl: string }) {
     if (!name) return;
     if (scope) recordChoice(scope, name);
     openTaskInput({
-      initialPrompt: `Run the ${name} skill from the PostHog skills store for this pull request: ${prUrl}`,
+      initialPrompt: `Run the ${name} skill from the PostHog skills store for this pull request: https://github.com/${pr.repoSlug}/pull/${pr.number}`,
       initialCloudRepository: pr.repoSlug,
     });
     setOpen(false);
@@ -104,6 +106,8 @@ export function PrSkillMenu({ prUrl }: { prUrl: string }) {
               <Spinner size="sm" aria-hidden="true" />
               Loading team skills…
             </span>
+          ) : !listing.available ? (
+            "Team skills aren't available"
           ) : listing.skills.length === 0 ? (
             <span>
               No team skills yet.{" "}

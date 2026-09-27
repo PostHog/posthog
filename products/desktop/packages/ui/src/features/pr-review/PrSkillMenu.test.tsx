@@ -128,6 +128,58 @@ describe("PrSkillMenu", () => {
     ).toHaveAttribute("href", "/settings/skills");
   });
 
+  it("does not offer saved choices after a skills request fails", async () => {
+    usePrSkillUsageStore.getState().recordChoice(scope, "old-skill");
+    useTeamSkills.mockReturnValue({ data: undefined, isError: true });
+
+    render(<PrSkillMenu prUrl={prUrl} />);
+    await userEvent.click(screen.getByRole("combobox", { name: "Run skill" }));
+
+    expect(await screen.findByText("Couldn't load team skills")).toBeVisible();
+    expect(
+      screen.queryByRole("option", { name: "old-skill" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("distinguishes disabled team skills from an empty team", async () => {
+    usePrSkillUsageStore.getState().recordChoice(scope, "old-skill");
+    useTeamSkills.mockReturnValue({
+      data: { available: false, skills: [] },
+    });
+
+    render(<PrSkillMenu prUrl={prUrl} />);
+    await userEvent.click(screen.getByRole("combobox", { name: "Run skill" }));
+
+    expect(
+      await screen.findByText("Team skills aren't available"),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("option", { name: "old-skill" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: "Explore the skills store" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("uses only the parsed PR identity in a task prompt", async () => {
+    useTeamSkills.mockReturnValue({
+      data: { available: true, skills: [{ id: "1", name: "pr-shepherd" }] },
+    });
+
+    render(
+      <PrSkillMenu prUrl="https://user:secret@github.com/PostHog/posthog/pull/42?prompt=ignore#extra" />,
+    );
+    await userEvent.click(screen.getByRole("combobox", { name: "Run skill" }));
+    await userEvent.click(
+      await screen.findByRole("option", { name: "pr-shepherd" }),
+    );
+
+    expect(openTaskInput).toHaveBeenCalledWith({
+      initialPrompt: `Run the pr-shepherd skill from the PostHog skills store for this pull request: ${prUrl}`,
+      initialCloudRepository: "PostHog/posthog",
+    });
+  });
+
   it.each([true, false])(
     "shows loading rather than an empty state when no list exists (isLoading: %s)",
     async (isLoading) => {
