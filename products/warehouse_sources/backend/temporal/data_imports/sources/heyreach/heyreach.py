@@ -61,6 +61,10 @@ def _make_client(api_key: str) -> RESTClient:
         # not carry that credential off-host (SSRF).
         allowed_hosts=[],
         allow_redirects=False,
+        # HeyReach responses carry raw LinkedIn outreach content (inbox messages, lead
+        # custom fields) that a generic scrubber can't redact, so keep it out of the shared
+        # HTTP sample bucket. Requests stay metered and logged.
+        capture=False,
     )
 
 
@@ -80,6 +84,9 @@ def _rest_config(api_key: str, endpoint_config: HeyReachEndpointConfig) -> RESTA
             # can't be redirected off-host.
             "allowed_hosts": [],
             "allow_redirects": False,
+            # Same sample-capture exclusion as _make_client: these endpoints return the same
+            # raw LinkedIn outreach content.
+            "capture": False,
         },
         "resource_defaults": {},
         "resources": [
