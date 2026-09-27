@@ -1631,6 +1631,38 @@ describe('runStreamLogic', () => {
             expect(logic.values.threadItems.filter((item) => item.type === 'human_message')).toHaveLength(1)
         })
 
+        it('moves a send typed while the agent was busy into the turn that answers it', async () => {
+            const answer = (messageId: string, text: string): void => {
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({ sessionUpdate: 'agent_message', messageId, content: { text } })
+                )
+            }
+            await expectLogic(logic, () => {
+                // Two sends typed over an answer to an earlier message; the agent takes them one turn each.
+                logic.actions.pushHumanMessage('first ahead')
+                answer('m1', 'answer to the message before')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.pushHumanMessage('second ahead')
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'first ahead' }))
+                answer('m2', 'answer to first')
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(notification('_posthog/user_message', { content: 'second ahead' }))
+                answer('m3', 'answer to second')
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual([
+                'answer to the message before',
+                'first ahead',
+                'answer to first',
+                'second ahead',
+                'answer to second',
+            ])
+        })
+
         it.each(['posthog', 'chunk', 'both'])(
             'does not double a send the agent echoes as %s a turn after the composer drew it',
             async (format) => {

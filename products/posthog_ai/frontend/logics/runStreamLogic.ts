@@ -1659,6 +1659,25 @@ export function foldLogToThread(
         }
     }
 
+    /**
+     * Move the bubble a send drew earlier into the turn now answering it, keeping its id so React
+     * sees the same row. False when the send left no bubble to move.
+     */
+    const moveWaitingHumanMessage = (text: string): boolean => {
+        const currentTurnStart = items.findLastIndex((item) => item.type === 'turn_separator') + 1
+        for (let index = currentTurnStart - 1; index >= 0; index--) {
+            const item = items[index]
+            if (item.type === 'human_message' && item.text === text) {
+                items = insertHumanMessageAtTurnStart([...items.slice(0, index), ...items.slice(index + 1)], {
+                    ...item,
+                    ...(timestamp !== undefined && { startedAt: timestamp }),
+                })
+                return true
+            }
+        }
+        return false
+    }
+
     const renderLiveHuman = (rawText: string): void => {
         const { text, contextBlocks } = splitUserMessageContent(rawText)
         if (!text) {
@@ -1668,17 +1687,25 @@ export function foldLogToThread(
         // text), so push them even when the human text below dedupes against the optimistic render.
         pushContextBlocks(contextBlocks)
         // The server echoes every user send live, and the composer has usually drawn that send already.
-        // Drop the echo when this turn shows the message, or when a send of the same text is still
-        // waiting to be echoed — a steered or queued send is picked up a turn after it was drawn, so an
-        // echo landing in a later turn is still that send, not a second one. A send echoed in two wire
-        // forms takes the first branch while its bubble is in view, `pairedSends` after it scrolled past.
+        // The echo is what says the agent picked the message up, so it is also what places the bubble:
+        // a send typed while the agent was busy waits at the foot of the thread, then moves down to the
+        // turn that answers it. Without the move it would sit above an answer to an earlier message. A
+        // send echoed in two wire forms is placed by the first, and the second drops against
+        // `pairedSends` — or against this turn's bubble, while that bubble is the one in view.
         const unechoed = unechoedSends.get(text) ?? 0
-        if (currentTurnHasHumanText(items, text) || pairedSends.has(text) || unechoed > 0) {
+        if (currentTurnHasHumanText(items, text) || pairedSends.has(text)) {
             if (unechoed > 0) {
                 unechoedSends.set(text, unechoed - 1)
                 pairedSends.add(text)
             }
             return
+        }
+        if (unechoed > 0) {
+            unechoedSends.set(text, unechoed - 1)
+            pairedSends.add(text)
+            if (moveWaitingHumanMessage(text)) {
+                return
+            }
         }
         pushHuman(text)
     }
