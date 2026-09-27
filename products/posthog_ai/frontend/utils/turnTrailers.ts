@@ -11,6 +11,8 @@ export interface TurnTrailer {
     turnText: string
     /** The turn's gateway trace id — `$ai_trace_id` on its generations and its feedback. */
     traceId?: string
+    /** When the turn completed, in milliseconds. Absent for imported or untimed history. */
+    timestamp?: number
 }
 
 /**
@@ -40,6 +42,7 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
                 isLastTurn: false,
                 turnText: textParts.join('\n\n'),
                 traceId: item.traceId,
+                timestamp: item.startedAt,
             })
             lastSeparatorId = item.id
             turnIndex += 1

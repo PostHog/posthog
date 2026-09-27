@@ -4,6 +4,8 @@ import { useState, memo } from 'react'
 import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { stripMarkdown } from 'lib/utils/markdown'
 
@@ -20,11 +22,13 @@ export interface TurnFeedbackActionsProps {
     /** The turn's gateway trace id, when the run reported one. Lands in `$ai_trace_id`. */
     traceId?: string
     turnText: string
+    /** When the turn completed, in milliseconds. */
+    timestamp?: number
 }
 
 /**
- * Feedback actions under a completed turn: copy, thumbs up/down, and a free-text form on
- * thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
+ * Feedback actions under a completed turn: the completion time, copy, thumbs up/down, and a
+ * free-text form on thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
  * (`$ai_metric` quality / `$ai_feedback`), plus runtime/task/run properties.
  */
 export const TurnFeedbackActions = memo(function TurnFeedbackActions({
@@ -33,6 +37,7 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
     run,
     traceId,
     turnText,
+    timestamp,
 }: TurnFeedbackActionsProps): JSX.Element {
     const { ratingForKey } = useValues(messageRatingsLogic)
     const { setRating } = useActions(messageRatingsLogic)
@@ -64,6 +69,7 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
     return (
         <>
             <div className="flex items-center ml-1">
+                {timestamp !== undefined && <TZLabel time={dayjs(timestamp)} className="text-xs text-muted mr-1" />}
                 {turnText && (
                     <LemonButton
                         icon={<IconCopy />}

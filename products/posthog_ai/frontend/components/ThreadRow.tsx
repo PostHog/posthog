@@ -1,6 +1,11 @@
 import { memo } from 'react'
 
-import { IconWrench } from '@posthog/icons'
+import { IconCopy, IconWrench } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
@@ -121,7 +126,28 @@ export const ThreadRow = memo(function ThreadRow({
 }: ThreadRowProps): JSX.Element | null {
     if (item.type === 'human_message') {
         return (
-            <MessageTemplate type="human">
+            <MessageTemplate
+                type="human"
+                className="group"
+                action={
+                    // Revealed on hover or focus, so a long thread does not repeat a row under every message.
+                    <div className="flex items-center gap-1 mr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                        {item.startedAt !== undefined && (
+                            <TZLabel time={dayjs(item.startedAt)} className="text-xs text-muted" />
+                        )}
+                        {item.text && (
+                            <LemonButton
+                                icon={<IconCopy />}
+                                type="tertiary"
+                                size="xsmall"
+                                tooltip="Copy message"
+                                data-attr="posthog-ai-human-message-copy"
+                                onClick={() => void copyToClipboard(item.text ?? '')}
+                            />
+                        )}
+                    </div>
+                }
+            >
                 <MarkdownMessage content={item.text || '*No text.*'} id={item.id} />
                 {item.attachments && <ThreadAttachments attachments={item.attachments} />}
             </MessageTemplate>
