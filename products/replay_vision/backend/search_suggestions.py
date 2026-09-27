@@ -219,12 +219,17 @@ def _team_sources() -> QuerySet[ReplayScanner]:
 
 def stale_team_candidates(limit: int) -> list[int]:
     """Teams whose cross-scanner phrases are due: AI processing on, past their back-off, and with enough new
-    observations on a scanner that may feed them."""
+    observations across the scanners that may feed them. Counted across the team, because a team sample draws
+    from several scanners at once."""
     config = TeamReplayVisionConfig.objects.filter(team_id=OuterRef("team_id"))
     team_watermark = Coalesce(
         Subquery(config.values("search_suggestions_watermark")[:1]), Value(_EPOCH), output_field=DateTimeField()
     )
-    newer = _team_rows().filter(scanner_id=OuterRef("pk"), completed_at__gt=team_watermark)
+    newer = _team_rows().filter(
+        team_id=OuterRef("team_id"),
+        scanner__in=_team_sources(),
+        completed_at__gt=team_watermark,
+    )
     not_due = TeamReplayVisionConfig.objects.exclude(_due()).values("team_id")
     return list(
         _team_sources()
@@ -318,14 +323,15 @@ def refresh_team_suggestions(team: Team) -> bool:
             distinct_id=f"team:{team.id}",
         )
     )
+    source_ids = [str(scanner.id) for scanner in scanners]
+    if ReplayScanner.objects.filter(id__in=source_ids).count() < len(source_ids):
+        # A source was deleted during the model call, and its delete already cleared the team's phrases.
+        TeamReplayVisionConfig.objects.filter(pk=team.id).update(search_suggestions_generated_at=timezone.now())
+        return False
     TeamReplayVisionConfig.objects.filter(pk=team.id).update(
         search_suggestions_watermark=newest,
         search_suggestions_generated_at=timezone.now(),
-        **(
-            {"search_suggestions": phrases, "search_suggestions_sources": [str(scanner.id) for scanner in scanners]}
-            if phrases
-            else {}
-        ),
+        **({"search_suggestions": phrases, "search_suggestions_sources": source_ids} if phrases else {}),
     )
     return bool(phrases)
 

@@ -282,6 +282,19 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         config.refresh_from_db()
         self.assertEqual(config.search_suggestions, [])
 
+    @patch(_GENERATE_PATH)
+    def test_team_phrases_count_new_rows_across_scanners_and_drop_a_source_deleted_mid_refresh(
+        self, mock_generate: MagicMock
+    ) -> None:
+        first, second = self._scanner("first"), self._scanner("second")
+        self._seed(first, 1)
+        self._seed(second, 1)
+        self.assertEqual(stale_team_candidates(10), [self.team.id])
+
+        mock_generate.side_effect = lambda **kwargs: (second.delete(), _LlmQueries(queries=["coupon rejected"]))[1]
+        self.assertFalse(refresh_team_suggestions(self.team))
+        self.assertEqual(TeamReplayVisionConfig.objects.get(team_id=self.team.id).search_suggestions, [])
+
     @patch(_GENERATE_PATH, side_effect=SuggestionError("model down"))
     def test_activity_keeps_old_phrases_and_backs_off_on_model_failure(self, _mock: MagicMock) -> None:
         scanner = self._scanner("checkout", search_suggestions=["old phrase"], search_last_viewed_at=timezone.now())
