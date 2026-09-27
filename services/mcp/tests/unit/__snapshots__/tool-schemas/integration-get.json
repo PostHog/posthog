@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "description": "A unique integer value identifying this integration.",
+            "description": "The integration's numeric id, as returned in the `id` field by integrations-list. Not the name, the kind, or an id from another project.",
             "type": "number"
         }
     },

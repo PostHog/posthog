@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.cache import cache, caches
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -24,7 +24,7 @@ from drf_spectacular.utils import extend_schema, extend_schema_field, extend_sch
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -1289,6 +1289,12 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+INTEGRATION_NOT_FOUND_DETAIL = (
+    "No integration with this id exists in this project. Integration ids belong to a single project, "
+    "so an id from another project does not resolve here. List this project's integrations to see the ids that exist."
+)
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1350,6 +1356,9 @@ class IntegrationViewSet(
         # map them to 429 + Retry-After once here instead of per action.
         if isinstance(exc, GitHubRateLimitError):
             return github_rate_limited_response(exc)
+        # Only get_object raises Http404 in this viewset, so a 404 here always means an unknown integration id.
+        if isinstance(exc, Http404):
+            exc = NotFound(INTEGRATION_NOT_FOUND_DETAIL)
         return super().handle_exception(exc)
 
     def dangerously_get_permissions(self):
