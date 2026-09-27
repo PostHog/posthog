@@ -1,6 +1,8 @@
 import type { IconProps } from "@phosphor-icons/react";
 import {
+  ArrowsClockwise,
   Binoculars,
+  Brain,
   Broadcast,
   Bug,
   ChatCircle,
@@ -11,10 +13,17 @@ import {
   GitMerge,
   GitPullRequest,
   HandPalm,
+  HandWaving,
+  Headset,
   Lifebuoy,
   MagnifyingGlass,
   Pause,
+  Plugs,
   PushPin,
+  Sparkle,
+  SquaresFour,
+  TestTube,
+  TreeStructure,
   WarningCircle,
 } from "@phosphor-icons/react";
 import type { RunMode } from "@posthog/core/sidebar/buildSidebarData";
@@ -44,6 +53,9 @@ export const ICON_SIZE = 12;
 // status icon, so every non-`user_created` origin is distinguishable at a
 // glance in the list. `user_created` is intentionally absent — those tasks get
 // the default status icon. Extend this when a new origin needs its own badge.
+// Keep the origins and labels in sync with ORIGIN_PRODUCT_META in the web app
+// (products/posthog_ai/frontend/components/TaskSourceIcon.tsx), so a task
+// shows the same source in both apps.
 type OriginProductMeta = {
   Icon: ComponentType<IconProps>;
   label: string;
@@ -59,6 +71,15 @@ const ORIGIN_PRODUCT_META: Record<string, OriginProductMeta> = {
   error_tracking: { Icon: Bug, label: "Error tracking" },
   eval_clusters: { Icon: Flask, label: "Evals" },
   task_analysis: { Icon: MagnifyingGlass, label: "Task analysis" },
+  posthog_ai: { Icon: Sparkle, label: "PostHog AI" },
+  experiments: { Icon: TestTube, label: "Experiments" },
+  onboarding: { Icon: HandWaving, label: "Onboarding" },
+  hogdesk: { Icon: Headset, label: "HogDesk" },
+  loop: { Icon: ArrowsClockwise, label: "Loops" },
+  workflow: { Icon: TreeStructure, label: "Workflows" },
+  mcp_analytics: { Icon: Plugs, label: "MCP analytics" },
+  space_setup: { Icon: SquaresFour, label: "Space setup" },
+  autoresearch: { Icon: Brain, label: "Autoresearch" },
 };
 
 export function getOriginProductMeta(
