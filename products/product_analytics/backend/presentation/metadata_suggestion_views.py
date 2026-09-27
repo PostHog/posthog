@@ -27,8 +27,13 @@ from products.product_analytics.backend.presentation.metadata_suggestions import
     suggestions_enabled,
 )
 
-# The gateway answers these when the decision hosts are saturated or restarting, so a retry can succeed.
-_BUSY_STATUSES = {status.HTTP_429_TOO_MANY_REQUESTS, status.HTTP_502_BAD_GATEWAY, status.HTTP_503_SERVICE_UNAVAILABLE}
+# The gateway answers these when the decision hosts are saturated, restarting, or timed out, so a retry can succeed.
+_BUSY_STATUSES = {
+    status.HTTP_429_TOO_MANY_REQUESTS,
+    status.HTTP_502_BAD_GATEWAY,
+    status.HTTP_503_SERVICE_UNAVAILABLE,
+    status.HTTP_504_GATEWAY_TIMEOUT,
+}
 
 
 class MetadataSuggestionsBusy(APIException):

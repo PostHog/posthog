@@ -100,6 +100,16 @@ class TestMetadataSuggestions(SimpleTestCase):
             suggest_tags(1, InsightContext(summary="", description="y" * (MAX_STATE_CHARS + 1)), ["growth"])
         decide.assert_not_called()
 
+    def test_long_tag_names_sharing_a_prefix_stay_distinguishable_when_clipped(self) -> None:
+        shared_prefix = "z" * 57
+        tags = [shared_prefix + "-v1", shared_prefix + "-v2"]
+        decide = _answer_all(0.9)
+        with _jev(decide):
+            suggest_tags(1, _CONTEXT, tags)
+
+        sent_names = [value for call in decide.call_args_list for value in call.kwargs["state"]["tags"].values()]
+        assert len(set(sent_names)) == len(tags)
+
     def test_path_points_never_reach_the_model(self) -> None:
         query = {
             "kind": "InsightVizNode",

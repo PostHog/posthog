@@ -102,7 +102,15 @@ def build_insight_context(team: Team, query_data: object, *, name: str, descript
 
 
 def _clip(text: str, limit: int) -> str:
-    return text if len(text) <= limit else text[: limit - 3] + "..."
+    """Keeps a head and a tail rather than only a head, so two names that differ near the end
+    (a shared prefix with a different suffix, e.g. a versioned or dated variant) don't clip identical."""
+    if len(text) <= limit:
+        return text
+    if limit <= 3:
+        return text[:limit]
+    head = (limit - 3 + 1) // 2
+    tail = limit - 3 - head
+    return f"{text[:head]}...{text[len(text) - tail :]}" if tail else f"{text[:head]}..."
 
 
 def _state(context: InsightContext, tags: Mapping[str, str]) -> dict[str, JsonValue]:
