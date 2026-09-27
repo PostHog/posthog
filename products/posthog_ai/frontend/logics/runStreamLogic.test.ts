@@ -1159,6 +1159,26 @@ describe('runStreamLogic', () => {
             })
             expect(logic.values.threadItems[1].type).toEqual('assistant_message')
         })
+
+        it('leaves a send typed mid-answer below the text already streaming', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
+                logic.actions.ingestAcpFrame(
+                    sessionUpdate({
+                        sessionUpdate: 'agent_message',
+                        messageId: 'm1',
+                        content: { text: 'answering the message before' },
+                    })
+                )
+                logic.actions.pushHumanMessage('typed while it worked')
+            }).toFinishAllListeners()
+
+            expect(
+                logic.values.threadItems
+                    .filter((item) => item.type === 'human_message' || item.type === 'assistant_message')
+                    .map((item) => item.text)
+            ).toEqual(['answering the message before', 'typed while it worked'])
+        })
     })
 
     describe('history-derived context dedupe', () => {

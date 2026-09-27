@@ -1519,19 +1519,25 @@ export function foldLogToThread(
     let pendingInsertionIndex: number | undefined
     let bufferedAttachments: ThreadAttachment[] = []
 
-    const pushHuman = (text: string, attachments: ThreadAttachment[] = []): void => {
+    /**
+     * `headTurn` puts the message at the top of the turn it belongs to, where a wire turn always
+     * starts. A send the agent has not picked up yet heads nothing — it waits at the foot of the
+     * thread, below the answer still streaming, until its echo moves it into the turn it opens.
+     */
+    const pushHuman = (text: string, attachments: ThreadAttachment[] = [], headTurn = true): void => {
         if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
             pendingMessageSeen = true
         }
         const carried = [...attachments, ...bufferedAttachments]
-        items = insertHumanMessageAtTurnStart(items, {
+        const item: ThreadItem = {
             id: `human-${humanCount++}`,
             type: 'human_message',
             text,
             complete: true,
             ...(carried.length > 0 && { attachments: carried }),
             ...(timestamp !== undefined && { startedAt: timestamp }),
-        })
+        }
+        items = headTurn ? insertHumanMessageAtTurnStart(items, item) : [...items, item]
         bufferedAttachments = []
     }
 
@@ -1660,22 +1666,19 @@ export function foldLogToThread(
     }
 
     /**
-     * Move the bubble a send drew earlier into the turn now answering it, keeping its id so React
-     * sees the same row. False when the send left no bubble to move.
+     * Drop the placeholder a send drew before the agent picked it up, handing its attachment
+     * previews to the echo that takes its place.
      */
-    const moveWaitingHumanMessage = (text: string): boolean => {
+    const takeWaitingPlaceholder = (text: string): ThreadAttachment[] => {
         const currentTurnStart = items.findLastIndex((item) => item.type === 'turn_separator') + 1
         for (let index = currentTurnStart - 1; index >= 0; index--) {
             const item = items[index]
             if (item.type === 'human_message' && item.text === text) {
-                items = insertHumanMessageAtTurnStart([...items.slice(0, index), ...items.slice(index + 1)], {
-                    ...item,
-                    ...(timestamp !== undefined && { startedAt: timestamp }),
-                })
-                return true
+                items = [...items.slice(0, index), ...items.slice(index + 1)]
+                return item.attachments ?? []
             }
         }
-        return false
+        return []
     }
 
     const renderLiveHuman = (rawText: string): void => {
@@ -1686,12 +1689,12 @@ export function foldLogToThread(
         // The blocks ride only the server echo (the optimistic `_client/human_message` carries the raw
         // text), so push them even when the human text below dedupes against the optimistic render.
         pushContextBlocks(contextBlocks)
-        // The server echoes every user send live, and the composer has usually drawn that send already.
-        // The echo is what says the agent picked the message up, so it is also what places the bubble:
-        // a send typed while the agent was busy waits at the foot of the thread, then moves down to the
-        // turn that answers it. Without the move it would sit above an answer to an earlier message. A
-        // send echoed in two wire forms is placed by the first, and the second drops against
-        // `pairedSends` — or against this turn's bubble, while that bubble is the one in view.
+        // The server echoes every user send live, and the composer usually drew that send already as a
+        // placeholder. The echo is what says the agent picked the message up, so it replaces the
+        // placeholder: the row leaves the foot of the thread and renders at the head of the turn it
+        // opens. While the placeholder is in this turn it is already in the right place, so the echo
+        // drops instead. A send echoed in two wire forms is placed by the first; the second drops
+        // against `pairedSends`.
         const unechoed = unechoedSends.get(text) ?? 0
         if (currentTurnHasHumanText(items, text) || pairedSends.has(text)) {
             if (unechoed > 0) {
@@ -1700,14 +1703,13 @@ export function foldLogToThread(
             }
             return
         }
-        if (unechoed > 0) {
-            unechoedSends.set(text, unechoed - 1)
-            pairedSends.add(text)
-            if (moveWaitingHumanMessage(text)) {
-                return
-            }
+        if (unechoed === 0) {
+            pushHuman(text)
+            return
         }
-        pushHuman(text)
+        unechoedSends.set(text, unechoed - 1)
+        pairedSends.add(text)
+        pushHuman(text, takeWaitingPlaceholder(text))
     }
 
     const handleToolCallUpdate = (
@@ -1781,7 +1783,7 @@ export function foldLogToThread(
 
         if (method === '_client/human_message') {
             const optimisticText = String(params.content ?? '')
-            pushHuman(optimisticText, optimisticAttachments(params.attachments))
+            pushHuman(optimisticText, optimisticAttachments(params.attachments), false)
             unechoedSends.set(optimisticText, (unechoedSends.get(optimisticText) ?? 0) + 1)
             continue
         }
