@@ -8893,11 +8893,11 @@ export interface UIVisibilityConfig {
 
 /** Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity. */
 export interface SidebarSectionsConfiguration {
-    /** The "Project" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden. */
+    /** The "Project" section (Home and the Data/Files/Products/Starred panel triggers). Activity stays visible even when this section is hidden. */
     project?: UIVisibilityConfig
     /** The "Recents" section, listing recently viewed items. */
     recents?: UIVisibilityConfig
-    /** The "My tools" section, listing the user's selected tools. */
+    /** The "My products" section, listing the user's selected products. */
     my_tools?: UIVisibilityConfig
 }
 
@@ -8911,7 +8911,7 @@ export interface SidebarItemsConfiguration {
     data?: UIVisibilityConfig
     /** "Files" panel trigger in the Project section. */
     files?: UIVisibilityConfig
-    /** "Tools" panel trigger in the Project section. */
+    /** "Products" panel trigger in the Project section. */
     tools?: UIVisibilityConfig
     /** "Starred" panel trigger in the Project section. */
     starred?: UIVisibilityConfig
