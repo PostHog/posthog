@@ -206,8 +206,12 @@ function captureSearchOutcome(
 ): void {
     posthog.capture('replay vision observation search completed', {
         ...outcome,
-        scope: scannerId ? 'scanner' : 'cross-scanner',
+        scope: searchScope(scannerId),
     })
+}
+
+function searchScope(scannerId: string | null): 'scanner' | 'cross-scanner' {
+    return scannerId ? 'scanner' : 'cross-scanner'
 }
 
 export const observationSearchLogic = kea<observationSearchLogicType>([
@@ -488,7 +492,7 @@ export const observationSearchLogic = kea<observationSearchLogicType>([
                 target,
                 reranked: values.reranked,
                 result_count: values.results?.length ?? 0,
-                scope: values.scannerId ? 'scanner' : 'cross-scanner',
+                scope: searchScope(values.scannerId),
                 similar_search: values.sourceObservationId !== null,
             })
         },

@@ -41,7 +41,7 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.observation_formatting import explanation_text, read_output
 from products.replay_vision.backend.scanner_access import accessible_observations
-from products.replay_vision.backend.search_rerank import RerankCandidate, rerank
+from products.replay_vision.backend.search_rerank import RERANK_CANDIDATES, RerankCandidate, rerank
 from products.replay_vision.backend.tags import clickhouse_slugify_sql, slugify_tag
 
 logger = structlog.get_logger(__name__)
@@ -388,17 +388,13 @@ def search_observations(
     observations = fetch_ranked_observations(team.id, scanner_ids, list(match_by_id), access)
     reranked = False
     if rerank_query:
+        head = observations[:RERANK_CANDIDATES]
         candidates = [
-            RerankCandidate(
-                observation_id=str(obs.id),
-                distance=match_by_id[str(obs.id)].distance,
-                text=_rerank_text(obs) or match_by_id[str(obs.id)].matched_content,
-            )
-            for obs in observations
+            RerankCandidate(str(obs.id), _rerank_text(obs) or match_by_id[str(obs.id)].matched_content) for obs in head
         ]
         outcome = rerank(rerank_query, candidates, team_id=team.id)
-        by_id = {str(obs.id): obs for obs in observations}
-        observations = [by_id[observation_id] for observation_id in outcome.order]
+        by_id = {str(obs.id): obs for obs in head}
+        observations = [by_id[observation_id] for observation_id in outcome.order] + observations[len(head) :]
         reranked = outcome.reranked
     results = [
         ObservationSearchResult(
@@ -445,12 +441,9 @@ def warm_query_vectors(team: Team, texts: list[str]) -> list[Future[list[float]]
     """Embed and cache texts a person is about to search for, such as the suggested searches on screen, so the
     search skips the embedding round trip. Runs in the background and returns at once. A failure only means the
     search embeds the text itself."""
-    futures = []
-    for text in texts:
-        if cache.get(_query_vector_cache_key(text)) is None:
-            future = _WARM_VECTOR_EXECUTOR.submit(query_vector_for, team, text)
-            future.add_done_callback(_log_warm_failure)
-            futures.append(future)
+    futures = [_WARM_VECTOR_EXECUTOR.submit(query_vector_for, team, text) for text in texts]
+    for future in futures:
+        future.add_done_callback(_log_warm_failure)
     return futures
 
 

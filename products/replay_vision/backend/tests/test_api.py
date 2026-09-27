@@ -3576,6 +3576,7 @@ class TestObservationSearchAction(_VisionAPITestCase):
         )
         self.assertFalse(resp.json()["truncated"])
 
+    @patch("products.replay_vision.backend.search.RERANK_CANDIDATES", 2)
     @patch("products.replay_vision.backend.search_rerank.build_system_one_client")
     @patch("products.replay_vision.backend.search.rank_observations")
     @patch("products.replay_vision.backend.search.generate_embedding")
@@ -3584,12 +3585,14 @@ class TestObservationSearchAction(_VisionAPITestCase):
     ) -> None:
         first = self._create_succeeded_observation("sess-1")
         second = self._create_succeeded_observation("sess-2")
+        tail = self._create_succeeded_observation("sess-3")
         ReplayObservation.objects.filter(pk=second.id).update(scanner_result={"model_output": {"reasoning": "exact"}})
         mock_embed.return_value = MagicMock(embedding=[0.1])
         mock_rank.return_value = [
             ObservationMatch(observation_id=str(first.id), distance=0.1, matched_content="topic only"),
             ObservationMatch(observation_id=str(uuid7()), distance=0.2, matched_content="unreadable"),
             ObservationMatch(observation_id=str(second.id), distance=0.3, matched_content="bare tag"),
+            ObservationMatch(observation_id=str(tail.id), distance=0.4, matched_content="past the head"),
         ]
         sent_texts: list[str] = []
 
@@ -3607,7 +3610,9 @@ class TestObservationSearchAction(_VisionAPITestCase):
         resp = self.client.get(f"{self.search_url}?q=confused users")
 
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.assertEqual([r["observation"]["id"] for r in resp.json()["results"]], [str(second.id), str(first.id)])
+        self.assertEqual(
+            [r["observation"]["id"] for r in resp.json()["results"]], [str(second.id), str(first.id), str(tail.id)]
+        )
         self.assertTrue(resp.json()["reranked"])
         self.assertEqual(sorted(sent_texts), ["exact", "topic only"])
 

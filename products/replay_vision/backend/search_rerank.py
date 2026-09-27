@@ -16,11 +16,12 @@ from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass
 
 import structlog
-from prometheus_client import Counter, Histogram
 
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.system_one import JsonValue, NoulAnswer, NoulQuestion, SystemOneNotConfigured
-from posthog.llm.system_one_client import build_system_one_client
+from posthog.llm.system_one_client import SystemOneClient, build_system_one_client
+
+from products.replay_vision.backend.temporal.metrics import record_search_rerank
 
 logger = structlog.get_logger(__name__)
 
@@ -38,22 +39,10 @@ _CRITERIA_FALSE = "The observation only shares the topic, says the thing did not
 # frees it, so the pool is sized for several searches whose requests overlap.
 _EXECUTOR = ThreadPoolExecutor(max_workers=16, thread_name_prefix="replay-vision-rerank")
 
-_RERANK_OUTCOMES = Counter(
-    "replay_vision_search_rerank_total",
-    "Observation searches by rerank outcome.",
-    ["outcome"],
-)
-_RERANK_LATENCY = Histogram(
-    "replay_vision_search_rerank_latency_seconds",
-    "Wall-clock time a search waited on the rerank model.",
-    buckets=(0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5),
-)
-
 
 @dataclass(frozen=True)
 class RerankCandidate:
     observation_id: str
-    distance: float
     text: str
 
 
@@ -63,13 +52,7 @@ class RerankOutcome:
     reranked: bool
 
 
-def _score_chunk(query: str, chunk: Sequence[RerankCandidate], team_id: int) -> dict[str, float]:
-    client = build_system_one_client(
-        model=RERANK_MODEL,
-        ai_product="replay_vision",
-        distinct_id=team_distinct_id(team_id),
-        timeout=RERANK_DEADLINE_S,
-    )
+def _score_chunk(client: SystemOneClient, query: str, chunk: Sequence[RerankCandidate]) -> dict[str, float]:
     # User and observation text stays in `state`, because interpolating it into `instructions` would let it act
     # as an instruction.
     observations: dict[str, JsonValue] = {f"o{i}": c.text[:RERANK_TEXT_CHARS] for i, c in enumerate(chunk)}
@@ -93,22 +76,29 @@ def _score_chunk(query: str, chunk: Sequence[RerankCandidate], team_id: int) -> 
 
 
 def _outcome(outcome: str, order: list[str], started: float) -> RerankOutcome:
-    _RERANK_OUTCOMES.labels(outcome=outcome).inc()
-    _RERANK_LATENCY.observe(time.monotonic() - started)
+    record_search_rerank(outcome, time.monotonic() - started)
     return RerankOutcome(order=order, reranked=outcome == "reranked")
 
 
 def rerank(query: str, candidates: Sequence[RerankCandidate], *, team_id: int) -> RerankOutcome:
-    """Reorder the first `RERANK_CANDIDATES` candidates by the model's match probability, ties broken by distance.
-    Candidates past the head keep their embedding order after it."""
+    """Reorder `candidates`, which arrive in embedding order, by the model's match probability. The sort is stable,
+    so equal probabilities keep embedding order. The caller passes only the head it wants reranked."""
     embedding_order = [c.observation_id for c in candidates]
     if len(candidates) < 2:
         return RerankOutcome(order=embedding_order, reranked=False)
     started = time.monotonic()
-    head = list(candidates[:RERANK_CANDIDATES])
+    try:
+        client = build_system_one_client(
+            model=RERANK_MODEL,
+            ai_product="replay_vision",
+            distinct_id=team_distinct_id(team_id),
+            timeout=RERANK_DEADLINE_S,
+        )
+    except SystemOneNotConfigured:
+        return _outcome("not_configured", embedding_order, started)
     # Interleaved chunks give each request a similar spread of close and far candidates.
-    chunks = [head[i::RERANK_REQUESTS] for i in range(RERANK_REQUESTS) if head[i::RERANK_REQUESTS]]
-    futures = [_EXECUTOR.submit(_score_chunk, query, chunk, team_id) for chunk in chunks]
+    chunks = [chunk for chunk in (candidates[i::RERANK_REQUESTS] for i in range(RERANK_REQUESTS)) if chunk]
+    futures = [_EXECUTOR.submit(_score_chunk, client, query, chunk) for chunk in chunks]
     done, pending = wait(futures, timeout=RERANK_DEADLINE_S)
     if pending:
         for future in pending:
@@ -119,11 +109,7 @@ def rerank(query: str, candidates: Sequence[RerankCandidate], *, team_id: int) -
     for future in done:
         try:
             scores.update(future.result())
-        except SystemOneNotConfigured:
-            return _outcome("not_configured", embedding_order, started)
         except Exception:
             logger.warning("replay_vision.search_rerank.failed", team_id=team_id, exc_info=True)
             return _outcome("error", embedding_order, started)
-    distance = {c.observation_id: c.distance for c in head}
-    reranked_head = sorted(scores, key=lambda observation_id: (-scores[observation_id], distance[observation_id]))
-    return _outcome("reranked", reranked_head + embedding_order[len(head) :], started)
+    return _outcome("reranked", sorted(embedding_order, key=lambda observation_id: -scores[observation_id]), started)
