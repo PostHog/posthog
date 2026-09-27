@@ -373,6 +373,14 @@ class TestCustomFields:
             },
         ]
 
+    @mock.patch(MEMBRAIN_SESSION_PATCH)
+    def test_excludes_custom_field_definitions_from_http_sample_capture(self, MockSession) -> None:
+        MockSession.return_value.get.return_value = _response({"companyCustomFields": []})
+
+        _rows(_source(_make_manager(), endpoint="custom_fields"))
+
+        assert MockSession.call_args.kwargs.get("capture") is False
+
     @parameterized.expand(
         [
             ("error_object", {"error": "Instance not found"}),

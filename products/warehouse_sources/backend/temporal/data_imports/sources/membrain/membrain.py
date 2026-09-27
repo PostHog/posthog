@@ -113,7 +113,10 @@ class MembrainPaginator(BasePaginator):
 
 def _custom_fields_rows(api_key: str, subdomain: str) -> Iterator[list[dict[str, Any]]]:
     """Flatten `/customFields/` into one row per field definition with an `EntityType` column."""
-    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+    # capture=False, matching the main sync client and the credential probe: custom field
+    # options are admin-authored free text, not something the generic scrubber is guaranteed to
+    # catch.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False)
     response = session.get(
         f"{base_url(subdomain)}/customFields/",
         headers=_auth_headers(api_key),
