@@ -155,6 +155,7 @@ import {
   AGENT_REPO_FILES,
   AGENT_SERVICE,
   AGENT_SLEEP_COORDINATOR,
+  AGENT_TASK_BROWSER,
 } from "@posthog/workspace-server/services/agent/identifiers";
 import { AgentServiceEvent } from "@posthog/workspace-server/services/agent/schemas";
 import { archiveModule } from "@posthog/workspace-server/services/archive/archive.module";
@@ -671,6 +672,10 @@ container
         ctx.get<TaskBrowserService>(MAIN_TASK_BROWSER_SERVICE),
       ),
   )
+  .inSingletonScope();
+container
+  .bind(AGENT_TASK_BROWSER)
+  .toDynamicValue((ctx) => ctx.get<TaskBrowserHost>(MAIN_TASK_BROWSER_HOST))
   .inSingletonScope();
 container
   .bind(MCP_RELAY_EXECUTOR)

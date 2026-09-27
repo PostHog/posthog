@@ -18,6 +18,7 @@ import {
   isPostHogExecTool,
   matchesPostHogExecPermission,
 } from "@posthog/harness/extensions/posthog-mcp-policy";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
 import { text } from "../../../utils/acp-content";
 import type { Logger } from "../../../utils/logger";
 import { toolInfoFromToolUse } from "../conversion/tool-use-to-acp";
@@ -52,6 +53,8 @@ const NO_OP_LOCAL_TOOL_IDS = new Set([
   qualifiedLocalToolName(SPEAK_TOOL_NAME),
   qualifiedLocalToolName(SHOW_ACTIONS_TOOL_NAME),
 ]);
+
+const SELF_GUARDED_TOOL_IDS = new Set([`mcp__${TASK_BROWSER_MCP_SERVER}__js`]);
 
 export type ToolPermissionResult =
   | {
@@ -836,7 +839,10 @@ export async function canUseTool(
     }
 
     // An explicit do_not_use block above still wins.
-    if (NO_OP_LOCAL_TOOL_IDS.has(toolName)) {
+    if (
+      NO_OP_LOCAL_TOOL_IDS.has(toolName) ||
+      SELF_GUARDED_TOOL_IDS.has(toolName)
+    ) {
       return {
         behavior: "allow",
         updatedInput: toolInput as Record<string, unknown>,

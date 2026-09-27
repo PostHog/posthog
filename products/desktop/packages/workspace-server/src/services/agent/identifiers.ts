@@ -15,3 +15,10 @@ export const AGENT_SLEEP_COORDINATOR = Symbol.for(
 export const AGENT_MCP_APPS = Symbol.for("posthog.workspace.agentMcpApps");
 export const AGENT_REPO_FILES = Symbol.for("posthog.workspace.agentRepoFiles");
 export const AGENT_AUTH = Symbol.for("posthog.workspace.agentAuth");
+export const AGENT_TASK_BROWSER = Symbol.for(
+  "posthog.workspace.agentTaskBrowser",
+);
+
+export interface AgentTaskBrowser {
+  localConnection(taskId: string): Promise<{ url: string; token: string }>;
+}

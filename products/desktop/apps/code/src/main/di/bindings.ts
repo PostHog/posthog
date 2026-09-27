@@ -159,6 +159,8 @@ import type {
   AGENT_REPO_FILES,
   AGENT_SERVICE,
   AGENT_SLEEP_COORDINATOR,
+  AGENT_TASK_BROWSER,
+  AgentTaskBrowser,
 } from "@posthog/workspace-server/services/agent/identifiers";
 import type {
   ARCHIVE_FILE_WATCHER,
@@ -376,6 +378,7 @@ export interface MainBindings {
   // Agent host ports
   [AGENT_SLEEP_COORDINATOR]: unknown;
   [AGENT_MCP_APPS]: unknown;
+  [AGENT_TASK_BROWSER]: AgentTaskBrowser;
   [AGENT_REPO_FILES]: unknown;
   [AGENT_AUTH]: unknown;
   [AGENT_LOGGER]: RootLogger;

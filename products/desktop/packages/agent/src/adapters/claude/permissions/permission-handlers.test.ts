@@ -159,22 +159,24 @@ describe("canUseTool MCP approval enforcement", () => {
     expect(context.client.requestPermission).not.toHaveBeenCalled();
   });
 
-  it("auto-allows the speak narration tool without prompting", async () => {
-    const context = createContext("mcp__posthog-code-tools__speak", {
-      toolInput: { text: "all tests pass", kind: "done" },
-    });
-    const result = await canUseTool(context);
-
-    expect(result.behavior).toBe("allow");
-    expect(context.client.requestPermission).not.toHaveBeenCalled();
-  });
-
-  it("auto-allows the show_actions tool without prompting", async () => {
-    const context = createContext("mcp__posthog-code-tools__show_actions", {
-      toolInput: {
-        actions: [{ kind: "compose", label: "Add PostHog", prompt: "/x" }],
-      },
-    });
+  it.each([
+    [
+      "the speak narration tool",
+      "mcp__posthog-code-tools__speak",
+      { text: "all tests pass", kind: "done" },
+    ],
+    [
+      "the show_actions tool",
+      "mcp__posthog-code-tools__show_actions",
+      { actions: [{ kind: "compose", label: "Add PostHog", prompt: "/x" }] },
+    ],
+    [
+      "the browser tool, which asks the user itself",
+      "mcp__posthog-browser__js",
+      { code: "return 1" },
+    ],
+  ])("auto-allows %s without prompting", async (_name, tool, toolInput) => {
+    const context = createContext(tool, { toolInput });
     const result = await canUseTool(context);
 
     expect(result.behavior).toBe("allow");

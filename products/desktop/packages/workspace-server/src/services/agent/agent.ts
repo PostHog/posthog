@@ -87,6 +87,7 @@ import {
   type CloudRegion,
   type ExecutionMode,
   isAuthError,
+  type McpServerConnection,
   type ModelAccess,
   readAgentToolName,
   readMcpToolName,
@@ -94,9 +95,10 @@ import {
   serializeError,
   TypedEventEmitter,
 } from "@posthog/shared";
+import { TASK_BROWSER_MCP_SERVER } from "@posthog/shared/constants";
 import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
-import { inject, injectable, preDestroy } from "inversify";
+import { inject, injectable, optional, preDestroy } from "inversify";
 import { WORKSPACE_REPOSITORY } from "../../db/identifiers";
 import type { IWorkspaceRepository } from "../../db/repositories/workspace-repository";
 import { POSTHOG_PLUGIN_SERVICE } from "../posthog-plugin/identifiers";
@@ -121,6 +123,8 @@ import {
   AGENT_MCP_APPS,
   AGENT_REPO_FILES,
   AGENT_SLEEP_COORDINATOR,
+  AGENT_TASK_BROWSER,
+  type AgentTaskBrowser,
 } from "./identifiers";
 import type {
   AgentLogger,
@@ -488,6 +492,9 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     private readonly workspaceSettings: IWorkspaceSettings,
     @inject(AGENT_LOGGER)
     loggerFactory: AgentLogger,
+    @inject(AGENT_TASK_BROWSER)
+    @optional()
+    private readonly taskBrowser?: AgentTaskBrowser,
   ) {
     super();
     this.processTracking = processTracking;
@@ -974,6 +981,28 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return session ? this.toSessionResponse(session) : null;
   }
 
+  private async addTaskBrowser(
+    taskId: string | undefined,
+    mcpServers: McpServerConnection[],
+    toolApprovals: McpToolApprovals,
+  ): Promise<void> {
+    if (!this.taskBrowser || !taskId) return;
+    try {
+      const { url, token } = await this.taskBrowser.localConnection(taskId);
+      mcpServers.push({
+        name: TASK_BROWSER_MCP_SERVER,
+        type: "http",
+        url,
+        headers: [{ name: "Authorization", value: `Bearer ${token}` }],
+      });
+      toolApprovals[`mcp__${TASK_BROWSER_MCP_SERVER}__js`] = "approved";
+    } catch (err) {
+      this.log.warn("Failed to connect the task browser", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   private async getOrCreateSession(
     config: SessionConfig,
     isReconnect: false,
@@ -1214,6 +1243,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
           headers: Object.fromEntries(s.headers.map((h) => [h.name, h.value])),
         })),
       );
+      await this.addTaskBrowser(taskId, mcpServers, toolApprovals);
 
       let externalPlugins: Awaited<ReturnType<typeof discoverExternalPlugins>> =
         [];
