@@ -209,9 +209,10 @@ def test_checkout_parent_keeps_the_export_ignored_gitignore_so_build_output_stay
             assert changed_files(candidate_diff(workdir)) == {"a.py"}
 
 
-def test_agent_environment_drops_github_credentials():
-    env = agent_environment({"GH_TOKEN": "x", "GITHUB_TOKEN": "y", "ANTHROPIC_API_KEY": "z", "PATH": "/bin"})
-    assert env == {"ANTHROPIC_API_KEY": "z", "PATH": "/bin"}
+def test_agent_environment_drops_github_credentials_and_the_other_provider_key():
+    host = {"GH_TOKEN": "x", "GITHUB_TOKEN": "y", "ANTHROPIC_API_KEY": "z", "OPENAI_API_KEY": "w", "PATH": "/bin"}
+    assert agent_environment(host, "claude") == {"ANTHROPIC_API_KEY": "z", "PATH": "/bin"}
+    assert agent_environment(host, "codex") == {"OPENAI_API_KEY": "w", "PATH": "/bin"}
 
 
 def test_report_lists_each_case_and_the_mean():

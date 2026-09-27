@@ -14,6 +14,9 @@ DEFAULT_MODELS: dict[Runtime, str] = {"claude": "claude-opus-5", "codex": "gpt-5
 # The agent must reproduce the PR from the description alone, so it gets no GitHub credentials.
 GITHUB_CREDENTIAL_VARS = ("GH_TOKEN", "GITHUB_TOKEN")
 
+# The judge's provider key stays in the parent process; an unsandboxed agent has no use for the other runtime's key.
+OTHER_PROVIDER_KEYS: dict[Runtime, str] = {"claude": "OPENAI_API_KEY", "codex": "ANTHROPIC_API_KEY"}
+
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class AgentRun:
@@ -33,12 +36,18 @@ def agent_command(runtime: Runtime, model: str) -> list[str]:
     return ["codex", "exec", "--model", model, "--dangerously-bypass-approvals-and-sandbox", "--json", "-"]
 
 
-def agent_environment(env: Mapping[str, str]) -> dict[str, str]:
-    return {key: value for key, value in env.items() if key not in GITHUB_CREDENTIAL_VARS}
+def agent_environment(env: Mapping[str, str], runtime: Runtime) -> dict[str, str]:
+    dropped = (*GITHUB_CREDENTIAL_VARS, OTHER_PROVIDER_KEYS[runtime])
+    return {key: value for key, value in env.items() if key not in dropped}
+
+
+AGENT_VERSION_TIMEOUT_SECONDS = 30
 
 
 def agent_version(runtime: Runtime) -> str:
-    return subprocess.run([runtime, "--version"], capture_output=True, text=True, check=True).stdout.strip()
+    return subprocess.run(
+        [runtime, "--version"], capture_output=True, text=True, check=True, timeout=AGENT_VERSION_TIMEOUT_SECONDS
+    ).stdout.strip()
 
 
 def _claude_report(run: AgentRun) -> dict:
@@ -76,7 +85,7 @@ def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_
         completed = subprocess.run(
             agent_command(runtime, model),
             cwd=workdir,
-            env=agent_environment(os.environ),
+            env=agent_environment(os.environ, runtime),
             input=prompt,
             capture_output=True,
             text=True,

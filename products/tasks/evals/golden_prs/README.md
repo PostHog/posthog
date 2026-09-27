@@ -20,6 +20,10 @@ For each PR, the eval:
 Snapshot files and images are ignored, because an agent cannot regenerate them without the test suite.
 The deterministic scores are strict, so a correct change written in a different way scores low on them. Read the judge score and its reasoning together with them.
 
+## Known limits
+
+The agent runs unsandboxed (`--dangerously-skip-permissions` / `--dangerously-bypass-approvals-and-sandbox`), with its working directory as a soft boundary rather than a hard one. It is not run inside a container or namespace, so it could, in principle, read the original checkout that fetched the golden merge commit, or other host state, instead of relying on the PR description alone. Treat a score as a signal for comparing agents and models, not as proof the agent only ever saw the task description.
+
 ## Run it
 
 From GitHub, open the **Golden PR Evals** workflow and choose **Run workflow**. Pick the runtime, the model, and the PR numbers. Each PR runs as its own job. The run summary shows the score table, and the artifacts hold every diff, agent log, and score file.

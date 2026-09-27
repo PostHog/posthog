@@ -30,6 +30,9 @@ def load_golden_prs(path: Path = GOLDEN_SET_PATH) -> list[GoldenPR]:
 
 
 def select_golden_prs(prs: Iterable[GoldenPR], numbers: Iterable[int]) -> list[GoldenPR]:
+    # A one-shot iterator would otherwise be consumed by the unknown-number check below, leaving
+    # nothing for the return comprehension to read.
+    numbers = list(numbers)
     by_number = {pr.number: pr for pr in prs}
     unknown = sorted(set(numbers) - by_number.keys())
     if unknown:

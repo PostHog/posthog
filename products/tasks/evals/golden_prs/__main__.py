@@ -108,6 +108,13 @@ def report(results: list[dict]) -> str:
     return f"{header}{chr(10).join(rows)}\n{means}\n\n### Judge reasoning\n\n{reasoning}\n"
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {value!r}")
+    return parsed
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(prog="golden_prs", description="Score a coding agent against human-written PRs.")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -117,7 +124,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     run.add_argument("--runtime", choices=("claude", "codex"), default="claude")
     run.add_argument("--model", help=f"Agent model. Defaults: {DEFAULT_MODELS}")
     run.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
-    run.add_argument("--case-timeout", type=int, default=DEFAULT_CASE_TIMEOUT_SECONDS, help="Seconds per PR.")
+    run.add_argument("--case-timeout", type=_positive_int, default=DEFAULT_CASE_TIMEOUT_SECONDS, help="Seconds per PR.")
     run.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     run.add_argument("--repo", type=Path, default=REPO_ROOT, help="A posthog checkout to fetch golden commits into.")
     show = commands.add_parser("report", help="Print a markdown summary of results.")

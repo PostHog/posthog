@@ -5,7 +5,7 @@
     "title": "fix(retention): Properly apply Monday as the first day of the week",
     "merged_at": "2023-11-08T21:29:44Z",
     "merge_commit_sha": "f986c242d506915d503f6a4675bbf2d52f4e79f9",
-    "body": "## Problem\n\nResolves ZEN-6295 – the first day of the week setting did not apply in Retention, because Retention's `period` value starts with a capital letter, while other insights' `interval` is all-lowercase. 🙈 `date_from` was also incorrect for week-based Retention insights when Monday is the first day of the week.\n\n## Changes\n\nWe now properly handle uppercase `interval` (i.e. `period`) by delegating this to `get_trunc_func_ch()`.\nWe also are aware of the first day of the week in `RetentionDateDerivedMixin`'s `date_from` – which is a really bad design TBH, because this should all live in SQL – but that's how Retention is architected currently.\n\n## How did you test this code?\n\nAdded a query test."
+    "body": "## Problem\n\nThe first day of the week setting did not apply in Retention, because Retention's `period` value starts with a capital letter, while other insights' `interval` is all-lowercase. 🙈 `date_from` was also incorrect for week-based Retention insights when Monday is the first day of the week.\n\n## Changes\n\nWe now properly handle uppercase `interval` (i.e. `period`) by delegating this to `get_trunc_func_ch()`.\nWe also are aware of the first day of the week in `RetentionDateDerivedMixin`'s `date_from` – which is a really bad design TBH, because this should all live in SQL – but that's how Retention is architected currently.\n\n## How did you test this code?\n\nAdded a query test."
   },
   {
     "number": 18522,
@@ -45,7 +45,7 @@
     "title": "fix(projects): Fix project creation when `access_control` set",
     "merged_at": "2024-09-16T13:43:33Z",
     "merge_commit_sha": "86231b3a2dde306231efcfe57ef8171a909df628",
-    "body": "## Problem\n\nBrought up in ZEN-18151 (CC @bretthoerner @raquelmsmith):\nSince Thursday, project creation has been erroring when `access_control` was specified. This was not an issue in the app, which does not set this param on project creation, but a customer using the API this way experienced disruption.\n\nSentry issue [POSTHOG-1KFT](https://posthog.sentry.io/issues/5839436142/?project=1899813).\n\n## Changes\n\nThe bug appeared after a refactor in #24154 that simplified one path a bit too much. The problem is that we didn't have a test for this path of project creation.\n\nThis fixes the bug and adds a few tests to better cover project creation (`access_control` and `primary_dashboard` were lacking coverage)."
+    "body": "## Problem\n\nSince Thursday, project creation has been erroring when `access_control` was specified. This was not an issue in the app, which does not set this param on project creation, but a customer using the API this way experienced disruption.\n\n## Changes\n\nThe bug appeared after a refactor in #24154 that simplified one path a bit too much. The problem is that we didn't have a test for this path of project creation.\n\nThis fixes the bug and adds a few tests to better cover project creation (`access_control` and `primary_dashboard` were lacking coverage)."
   },
   {
     "number": 25310,
@@ -77,7 +77,7 @@
     "title": "fix(events): Account for project timezone in absolute range `EventsQuery`",
     "merged_at": "2024-11-05T13:29:32Z",
     "merge_commit_sha": "674e8fe9e5c639c1a6a959a959f03a2cac536315",
-    "body": "## Problem\n\nReported in ZEN-19450: Absolute date ranges were always effectively treated as UTC in `EventsQueryRunner`. This was off for projects with a non-UTC timezone set.\n\n## Changes\n\nWe were using raw `isoparse()`, where `relative_date_parse()` already handles both absolute and relative datetimes correctly accounting for timezones. The fix is simply removing the needless `isoparse`.\n\n## How did you test this code?\n\nAdded a test case that fails on master and passes here."
+    "body": "## Problem\n\nAbsolute date ranges were always effectively treated as UTC in `EventsQueryRunner`. This was off for projects with a non-UTC timezone set.\n\n## Changes\n\nWe were using raw `isoparse()`, where `relative_date_parse()` already handles both absolute and relative datetimes correctly accounting for timezones. The fix is simply removing the needless `isoparse`.\n\n## How did you test this code?\n\nAdded a test case that fails on master and passes here."
   },
   {
     "number": 26792,

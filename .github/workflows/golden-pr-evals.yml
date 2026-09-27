@@ -50,6 +50,7 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  persist-credentials: false
                   sparse-checkout: products/tasks/evals/golden_prs/golden_prs.json
                   sparse-checkout-cone-mode: false
 
@@ -107,6 +108,8 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               if: steps.gate.outputs.enabled == 'true'
               with:
+                  # The agent runs unsandboxed in this checkout; it has no reason to read a persisted token.
+                  persist-credentials: false
                   # The runner fetches each golden commit itself; the checkout only needs the eval package
                   # and the files the toolchain setup steps read.
                   sparse-checkout: |
@@ -155,6 +158,20 @@ jobs:
                   JUDGE_MODEL: ${{ inputs.judge_model }}
                   CASE_TIMEOUT_MINUTES: ${{ inputs.case_timeout_minutes }}
               run: |
+                  # Validated before the arithmetic expansion below: Bash evaluates a command
+                  # substitution embedded in an unchecked arithmetic string, and this step's
+                  # environment holds both provider API keys. The upper bound also keeps setup,
+                  # judging and artifact upload inside the job's 60-minute timeout.
+                  case "$CASE_TIMEOUT_MINUTES" in
+                      ''|*[!0-9]*)
+                          echo "::error::case_timeout_minutes must be a positive integer, got '$CASE_TIMEOUT_MINUTES'"
+                          exit 1
+                          ;;
+                  esac
+                  if [ "$CASE_TIMEOUT_MINUTES" -lt 1 ] || [ "$CASE_TIMEOUT_MINUTES" -gt 45 ]; then
+                      echo "::error::case_timeout_minutes must be between 1 and 45"
+                      exit 1
+                  fi
                   python -m products.tasks.evals.golden_prs run \
                       --pr "$PR" \
                       --runtime "$RUNTIME" \
@@ -180,11 +197,17 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  persist-credentials: false
                   sparse-checkout: |
+                      pyproject.toml
                       products/__init__.py
                       products/tasks/__init__.py
                       products/tasks/evals
                   sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
 
             - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
@@ -197,6 +220,7 @@ jobs:
                   RUNTIME: ${{ inputs.runtime }}
                   MODEL: ${{ inputs.model }}
               run: |
+                  set -o pipefail
                   python3 -m pip install --quiet 'anthropic>=0.80,<1' 'pydantic>=2,<3'
                   {
                       echo "## Golden PR evals: $RUNTIME ${MODEL:-default model}"

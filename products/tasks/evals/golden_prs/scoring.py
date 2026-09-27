@@ -123,6 +123,9 @@ def judge(
     return response.parsed_output or Verdict(score=0.0, reasoning="The judge returned no verdict.")
 
 
+JUDGE_CLI_TIMEOUT_SECONDS = 10 * 60
+
+
 def _judge_with_claude_cli(model: str, request: str) -> Verdict:
     """The CLI signs in with its own credentials, so a devbox with `claude` logged in needs no API key."""
     command = [
@@ -141,9 +144,18 @@ def _judge_with_claude_cli(model: str, request: str) -> Verdict:
         json.dumps(Verdict.model_json_schema()),
     ]
     # A neutral working directory, so the CLI does not load this repository's CLAUDE.md and hooks into the judge.
-    completed = subprocess.run(
-        command, cwd=tempfile.gettempdir(), input=request, capture_output=True, text=True, check=False
-    )
+    try:
+        completed = subprocess.run(
+            command,
+            cwd=tempfile.gettempdir(),
+            input=request,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=JUDGE_CLI_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired:
+        return Verdict(score=0.0, reasoning="The judge returned no verdict: the CLI timed out.")
     try:
         report = json.loads(completed.stdout)
     except json.JSONDecodeError:
