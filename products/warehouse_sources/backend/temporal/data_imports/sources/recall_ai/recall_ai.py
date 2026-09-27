@@ -171,4 +171,8 @@ def validate_credentials(api_key: str, region: str) -> tuple[bool, int | None]:
         lambda: make_tracked_session(redact_values=(api_key,)),
         f"{base_url_for_region(region)}/api/v1/bot/",
         headers={"Authorization": f"Token {api_key}"},
+        # The probe sends the key via Authorization, which `requests` already strips on a
+        # cross-host redirect, but pin it anyway: it's a one-word defense against a future
+        # change to this probe (e.g. a custom header) reintroducing the leak silently.
+        allow_redirects=False,
     )
