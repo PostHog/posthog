@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
@@ -898,6 +898,30 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+
+        const apiError = (status: number): PostHogApiError =>
+            new PostHogApiError({
+                status,
+                statusText: '',
+                body: '',
+                url: 'https://app.posthog.com/api/projects/42/groups_types/',
+                method: 'GET',
+            })
+
+        it.each([
+            ['permission error', new PostHogPermissionError({ detail: 'denied', url: '/api/', method: 'GET' }), false],
+            ['403', apiError(403), false],
+            ['404', apiError(404), false],
+            ['500', apiError(500), true],
+            ['network error', new TypeError('fetch failed'), true],
+        ])('reports only unexpected fetch failures: %s', async (_label, error, reported) => {
+            const mockApi = stateManager as any
+            mockApi._api = { getGroupTypes: vi.fn().mockRejectedValue(error) }
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+            expect(await stateManager.getOrFetchGroupTypes(projectId)).toBeUndefined()
+            expect(reportSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
         })
     })
 

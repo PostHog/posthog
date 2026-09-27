@@ -7,6 +7,7 @@ import {
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
+    PostHogPermissionError,
     wrapError,
 } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
@@ -216,6 +217,18 @@ export class StateManager {
         return error instanceof PostHogApiError && error.status === 404
     }
 
+    /**
+     * A 4xx from a best-effort cached lookup means the token lost access, or the
+     * project or org is gone or deactivated. Callers already ignore the failure,
+     * so only 5xx and transport errors go to error tracking.
+     */
+    private _isExpectedClientError(error: unknown): boolean {
+        if (error instanceof PostHogPermissionError) {
+            return true
+        }
+        return error instanceof PostHogApiError && error.status >= 400 && error.status < 500
+    }
+
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
         try {
             getPostHogClient().captureException(error, undefined, { tag: 'mcp', team: 'posthog_ai', context, ...extra })
@@ -301,7 +314,7 @@ export class StateManager {
      * Stale-while-cached helper. Returns fresh cached data if available; otherwise
      * fetches, writes both the value and its timestamp, and returns the fresh value.
      * On fetcher failure, returns the last-known cached value (possibly `undefined`)
-     * and captures the exception.
+     * and captures the exception unless it is an expected 4xx.
      */
     private async getOrFetchCached<D extends keyof State, F extends keyof State>(opts: {
         name: string
@@ -327,7 +340,9 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (!this._isExpectedClientError(error)) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
