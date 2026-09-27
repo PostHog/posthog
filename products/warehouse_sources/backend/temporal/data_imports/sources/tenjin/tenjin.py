@@ -103,6 +103,11 @@ def tenjin_source(
                 "token": api_key,
             },
             "paginator": JSONResponsePaginator(next_url_path="links.next"),
+            # `links.next` is response-controlled; pin every paginated/resumed request to the
+            # Tenjin API host and refuse redirects, so a tampered next link can't carry the
+            # bearer token off-host.
+            "allowed_hosts": [],
+            "allow_redirects": False,
         },
         "resource_defaults": {
             "write_disposition": {
