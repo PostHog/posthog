@@ -206,10 +206,10 @@ class TestSafeExposeChError:
 
 class TestWarehouseReadErrorClassification:
     # Engine wording, written from the shape of each failure rather than copied from a customer's
-    # table: a bucket that refuses the read, a parquet footer the reader can't parse, a URL that
-    # answers with a redirect, and a column that left the files. The needles are what the engines
-    # emit, so a rephrasing on either side has to fail here instead of silently dropping the error
-    # back into error tracking as an unactionable ClickHouse string.
+    # table: a bucket that refuses the read, a path with no readable files, a parquet footer the
+    # reader can't parse, a URL that answers with a redirect, and a column that left the files. The
+    # needles are what the engines emit, so a rephrasing on either side has to fail here instead of
+    # silently dropping the error back into error tracking as an unactionable ClickHouse string.
     @pytest.mark.parametrize(
         "engine_error,expected_fragment",
         [
@@ -235,6 +235,15 @@ class TestWarehouseReadErrorClassification:
                     code=230,
                 ),
                 "redirected too many times",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: The table structure cannot be extracted from a Parquet format file, "
+                    "because there are no files with provided path in S3 or all files are empty. You can "
+                    "specify table structure manually.",
+                    code=636,
+                ),
+                "doesn't exist in the bucket",
             ),
             (
                 ServerException(
