@@ -344,6 +344,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             null as TeamBasicType[] | null,
             {
                 loadAllTeams: async () => {
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                     return await api.loadPaginatedResults('api/projects')
                 },
             },

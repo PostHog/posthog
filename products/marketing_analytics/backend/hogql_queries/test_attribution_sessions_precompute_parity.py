@@ -137,6 +137,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         *,
         precomputed: bool,
         exclude_direct: bool = False,
+        exclude_unattributed: bool = False,
         allow_multiple_conversions: bool | None = None,
         modifiers: HogQLQueryModifiers | None = None,
     ) -> tuple[dict[str, _AttributionCounts], bool]:
@@ -146,6 +147,7 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             conversionGoalId=GOAL_ID,
             properties=[],
             excludeDirectTraffic=exclude_direct,
+            excludeUnattributed=exclude_unattributed,
             allowMultipleConversionsPerVisitor=allow_multiple_conversions,
             modifiers=modifiers,
         )
@@ -293,6 +295,20 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert "dup" not in rows_out, f"the superseded campaign is still credited: {rows_out}"
         assert rows_out.get("dup_superseded") == _AttributionCounts(visitors=1, conversions=1), rows_out
 
+        paths_runner = MarketingAnalyticsAttributionPathsQueryRunner(
+            query=MarketingAnalyticsAttributionPathsQuery(
+                dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                breakdownBy=MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+                conversionGoalId=GOAL_ID,
+                properties=[],
+            ),
+            team=self.team,
+        )
+        paths_runner.config.sessions_precomputation_enabled = True
+        paths = paths_runner.calculate()
+        assert paths_runner._sessions_precompute_used
+        assert [(row.path, row.conversions) for row in paths.results] == [(["dup_superseded"], 1)]
+
     # Both paths hold their own reference to the ceiling, so both have to be lowered for the fixture
     # to stay small enough to read.
     @parameterized.expand([("repeat", True), ("first_only", False)])
@@ -358,7 +374,10 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
         assert not pre_used, "the precompute answered a query whose filter it cannot honor"
         assert pre == live, f"precomputed={pre} live={live}"
 
-    def test_an_exclusion_judges_the_current_version_of_a_session(self) -> None:
+    @parameterized.expand([("direct", True, False), ("unattributed", False, True)])
+    def test_an_exclusion_judges_the_current_version_of_a_session(
+        self, _name: str, exclude_direct: bool, exclude_unattributed: bool
+    ) -> None:
         # A session's rows can disagree: the stored start moves when a backdated event arrives, and the
         # re-materialized row can carry different dimensions. Filtering the raw rows drops the current
         # version and leaves the superseded one standing, so a session that is Direct today would keep
@@ -404,9 +423,14 @@ class TestAttributionSessionsPrecomputeParity(ClickhouseTestMixin, BaseTest):
             },
         )
 
-        rows, used = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, precomputed=True, exclude_direct=True)
+        rows, used = self._run(
+            MarketingAnalyticsAttributionBreakdown.CAMPAIGN,
+            precomputed=True,
+            exclude_direct=exclude_direct,
+            exclude_unattributed=exclude_unattributed,
+        )
         assert used, "the precomputed path was not used, so this proves nothing"
-        assert "was_a_campaign" not in rows, f"the superseded campaign survived the exclusion: {rows}"
+        assert rows == {}, f"an excluded session survived: {rows}"
 
     @parameterized.expand(
         [

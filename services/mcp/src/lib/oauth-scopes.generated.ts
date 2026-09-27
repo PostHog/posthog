@@ -148,6 +148,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'metrics:write',
     'notebook:read',
     'notebook:write',
+    'offline_evaluation_ingestion:read',
+    'offline_evaluation_ingestion:write',
     'organization:read',
     'organization:write',
     'organization_integration:read',
@@ -239,6 +241,8 @@ export const OAUTH_SCOPES_HIDDEN = [
     'batch_import_support:write',
     'query_performance:read',
     'query_performance:write',
+    'wizard_run:read',
+    'wizard_run:write',
     'wizard_session:read',
     'wizard_session:write',
 ] as const

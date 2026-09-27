@@ -56,7 +56,7 @@ interface ProjectTreeBaseProps {
     showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
-    shortcutScope?: 'apps' | 'files'
+    shortcutScope?: 'products' | 'files'
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
@@ -139,7 +139,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
     } = props
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap, currentHomeFolder } = useValues(projectTreeDataLogic)
-    const { reorderShortcutByDrag } = useActions(projectTreeDataLogic)
+    const { reorderShortcutByDrag, setStarredNavigationRef } = useActions(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root, shortcutScope, isActiveInPanel }
     const {
         fullFileSystemFiltered,
@@ -286,9 +286,15 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
                 onItemClicked?.(item)
 
                 if (item?.record?.href) {
-                    router.actions.push(
+                    const href =
                         typeof item.record.href === 'function' ? item.record.href(item.record.ref) : item.record.href
+                    setStarredNavigationRef(
+                        root === 'shortcuts://' && shortcutScope === 'files' && item.record.type && item.record.ref
+                            ? { type: item.record.type, ref: item.record.ref }
+                            : null,
+                        href
                     )
+                    router.actions.push(href)
                 }
 
                 if (item?.record?.path) {

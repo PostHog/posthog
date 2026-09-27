@@ -201,6 +201,7 @@
         "@vapi-ai/web": "2.5.2",
         "@vitejs/plugin-react": "catalog:",
         "@xterm/addon-fit": "0.10.0",
+        "@xterm/addon-webgl": "0.18.0",
         "@xterm/xterm": "5.5.0",
         "@xyflow/react": "^12.6.0",
         "bloommx": "^1.0.3",

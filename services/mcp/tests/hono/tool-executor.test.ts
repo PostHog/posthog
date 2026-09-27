@@ -17,6 +17,7 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
+import { MCPClientProfile } from '@/lib/client-detection'
 import { PostHogApiError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
@@ -268,7 +269,7 @@ describe('ToolExecutor', () => {
                 expectSkills: true,
             },
             {
-                label: 'Claude Code with flag off',
+                label: 'directly connected Claude Code with flag off',
                 isClaudeChatHost: false,
                 skillsEnabled: false,
                 consumer: undefined,
@@ -276,7 +277,7 @@ describe('ToolExecutor', () => {
                 expectSkills: false,
             },
             {
-                label: 'Claude Code with flag on',
+                label: 'directly connected Claude Code with flag on',
                 isClaudeChatHost: false,
                 skillsEnabled: true,
                 consumer: undefined,
@@ -321,6 +322,7 @@ describe('ToolExecutor', () => {
                         isClaudeUiHost: vi.fn(() => isClaudeChatHost),
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
+                        isAnthropicConnector: vi.fn(() => isClaudeChatHost),
                     } as any,
                     ...(consumer
                         ? {
@@ -372,6 +374,71 @@ describe('ToolExecutor', () => {
                         reason: 'Skill discovery is not enabled for this connection.',
                     })
                 }
+            }
+        )
+
+        it.each([
+            { vendorClient: 'ClaudeCode', skillsEnabled: false },
+            { vendorClient: 'ClaudeCode', skillsEnabled: true },
+            { vendorClient: 'Cowork', skillsEnabled: false },
+            { vendorClient: 'Cowork', skillsEnabled: true },
+        ])(
+            'serves the advertised guides when the call names $vendorClient (skills flag: $skillsEnabled)',
+            async ({ vendorClient, skillsEnabled }) => {
+                const tools = catalog
+                    .getPreBuiltEntries()
+                    .slice(0, 5)
+                    .map(({ name }) => ({ name }))
+                const connectorState = (profile: MCPClientProfile): ResolvedState =>
+                    makeToolExecutorState(tools, {
+                        useSingleExec: true,
+                        toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                        clientProfile: profile,
+                    })
+                const listState = connectorState(
+                    new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', userAgent: 'Claude-User' })
+                )
+                const callState = connectorState(
+                    new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient, userAgent: 'Claude-User' })
+                )
+
+                const listed = await executor.handleToolsList(listState)
+                const commandDescription = (listed.tools[0]!.inputSchema.properties as any).command
+                    .description as string
+                expect(commandDescription).toContain('- analytics:')
+
+                const result = (await executor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'learn analytics' } },
+                    callState
+                )) as { content: { text: string }[]; isError?: boolean }
+                expect(result.isError).toBeFalsy()
+                expect(result.content[0]!.text).toContain('### Retrieving data')
+            }
+        )
+
+        it.each([{ skillsEnabled: false }, { skillsEnabled: true }])(
+            'keeps guides off a directly connected Claude Code CLI (skills flag: $skillsEnabled)',
+            async ({ skillsEnabled }) => {
+                const state = makeToolExecutorState(
+                    catalog
+                        .getPreBuiltEntries()
+                        .slice(0, 5)
+                        .map(({ name }) => ({ name })),
+                    {
+                        useSingleExec: true,
+                        toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                        clientProfile: new MCPClientProfile({ clientName: 'claude-code', vendorClient: 'ClaudeCode' }),
+                    }
+                )
+
+                const result = (await executor.handleToolCall(
+                    { name: 'exec', arguments: { command: 'learn analytics' } },
+                    state
+                )) as { content: { text: string }[]; isError?: boolean }
+                expect(result.isError).toBe(true)
+                expect(result.content[0]!.text).toContain(
+                    skillsEnabled ? 'Unknown learning topic' : 'learn command is not available'
+                )
             }
         )
 
@@ -491,6 +558,7 @@ describe('ToolExecutor', () => {
                             isClaudeUiHost: vi.fn(() => false),
                             isInlineExecUiHost: vi.fn(() => false),
                             isClaudeChatHost: vi.fn(() => isClaudeChatHost),
+                            isAnthropicConnector: vi.fn(() => isClaudeChatHost),
                         } as any,
                     })
 
@@ -526,6 +594,7 @@ describe('ToolExecutor', () => {
                         isClaudeUiHost: vi.fn(() => false),
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
+                        isAnthropicConnector: vi.fn(() => true),
                     } as any,
                 }
             )
