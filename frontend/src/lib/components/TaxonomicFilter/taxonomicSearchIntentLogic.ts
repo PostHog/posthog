@@ -215,16 +215,11 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
             }
             // Only the All tab reads the promoted group order, so a promotion from another tab changes nothing.
             const canPromote =
-                intent.method === 'model' &&
                 intent.is_confident &&
                 !!intent.group_type &&
                 intent.activeTab === TaxonomicFilterGroupType.SuggestedFilters
             // Promote only while the results still show skeletons, so no row moves under the cursor.
-            const promoted =
-                values.variant === 'promote' &&
-                canPromote &&
-                !values.revealBarrierOpen &&
-                values.activeTab === intent.activeTab
+            const promoted = canPromote && !values.revealBarrierOpen && values.activeTab === intent.activeTab
             if (promoted) {
                 actions.setIntentPromotedGroupType(intent.group_type as TaxonomicFilterGroupType)
             }
@@ -240,7 +235,7 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                 promptVersion: intent.prompt_version,
                 suggestsSwitch: intent.suggests_switch,
                 wouldPromote: canPromote,
-                shown: values.variant === 'banner' ? !!values.suggestedSwitch : promoted,
+                shown: promoted || (values.variant === 'banner' && !!values.suggestedSwitch),
                 query: intent.model_query ?? undefined,
             })
         },
