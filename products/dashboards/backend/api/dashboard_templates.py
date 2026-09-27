@@ -233,7 +233,10 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: DashboardTemplate) -> dict[str, Any]:
         representation = super().to_representation(instance)
-        if instance.scope != DashboardTemplate.Scope.ONLY_TEAM:
+        get_team = self.context.get("get_team")
+        team = get_team() if callable(get_team) else instance.team
+        ai_data_processing_approved = bool(team and team.organization.is_ai_data_processing_approved)
+        if instance.scope != DashboardTemplate.Scope.ONLY_TEAM or not ai_data_processing_approved:
             representation["tiles"] = _tiles_without_agent_context(representation.get("tiles"))
         return representation
 

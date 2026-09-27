@@ -8,6 +8,7 @@ import { textCardConverter } from 'lib/components/Cards/TextCard/textCardMarkdow
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
@@ -59,8 +60,9 @@ function DashboardTextItemInternal(
     const tileType = image ? 'image' : 'text'
     const textItemLogic = dashboardTextItemLogic({ tileId: tile.id })
     const { showAgentContext } = useValues(textItemLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { toggleAgentContext } = useActions(textItemLogic)
-    const canShowAgentContext = !image && !!tile.text?.agent_context?.trim()
+    const canShowAgentContext = dataProcessingAccepted && !image && !!tile.text?.agent_context?.trim()
     const moreButtonOverlay = (
         <>
             <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
@@ -121,7 +123,7 @@ function DashboardTextItemInternal(
             textTile={tile}
             placement={placement}
             moreButtonOverlay={moreButtonOverlay}
-            showAgentContext={showAgentContext}
+            showAgentContext={dataProcessingAccepted && showAgentContext}
             {...textCardProps}
         />
     )

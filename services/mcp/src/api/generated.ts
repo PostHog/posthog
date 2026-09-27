@@ -9608,7 +9608,7 @@ export namespace Schemas {
          */
       body?: string | null;
       /**
-         * Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. This field is omitted from shared and exported dashboards.
+         * Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
          * @maxLength 10000
          * @nullable
          */
@@ -23280,7 +23280,7 @@ export namespace Schemas {
          */
       body: string;
       /**
-         * Optional context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. This is returned by dashboard-get but is not shown on shared or exported dashboards. Max 10000 characters.
+         * Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
          * @maxLength 10000
          * @nullable
          */
@@ -99324,7 +99324,7 @@ export namespace Schemas {
          */
       body?: string;
       /**
-         * New context for AI agents. Use an empty string or null to clear it. Omit to leave it unchanged. Max 10000 characters.
+         * Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.
          * @maxLength 10000
          * @nullable
          */

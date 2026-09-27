@@ -4456,6 +4456,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["text"]["body"], "Just a divider")
 
+    def test_agent_context_is_omitted_without_ai_data_processing_approval(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/create_text_tile/",
+            {"body": "Dashboard summary", "agent_context": "Private agent context"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertNotIn("agent_context", response.json()["text"])
+
+        dashboard_response = self.client.get(f"/api/environments/{self.team.pk}/dashboards/{dashboard.pk}/")
+        self.assertEqual(dashboard_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("agent_context", dashboard_response.json()["tiles"][0]["text"])
+
     @parameterized.expand(
         [
             ("empty", ""),

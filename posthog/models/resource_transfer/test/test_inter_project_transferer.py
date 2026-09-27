@@ -267,6 +267,23 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         assert new_tiles[0].insight == new_insights[0]
         assert new_insights[0].team == dest_team
 
+    def test_duplicates_dashboard_with_text_tile_agent_context(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        text = Text.objects.create(
+            team=self.team,
+            body="Dashboard summary",
+            agent_context="Use the semantic layer activation metric.",
+        )
+        DashboardTile.objects.create(dashboard=dashboard, text=text)
+
+        results = duplicate_resource_to_new_team(dashboard, dest_team, created_by=self.user)
+
+        copied_text = next(result for result in results if isinstance(result, Text))
+        assert copied_text.team == dest_team
+        assert copied_text.body == text.body
+        assert copied_text.agent_context == text.agent_context
+
     def test_duplicates_dashboard_with_multiple_insight_tiles(self) -> None:
         dest_team = self._create_destination_team()
         dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")

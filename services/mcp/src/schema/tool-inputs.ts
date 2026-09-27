@@ -56,7 +56,7 @@ export const DashboardTileCreateSchema = z.object({
         .nullable()
         .optional()
         .describe(
-            'Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer and user-facing explanations in body.'
+            'Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. An empty string or null means there is no agent context. Shared and exported dashboards, and organizations without AI data processing approval, omit this field. Max 10000 characters.'
         ),
     layouts: z
         .object({

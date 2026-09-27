@@ -1337,6 +1337,25 @@ class TestCustomerDashboardTemplateAuthoring(APIBaseTest):
         assert demote.status_code == status.HTTP_200_OK, demote
         assert demote.json()["scope"] == "team"
 
+    def test_team_template_omits_agent_context_without_ai_data_processing_approval(self) -> None:
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        template = DashboardTemplate.objects.create(
+            team_id=self.team.pk,
+            scope=DashboardTemplate.Scope.ONLY_TEAM,
+            template_name="Private team template",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=[{"type": "TEXT", "body": "Dashboard summary", "agent_context": "Private notes"}],
+            variables=[],
+            tags=[],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{template.id}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "agent_context" not in response.json()["tiles"][0]
+
     def test_non_staff_cannot_modify_org_template_owned_by_sibling_team(self) -> None:
         sibling_team = Team.objects.create(organization=self.organization, name="Sibling owns org template")
         org_template = DashboardTemplate.objects.create(

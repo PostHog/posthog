@@ -186,6 +186,13 @@ from products.product_analytics.backend.presentation.insight import (
 
 from ee.hogai.utils.aio import async_to_sync
 
+AGENT_CONTEXT_HELP_TEXT = (
+    "Optional context for AI agents, such as semantic layer metric references, data sources, tile-specific query "
+    "assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. "
+    "An empty string or null means there is no agent context. Shared and exported dashboards, and organizations "
+    "without AI data processing approval, omit this field. Max 10000 characters."
+)
+
 
 def _normalize_dashboard_customization(customization: Any) -> dict[str, Any]:
     return customization.copy() if isinstance(customization, dict) else {}
@@ -646,11 +653,7 @@ class CreateTextTileRequestSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text=(
-            "Optional context for AI agents, such as semantic-layer metric references, data sources, tile-specific "
-            "query assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. "
-            "This is returned by dashboard-get but is not shown on shared or exported dashboards. Max 10000 characters."
-        ),
+        help_text=AGENT_CONTEXT_HELP_TEXT,
         error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
     )
     layouts = TileLayoutsSerializer(
@@ -692,10 +695,7 @@ class UpdateTextTileRequestSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text=(
-            "New context for AI agents. Use an empty string or null to clear it. Omit to leave it unchanged. "
-            "Max 10000 characters."
-        ),
+        help_text=AGENT_CONTEXT_HELP_TEXT,
         error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
     )
     layouts = TileLayoutsSerializer(
@@ -897,11 +897,7 @@ class TextSerializer(serializers.ModelSerializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text=(
-            "Context for AI agents, such as semantic-layer metric references, data sources, tile-specific query "
-            "assumptions, caveats, or editing guidance. Keep canonical metric definitions in the semantic layer. "
-            "This field is omitted from shared and exported dashboards."
-        ),
+        help_text=AGENT_CONTEXT_HELP_TEXT,
         error_messages={"max_length": "Agent context cannot exceed 10000 characters"},
     )
     dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
@@ -915,6 +911,11 @@ class TextSerializer(serializers.ModelSerializer):
         representation = super().to_representation(instance)
         if self.context.get("is_shared"):
             representation.pop("agent_context", None)
+        else:
+            get_team = self.context.get("get_team")
+            team = get_team() if callable(get_team) else instance.team
+            if not team.organization.is_ai_data_processing_approved:
+                representation.pop("agent_context", None)
         _hide_extra_details(self.context, representation)
         return representation
 

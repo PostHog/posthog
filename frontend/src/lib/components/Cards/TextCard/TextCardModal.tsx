@@ -11,6 +11,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { DashboardTileIdOrNew, DashboardType } from '~/types'
 
@@ -30,6 +31,7 @@ export function TextCardModal({
     const modalLogic = textCardModalLogic(modalLogicProps)
     // Form `body` + validation drive updates while typing; splitting useValues does not reduce rerenders.
     const { isTextTileSubmitting, textTileValidationErrors, textTileChanged } = useValues(modalLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { resetTextTile } = useActions(modalLogic)
     const initialBody = textTileId !== null ? dashboard.tiles?.find((tile) => tile.id === textTileId)?.text?.body : ''
     const shouldUseLegacyMarkdownEditor = !textCardConverter.isRoundTripSafe(initialBody || '')
@@ -79,24 +81,26 @@ export function TextCardModal({
                                     />
                                 )}
                             </Field>
-                            <Field name="agent_context" label="Agent context">
-                                {({ value, onChange }) => (
-                                    <div className="flex flex-col gap-2">
-                                        <p className="m-0 text-secondary">
-                                            Reference semantic layer metrics. Add data sources, caveats, or editing
-                                            guidance for AI agents.
-                                        </p>
-                                        <LemonTextArea
-                                            value={value}
-                                            onChange={onChange}
-                                            maxLength={10000}
-                                            minRows={6}
-                                            maxRows={36}
-                                            data-attr="text-card-agent-context-edit-area"
-                                        />
-                                    </div>
-                                )}
-                            </Field>
+                            {dataProcessingAccepted && (
+                                <Field name="agent_context" label="Agent context">
+                                    {({ value, onChange }) => (
+                                        <div className="flex flex-col gap-2">
+                                            <p className="m-0 text-secondary">
+                                                Reference semantic layer metrics. Add data sources, caveats, or editing
+                                                guidance for AI agents.
+                                            </p>
+                                            <LemonTextArea
+                                                value={value}
+                                                onChange={onChange}
+                                                maxLength={10000}
+                                                minRows={6}
+                                                maxRows={36}
+                                                data-attr="text-card-agent-context-edit-area"
+                                            />
+                                        </div>
+                                    )}
+                                </Field>
+                            )}
                             <Field name="transparent_background" label="">
                                 {({ value, onChange }) => (
                                     <LemonSwitch

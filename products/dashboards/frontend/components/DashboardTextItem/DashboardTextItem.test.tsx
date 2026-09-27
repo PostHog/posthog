@@ -1,9 +1,12 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
 import { DashboardPlacement, DashboardTile } from '~/types'
@@ -25,7 +28,10 @@ const tile = {
 
 describe('DashboardTextItem', () => {
     beforeEach(() => {
-        initKeaTests()
+        initKeaTests(true, undefined, undefined, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: true,
+        })
         dashboardWidgetMenusLogic({
             instanceKey: 'text-10',
             dashboardId: 99,
@@ -64,5 +70,28 @@ describe('DashboardTextItem', () => {
 
         expect(screen.getByText('Semantic layer metric: activation_rate')).toBeInTheDocument()
         expect(screen.queryByText('Human-readable summary')).not.toBeInTheDocument()
+    })
+
+    it('hides agent context from the tile menu without AI data processing approval', async () => {
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+        })
+
+        render(
+            <DashboardTextItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                onEdit={jest.fn()}
+                onDuplicate={jest.fn()}
+                showEditingControls
+            />
+        )
+
+        await userEvent.click(screen.getByLabelText('more'))
+
+        expect(screen.queryByText('Agent context')).not.toBeInTheDocument()
+        expect(screen.getByText('Human-readable summary')).toBeInTheDocument()
     })
 })

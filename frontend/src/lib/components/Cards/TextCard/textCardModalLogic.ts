@@ -30,6 +30,15 @@ export interface TextCardModalProps {
 const MAX_TEXT_CARD_BODY_LENGTH = 4000
 const MAX_AGENT_CONTEXT_LENGTH = 10000
 
+function firstValidationError(value: unknown): string | null {
+    const firstValue = Array.isArray(value) ? value[0] : value
+    return typeof firstValue === 'string' ? firstValue : null
+}
+
+function fieldValidationError(errors: Record<string, any>, field: string): string | null {
+    return firstValidationError(errors[field]) || firstValidationError(errors.text?.[field])
+}
+
 const getExistingTextTile = (dashboard: DashboardType, textTileId: number): TextTileForm => {
     const tile = dashboard.tiles?.find((tt) => tt.id === textTileId)
     return {
@@ -129,21 +138,9 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                         : null) ||
                     'Unknown error'
                 const formBodyError = values.textTileValidationErrors.body as string | null
-                const apiBodyError =
-                    (Array.isArray(normalizedErrors?.body) ? normalizedErrors.body[0] : normalizedErrors?.body) ||
-                    (Array.isArray(normalizedErrors?.text?.body)
-                        ? normalizedErrors.text.body[0]
-                        : normalizedErrors?.text?.body) ||
-                    null
+                const apiBodyError = fieldValidationError(normalizedErrors, 'body')
                 const formAgentContextError = values.textTileValidationErrors.agent_context as string | null
-                const apiAgentContextError =
-                    (Array.isArray(normalizedErrors?.agent_context)
-                        ? normalizedErrors.agent_context[0]
-                        : normalizedErrors?.agent_context) ||
-                    (Array.isArray(normalizedErrors?.text?.agent_context)
-                        ? normalizedErrors.text.agent_context[0]
-                        : normalizedErrors?.text?.agent_context) ||
-                    null
+                const apiAgentContextError = fieldValidationError(normalizedErrors, 'agent_context')
 
                 // Expected validation errors are shown inline on the form.
                 if (formBodyError || apiBodyError || formAgentContextError || apiAgentContextError) {
