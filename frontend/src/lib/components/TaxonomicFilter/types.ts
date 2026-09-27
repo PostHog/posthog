@@ -139,6 +139,7 @@ export interface TaxonomicFilterProps {
     popoverEnabled?: boolean
     selectFirstItem?: boolean
     autoSelectItem?: boolean
+    promoteSelectedItemToFirstPosition?: boolean
     /** use to filter results in a group by name, currently only working for EventProperties */
     excludedProperties?: ExcludedProperties
     /**

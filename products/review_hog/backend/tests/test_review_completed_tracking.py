@@ -311,7 +311,7 @@ class TestTrackReviewCompleted(BaseTest):
             assert props["signal_priority"] == "P3"
             assert props["signal_report_id"] == signal_report_id
             assert props["trigger_source"] == "inbox"
-            assert props["review_model"] == "gpt-5.6-sol"
+            assert props["review_model"] == "gpt-6-sol"
             assert props["review_reasoning_effort"] == "low"
             assert props["review_arm_fallback"] is False
             # The validator and resolver are fixed pins, but the event is where a cost dashboard

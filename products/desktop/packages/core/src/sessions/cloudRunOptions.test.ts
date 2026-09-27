@@ -1,6 +1,7 @@
 import type { AgentSession } from "@posthog/shared";
 import type { TaskRun } from "@posthog/shared/domain-types";
 import { describe, expect, it } from "vitest";
+import { cloudAccessFor, cloudModelAccessFromState } from "./cloudModelAccess";
 import {
   getCloudPrAuthorshipMode,
   getCloudRunSource,
@@ -9,6 +10,34 @@ import {
 } from "./cloudRunOptions";
 
 describe("getCloudPrAuthorshipMode", () => {
+  it.each([
+    [{}, "posthog-gateway", "posthog-gateway"],
+    [
+      { claude_model_access: "own-subscription" },
+      "own-subscription",
+      "posthog-gateway",
+    ],
+    [
+      { runtime_adapter: "codex", codex_model_access: "own-subscription" },
+      "posthog-gateway",
+      "own-subscription",
+    ],
+  ])("decodes legacy model access %s", (state, claude, codex) => {
+    const access = cloudModelAccessFromState(state);
+    expect(cloudAccessFor(access, "claude")).toBe(claude);
+    expect(cloudAccessFor(access, "codex")).toBe(codex);
+  });
+
+  it.each([
+    {
+      claude_model_access: "own-subscription",
+      codex_model_access: "own-subscription",
+    },
+    { runtime_adapter: "claude", codex_model_access: "own-subscription" },
+  ])("rejects incompatible model access %s", (state) => {
+    expect(() => cloudModelAccessFromState(state)).toThrow();
+  });
+
   it("honors an explicit user/bot mode", () => {
     expect(getCloudPrAuthorshipMode({ pr_authorship_mode: "bot" })).toBe("bot");
     expect(getCloudPrAuthorshipMode({ pr_authorship_mode: "user" })).toBe(
@@ -47,6 +76,43 @@ describe("getCloudRunSource", () => {
 describe("getCloudRuntimeOptions", () => {
   const session = (overrides: Partial<AgentSession>): AgentSession =>
     ({ configOptions: [], ...overrides }) as unknown as AgentSession;
+
+  it.each([
+    [true, "completed", "codex"],
+    [true, "in_progress", "claude"],
+    [false, undefined, "claude"],
+  ] as const)(
+    "selects the next runtime only for a completed cloud run (%s, %s)",
+    (isCloud, cloudStatus, adapter) => {
+      const result = getCloudRuntimeOptions(
+        session({
+          isCloud,
+          cloudStatus,
+          adapter: "claude",
+          configOptions: [
+            {
+              id: "model",
+              name: "Model",
+              type: "select",
+              category: "model",
+              currentValue: "gpt-5.6-sol",
+              options: [{ value: "gpt-5.6-sol", name: "GPT-5.6 Sol" }],
+            },
+          ],
+        }),
+        {
+          runtime_adapter: "claude",
+          reasoning_effort: "max",
+          state: { initial_permission_mode: "acceptEdits" },
+        } as unknown as TaskRun,
+      );
+      expect(result.adapter).toBe(adapter);
+      if (adapter === "codex") {
+        expect(result.reasoningLevel).toBeUndefined();
+        expect(result.initialPermissionMode).toBeUndefined();
+      }
+    },
+  );
 
   it("prefers the session config option, then the previous run", () => {
     const result = getCloudRuntimeOptions(

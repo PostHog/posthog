@@ -196,7 +196,7 @@ When a run lands on the Python gateway unexpectedly, check those two variables f
 Their absence means no token was minted, so the agent falls back to deriving the
 product from the task run it fetches at boot, which is the path that fails quietly.
 
-ReviewHog Flash uses `gpt-5.6-luna` for review, blind-spot checks, and validation.
+ReviewHog Flash uses `gpt-6-luna` for review, blind-spot checks, and validation.
 The **ReviewHog Flash - Experimental** subsection under **What gets reviewed** on the Code review page groups the automatic Flash review toggle and **Flash strength** setting.
 These settings apply only to Flash reviews.
 **Flash strength** selects **Medium** (`medium`, the default) or **Extra high** (`xhigh`) for all of your Flash reviews, including automatic, UI, and CLI requests.
@@ -207,7 +207,7 @@ Both review modes instruct the agent to fetch pinned review and validation skill
 The agent can fetch referenced bundled files with `skill-file-get`.
 Choose **Review in Flash mode** from the Code review page's review menu to run it for one turn without changing the PR's full-review configuration.
 Flash requests preserve an existing report's review tier, including when they join a running review.
-Flash labels its GitHub messages with `FLASH MODE` and never starts comment resolution.
+Flash labels its GitHub messages with `FLASH MODE - Faster, but stupid, use regular ReviewHog for a heavy review` and never starts comment resolution.
 
 **Review all your PRs in Flash mode** is off by default.
 Turn it on in Code review to review PRs you author in `PostHog/posthog` when they open or receive new commits, including drafts.

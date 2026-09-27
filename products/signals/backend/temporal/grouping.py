@@ -38,7 +38,8 @@ from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import fixed_dismissal_at, latest_recurrence_report
+from products.signals.backend.recurrence import fixed_dismissal_at
+from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -509,7 +510,7 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
         if isinstance(result, ExistingReportMatch) and input.team_id is not None:
             report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
             if report is not None and report.status != SignalReport.Status.DELETED:
-                current = await database_sync_to_async(latest_recurrence_report, thread_sensitive=False)(report)
+                current = await database_sync_to_async(signal_target_report, thread_sensitive=False)(report)
                 if current.id != report.id:
                     result.report_id = str(current.id)
                     unsafe = await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(
@@ -769,7 +770,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # does, so this signal contradicts it and must not be absorbed. The other dismissal
                 # codes state a preference about the report, and a sink is the right answer for
                 # them (see recurrence.py).
-                report = latest_recurrence_report(report, lock=True)
+                report = signal_target_report(report, lock=True)
                 dismissed_as_fixed_at = (
                     fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
                 )

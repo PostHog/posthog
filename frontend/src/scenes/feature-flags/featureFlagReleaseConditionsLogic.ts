@@ -390,7 +390,9 @@ export type featureFlagReleaseConditionsLogicType = MakeLogicType<
 export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagReleaseConditionsLogic']),
     props({} as FeatureFlagReleaseConditionsLogicProps),
-    key(({ id }) => id ?? 'unknown'),
+    // The readonly overview and the edit form render the same flag at the same time. They must not
+    // share one filters reducer, or the overview keeps showing the state the form was seeded with.
+    key(({ id, readOnly }) => `${id ?? 'unknown'}${readOnly ? '-readonly' : ''}`),
     connect(() => ({
         values: [projectLogic, ['currentProjectId'], groupsModel, ['groupTypes', 'aggregationLabel']],
     })),
@@ -855,6 +857,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setTotalCount(sortKey, undefined)
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use featureFlagsUserBlastRadiusCreate() from 'products/feature_flags/frontend/generated/api' instead.
                 const response: UserBlastRadiusType = await api.create(
                     `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                     {

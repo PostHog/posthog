@@ -7,105 +7,6 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-export interface DashboardSavedViewFiltersApi {
-    /** @maxLength 200 */
-    search?: string
-    createdBy?: number[] | 'All users'
-    pinned?: boolean
-    shared?: boolean
-    /**
-     * @maxItems 50
-     * @items.maxLength 100
-     */
-    tags?: string[]
-    /**
-     * @maxLength 4000
-     * @nullable
-     */
-    folder?: string | null
-}
-
-/**
- * * `private` - Private
- * * `team` - Team
- */
-export type DashboardSavedViewScopeEnumApi =
-    (typeof DashboardSavedViewScopeEnumApi)[keyof typeof DashboardSavedViewScopeEnumApi]
-
-export const DashboardSavedViewScopeEnumApi = {
-    Private: 'private',
-    Team: 'team',
-} as const
-
-export interface DashboardSavedViewApi {
-    readonly id: string
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name: string
-    /** Dashboard list filters stored by this view. */
-    filters: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-    readonly created_at: string
-    /** @nullable */
-    readonly updated_at: string | null
-    /** @nullable */
-    readonly created_by: number | null
-    /** Whether the current user can change this view's visibility. */
-    readonly can_change_scope: boolean
-}
-
-export interface PaginatedDashboardSavedViewListApi {
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: DashboardSavedViewApi[]
-}
-
-export interface DashboardSavedViewWriteApi {
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name: string
-    /** Dashboard list filters stored by this view. */
-    filters: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-}
-
-export interface PatchedDashboardSavedViewApi {
-    readonly id?: string
-    /**
-     * Name shown in the dashboard list view picker.
-     * @maxLength 200
-     */
-    name?: string
-    /** Dashboard list filters stored by this view. */
-    filters?: DashboardSavedViewFiltersApi
-    /** Whether only the creator or all team members can use this view.
-     *
-     * * `private` - Private
-     * * `team` - Team */
-    scope?: DashboardSavedViewScopeEnumApi
-    readonly created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    /** @nullable */
-    readonly created_by?: number | null
-    /** Whether the current user can change this view's visibility. */
-    readonly can_change_scope?: boolean
-}
-
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -679,6 +580,7 @@ export interface _DashboardPatchTileLayoutsOpenApiApi {
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
  * * `logs_list` - logs_list
+ * * `notebook_widget` - notebook_widget
  * * `session_replay_list` - session_replay_list
  * * `survey_results` - survey_results
  */
@@ -692,9 +594,17 @@ export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
     LogsList: 'logs_list',
+    NotebookWidget: 'notebook_widget',
     SessionReplayList: 'session_replay_list',
     SurveyResults: 'survey_results',
 } as const
+
+export interface NotebookWidgetConfigApi {
+    /** Source notebook short ID. */
+    notebookShortId?: string | null
+    /** Immutable notebook widget snapshot. Add one from a notebook widget's menu. */
+    snapshotId?: string | null
+}
 
 export type WidgetDateRangeApiDateFrom =
     | (typeof WidgetDateRangeApiDateFrom)[keyof typeof WidgetDateRangeApiDateFrom]
@@ -1127,6 +1037,7 @@ export interface ConversationsRecentTicketsWidgetConfigApi {
 }
 
 export type DashboardWidgetConfigApi =
+    | NotebookWidgetConfigApi
     | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
     | SessionReplayListWidgetConfigApi
@@ -1147,6 +1058,7 @@ export interface DashboardPatchWidgetOpenApiApi {
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
      * * `logs_list` - logs_list
+     * * `notebook_widget` - notebook_widget
      * * `session_replay_list` - session_replay_list
      * * `survey_results` - survey_results */
     widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
@@ -4861,6 +4773,23 @@ export interface HogQLNoticeApi {
     start?: number | null
 }
 
+export type PredicateFixActionApi = (typeof PredicateFixActionApi)[keyof typeof PredicateFixActionApi]
+
+export const PredicateFixActionApi = {
+    EditQuery: 'edit_query',
+    EditPropertyType: 'edit_property_type',
+    Materialize: 'materialize',
+} as const
+
+export interface PredicateQuickfixApi {
+    /** Character offset in the query where the replaced range ends. */
+    end: number
+    /** Character offset in the query where the replaced range starts. */
+    start: number
+    /** Replacement text, substituted for the range verbatim. */
+    text: string
+}
+
 export type PredicateScopeApi = (typeof PredicateScopeApi)[keyof typeof PredicateScopeApi]
 
 export const PredicateScopeApi = {
@@ -4881,15 +4810,21 @@ export const PredicateIndexVerdictApi = {
 } as const
 
 export interface PredicateIndexUsageApi {
+    /** Instruction for an AI rewrite of the query, set when a query edit would help. */
+    ai_fix_prompt?: string | null
     column_name?: string | null
     end?: number | null
+    /** Prose advice for a reader. */
     fix?: string | null
+    fix_action?: PredicateFixActionApi | null
     message: string
     /** HogQL comparison operator, e.g. `==`, `in`, `ilike`. */
     operator: string
     /** Type the value is physically stored as. */
     physical_type: string
     property_name: string
+    /** A deterministic query edit that unblocks the index. */
+    quickfix?: PredicateQuickfixApi | null
     scope: PredicateScopeApi
     /** Type the property definition declares. */
     semantic_type: string
@@ -5213,6 +5148,8 @@ export interface MarketingAnalyticsItemApi {
 
 export interface Response12Api {
     columns?: unknown[] | null
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
@@ -5222,6 +5159,8 @@ export interface Response12Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -5242,12 +5181,16 @@ export interface Response12Api {
 export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface Response13Api {
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7882,6 +7825,8 @@ export const MarketingAnalyticsOrderByEnumApi = {
 
 export interface MarketingAnalyticsTableQueryResponseApi {
     columns?: unknown[] | null
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore?: boolean | null
@@ -7891,6 +7836,8 @@ export interface MarketingAnalyticsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7959,12 +7906,16 @@ export interface MarketingAnalyticsTableQueryApi {
 export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface MarketingAnalyticsAggregatedQueryResponseApi {
+    /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+    dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+    precomputeNotReady?: boolean | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
     /** The resolved previous/comparison period date range, when comparing against another period */
@@ -9727,6 +9678,31 @@ export interface _TileLayoutsOpenApiApi {
     xs?: _TileLayoutBoxOpenApiApi
 }
 
+export type NotebookWidgetAddRequestOpenApiApiWidgetType =
+    (typeof NotebookWidgetAddRequestOpenApiApiWidgetType)[keyof typeof NotebookWidgetAddRequestOpenApiApiWidgetType]
+
+export const NotebookWidgetAddRequestOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _TileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: NotebookWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the notebook widget widget. */
+    config: NotebookWidgetConfigApi
+}
+
 export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =
     (typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetAddRequestOpenApiApiWidgetType]
 
@@ -9928,6 +9904,7 @@ export interface ConversationsRecentTicketsWidgetAddRequestOpenApiApi {
 }
 
 export type AddDashboardWidgetRequestApi =
+    | NotebookWidgetAddRequestOpenApiApi
     | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
@@ -9942,7 +9919,7 @@ export type AddDashboardWidgetRequestApi =
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, conversations_recent_tickets, error_tracking_list, experiment_results, experiments_list, logs_list, notebook_widget, session_replay_list, survey_results. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -9952,6 +9929,29 @@ export interface AddDashboardWidgetsBatchRequestOpenApiApi {
 export interface AddDashboardWidgetsBatchResponseApi {
     /** Created dashboard widget tiles in request order. */
     tiles: DashboardTileApi[]
+}
+
+export type NotebookWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof NotebookWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof NotebookWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const NotebookWidgetUpdateRequestOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: NotebookWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the notebook widget widget. Omit to leave unchanged. */
+    config?: NotebookWidgetConfigApi
 }
 
 export type ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType =
@@ -10139,6 +10139,7 @@ export interface ConversationsRecentTicketsWidgetUpdateRequestOpenApiApi {
 }
 
 export type UpdateDashboardWidgetRequestApi =
+    | NotebookWidgetUpdateRequestOpenApiApi
     | ActivityEventsListWidgetUpdateRequestOpenApiApi
     | ErrorTrackingListWidgetUpdateRequestOpenApiApi
     | SessionReplayListWidgetUpdateRequestOpenApiApi
@@ -10211,6 +10212,27 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export type NotebookWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof NotebookWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof NotebookWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const NotebookWidgetCatalogEntryOpenApiApiWidgetType = {
+    NotebookWidget: 'notebook_widget',
+} as const
+
+export interface NotebookWidgetCatalogEntryOpenApiApi {
+    widget_type: NotebookWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: NotebookWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+    /** Whether tiles of this type self-update in real time after load. Live tiles show a fixed real-time window and cannot apply test-account filtering to the stream, so their config takes neither dateRange nor filterTestAccounts. */
+    live: boolean
 }
 
 export type ActivityEventsListWidgetCatalogEntryOpenApiApiWidgetType =
@@ -10382,6 +10404,7 @@ export interface ConversationsRecentTicketsWidgetCatalogEntryOpenApiApi {
 }
 
 export type WidgetCatalogEntryApi =
+    | NotebookWidgetCatalogEntryOpenApiApi
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
@@ -10426,6 +10449,15 @@ export interface PatchedDataColorThemeApi {
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
 }
+
+/**
+ * * `notebook_widget` - notebook_widget
+ */
+export type NotebookWidgetTypeEnumApi = (typeof NotebookWidgetTypeEnumApi)[keyof typeof NotebookWidgetTypeEnumApi]
+
+export const NotebookWidgetTypeEnumApi = {
+    NotebookWidget: 'notebook_widget',
+} as const
 
 /**
  * * `activity_events_list` - activity_events_list
@@ -10504,33 +10536,6 @@ export type ConversationsRecentTicketsWidgetTypeEnumApi =
 
 export const ConversationsRecentTicketsWidgetTypeEnumApi = {
     ConversationsRecentTickets: 'conversations_recent_tickets',
-} as const
-
-export type DashboardSavedViewsListParams = {
-    /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * Return saved views with this visibility scope.
-     *
-     * * `private` - Private
-     * * `team` - Team
-     * @minLength 1
-     */
-    scope?: DashboardSavedViewsListScope
-}
-
-export type DashboardSavedViewsListScope =
-    (typeof DashboardSavedViewsListScope)[keyof typeof DashboardSavedViewsListScope]
-
-export const DashboardSavedViewsListScope = {
-    Private: 'private',
-    Team: 'team',
 } as const
 
 export type DashboardTemplatesListParams = {

@@ -5,6 +5,7 @@ import {
   ContextMenuItem,
   ContextMenuSeparator,
   ContextMenuTrigger,
+  cn,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -20,6 +21,7 @@ import {
   BreadcrumbSegment,
   BreadcrumbSeparator,
 } from "@posthog/ui/primitives/Breadcrumb";
+import { LEADING_BUTTON_PULL } from "@posthog/ui/primitives/ChromeBar";
 import { toast } from "@posthog/ui/primitives/toast";
 import { track } from "@posthog/ui/shell/analytics";
 import { Flex } from "@radix-ui/themes";
@@ -111,7 +113,12 @@ export function ChannelBreadcrumb({
   );
 
   return (
-    <Flex align="center" justify="between" gap="2" className="w-full min-w-0">
+    <Flex
+      align="center"
+      justify="between"
+      gap="2"
+      className={cn("w-full min-w-0", LEADING_BUTTON_PULL)}
+    >
       {/* flex-1 so the inline editor can stretch across the row; the trailing
           slot still sits at the far end. */}
       <Flex align="center" gap="0.5" className="min-w-0 flex-1">

@@ -863,14 +863,30 @@ def _repository_resolves(
 
 
 def _github_retry_wait(state: RetryCallState) -> float:
-    """Sleep until GitHub's advertised rate-limit reset when it gave us one
-    (capped, plus a little jitter so the sources sharing one installation's
-    budget don't all wake at the same reset instant); otherwise fall back to
-    exponential backoff."""
+    """Sleep until the limit that shed this call frees, whichever limit it was.
+
+    Both twins get a timed wait, capped, plus a little jitter so the sources sharing one
+    installation's budget don't all wake at the same instant:
+
+    - ``GitHubRateLimitError`` is GitHub's own limit, and it advertises the reset.
+    - ``GitHubEgressBudgetExhausted`` is *our* limit, and the limiter knows the pace — the
+      same question :func:`_pace_before_request` asks before every request.
+
+    Only the fall-through is blind exponential backoff, which is capped at 30 seconds and so
+    cannot outlast either window. Leaving our own budget on that path meant a shed page
+    retried five times inside ~2 minutes, failed the activity, and let Temporal restart the
+    whole extraction — the shape behind a burst of ~9,700 shed-call errors in one hour.
+    """
     if state.outcome is not None and state.outcome.failed:
         exc = state.outcome.exception()
         if isinstance(exc, GitHubRateLimitError) and exc.retry_after is not None:
             return min(float(exc.retry_after), GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
+        if isinstance(exc, GitHubEgressBudgetExhausted) and exc.scope:
+            # Zero means the budget already refilled between the denial and now, so fall through
+            # rather than returning a no-wait retry that would just hammer the gate again.
+            pace = github_installation_pace_seconds(exc.scope, priority=Priority.BATCH)
+            if pace > 0:
+                return min(pace, GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
     return _github_backoff_wait(state)
 
 
@@ -1360,18 +1376,26 @@ def _has_only_graphql_access_errors(errors: Any) -> bool:
     )
 
 
+# GitHub's GraphQL API has been observed using both spellings for this condition: the documented
+# "RATE_LIMITED" and, for the primary rate limit specifically, "RATE_LIMIT" (with code
+# "graphql_rate_limit"). Match both so neither shape falls through to the generic retryable path,
+# whose plain backoff is capped at 30 seconds and cannot outlast the hourly window this resets on.
+_GRAPHQL_RATE_LIMIT_ERROR_TYPES = frozenset({"RATE_LIMITED", "RATE_LIMIT"})
+
+
 def _raise_if_graphql_rate_limited(response: requests.Response, body: dict[str, Any]) -> None:
     """Map GraphQL's own primary rate limit onto the error the REST path raises.
 
-    GraphQL reports that limit as a 200 whose `errors` carry type RATE_LIMITED. `raise_if_github_rate_limited`
-    cannot see that shape, because it only inspects 429 and 403 responses. Without this mapping the retry
-    falls back to the plain backoff, which is capped at 30 seconds and so cannot outlast the hourly window
-    the GraphQL limit resets on.
+    GraphQL reports that limit as a 200 whose `errors` carry a rate-limit type (see
+    `_GRAPHQL_RATE_LIMIT_ERROR_TYPES`). `raise_if_github_rate_limited` cannot see that shape, because
+    it only inspects 429 and 403 responses. Without this mapping the retry falls back to the plain
+    backoff, which is capped at 30 seconds and so cannot outlast the hourly window the GraphQL limit
+    resets on.
     """
     errors = body.get("errors")
     if not isinstance(errors, list):
         return
-    if not any(isinstance(error, dict) and error.get("type") == "RATE_LIMITED" for error in errors):
+    if not any(_graphql_error_type(error) in _GRAPHQL_RATE_LIMIT_ERROR_TYPES for error in errors):
         return
 
     try:

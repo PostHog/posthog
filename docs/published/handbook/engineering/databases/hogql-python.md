@@ -149,3 +149,6 @@ If you access `poe.properties.$browser`, we will actually access the field `pers
 In practice, you should avoid both and access `person.properties.$browser`, which will choose the right approach for you.
 
 Add new tables and fields as needed! Just make sure each table has a `team_id` column.
+
+Internal marketing queries can read cached session dimensions from `posthog.web_sessions_dimensional_preaggregated`.
+Rows include a precompute job ID and the person ID at computation time; readers must resolve current identities separately.

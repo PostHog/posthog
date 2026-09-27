@@ -167,6 +167,11 @@ class GeminiAdapter:
             # gracefully instead of burning Temporal retries on an unhandled exception.
             if status_code == 404 or "no longer available" in error_message or "not found" in error_message:
                 return ModelNotFoundError(model)
+            # Google cancels a call with a 499/CANCELLED error. The retry policy already covers it,
+            # but the message differs per occurrence, so an unmapped one files a new error tracking
+            # issue every time. Share the transport lane, which the caller retries quietly.
+            if status_code == 499 or "cancelled" in error_message or "canceled" in error_message:
+                return ProviderConnectionError(str(error))
             return None
         if isinstance(error, httpx.TransportError):
             # google-genai doesn't wrap httpx transport failures (connection reset, read timeout)

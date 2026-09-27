@@ -254,6 +254,90 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
 
+    @parameterized.expand(
+        [
+            ("report_notification_thread", True, None),
+            ("mapping_failure", True, "mapping"),
+            ("association_failure", True, "association"),
+            ("ordinary_thread", False, None),
+        ]
+    )
+    @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_task_from_a_report_notification_thread_lands_on_the_report(
+        self, _name, from_report_thread, failure_stage, mock_slack_cls, _mock_execute_workflow
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportAction, SignalReportArtefact
+        from products.signals.backend.slack_report_threads import record_report_slack_thread
+
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+        report = SignalReport.objects.create(
+            team=self.team, status=SignalReport.Status.READY, title="R", summary="S", total_weight=1.0
+        )
+        if from_report_thread:
+            record_report_slack_thread(
+                slack_workspace_id=self.integration.integration_id,
+                team_id=self.team.id,
+                report_id=str(report.id),
+                integration_id=self.integration.id,
+                channel="C123",
+                thread_ts="1234.5678",
+            )
+
+        inputs = _make_inputs(self.integration.id, self.user.id)
+        args = (
+            inputs,
+            "C123",
+            "1234.5678",
+            "U_ALICE",
+            self.user.id,
+            inputs.event,
+            [SlackThreadMessage(user="U_ALICE", text="look into this")],
+            None,
+        )
+        if failure_stage:
+            failure_target = (
+                patch.object(
+                    SlackThreadTaskMapping.objects, "update_or_create", side_effect=RuntimeError("mapping unavailable")
+                )
+                if failure_stage == "mapping"
+                else patch.object(SignalReportAction, "record", side_effect=RuntimeError("action unavailable"))
+            )
+            with failure_target:
+                with self.assertRaises(RuntimeError):
+                    create_posthog_code_task_for_repo_activity(*args)
+            orphan = self.Task.objects.get(team=self.team)
+            assert orphan.signal_report_id is None
+            assert not SignalReportArtefact.objects.filter(report_id=report.id).exists()
+        create_posthog_code_task_for_repo_activity(*args)
+        create_posthog_code_task_for_repo_activity(*args)
+
+        mapping = SlackThreadTaskMapping.objects.get(
+            integration=self.integration, channel="C123", thread_ts="1234.5678"
+        )
+        task = mapping.task
+        assert task.origin_product == self.Task.OriginProduct.SLACK
+        assert task.signal_report_id == (report.id if from_report_thread else None)
+        work_log = SignalReportArtefact.objects.filter(
+            report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task.id
+        )
+        assert work_log.count() == int(from_report_thread)
+        from products.signals.backend.scout_harness.inactivity import _engaged_report_ids
+
+        assert (
+            str(report.id) in _engaged_report_ids(self.team.id, {str(report.id)}, report.created_at)
+        ) is from_report_thread
+        if from_report_thread:
+            action = SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id)
+            assert action.user_id == self.user.id
+            assert action.count == 1
+            assert work_log.get().created_by_id is None
+
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
     def test_initial_task_uploads_slack_attachment_to_pending_prompt(
@@ -625,9 +709,36 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
     # below cover the surrounding activity wiring: Slack permalink, mapping, workflow
     # start, quota blocking, etc.
 
+    @parameterized.expand(
+        [
+            (
+                "text_on_the_event",
+                {"channel": "C123", "ts": "1234.5678", "user": "U_GEORGIY", "text": "<@BOT> do something"},
+                "do something",
+            ),
+            # A Slack workflow, or a client that posts rich text, leaves `text` empty and
+            # carries the words in `blocks`. Reading `text` alone hands the agent the
+            # "Task from Slack" fallback and loses the ask.
+            (
+                "words_only_in_blocks",
+                {
+                    "channel": "C123",
+                    "ts": "1234.5678",
+                    "user": "U_GEORGIY",
+                    "text": "",
+                    "blocks": [
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "<@BOT> look at the error spike"}}
+                    ],
+                },
+                "look at the error spike",
+            ),
+        ]
+    )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
-    def test_description_is_wired_to_slack_thread_context_helper(self, mock_slack_cls, mock_execute_workflow):
+    def test_description_is_wired_to_slack_thread_context_helper(
+        self, _name, event, expected_prompt, mock_slack_cls, mock_execute_workflow
+    ):
         # Smoke-test that the activity calls into the helper and persists the result —
         # the helper's behaviour is exhaustively tested elsewhere; here we just ensure
         # the wrapper tag survives the round-trip through Task.create_and_run.
@@ -645,10 +756,10 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             "1234.5678",
             "U_GEORGIY",
             self.user.id,
-            inputs.event,
+            event,
             [
                 SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="preamble", ts="1.000"),
-                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text="do something", ts="1234.5678"),
+                SlackThreadMessage(user="georgiy", user_id="U_GEORGIY", text=expected_prompt, ts="1234.5678"),
             ],
             None,
         )
@@ -656,7 +767,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         task = self.Task.objects.get(team=self.team)
         assert task.description.startswith("<slack_thread_context>")
         assert "</slack_thread_context>" in task.description
-        assert task.description.endswith("do something")
+        assert task.description.endswith(expected_prompt)
 
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")

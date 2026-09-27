@@ -462,7 +462,11 @@ describe('engineeringAnalyticsLogic', () => {
 
     it.each([
         ['workflows', () => urls.engineeringAnalyticsWorkflows()],
-        ['test health', () => urls.engineeringAnalyticsTestHealth()],
+        ['tests', () => urls.engineeringAnalyticsTests()],
+        ['teams', () => urls.engineeringAnalyticsTeams()],
+        ['authors', () => urls.engineeringAnalyticsAuthors()],
+        ['team detail', () => urls.engineeringAnalyticsTeam('team-replay')],
+        ['deploys', () => urls.engineeringAnalyticsDeploys()],
     ])('the %s route applies ?source and ?repo like the other tabs', async (_label, url) => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -471,6 +475,16 @@ describe('engineeringAnalyticsLogic', () => {
         await expectLogic(logic).toDispatchActions(['setScope'])
         expect(logic.values.sourceId).toBe('src-newer')
         expect(logic.values.scopeRepo).toBe('posthog/posthog.com')
+    })
+
+    it('requests the hub once on a scoped direct load', async () => {
+        router.actions.push(urls.engineeringAnalyticsTeam('team-replay'), { source: 'src-newer' })
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadCardsSuccess'])
+        expect(mockCiCards).toHaveBeenCalledTimes(1)
+        expect(mockCiCards.mock.calls[0][1]).toMatchObject({ source_id: 'src-newer' })
     })
 
     it.each([
@@ -719,16 +733,17 @@ describe('engineeringAnalyticsLogic', () => {
         ])
     })
 
-    it('flags quarantineLoadFailed when the quarantine endpoint 400s', async () => {
-        silenceKeaLoadersErrors() // the loader failure is the scenario under test
-        mockQuarantine.mockRejectedValue(
-            new Error('Connect a GitHub data warehouse source to use engineering analytics.')
-        )
+    it.each([
+        [400, 'notConnected'],
+        [500, 'error'],
+    ])('maps a quarantine %i response to %s', async (statusCode, expectedStatus) => {
+        silenceKeaLoadersErrors()
+        mockTrunkQuarantine.mockRejectedValue(new ApiError('Quarantine request failed.', statusCode))
 
         logic = engineeringAnalyticsLogic()
         logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadQuarantineFailure'])
+        await expectLogic(logic).toDispatchActions(['loadTrunkQuarantineFailure'])
 
-        expect(logic.values.quarantineLoadFailed).toBe(true)
+        expect(logic.values.trunkQuarantineStatus).toBe(expectedStatus)
     })
 })
