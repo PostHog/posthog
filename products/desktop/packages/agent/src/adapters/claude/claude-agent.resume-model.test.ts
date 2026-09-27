@@ -579,10 +579,14 @@ describe("ClaudeAcpAgent session creation", () => {
         await vi.advanceTimersByTimeAsync(30_001);
 
         await expect(promise).rejects.toThrow(error);
+        expect(createdQueryOptions[0]?.abortController?.signal.aborted).toBe(
+          true,
+        );
         expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
         expect(errorSpy).toHaveBeenCalledWith(
           "Session configuration failed",
           expect.objectContaining({
+            startupStep: "model switch",
             errorDetail: expect.objectContaining({ message: error }),
           }),
         );
@@ -591,6 +595,25 @@ describe("ClaudeAcpAgent session creation", () => {
       }
     },
   );
+
+  it("starts a fresh query when retrying failed session configuration", async () => {
+    nextSetModel = () => Promise.reject(new Error("set model boom"));
+    const agent = makeAgent();
+    const params = {
+      sessionId: "0197a000-0000-7000-8000-0000000000fd",
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-set-model-retry" },
+    };
+
+    await expect(agent.resumeSession(params)).rejects.toThrow("set model boom");
+
+    nextSetModel = () => Promise.resolve();
+    await expect(agent.resumeSession(params)).resolves.toMatchObject({
+      sessionId: params.sessionId,
+    });
+    expect(createdQueries).toHaveLength(2);
+  });
 
   it("closes the query and rethrows when resume init fails", async () => {
     const failedInit = Promise.reject(new Error("resume boom"));

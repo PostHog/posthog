@@ -3392,10 +3392,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         : this.getContextWindowForModel(resolvedModelId);
 
     const startupErrorData = { sessionId, taskId, taskRunId: meta?.taskRunId };
+    let startupStep:
+      | "model switch"
+      | "effort update"
+      | "fast mode update"
+      | undefined;
     try {
       if (isResume || resolvedModelId !== options.model) {
+        startupStep = "model switch";
         await this.awaitStartupControl(
-          "model switch",
+          startupStep,
           this.session.query.setModel(resolvedModelId),
           startupErrorData,
         );
@@ -3412,8 +3418,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       ) {
         this.session.effort = resolvedEffort;
         this.session.queryOptions.effort = toSdkEffort(resolvedEffort);
+        startupStep = "effort update";
         await this.awaitStartupControl(
-          "effort update",
+          startupStep,
           this.session.query.applyFlagSettings(
             toEffortFlagSettings(resolvedEffort),
           ),
@@ -3430,8 +3437,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
       if (meta?.fastMode && supportsFastMode(resolvedModelId)) {
         this.session.fastModeEnabled = true;
+        startupStep = "fast mode update";
         await this.awaitStartupControl(
-          "fast mode update",
+          startupStep,
           this.session.query.applyFlagSettings({ fastMode: true }),
           startupErrorData,
         );
@@ -3439,9 +3447,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     } catch (err) {
       settingsManager.dispose();
       this.terminateQuery(q, abortController);
+      session.queryClosed = true;
       startupLogger.error("Session configuration failed", {
         ...startupErrorData,
         modelId: resolvedModelId,
+        startupStep,
         errorDetail: serializeError(err),
       });
       throw err;
@@ -3569,7 +3579,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private getExistingSessionState(
     sessionId: string,
   ): NewSessionResponse | null {
-    if (!this.hasSession(sessionId) || !this.session) return null;
+    if (
+      !this.hasSession(sessionId) ||
+      !this.session ||
+      this.session.queryClosed
+    ) {
+      return null;
+    }
 
     const availableModes = getAvailableModes();
     const modes: SessionModeState = {
