@@ -1075,6 +1075,7 @@ class TestEvaluateAlert:
         with (
             patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=error),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.temporal.alerts.activities.record_user_query_error") as mock_record,
         ):
             result = await ActivityEnvironment().run(
                 evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id))
@@ -1086,6 +1087,7 @@ class TestEvaluateAlert:
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is True
         mock_capture.assert_not_called()
+        mock_record.assert_called_once_with(error.code_name)
 
     @pytest.mark.parametrize(
         "rows,has_more,sql_limit,expected_error,expect_disabled",
