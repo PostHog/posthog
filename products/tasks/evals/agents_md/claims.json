@@ -26,8 +26,11 @@
   {
     "id": "for-team-outside-request",
     "starts_with": "**Reading a fail-closed model outside request context**",
-    "task": "Add a Celery task `count_team_dashboards(team_id)` in `posthog/tasks/` that returns how many of the team's dashboards are not deleted.",
-    "detectors": [{ "name": "missing_added_matching", "pattern": "\\.for_team\\(", "files": "*.py" }]
+    "task": "Add a Celery task `count_team_message_suppressions(team_id)` in `posthog/tasks/` that returns how many `MessageSuppression` rows (products/messaging/backend/models/message_suppression.py) the team has.",
+    "detectors": [
+      { "name": "missing_added_matching", "pattern": "\\.for_team\\(", "files": "*.py" },
+      { "name": "count_added_matching", "pattern": "all_teams\\.|\\.unscoped\\(", "files": "*.py" }
+    ]
   },
   {
     "id": "team-model-fields",
