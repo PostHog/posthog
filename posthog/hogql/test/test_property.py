@@ -238,7 +238,7 @@ class TestProperty(BaseTest):
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "starts_with"}),
             self._parse_expr("toString(properties.a) ilike '3%'"),
         )
-        with self.assertRaisesMessage(QueryError, "Unknown property filter operator 'is_prefix'"):
+        with self.assertRaisesMessage(QueryError, "Unknown property filter operator 'is_prefix' on property 'a'"):
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "is_prefix"})
         self.assertEqual(
             self._property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_starts_with"}),
