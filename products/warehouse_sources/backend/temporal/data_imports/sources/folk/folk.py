@@ -100,6 +100,10 @@ def folk_source(
             # Auth (Bearer) goes through the framework auth config so its value is redacted from logs.
             "auth": {"type": "bearer", "token": api_key},
             "paginator": FolkPaginator(),
+            # Notes, tasks, and contact fields can carry confidential CRM content that the
+            # name-based scrubber won't reliably catch (e.g. generic `content`/`description`
+            # keys), so this PII-heavy source opts out of HTTP sample capture.
+            "capture": False,
         },
         "resources": [
             {
@@ -110,6 +114,9 @@ def folk_source(
                     "path": config.path,
                     "params": {"limit": FOLK_PAGE_SIZE},
                     "data_selector": "data.items",
+                    # A response missing `data.items` is a shape change, not a legitimately empty
+                    # page; fail loud instead of silently replacing the table with zero rows.
+                    "data_selector_required": True,
                 },
                 "table_format": "delta",
             }
