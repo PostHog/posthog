@@ -53,6 +53,14 @@ _SSH_GATEWAY_UNREACHABLE_MESSAGE = (
     "allowed through its firewall."
 )
 
+_CONNECT_TIMEOUT_ERROR = "connection timeout expired"
+_CONNECT_TIMEOUT_EXHAUSTED_MESSAGE = (
+    "PostHog couldn't connect to your Redshift cluster before the connection timed out, on every "
+    "attempt. Check that the cluster is running and reachable from the public internet, and that "
+    "PostHog's egress IP addresses are allowed through your firewall. This sync is still enabled "
+    "and will run again on its next schedule."
+)
+
 RedshiftErrors = {
     "password authentication failed for user": "Invalid user or password",
     "could not translate host name": "Could not connect to the host",
@@ -160,12 +168,19 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
         )
 
     def get_retryable_errors(self) -> set[str]:
-        # The bounded lookup in front of every connect raises these when the resolver stalls or
-        # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers.
-        return {HOST_RESOLUTION_TIMEOUT_ERROR, TEMPORARY_HOST_RESOLUTION_ERROR}
+        return set(self.get_retry_exhausted_errors())
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
-        return dict.fromkeys(self.get_retryable_errors(), HOST_RESOLUTION_EXHAUSTED_MESSAGE)
+        return {
+            # The bounded lookup in front of every connect raises these when the resolver stalls or
+            # answers "try again". Neither is a verdict on the host, so a fresh attempt recovers.
+            HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
+            # psycopg raises this when the connect handshake outlives `connect_timeout`. A cluster
+            # pause, resize or network blip causes it as often as a firewall does, and one blip can
+            # time out every schema of a source at once, so let Temporal retry it.
+            _CONNECT_TIMEOUT_ERROR: _CONNECT_TIMEOUT_EXHAUSTED_MESSAGE,
+        }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -212,7 +227,6 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "No route to host": None,
             "password authentication failed connection": None,
-            "connection timeout expired": None,
             "Connection refused": None,
         }
 
