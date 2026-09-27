@@ -92,6 +92,38 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(logic.values.failingSyncCount).toEqual(1)
     })
 
+    it('leaves materialized views out of the health list', async () => {
+        // The endpoint answers for the whole warehouse. This scene is about imports, so a broken
+        // view belongs on Pipeline status, not here, where nothing can be done about it.
+        api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({
+            count: 3,
+            results: [
+                issue({ id: 'a', type: 'materialized_view' }),
+                issue({ id: 'b', type: 'external_data_sync' }),
+                issue({ id: 'c', type: 'destination' }),
+            ],
+        })
+
+        await expectLogic(logic, () => logic.actions.loadHealthIssues()).toFinishAllListeners()
+
+        expect(logic.values.issuesBySeverity.map((i: any) => i.id)).toEqual(['b', 'c'])
+    })
+
+    it('leaves materialized view runs out of the failures list', async () => {
+        api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({
+            next: null,
+            previous: null,
+            results: [
+                { id: 'r1', type: 'Materialized view', name: 'account_activity', status: 'Failed' },
+                { id: 'r2', type: 'Stripe', name: 'charges', status: 'Failed' },
+            ],
+        })
+
+        await expectLogic(logic, () => logic.actions.loadRecentFailures()).toFinishAllListeners()
+
+        expect(logic.values.failedRuns.map((r: any) => r.id)).toEqual(['r2'])
+    })
+
     it('asks for failed runs, not completed ones', async () => {
         // Without the outcome parameter this endpoint returns successes, so the failures section
         // would quietly list runs that worked.

@@ -23,6 +23,15 @@ import type {
 /** Windows `job_stats` accepts. Anything else is a 400. */
 export type PipelineStatsWindow = 1 | 7 | 30
 
+/**
+ * `data_health_issues` and `completed_activity` both answer for the whole warehouse, which
+ * includes materialized views and batch exports. This scene is about imports and the
+ * destinations they write to, so those are filtered out here rather than shown as pipelines
+ * the reader cannot act on from this page.
+ */
+const SYNC_ISSUE_TYPES = ['external_data_sync', 'source', 'destination']
+const MATERIALIZED_VIEW_ACTIVITY_TYPE = 'Materialized view'
+
 /** Most severe first, so the worst pipeline is the one a reader sees. */
 const ISSUE_SEVERITY: Record<string, number> = {
     failed: 0,
@@ -107,7 +116,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                 loadRecentFailures: async () =>
                     await dataWarehouseCompletedActivityRetrieve(String(values.currentTeamId), {
                         outcome: 'failed',
-                        limit: 10,
+                        // Over-fetch: the endpoint has no sync-only filter, so view runs are
+                        // dropped client-side and a page of them would otherwise show nothing.
+                        limit: 50,
                     }),
             },
         ],
@@ -120,9 +131,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         issuesBySeverity: [
             (s: any) => [s.healthIssues],
             (healthIssues: DataHealthIssuesResponseApi | null): DataHealthIssueApi[] =>
-                [...(healthIssues?.results ?? [])].sort(
-                    (a, b) => (ISSUE_SEVERITY[a.status] ?? 99) - (ISSUE_SEVERITY[b.status] ?? 99)
-                ),
+                (healthIssues?.results ?? [])
+                    .filter((issue) => SYNC_ISSUE_TYPES.includes(issue.type))
+                    .sort((a, b) => (ISSUE_SEVERITY[a.status] ?? 99) - (ISSUE_SEVERITY[b.status] ?? 99)),
         ],
         failingSyncCount: [
             (s: any) => [s.healthIssues],
@@ -132,7 +143,7 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         failedRuns: [
             (s: any) => [s.recentFailures],
             (recentFailures: PipelineActivityResponseApi | null): PipelineActivityRowApi[] =>
-                recentFailures?.results ?? [],
+                (recentFailures?.results ?? []).filter((run) => run.type !== MATERIALIZED_VIEW_ACTIVITY_TYPE),
         ],
         // A first load shows skeletons; a refresh keeps the numbers on screen and dims them, so
         // polling does not make the page flash.

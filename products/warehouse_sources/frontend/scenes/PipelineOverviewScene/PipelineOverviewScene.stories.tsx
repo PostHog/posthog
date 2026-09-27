@@ -32,6 +32,8 @@ const UNHEALTHY = {
             url: '/data-management/sources/2',
         },
         {
+            // Kept deliberately: the endpoint answers for the whole warehouse, and this row must
+            // not appear in the rendered scene.
             id: '3',
             name: 'account_activity',
             type: 'materialized_view',

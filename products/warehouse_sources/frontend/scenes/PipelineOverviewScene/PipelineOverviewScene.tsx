@@ -122,8 +122,8 @@ export function PipelineOverviewScene(): JSX.Element {
                     </LemonButton>
                 </div>
                 <p className="mt-2 mb-0 text-xs text-muted">
-                    Pipeline failures are also listed on <Link to={urls.pipelineStatus()}>Pipeline status</Link>, which
-                    covers materialized views and batch exports too.
+                    <Link to={urls.pipelineStatus()}>Pipeline status</Link> covers the rest of the warehouse, including
+                    views and batch exports.
                 </p>
             </SceneSection>
         </SceneContent>
