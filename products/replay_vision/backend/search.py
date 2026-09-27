@@ -26,7 +26,6 @@ from posthog.api.embedding_worker import generate_embedding
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 from posthog.utils import relative_date_parse_with_delta_mapping
 
@@ -86,7 +85,6 @@ _SCOPE_PREWHERE = """team_id = %(team_id)s
               AND JSONExtractString(metadata, 'scanner_id') IN %(scanner_ids)s"""
 _CANDIDATE_QUERY_TYPE = "replay_vision_search_candidates"
 _RANK_QUERY_TYPE = "replay_vision_search_rank"
-_PHRASE_CHECK_QUERY_TYPE = "replay_vision_suggestion_check"
 
 # Slugify each stored metadata tag before `hasAny`, so the case/format-insensitive match works against rows
 # whose fixed-vocab tags were stamped verbatim, with no backfill. Static literals only, see `_append_filter`.
@@ -312,54 +310,6 @@ def rank_observations(
             settings={"max_execution_time": _QUERY_TIMEOUT_S},
         )
     return [ObservationMatch(observation_id=row[0], distance=row[1], matched_content=row[2]) for row in rows]
-
-
-def phrase_match_counts(team: Team, scanner_ids: list[str], vectors: list[list[float]]) -> list[int]:
-    """For each query vector, how many observations of these scanners a search would return: rows within
-    `MAX_MATCH_DISTANCE`, counted once per observation, over the same most-recent rows a search ranks. One scan
-    scores every vector, so checking a batch of suggested phrases costs one search rather than one per phrase."""
-    if not vectors or not scanner_ids:
-        return [0] * len(vectors)
-    params: dict[str, Any] = {
-        "team_id": team.id,
-        "product": EMBEDDING_PRODUCT,
-        "document_type": EMBEDDING_DOCUMENT_TYPE,
-        "scanner_ids": scanner_ids,
-        "candidate_cap": _MAX_CANDIDATE_ROWS,
-        "vectors": vectors,
-        "max_distance": MAX_MATCH_DISTANCE,
-    }
-    with tags_context(
-        product=Product.REPLAY_VISION, feature=Feature.SEMANTIC_SEARCH, query_type=_PHRASE_CHECK_QUERY_TYPE
-    ):
-        # nosemgrep: clickhouse-fstring-param-audit - the table and scope are module constants, values are params
-        rows = sync_execute(
-            f"""
-            SELECT vector_index, uniqExactIf(document_id, distance <= %(max_distance)s)
-            FROM (
-                SELECT
-                    document_id,
-                    arrayJoin(arrayEnumerate(%(vectors)s)) AS vector_index,
-                    cosineDistance(embedding, %(vectors)s[vector_index]) AS distance
-                FROM (
-                    SELECT document_id, embedding
-                    FROM {_EMBEDDINGS_TABLE}
-                    PREWHERE {_SCOPE_PREWHERE}
-                    ORDER BY timestamp DESC
-                    LIMIT %(candidate_cap)s
-                )
-            )
-            GROUP BY vector_index
-            """,
-            params,
-            team_id=team.id,
-            readonly=True,
-            workload=Workload.OFFLINE,
-            ch_user=ClickHouseUser.REPLAY_VISION,
-            settings={"max_execution_time": _QUERY_TIMEOUT_S},
-        )
-    counts = {int(index): int(count) for index, count in rows}
-    return [counts.get(i + 1, 0) for i in range(len(vectors))]
 
 
 def fetch_ranked_observations(

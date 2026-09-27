@@ -4,8 +4,7 @@ The Search tab's empty state offers a few phrases to try. Fixed phrases per scan
 team's product, so a small model call reads a sample of a scanner's recent observations and names the themes a
 person would search for. A scanner's phrases live on its row, and the cross-scanner set lives on the team's
 `TeamReplayVisionConfig`. A scheduled workflow refreshes every active scanner and team ahead of any view, so the
-first person to open the Search tab sees phrases drawn from their data rather than the fixed examples. Each
-candidate phrase runs as a real search before it is stored, and only phrases that find something are kept. The
+first person to open the Search tab sees phrases drawn from their data rather than the fixed examples. The
 endpoint only reads the stored phrases and records the view.
 """
 
@@ -33,7 +32,6 @@ from products.replay_vision.backend.models.replay_observation import Observation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.models.team_replay_vision_config import TeamReplayVisionConfig
 from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, read_output
-from products.replay_vision.backend.search import phrase_match_counts, query_vector_for
 
 from ee.hogai.utils.untrusted import neutralize_markup
 
@@ -43,9 +41,6 @@ logger = structlog.get_logger(__name__)
 _SUGGESTION_MODEL = "gemini-3.5-flash-lite"
 _MODEL_CALL_TIMEOUT_MS = 30_000
 MAX_SUGGESTED_QUERIES = 4
-# The model proposes more than are shown, so phrases that find nothing can be dropped and enough still remain.
-MAX_CANDIDATE_QUERIES = 8
-MIN_PHRASE_MATCHES = 1
 # Fewer new observations than this and the themes would be the observations themselves, so the scanner
 # keeps its current phrases (or the fixed examples) instead of spending a model call.
 MIN_NEW_OBSERVATIONS_FOR_REFRESH = 5
@@ -78,7 +73,7 @@ class SuggestionError(Exception):
 class _LlmQueries(BaseModel):
     queries: list[str] = Field(
         description="Short search phrases, each naming one distinct theme in the recordings, best first.",
-        max_length=MAX_CANDIDATE_QUERIES,
+        max_length=MAX_SUGGESTED_QUERIES,
     )
 
 
@@ -99,7 +94,7 @@ Rules:
 For a scanner that looks for broken experiences, name the breakages, not the pages people visited.
 - Never write a query about routine activity, such as browsing, navigating, or completing a flow without \
 trouble, unless that activity is what a scanner looks for.
-- Return at most 8 queries, best first, each 3 to 8 words, lowercase, no trailing punctuation.
+- Return at most 4 queries, best first, each 3 to 8 words, lowercase, no trailing punctuation.
 - Each query names one distinct theme that appears in several of the observations, phrased the way a person \
 would describe what they are looking for (e.g. "coupon rejected at checkout", "gave up during signup").
 - Prefer concrete product situations over generic phrases like "frustrated users" or "successful sessions".
@@ -256,13 +251,8 @@ def refresh_scanner_suggestions(scanner: ReplayScanner) -> bool:
         team_id=scanner.team_id,
         distinct_id=f"scanner:{scanner.id}",
     )
-    phrases = _phrases_that_find_something(scanner.team, [str(scanner.id)], _finalize(parsed))
-    if not phrases:
-        # Keep whatever is stored: phrases that find nothing are worse than the fixed examples.
-        ReplayScanner.objects.filter(pk=scanner.pk).update(search_suggestions_generated_at=timezone.now())
-        return False
     ReplayScanner.objects.filter(pk=scanner.pk).update(
-        search_suggestions=phrases,
+        search_suggestions=_finalize(parsed),
         search_suggestions_watermark=watermark,
         search_suggestions_generated_at=timezone.now(),
     )
@@ -307,33 +297,13 @@ def refresh_team_suggestions(team: Team) -> bool:
         team_id=team.id,
         distinct_id=f"team:{team.id}",
     )
-    source_ids = [str(scanner.id) for scanner in scanners]
-    phrases = _phrases_that_find_something(team, source_ids, _finalize(parsed))
-    if not phrases:
-        TeamReplayVisionConfig.objects.filter(pk=team.id).update(search_suggestions_generated_at=timezone.now())
-        return False
     TeamReplayVisionConfig.objects.filter(pk=team.id).update(
-        search_suggestions=phrases,
-        search_suggestions_sources=source_ids,
+        search_suggestions=_finalize(parsed),
+        search_suggestions_sources=[str(scanner.id) for scanner in scanners],
         search_suggestions_watermark=newest,
         search_suggestions_generated_at=timezone.now(),
     )
     return True
-
-
-def _phrases_that_find_something(team: Team, scanner_ids: list[str], candidates: list[str]) -> list[str]:
-    """The first `MAX_SUGGESTED_QUERIES` candidates whose search returns at least `MIN_PHRASE_MATCHES`
-    observations of these scanners. Embedding a phrase also caches its vector, so clicking it later skips the
-    embedding call. When the check itself fails, the unchecked candidates are used rather than none."""
-    if not candidates:
-        return []
-    try:
-        vectors = [query_vector_for(team, phrase) for phrase in candidates]
-        counts = phrase_match_counts(team, scanner_ids, vectors)
-    except Exception:
-        logger.warning("replay_vision.search_suggestions.phrase_check_failed", team_id=team.id, exc_info=True)
-        return candidates[:MAX_SUGGESTED_QUERIES]
-    return [phrase for phrase, count in zip(candidates, counts) if count >= MIN_PHRASE_MATCHES][:MAX_SUGGESTED_QUERIES]
 
 
 def _recent_observation_samples(scanner: ReplayScanner) -> tuple[list[str], dt.datetime | None]:
@@ -458,4 +428,4 @@ def _finalize(parsed: _LlmQueries) -> list[str]:
         if query and query not in seen:
             seen.add(query)
             queries.append(query)
-    return queries[:MAX_CANDIDATE_QUERIES]
+    return queries[:MAX_SUGGESTED_QUERIES]

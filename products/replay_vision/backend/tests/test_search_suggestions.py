@@ -45,7 +45,6 @@ from products.replay_vision.backend.tests.helpers import snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _GENERATE_PATH = "products.replay_vision.backend.search_suggestions._generate"
-_MATCH_COUNTS_PATH = "products.replay_vision.backend.search_suggestions.phrase_match_counts"
 
 
 class TestFinalize:
@@ -73,13 +72,6 @@ class _SuggestionsTestCase(_VisionAPITestCase):
         cache.clear()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
-        # Checking a phrase embeds it and searches ClickHouse; by default every phrase finds something.
-        embed = patch("products.replay_vision.backend.search_suggestions.query_vector_for", return_value=[0.1])
-        embed.start()
-        self.addCleanup(embed.stop)
-        self.match_counts = patch(_MATCH_COUNTS_PATH, side_effect=lambda team, ids, vectors: [3] * len(vectors))
-        self.match_counts.start()
-        self.addCleanup(self.match_counts.stop)
 
     def _scanner(self, name: str, **overrides) -> ReplayScanner:
         return self._create_scanner(name=name, scanner_type=ScannerType.SUMMARIZER, **overrides)
@@ -230,23 +222,6 @@ class TestRefreshAndCandidates(_SuggestionsTestCase):
         self.assertEqual(content.count("- [verdict=yes] found issue"), 5)
         # Nothing is filtered out: the model reads both outcomes and decides which one the scanner cares about.
         self.assertIn("- [verdict=no] no issue", content)
-
-    @patch(_GENERATE_PATH)
-    def test_only_phrases_that_find_something_are_stored(self, mock_generate: MagicMock) -> None:
-        scanner = self._scanner("checkout", search_suggestions=["old phrase"])
-        self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
-        mock_generate.return_value = _LlmQueries(queries=["finds nothing", "coupon rejected"])
-        with patch(_MATCH_COUNTS_PATH, return_value=[0, 2]):
-            self.assertTrue(refresh_scanner_suggestions(scanner))
-        scanner.refresh_from_db()
-        self.assertEqual(scanner.search_suggestions, ["coupon rejected"])
-
-        self._seed(scanner, MIN_NEW_OBSERVATIONS_FOR_REFRESH)
-        mock_generate.return_value = _LlmQueries(queries=["finds nothing"])
-        with patch(_MATCH_COUNTS_PATH, return_value=[0]):
-            self.assertFalse(refresh_scanner_suggestions(scanner))
-        scanner.refresh_from_db()
-        self.assertEqual(scanner.search_suggestions, ["coupon rejected"])
 
     @patch(_GENERATE_PATH)
     def test_team_phrases_draw_on_untargeted_scanners_and_show_only_to_viewers_of_every_source(
