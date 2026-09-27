@@ -28,7 +28,7 @@ function outcomeOf(path: MCPIntentClusterJourneyPathApi): JourneyOutcome {
 /**
  * Turns the top paths of a cluster into a stage-per-column flow graph. Every path spans the same
  * number of columns: Init, one column per step (a step that never happened is `Ended`), then the
- * outcome. Node ids carry the column so the same tool at two stages is two nodes, and links are
+ * outcome. Node ids carry the column and kind so the same tool at two stages is two nodes, and links are
  * split by outcome so error flows keep their own ribbon.
  */
 export function buildJourneyGraph(paths: readonly MCPIntentClusterJourneyPathApi[]): JourneyGraph {
@@ -36,7 +36,7 @@ export function buildJourneyGraph(paths: readonly MCPIntentClusterJourneyPathApi
     const links = new Map<string, SankeyLinkInput<JourneyLinkMeta>>()
 
     const nodeId = (column: number, label: string, kind: JourneyNodeKind): string => {
-        const id = `${column}::${label}`
+        const id = `${column}::${kind}::${label}`
         if (!nodes.has(id)) {
             nodes.set(id, { id, label, meta: { kind } })
         }

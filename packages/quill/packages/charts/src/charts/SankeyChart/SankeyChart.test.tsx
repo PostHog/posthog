@@ -52,7 +52,7 @@ describe('SankeyChart', () => {
 
     it('shows the hovered node in the tooltip and fires onNodeClick for it', async () => {
         const onNodeClick = jest.fn()
-        const { chart } = renderHogChart(
+        const { chart, rerender } = renderHogChart(
             <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick} />,
             { nativeTooltip: true }
         )
@@ -64,6 +64,20 @@ describe('SankeyChart', () => {
         expect(getHogChartTooltip()?.textContent).toContain('100%')
         fireEvent.click(chart.element)
         expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'a', value: 12 }))
+
+        onNodeClick.mockClear()
+        rerender(
+            <SankeyChart
+                nodes={NODES}
+                links={LINKS}
+                theme={THEME}
+                onNodeClick={onNodeClick}
+                config={{ nodeWidth: 24 }}
+            />
+        )
+        await waitFor(() => expect(getHogChartTooltip()).toBeNull())
+        fireEvent.click(chart.element)
+        expect(onNodeClick).not.toHaveBeenCalled()
     })
 
     it('shows the tooltip on a first tap and fires onNodeClick on the second', async () => {

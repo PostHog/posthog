@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { useLatest } from '../../core/hooks/useLatest'
 import { useTooltipLifecycle } from '../../core/hooks/useTooltipLifecycle'
@@ -95,13 +95,18 @@ export function useSankeyInteraction<NodeMeta = unknown, LinkMeta = NodeMeta>({
         [layoutRef, canvasRef]
     )
 
-    const { hoverIndex, hoverPosition, tooltipCtx, setHover, setTooltipCtx, clearTooltip } = useTooltipLifecycle<
-        NodeMeta | LinkMeta
-    >({
-        wrapperRef,
-        rebuildPinnedCtx,
-        rebuildDeps: [layout],
-    })
+    const { hoverIndex, hoverPosition, tooltipCtx, isPinned, setHover, setTooltipCtx, clearTooltip } =
+        useTooltipLifecycle<NodeMeta | LinkMeta>({
+            wrapperRef,
+            rebuildPinnedCtx,
+            rebuildDeps: [layout],
+        })
+
+    useEffect(() => {
+        if (!isPinned) {
+            clearTooltip()
+        }
+    }, [layout, isPinned, clearTooltip])
 
     const hoverIndexRef = useLatest(hoverIndex)
 

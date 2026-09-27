@@ -12,21 +12,36 @@ describe('buildJourneyGraph', () => {
         const graph = buildJourneyGraph(PATHS)
         // The same tool at two stages is two nodes; Ended repeats per column it fills.
         expect(graph.nodes.map((n) => n.id)).toEqual([
-            '0::Init',
-            '1::schema',
-            '2::sql',
-            '3::Ended',
-            '4::Completed',
-            '4::Error',
-            '1::sql',
-            '2::Ended',
+            '0::init::Init',
+            '1::tool::schema',
+            '2::tool::sql',
+            '3::ended::Ended',
+            '4::completed::Completed',
+            '4::error::Error',
+            '1::tool::sql',
+            '2::ended::Ended',
         ])
-        const schemaToSql = graph.links.filter((l) => l.source === '1::schema' && l.target === '2::sql')
+        const schemaToSql = graph.links.filter((l) => l.source === '1::tool::schema' && l.target === '2::tool::sql')
         expect(schemaToSql.map((l) => [l.meta?.outcome, l.value])).toEqual([
             ['completed', 20],
             ['error', 5],
         ])
-        const intoError = graph.links.filter((l) => l.target === '4::Error')
+        const intoError = graph.links.filter((l) => l.target === '4::error::Error')
         expect(intoError.reduce((sum, l) => sum + l.value, 0)).toBe(8)
+    })
+
+    it('keeps a tool named Ended separate from a missing step', () => {
+        const graph = buildJourneyGraph([
+            { steps: ['Ended', null], outcome: 'completed', count: 2 },
+            { steps: [null, null], outcome: 'completed', count: 3 },
+        ])
+
+        const firstStage = graph.nodes.filter((node) => node.label === 'Ended' && node.id.startsWith('1::'))
+        expect(firstStage.map((node) => [node.meta?.kind, node.id])).toEqual([
+            ['tool', '1::tool::Ended'],
+            ['ended', '1::ended::Ended'],
+        ])
+        expect(graph.links.filter((link) => link.target === '1::tool::Ended').map((link) => link.value)).toEqual([2])
+        expect(graph.links.filter((link) => link.target === '1::ended::Ended').map((link) => link.value)).toEqual([3])
     })
 })
