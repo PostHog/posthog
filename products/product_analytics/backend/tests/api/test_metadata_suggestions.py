@@ -46,6 +46,7 @@ def _unreached() -> SystemOneRequestFailed:
     return error
 
 
+@override_settings(CLOUD_DEPLOYMENT="US")
 class TestMetadataSuggestionsApi(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

@@ -502,12 +502,12 @@ export interface insightLogicActions {
         errorObject?: any
     }
     suggestTagsSuccess: (
-        tagSuggestion: InsightTagSuggestionApi,
+        tagSuggestion: InsightTagSuggestionApi | null,
         payload?: {
             value: true
         }
     ) => {
-        tagSuggestion: InsightTagSuggestionApi
+        tagSuggestion: InsightTagSuggestionApi | null
         payload?: {
             value: true
         }
