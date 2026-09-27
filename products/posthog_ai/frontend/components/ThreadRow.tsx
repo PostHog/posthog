@@ -131,7 +131,7 @@ export const ThreadRow = memo(function ThreadRow({
                 className="group"
                 action={
                     // Revealed on hover or focus, so a long thread does not repeat a row under every message.
-                    <div className="flex items-center gap-1 mr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                    <div className="flex items-center gap-1 mt-1.5 mr-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                         {item.startedAt !== undefined && (
                             <TZLabel time={dayjs(item.startedAt)} className="text-xs text-muted" />
                         )}

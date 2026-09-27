@@ -9,7 +9,8 @@ import type { ThreadItem } from '../types/streamTypes'
 import { groupThreadActivity, type ThreadDisplayItem } from '../utils/groupThreadActivity'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { resolveToolCall } from '../utils/toolResolver'
-import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
+import { TurnHoverStore } from '../utils/turnHoverStore'
+import { type TurnTrailer, computeTurnTrailers, mapRowsToTurnSeparator } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
@@ -17,6 +18,7 @@ import { RunContext } from './RunContext'
 import { ThreadActivityGroup } from './ThreadActivityGroup'
 import { ThreadRow } from './ThreadRow'
 import { lookupToolRenderer } from './tool/toolRegistry'
+import { TurnReveal } from './TurnReveal'
 import { VirtualizedThread } from './VirtualizedThread'
 
 /** Stable row key — defined at module scope so `getItemKey` never changes identity across renders. */
@@ -50,6 +52,18 @@ function estimateThreadItemHeight(item: ThreadDisplayItem): number {
         return 48
     }
     return THREAD_ITEM_HEIGHT_ESTIMATES[item.type] ?? 56
+}
+
+/** Reports hover on an answer row to its turn, so the turn trailer can reveal while any part of the answer is hovered. */
+function wrapInTurnHover(store: TurnHoverStore, turnId: string | undefined, content: JSX.Element): JSX.Element {
+    if (!turnId) {
+        return content
+    }
+    return (
+        <div onMouseEnter={() => store.enter(turnId)} onMouseLeave={() => store.leave(turnId)}>
+            {content}
+        </div>
+    )
 }
 
 interface ThreadViewProps {
@@ -135,6 +149,11 @@ export function ThreadView({
         () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
         [threadItems, renderTurnTrailer]
     )
+    const turnMembership = useMemo(
+        () => (renderTurnTrailer ? mapRowsToTurnSeparator(displayItems) : null),
+        [displayItems, renderTurnTrailer]
+    )
+    const [turnHoverStore] = useState(() => new TurnHoverStore())
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
     // `VirtualizedThread`'s `renderRow` (and re-sweep visible rows) on every streamed frame. Each is wrapped
@@ -197,23 +216,27 @@ export function ThreadView({
                 const isLast = index === displayItems.length - 1
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
-                        <ThreadActivityGroup
-                            group={item}
-                            toolInvocations={toolInvocations}
-                            active={isLast && isThinking}
-                            waitingForInput={isLast && !!pendingPermissionRequest}
-                            cancelled={isLast && (turnCancelled || currentRunStatus === 'failed')}
-                            renderItem={(activity) => (
-                                <ThreadRow
-                                    item={activity}
-                                    isLast={false}
-                                    isThinking={false}
-                                    toolInvocations={toolInvocations}
-                                    turnComplete={turnComplete}
-                                    turnCancelled={turnCancelled}
-                                />
-                            )}
-                        />
+                        {wrapInTurnHover(
+                            turnHoverStore,
+                            turnMembership?.get(item.id),
+                            <ThreadActivityGroup
+                                group={item}
+                                toolInvocations={toolInvocations}
+                                active={isLast && isThinking}
+                                waitingForInput={isLast && !!pendingPermissionRequest}
+                                cancelled={isLast && (turnCancelled || currentRunStatus === 'failed')}
+                                renderItem={(activity) => (
+                                    <ThreadRow
+                                        item={activity}
+                                        isLast={false}
+                                        isThinking={false}
+                                        toolInvocations={toolInvocations}
+                                        turnComplete={turnComplete}
+                                        turnCancelled={turnCancelled}
+                                    />
+                                )}
+                            />
+                        )}
                     </VirtualizedThread.Row>
                 )
             }
@@ -221,21 +244,29 @@ export function ThreadView({
                 const trailer = turnTrailers?.get(item.id)
                 return (
                     <VirtualizedThread.Row className={rowClassName}>
-                        {trailer ? renderTurnTrailer(trailer) : null}
+                        {trailer ? (
+                            <TurnReveal store={turnHoverStore} turnId={item.id}>
+                                {renderTurnTrailer(trailer)}
+                            </TurnReveal>
+                        ) : null}
                     </VirtualizedThread.Row>
                 )
             }
             return (
                 <VirtualizedThread.Row className={rowClassName}>
-                    <ThreadRow
-                        item={item}
-                        isLast={index === displayItems.length - 1}
-                        isThinking={isThinking}
-                        toolInvocations={toolInvocations}
-                        turnComplete={turnComplete}
-                        turnCancelled={turnCancelled}
-                        runEnded={runEnded}
-                    />
+                    {wrapInTurnHover(
+                        turnHoverStore,
+                        turnMembership?.get(item.id),
+                        <ThreadRow
+                            item={item}
+                            isLast={index === displayItems.length - 1}
+                            isThinking={isThinking}
+                            toolInvocations={toolInvocations}
+                            turnComplete={turnComplete}
+                            turnCancelled={turnCancelled}
+                            runEnded={runEnded}
+                        />
+                    )}
                 </VirtualizedThread.Row>
             )
         },
@@ -248,6 +279,8 @@ export function ThreadView({
             rowClassName,
             renderTurnTrailer,
             turnTrailers,
+            turnMembership,
+            turnHoverStore,
             pendingPermissionRequest,
             currentRunStatus,
             runEnded,

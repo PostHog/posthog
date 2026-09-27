@@ -1,5 +1,6 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useState, memo } from 'react'
+import { useContext, useState, memo } from 'react'
 
 import { IconCopy, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -12,6 +13,7 @@ import { stripMarkdown } from 'lib/utils/markdown'
 import { messageRatingsLogic } from '../logics/messageRatingsLogic'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { RunRef, captureTurnFeedbackText, captureTurnRating } from '../utils/feedbackEvents'
+import { TurnRevealContext } from './TurnReveal'
 
 export interface TurnFeedbackActionsProps {
     /** Task id backing the sandbox conversation. Lands in `$ai_session_id`. */
@@ -41,6 +43,7 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
 }: TurnFeedbackActionsProps): JSX.Element {
     const { ratingForKey } = useValues(messageRatingsLogic)
     const { setRating } = useActions(messageRatingsLogic)
+    const turnHovered = useContext(TurnRevealContext)
 
     const ratingKey = `${sessionId}:turn-${turnIndex}`
     const rating = ratingForKey(ratingKey)
@@ -102,7 +105,12 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
                 {timestamp !== undefined && (
                     <TZLabel
                         time={dayjs(timestamp)}
-                        className="text-xs text-muted ml-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
+                        className={clsx(
+                            'text-xs text-muted ml-1 transition-opacity',
+                            turnHovered
+                                ? 'opacity-100'
+                                : 'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100'
+                        )}
                     />
                 )}
             </div>
