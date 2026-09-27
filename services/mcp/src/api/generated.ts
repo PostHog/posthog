@@ -107862,9 +107862,9 @@ export namespace Schemas {
 
     export type CanvasesStateRetrieveParams = {
     /**
-     * Cursor from next_cursor. Resumes after the last entry of the previous page, so writes between pages cannot skip or repeat entries. Keep filters unchanged between pages. Takes precedence over offset.
+     * Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.
      * @minLength 1
-     * @maxLength 1024
+     * @maxLength 2048
      */
     cursor?: string;
     /**

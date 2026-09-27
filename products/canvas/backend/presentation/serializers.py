@@ -1261,10 +1261,11 @@ class CanvasStateQuerySerializer(serializers.Serializer):
     )
     cursor = serializers.CharField(
         required=False,
-        max_length=1024,
+        max_length=2048,
         help_text=(
-            "Cursor from next_cursor. Resumes after the last entry of the previous page, so writes between pages "
-            "cannot skip or repeat entries. Keep filters unchanged between pages. Takes precedence over offset."
+            "Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists "
+            "for the whole read comes back exactly once. A key written between pages can be missing. Keep filters "
+            "unchanged between pages. Takes precedence over offset."
         ),
     )
     limit = serializers.IntegerField(

@@ -9,18 +9,20 @@ from products.canvas.backend.models import CanvasState
 
 
 def encode_state_cursor(scope: str, key: str) -> str:
-    return base64.urlsafe_b64encode(json.dumps([scope, key], separators=(",", ":")).encode()).decode()
+    # UTF-8 without ASCII escapes, so a cursor for any valid key stays within the query parameter limit.
+    payload = json.dumps([scope, key], separators=(",", ":"), ensure_ascii=False)
+    return base64.urlsafe_b64encode(payload.encode()).decode()
 
 
 def decode_state_cursor(cursor: str) -> tuple[str, str]:
     """The (scope, key) of the last entry a page returned. Raises ValueError for a malformed cursor."""
     try:
-        scope, key = json.loads(base64.urlsafe_b64decode(cursor.encode()))
+        decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()))
     except (ValueError, TypeError) as error:
         raise ValueError("Invalid state cursor.") from error
-    if not isinstance(scope, str) or not isinstance(key, str):
+    if not isinstance(decoded, list) or len(decoded) != 2 or not all(isinstance(part, str) for part in decoded):
         raise ValueError("Invalid state cursor.")
-    return scope, key
+    return decoded[0], decoded[1]
 
 
 class CanvasStateReader:
@@ -38,9 +40,12 @@ class CanvasStateReader:
     ) -> dict[str, Any]:
         """One page of entries, ordered by scope and key.
 
-        A cursor resumes after the last entry of the previous page, so writes
-        between pages cannot make the read skip or repeat an entry. An offset
-        can, because it counts rows. A cursor takes precedence over `offset`.
+        A cursor resumes after the last entry of the previous page, so an entry
+        that exists for the whole read comes back exactly once, whatever other
+        keys change between pages. A key written between pages can be missing
+        when it sorts before the cursor. An offset counts rows, so a delete
+        between pages can make it skip an entry that existed all along. A
+        cursor takes precedence over `offset`.
         """
         if cursor is not None:
             after_scope, after_key = decode_state_cursor(cursor)

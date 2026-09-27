@@ -1,4 +1,5 @@
 import json
+import base64
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -1757,7 +1758,22 @@ class TestCanvasState(CanvasAPIBaseTest):
         assert second["complete"] is True
         assert second["next_cursor"] is None
 
-        assert self.client.get(url, {"cursor": "not-a-cursor"}).status_code == status.HTTP_400_BAD_REQUEST
+        # The decoded cursor must be the [scope, key] pair, not any two-item JSON value.
+        for bad_cursor in ("not-a-cursor", base64.urlsafe_b64encode(b'"ab"').decode()):
+            assert self.client.get(url, {"cursor": bad_cursor}).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_state_cursor_for_a_long_non_ascii_key_is_accepted(self):
+        canvas_id = self._state_canvas()
+        long_key = "\U0001f600" * 200
+        for key in (long_key, "~"):
+            assert self._set_state(canvas_id, "shared", key, 1).status_code == status.HTTP_200_OK
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/"
+
+        first = self.client.get(url, {"keys_only": "true", "limit": "1"}).json()
+        second = self.client.get(url, {"keys_only": "true", "limit": "1", "cursor": first["next_cursor"]})
+
+        assert second.status_code == status.HTTP_200_OK, second.json()
+        assert [entry["key"] for entry in [*first["entries"], *second.json()["entries"]]] == ["~", long_key]
 
     def test_state_value_chunks_detect_changes(self):
         canvas_id = self._state_canvas()

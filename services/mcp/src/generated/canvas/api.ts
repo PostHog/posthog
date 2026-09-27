@@ -1352,7 +1352,7 @@ export const CanvasesStateRetrieveParams = () => zod.object({
         ),
 })
 
-export const canvasesStateRetrieveQueryCursorMax = 1024
+export const canvasesStateRetrieveQueryCursorMax = 2048
 
 export const canvasesStateRetrieveQueryKeyMax = 200
 
@@ -1371,7 +1371,7 @@ export const CanvasesStateRetrieveQueryParams = () => zod.object({
         .max(canvasesStateRetrieveQueryCursorMax)
         .optional()
         .describe(
-            'Cursor from next_cursor. Resumes after the last entry of the previous page, so writes between pages cannot skip or repeat entries. Keep filters unchanged between pages. Takes precedence over offset.'
+            'Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.'
         ),
     key: zod.string().min(1).max(canvasesStateRetrieveQueryKeyMax).optional().describe('Only read this exact key.'),
     key_prefix: zod
