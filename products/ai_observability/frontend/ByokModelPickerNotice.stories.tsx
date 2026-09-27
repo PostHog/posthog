@@ -24,7 +24,7 @@ function PickerWithNotice({ systemOne = false }: { systemOne?: boolean }): JSX.E
 
     return (
         // The story root has no width of its own, so the picker column is sized here to match the form it sits in.
-        <div className="w-full max-w-[560px]">
+        <div className="w-[560px]">
             <ModelPicker
                 model=""
                 selectedProviderKeyId={null}
