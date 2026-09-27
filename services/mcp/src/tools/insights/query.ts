@@ -112,6 +112,7 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
             insight: {
                 url: fullUrl,
                 ...insightResult.data,
+                result: redactUrlCredentialsDeep(insightResult.data.result),
             },
             results,
             ...(queryResult.data.warnings ? { warnings: queryResult.data.warnings } : {}),

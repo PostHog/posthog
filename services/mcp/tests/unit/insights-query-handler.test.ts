@@ -27,7 +27,7 @@ interface MockHandles {
 interface QueryResult {
     query: unknown
     results: unknown
-    insight: { url: string }
+    insight: { url: string; result?: unknown }
     _posthogUrl: string
     [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]?: string
 }
@@ -219,6 +219,26 @@ describe('queryHandler — result shape for UI rendering', () => {
 
         expect(result.results).toEqual({ columns: ['c'], results: [[1]] })
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
+    })
+
+    it('masks credential query parameters in fresh and cached insight results', async () => {
+        const { context } = createContext({
+            getData: {
+                id: 42,
+                short_id: 'abc12345',
+                query: { kind: 'HogQLQuery', query: 'select properties.$current_url from events' },
+                result: [['https://example.com/cb?code=fake-cached-code&lang=en']],
+            },
+            queryData: { columns: ['url'], results: [['https://example.com/cb?code=fake-fresh-code&lang=en']] },
+        })
+
+        const result = (await queryHandler(context, { insightId: '42', output_format: 'json' })) as QueryResult
+
+        expect(result.results).toEqual({
+            columns: ['url'],
+            results: [['https://example.com/cb?code=[REDACTED]&lang=en']],
+        })
+        expect(result.insight.result).toEqual([['https://example.com/cb?code=[REDACTED]&lang=en']])
     })
 
     it('passes the raw results array through for trends insights', async () => {
