@@ -6,7 +6,7 @@ import {
     EmojiPickerListRowProps,
 } from 'frimousse'
 import { useMountedLogic } from 'kea'
-import { useRef } from 'react'
+import { useId, useRef } from 'react'
 
 import { EmojiPickerSuggestions } from './EmojiPickerSuggestions'
 import { emojiSuggestionsLogic } from './emojiSuggestionsLogic'
@@ -58,8 +58,9 @@ export function EmojiPickerPanel({
     autoFocusSearch,
 }: EmojiPickerPanelProps): JSX.Element {
     const rootRef = useRef<HTMLDivElement>(null)
+    const pickerKey = useId()
     // Mounted for the whole picker session, so earlier results stay cached while the normal search has matches.
-    useMountedLogic(emojiSuggestionsLogic)
+    useMountedLogic(emojiSuggestionsLogic({ pickerKey }))
 
     return (
         <EmojiPicker.Root
@@ -91,7 +92,9 @@ export function EmojiPickerPanel({
                     Loading…
                 </EmojiPicker.Loading>
                 <EmojiPicker.Empty className="absolute inset-0 flex items-center justify-center text-tertiary text-sm">
-                    {({ search }) => <EmojiPickerSuggestions query={search} onEmojiSelect={onEmojiSelect} />}
+                    {({ search }) => (
+                        <EmojiPickerSuggestions pickerKey={pickerKey} query={search} onEmojiSelect={onEmojiSelect} />
+                    )}
                 </EmojiPicker.Empty>
                 <EmojiPicker.List
                     className="select-none pb-1.5"

@@ -5,13 +5,15 @@ import { emojiSuggestionsLogic } from './emojiSuggestionsLogic'
 import { RelatedEmojiButtons } from './RelatedEmojiButtons'
 
 type EmojiPickerSuggestionsProps = {
+    pickerKey: string
     query: string
     onEmojiSelect: (emoji: string) => void
 }
 
-export function EmojiPickerSuggestions({ query, onEmojiSelect }: EmojiPickerSuggestionsProps): JSX.Element {
-    const { isSearchable, loading, suggestions } = useValues(emojiSuggestionsLogic)
-    const { setQuery } = useActions(emojiSuggestionsLogic)
+export function EmojiPickerSuggestions({ pickerKey, query, onEmojiSelect }: EmojiPickerSuggestionsProps): JSX.Element {
+    const logic = emojiSuggestionsLogic({ pickerKey })
+    const { isSearchable, loading, suggestions } = useValues(logic)
+    const { setQuery } = useActions(logic)
     // Before paint, so the previous query's result never flashes. The cleanup cancels a pending debounce.
     useLayoutEffect(() => {
         setQuery(query)

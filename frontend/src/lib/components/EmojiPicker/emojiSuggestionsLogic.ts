@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -17,6 +17,7 @@ type EmojiSuggestionsLogicType = MakeLogicType<
         suggestionsByQuery: Record<string, EmojiSuggestionApi[]>
         failedQuery: string | null
         isSearchable: boolean
+        cachedSuggestions: EmojiSuggestionApi[] | null
         suggestions: EmojiSuggestionApi[]
         loading: boolean
     },
@@ -27,11 +28,18 @@ type EmojiSuggestionsLogicType = MakeLogicType<
             suggestions: EmojiSuggestionApi[]
         ) => { query: string; suggestions: EmojiSuggestionApi[] }
         setSuggestionsFailed: (query: string) => { query: string }
-    }
+    },
+    EmojiSuggestionsLogicProps
 >
 
+export interface EmojiSuggestionsLogicProps {
+    pickerKey: string
+}
+
 export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
-    path(['lib', 'components', 'EmojiPicker', 'emojiSuggestionsLogic']),
+    props({} as EmojiSuggestionsLogicProps),
+    key((props) => props.pickerKey),
+    path((key) => ['lib', 'components', 'EmojiPicker', 'emojiSuggestionsLogic', key]),
     connect(() => ({ values: [projectLogic, ['currentProjectId']] })),
     actions({
         setQuery: (query: string) => ({ query: query.trim() }),
@@ -56,19 +64,21 @@ export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
                 return !!currentProjectId && length >= MIN_QUERY_LENGTH && length <= MAX_QUERY_LENGTH
             },
         ],
-        suggestions: [
+        cachedSuggestions: [
             (s) => [s.query, s.suggestionsByQuery],
-            (query, suggestionsByQuery): EmojiSuggestionApi[] => suggestionsByQuery[query] ?? [],
+            (query, suggestionsByQuery): EmojiSuggestionApi[] | null =>
+                Object.hasOwn(suggestionsByQuery, query) ? suggestionsByQuery[query] : null,
         ],
+        suggestions: [(s) => [s.cachedSuggestions], (cachedSuggestions) => cachedSuggestions ?? []],
         loading: [
-            (s) => [s.query, s.isSearchable, s.suggestionsByQuery, s.failedQuery],
-            (query, isSearchable, suggestionsByQuery, failedQuery): boolean =>
-                isSearchable && !(query in suggestionsByQuery) && query !== failedQuery,
+            (s) => [s.query, s.isSearchable, s.cachedSuggestions, s.failedQuery],
+            (query, isSearchable, cachedSuggestions, failedQuery): boolean =>
+                isSearchable && cachedSuggestions === null && query !== failedQuery,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
         setQuery: async ({ query }, breakpoint) => {
-            if (!values.isSearchable || query in values.suggestionsByQuery) {
+            if (!values.isSearchable || values.cachedSuggestions !== null) {
                 return
             }
             await breakpoint(DEBOUNCE_MS)
@@ -97,7 +107,7 @@ export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
                 )
                 actions.setSuggestions(query, response.suggestions)
             } catch {
-                if (!cache.disposables.isDisposed) {
+                if (!cache.disposables.isDisposed && query === values.query) {
                     actions.setSuggestionsFailed(query)
                 }
             } finally {
