@@ -1,6 +1,14 @@
 import { act, render, screen } from "@testing-library/react";
 import { StrictMode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.mock("@posthog/ui/shell/rendererStorage", () => ({
   electronStorage: {
@@ -49,6 +57,16 @@ function RestoreProbe({
 }
 
 describe("useDraftSync", () => {
+  beforeAll(() => {
+    Range.prototype.getClientRects = () => [] as unknown as DOMRectList;
+    Range.prototype.getBoundingClientRect = () => new DOMRect();
+  });
+
+  afterAll(() => {
+    Reflect.deleteProperty(Range.prototype, "getClientRects");
+    Reflect.deleteProperty(Range.prototype, "getBoundingClientRect");
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     useDraftStore.setState((state) => ({
