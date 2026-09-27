@@ -29,6 +29,7 @@ It suppresses generation, exception, and denial events while keeping rate limits
 Its request context also suppresses provider-library logs, including stdlib logging handlers.
 Chat, Responses, and translated Anthropic stream callbacks retain this context when LiteLLM starts background threads.
 Signals streams on the standard Anthropic route must include a complete `message_stop` event; premature EOF produces a generic protocol error instead of a successful partial scout response.
+Cancelling stream setup releases the active-request gauge and propagates cancellation without reporting a provider error.
 Exception events from ordinary comparison-control traffic use the configured capture host.
 Other products retain their existing capture and billing behavior.
 Deploy this gateway support before enabling live trials; the backend capture setting is an operator attestation, not automatic capability detection.

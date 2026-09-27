@@ -4,7 +4,7 @@ import logging
 import threading
 from collections.abc import AsyncGenerator
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import litellm
@@ -22,7 +22,7 @@ from llm_gateway.api.handler import ANTHROPIC_CONFIG, OPENAI_CONFIG, OPENAI_RESP
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.callbacks import init_callbacks
 from llm_gateway.config import Settings
-from llm_gateway.metrics.prometheus import PROVIDER_ERRORS, REQUEST_COUNT
+from llm_gateway.metrics.prometheus import CONCURRENT_REQUESTS, PROVIDER_ERRORS, REQUEST_COUNT
 from llm_gateway.products.config import SIGNALS_DEV_APP_ID
 
 
@@ -44,7 +44,9 @@ class TestStreamingErrorHandling:
         api: str,
         private_scout: bool,
         caplog: pytest.LogCaptureFixture,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        monkeypatch.delenv("LITELLM_LOCAL_MODEL_COST_MAP", raising=False)
         mock_user.auth_method = "oauth_access_token"
         mock_user.application_id = SIGNALS_DEV_APP_ID
         mock_user.sandbox_task_id = "test-task"
@@ -112,6 +114,9 @@ class TestStreamingErrorHandling:
             with (
                 patch("socket.socket.connect", side_effect=AssertionError("Unexpected network connection")) as connect,
                 patch("socket.getaddrinfo", side_effect=AssertionError("Unexpected DNS lookup")) as resolve,
+                patch(
+                    "llm_gateway.rate_limiting.model_cost_service.get_model_cost_map", return_value=litellm.model_cost
+                ),
                 patch.object(Logging, "failure_handler", failure),
                 patch.object(Logging, "async_failure_handler", afailure),
                 patch.multiple(
@@ -380,6 +385,63 @@ class TestPreStreamErrors:
             distinct_id="test-distinct-id",
             scopes=["llm_gateway:read"],
         )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("private_scout", [False, True])
+    async def test_cancelled_stream_setup_balances_request_gauge(
+        self, mock_user: AuthenticatedUser, private_scout: bool
+    ) -> None:
+        mock_user.auth_method = "oauth_access_token"
+        mock_user.application_id = SIGNALS_DEV_APP_ID
+        mock_user.sandbox_task_id = "test-task"
+        mock_user.scopes = ["llm_gateway:read", "internal_run:read"]
+        if private_scout:
+            mock_user.scopes.append("scout_experiment_internal:read")
+        provider_started = asyncio.Event()
+        provider_release = asyncio.Event()
+        provider_stopped = 0
+
+        async def waiting_provider(**kwargs: object) -> None:
+            nonlocal provider_stopped
+            provider_started.set()
+            try:
+                await provider_release.wait()
+            finally:
+                provider_stopped += 1
+
+        gauge = CONCURRENT_REQUESTS.labels(provider="anthropic", model="test-model", product="signals")
+        before = gauge._value.get()
+        with (
+            patch("llm_gateway.api.handler.get_settings", return_value=Settings(streaming_timeout=60)),
+            patch("llm_gateway.observability.error_tracking._initialized", True),
+            patch("llm_gateway.observability.error_tracking.posthoganalytics") as capture,
+            patch("llm_gateway.rate_limiting.runner.ThrottleRunner.record_cost", new_callable=AsyncMock) as record_cost,
+        ):
+            request = asyncio.create_task(
+                handle_llm_request(
+                    request_data={"model": "test-model", "messages": [], "stream": True},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=True,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=waiting_provider,
+                    product="signals",
+                )
+            )
+            try:
+                await asyncio.wait_for(provider_started.wait(), timeout=5)
+                assert gauge._value.get() == before + 1
+                request.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await asyncio.wait_for(request, timeout=5)
+            finally:
+                request.cancel()
+                await asyncio.gather(request, return_exceptions=True)
+
+            assert provider_stopped == 1
+            assert gauge._value.get() == before
+            capture.capture_exception.assert_not_called()
+            record_cost.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_streaming_timeout_before_first_chunk_raises_504(self, mock_user: AuthenticatedUser) -> None:
