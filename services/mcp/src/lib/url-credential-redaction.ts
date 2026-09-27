@@ -14,7 +14,7 @@
 
 import { assignKey, isRecord } from '@/lib/plain-object'
 
-export const REDACTED_VALUE = '[REDACTED]'
+const REDACTED_VALUE = '[REDACTED]'
 
 /** Names that carry a credential only as the whole parameter name. */
 const EXACT_CREDENTIAL_NAMES = new Set(['code', 'state', 'key', 'sig', 'auth', 'jwt', 'otp', 'ticket', 'nonce'])

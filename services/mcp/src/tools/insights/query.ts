@@ -1,8 +1,8 @@
 import type { z } from 'zod'
 
 import type { AccessControlFilterWarning, DataWarehouseSyncWarning } from '@/api/client'
-import { withUiApp } from '@/resources/ui-apps'
 import { redactUrlCredentials, redactUrlCredentialsDeep } from '@/lib/url-credential-redaction'
+import { withUiApp } from '@/resources/ui-apps'
 import type { Insight } from '@/schema/insights'
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
