@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TypedDict, TypeVar
 
 from django.conf import settings
 
@@ -56,7 +56,12 @@ def is_object_store_permission_denied(error: BaseException) -> bool:
     )
 
 
-def delta_merge_spill_kwargs() -> dict[str, int]:
+class DeltaMergeSpillKwargs(TypedDict, total=False):
+    max_spill_size: int
+    max_temp_directory_size: int
+
+
+def delta_merge_spill_kwargs() -> DeltaMergeSpillKwargs:
     """delta-rs `merge` kwargs that let DataFusion spill to disk instead of OOMing on large merges.
 
     A merge decompresses the target partition into an Arrow working set that can exceed the pod's
@@ -66,7 +71,7 @@ def delta_merge_spill_kwargs() -> dict[str, int]:
     DataFusion keeps its unbounded default (today's behavior), which also keeps this compatible with
     deltalake versions predating the parameters.
     """
-    kwargs: dict[str, int] = {}
+    kwargs: DeltaMergeSpillKwargs = {}
     if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES is not None:
         kwargs["max_spill_size"] = settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_SPILL_SIZE_BYTES
     if settings.DATA_WAREHOUSE_DELTA_MERGE_MAX_TEMP_DIRECTORY_SIZE_BYTES is not None:

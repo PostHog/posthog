@@ -511,11 +511,13 @@ class DeltaWriter:
                 # column's type in place.
                 data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
+            # Bound outside the lambdas: mypy does not carry the None narrowing into a closure.
+            overwrite_target = delta_table
             try:
                 await execute_with_conflict_retry(
                     delta_table,
                     lambda: _write_deltalake(
-                        delta_table,
+                        overwrite_target,
                         data,
                         partition_by=PARTITION_KEY if use_partitioning else None,
                         mode=mode,
@@ -532,7 +534,7 @@ class DeltaWriter:
                 await execute_with_conflict_retry(
                     delta_table,
                     lambda: _write_deltalake(
-                        delta_table,
+                        overwrite_target,
                         data,
                         partition_by=None,
                         mode=mode,
@@ -566,10 +568,11 @@ class DeltaWriter:
 
             await self._logger.adebug(f"write: write_type = append")
 
+            append_target = delta_table
             await execute_with_conflict_retry(
                 delta_table,
                 lambda: _write_deltalake(
-                    delta_table,
+                    append_target,
                     data,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="append",
