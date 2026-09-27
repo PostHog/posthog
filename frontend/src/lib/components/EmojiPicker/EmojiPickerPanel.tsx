@@ -5,9 +5,11 @@ import {
     EmojiPickerListEmojiProps,
     EmojiPickerListRowProps,
 } from 'frimousse'
+import { useMountedLogic } from 'kea'
 import { useRef } from 'react'
 
 import { EmojiPickerSuggestions } from './EmojiPickerSuggestions'
+import { emojiSuggestionsLogic } from './emojiSuggestionsLogic'
 
 // frimousse fetches `<emojibaseUrl>/<locale>/data.json` and `messages.json`, and the URL defaults to
 // cdn.jsdelivr.net. The app's connect-src does not allow that CDN, and frimousse has no error state, so a
@@ -56,6 +58,8 @@ export function EmojiPickerPanel({
     autoFocusSearch,
 }: EmojiPickerPanelProps): JSX.Element {
     const rootRef = useRef<HTMLDivElement>(null)
+    // Mounted for the whole picker session, so earlier results stay cached while the normal search has matches.
+    useMountedLogic(emojiSuggestionsLogic)
 
     return (
         <EmojiPicker.Root
