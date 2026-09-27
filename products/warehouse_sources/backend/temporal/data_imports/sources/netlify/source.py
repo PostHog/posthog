@@ -119,10 +119,7 @@ Create a personal access token under **User settings > Applications > Personal a
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_netlify_credentials(config.api_token):
-            return True, None
-
-        return False, "Invalid Netlify personal access token"
+        return validate_netlify_credentials(config.api_token)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[NetlifyResumeConfig]:
         return ResumableSourceManager[NetlifyResumeConfig](inputs, NetlifyResumeConfig)

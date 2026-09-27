@@ -1777,7 +1777,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         users,
                         foldersFirst: false,
                         searchTerm,
-                        // With only a few tools pinned, category headers add more noise than structure —
+                        // With only a few products pinned, category headers add more noise than structure —
                         // list them in sequence instead.
                         disableCategories: imports.length <= 5,
                         disabledReason: (item) => getProductAccessDisabledReason(item as FileSystemImport),
