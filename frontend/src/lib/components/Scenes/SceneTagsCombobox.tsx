@@ -61,7 +61,7 @@ export function SceneTagsCombobox({
                 loading={tagsLoading}
                 options={tagsAvailable ?? allExistingTags.filter((tag) => !tags?.includes(tag))}
                 placeholder="Add tags..."
-                disabled={!onSave || !canEdit}
+                disabled={!onSave || !canEdit || suggesting}
                 allowCustomValues
                 customValueNoun="tag"
                 dataAttr={`${dataAttrKey}-tags-input`}
