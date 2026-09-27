@@ -26,7 +26,9 @@ REPO_LOCATION_VARS = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
 )
 
-GIT_TIMEOUT_SECONDS = 120
+# Several evals can build workspaces on one disk at once, and `git add` of a full checkout then
+# takes minutes rather than seconds.
+GIT_TIMEOUT_SECONDS = 10 * 60
 
 # A fixed pointer to the baseline commit, independent of HEAD, so a commit the agent makes in
 # `workdir` (against instructions) cannot move the commit `candidate_diff` scores against.
