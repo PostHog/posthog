@@ -577,6 +577,7 @@ the row lists both.
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
 | qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
+| quo                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | railway                          | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | recurly                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                             | HTTP                        | requests                                                        | ✅                          |
@@ -1306,7 +1307,6 @@ doesn't conflict with concurrent PRs.
 - qonto
 - quay
 - quickbooks
-- quo
 - railz
 - raisely
 - raken
