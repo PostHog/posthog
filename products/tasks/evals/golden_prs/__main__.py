@@ -105,7 +105,7 @@ def report(results: list[dict]) -> str:
         f"| {mean(r['scores']['added_line_f1'] for r in results):.2f} | {mean(r['judge_score'] for r in results):.2f} | | |"
     )
     reasoning = "\n".join(f"- **#{r['pr']}** ({r['judge_score']:.2f}): {r['judge_reasoning']}" for r in results)
-    return f"{header}{chr(10).join(rows)}\n{means}\n\n### Judge reasoning\n\n{reasoning}\n"
+    return f"{header}{'\n'.join(rows)}\n{means}\n\n### Judge reasoning\n\n{reasoning}\n"
 
 
 def _positive_int(value: str) -> int:
