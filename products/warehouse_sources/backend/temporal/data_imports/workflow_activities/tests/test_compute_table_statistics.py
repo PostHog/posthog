@@ -12,6 +12,7 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import pyarrow as pa
+from parameterized import parameterized
 from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team
@@ -145,7 +146,7 @@ class TestComputeTableStatisticsSync:
             team=team,
             credential=credential,
             url_pattern="https://bucket.s3/data/*",
-            columns=columns or {"amount": {"clickhouse": "Nullable(Int64)"}},
+            columns=columns if columns is not None else {"amount": {"clickhouse": "Nullable(Int64)"}},
         )
         source = ExternalDataSource.objects.create(
             source_id="src", connection_id="conn", team=team, source_type="Stripe"
@@ -306,6 +307,60 @@ class TestComputeTableStatisticsSync:
         row = rows.get()
         assert row.row_count == 99
         assert row.computed_for_delta_version == 5
+
+    @parameterized.expand(
+        [
+            ("same_version_within_max_age_skips", dt.timedelta(days=2), 7, "skipped"),
+            ("same_version_past_max_age_recomputes", dt.timedelta(days=8), 7, "done"),
+            ("new_version_recomputes", dt.timedelta(days=2), 8, "done"),
+        ]
+    )
+    def test_version_gate(self, _name: str, age: dt.timedelta, table_version: int, expected_status: str) -> None:
+        # The Add-action scan is the expensive step. Stats at an unchanged Delta version are already
+        # exact, so re-reading them once a day per table was pure cost; the age cap keeps a changed
+        # column registry or derivation from waiting forever behind a table that never moves.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name="amount",
+            row_count=1,
+            computed_at=timezone.now() - age,
+            computed_for_delta_version=7,
+        )
+        add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        helper = self._mock_delta(add_actions, version=table_version)
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        row = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount")
+        assert result["status"] == expected_status
+        if expected_status == "skipped":
+            assert result["reason"] == "version_unchanged"
+            helper.get_delta_table.return_value.get_add_actions.assert_not_called()
+            assert row.row_count == 1
+        else:
+            assert row.row_count == 99
+            assert row.computed_for_delta_version == table_version
+
+    def test_skipped_when_no_columns_without_reading_add_actions(self) -> None:
+        # Nothing is written for a table with no registered columns, so the recency gate never
+        # engages for it; the only thing keeping the scan off every sync is checking columns first.
+        team = self._team()
+        schema, _, _ = self._schema_table_job(team, columns={})
+        helper = self._mock_delta(pa.table({"num_records": [1]}))
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result == {"status": "skipped", "reason": "no_columns"}
+        helper.get_delta_table.return_value.get_add_actions.assert_not_called()
 
     def test_skipped_when_computed_recently(self) -> None:
         team = self._team()

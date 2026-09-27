@@ -9,7 +9,8 @@ Stats come from the Delta transaction log's per-file statistics (`num_records`, 
 exact, whole-table, correct for full-refresh/append/incremental-upsert (live add-actions reflect the
 current files), and scales to any table size. Results land in `WarehouseColumnStatistics`, fully
 system-owned and overwritten on each run. To avoid re-profiling an hourly-syncing table every hour,
-a row computed within `MIN_RECOMPUTE_INTERVAL` is left alone.
+a row computed within `MIN_RECOMPUTE_INTERVAL` is left alone, and a table whose Delta version has not
+moved since the last computation is left alone until `MAX_RECOMPUTE_INTERVAL` has passed.
 """
 
 import os
@@ -51,6 +52,10 @@ STATISTICS_FEATURE_FLAG = "data-warehouse-column-statistics"
 # Cap profiling to once a day per table — an hourly-syncing table doesn't need re-profiling every hour,
 # and Delta-log stats only move materially over longer windows. Env-overridable for ops.
 MIN_RECOMPUTE_INTERVAL = timedelta(hours=int(os.getenv("WAREHOUSE_STATS_MIN_RECOMPUTE_INTERVAL_HOURS", "24")))
+# Stats derive from the Delta log at one version, so an unchanged version means unchanged stats and the
+# Add-action scan (the expensive step) can be skipped. The cap still forces a recompute so a change in
+# the table's registered columns, or in how stats are derived, reaches every table eventually.
+MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOMPUTE_INTERVAL_DAYS", "7")))
 
 # Product-analytics events — query these to track statistics volume, columns profiled, skips, and errors.
 EVENT_STARTED = "data warehouse table statistics started"
@@ -167,6 +172,13 @@ def _most_recent_computed_at(existing: dict[str, WarehouseColumnStatistics]) -> 
     return max(times) if times else None
 
 
+def _most_recent_computed_version(existing: dict[str, WarehouseColumnStatistics]) -> int | None:
+    # One recompute stamps every column row with the same version. A column dropped from the table
+    # keeps its old row, so the maximum is the version of the last recompute.
+    versions = [s.computed_for_delta_version for s in existing.values() if s.computed_for_delta_version is not None]
+    return max(versions) if versions else None
+
+
 @retry_on_operational_error
 def _get_team(team_id: int) -> Team:
     return Team.objects.select_related("organization").only("id", "uuid", "organization_id").get(id=team_id)
@@ -246,15 +258,25 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         return {"status": "skipped", "reason": "no_delta_table"}
 
     delta_version = delta_table.version()
-    add_actions = delta_table.get_add_actions(flatten=True)
-    if add_actions.num_rows == 0:
-        emit_completed("skipped", reason="no_files")
-        return {"status": "skipped", "reason": "no_files"}
+    if (
+        latest is not None
+        and _most_recent_computed_version(existing) == delta_version
+        and timezone.now() - latest < MAX_RECOMPUTE_INTERVAL
+    ):
+        emit_completed("skipped", reason="version_unchanged", delta_version=delta_version)
+        return {"status": "skipped", "reason": "version_unchanged"}
 
+    # Checked before the Add-action scan: a table with no registered columns writes no rows, so
+    # nothing would stop the scan from repeating on every sync.
     columns = table.columns or {}
     if not columns:
         emit_completed("skipped", reason="no_columns")
         return {"status": "skipped", "reason": "no_columns"}
+
+    add_actions = delta_table.get_add_actions(flatten=True)
+    if add_actions.num_rows == 0:
+        emit_completed("skipped", reason="no_files")
+        return {"status": "skipped", "reason": "no_files"}
 
     row_count, stats_by_column = _aggregate_add_action_stats(add_actions, columns)
 
