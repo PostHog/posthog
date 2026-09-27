@@ -2653,9 +2653,8 @@ class ProjectProfileSerializer(serializers.Serializer):
     )
     as_of = serializers.CharField(
         help_text=(
-            "ISO-8601 UTC timestamp of this response, from the same server clock that HogQL `now()`, relative "
-            "date ranges, and run timestamps use. Use it as the current date and time. Unlike `computed_at`, it "
-            "is not the build time of a cached profile."
+            "ISO-8601 UTC timestamp from the API server clock when it handled this request. Use it as the current "
+            "date and time. Unlike `computed_at`, it is not the build time of a cached profile."
         ),
     )
     profile_id = serializers.CharField(help_text="UUID of the `SignalProjectProfile` row.")

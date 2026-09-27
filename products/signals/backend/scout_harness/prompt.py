@@ -350,7 +350,7 @@ _RECENCY_LENS = """# Recency lens
 
 Default to recent windows (~last 72h) when querying, since fresh evidence is usually more actionable. Widen for slower patterns (cycles, drift, accumulation, multi-week experiments). Your skill body may set a different default for its domain.
 
-The PostHog server clock in UTC is the only source of the current date and time. HogQL `now()`, relative date ranges such as `-7d`, run timestamps, and profile timestamps all use it. Your runtime can state a different current date, for example a date it computed before UTC midnight. Do not use that date. Use `as_of` from `scout-project-profile-get` as the current UTC time, and anchor rolling windows, freshness checks, and the dates you write to it. Later in a long run, get the time again with `SELECT now()` through `execute-sql`. When a tool timestamp disagrees with the date you expect, the tool is correct."""
+PostHog server time in UTC is the only source of the current date and time. Tool timestamps, HogQL `now()`, and relative date ranges such as `-7d` all use UTC server time. Your runtime can state a different current date, for example a date it computed before UTC midnight. Do not use that date. Use `as_of` from `scout-project-profile-get` as the current UTC time, and anchor rolling windows, freshness checks, and the dates you write to it. Later in a long run, get the time again with `SELECT now()` through `execute-sql`. When a tool timestamp disagrees with the date you expect, the tool is correct."""
 
 _FINDING_SCHEMA = """# Finding schema
 
