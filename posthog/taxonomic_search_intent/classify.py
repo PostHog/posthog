@@ -1,8 +1,10 @@
 """
 Classify a filter picker search: which tab (taxonomic group) does the person look for?
 
-Value-shaped input (an email address, a URL, a path) is matched by pattern and never goes to the model.
-Everything else is one multiple choice question to the decision model, over the tabs the picker shows.
+A search that is one value (an email address, a URL, a path) is matched by pattern. Everything else is one
+multiple choice question to the decision model, over the tabs the picker shows. The model reads the search
+with each value-shaped word replaced by a placeholder, which names the shape and keeps the value itself out of
+model inputs and anything built from them.
 """
 
 import re
@@ -33,7 +35,7 @@ MAX_QUERY_CHARS = 64
 SEARCH_INTENT_TIMEOUT_SECONDS = 2.0
 CACHE_TTL_SECONDS = 24 * 60 * 60
 # Keyed per team: a cache shared across teams lets a fast answer tell one team what another team searched.
-CACHE_KEY_PREFIX = "taxonomic_search_intent:v1"
+CACHE_KEY_PREFIX = "taxonomic_search_intent:v2"
 
 _EMAIL_VALUE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.IGNORECASE)
 _URL_VALUE = re.compile(r"^(https?://|www\.)", re.IGNORECASE)
@@ -41,6 +43,17 @@ _URL_VALUE = re.compile(r"^(https?://|www\.)", re.IGNORECASE)
 _PATH_VALUE = re.compile(r"^/")
 # Long digit runs are ids or phone numbers, which are not ours to send.
 _DIGIT_RUN = re.compile(r"\d{6,}")
+_MIN_ID_DIGITS = 6
+# A group of digits and separators, such as "+1", "(415)" or "555-2671". A run of them can be one phone number.
+_DIGIT_GROUP = re.compile(r"^\+?[\d.:-]*\d[\d.:-]*$")
+_IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
+# A bare host such as "example.com". Only common top-level domains, so a dotted property such as "user.plan" still reads.
+_HOSTNAME = re.compile(
+    r"^([a-z0-9-]+\.)+"
+    r"(com|net|org|io|co|ai|app|dev|me|info|biz|xyz|tech|cloud|uk|us|eu|de|fr|es|it|nl|ca|au|in|jp|br)"
+    r"(:\d+)?$",
+    re.IGNORECASE,
+)
 # One word of 8+ characters that mixes letters with two or more digits is a token or an id, such as a session id.
 _OPAQUE_TOKEN = re.compile(r"^(?=\S*[a-z])(?=\S*\d\S*\d)\S{8,}$", re.IGNORECASE)
 _SCENE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -50,8 +63,8 @@ _QUESTION_ID = "tab"
 _CACHED_INTENT = TypeAdapter(SearchIntent)
 
 
-def search_intent_enabled(distinct_id: str, organization_id: str) -> bool:
-    """The flag assigns the experiment arms. Every arm asks, so any value other than off enables the endpoint.
+def search_intent_enabled(distinct_id: str, organization_id: str, flag: str = SEARCH_INTENT_FEATURE_FLAG) -> bool:
+    """Any flag value other than off enables the endpoint, because every arm of an experiment asks the model.
 
     Dark launch: only local development and the US cloud, so no flag change can bring it up in the EU or on
     self-hosted. DEBUG bypasses the flag because the analytics SDK is disabled in local development.
@@ -63,7 +76,7 @@ def search_intent_enabled(distinct_id: str, organization_id: str) -> bool:
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                SEARCH_INTENT_FEATURE_FLAG,
+                flag,
                 distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -85,21 +98,82 @@ def _rule_match(group_type: str) -> SearchIntent:
 
 
 def rule_intent(query: str, available_group_types: tuple[str, ...]) -> SearchIntent | None:
-    """Match value-shaped input. None means the query is not a value and the model can read it."""
-    if "@" in query:
-        if _EMAIL_VALUE.match(query) and "email_addresses" in available_group_types:
+    """Answer a search that is one value by its shape. None means the model reads it, with any values redacted."""
+    if _EMAIL_VALUE.match(query):
+        if "email_addresses" in available_group_types:
             return _rule_match("email_addresses")
-        if _EMAIL_VALUE.match(query) and "person_properties" in available_group_types:
+        if "person_properties" in available_group_types:
             return _rule_match("person_properties")
-        # A partial email address is still personal data, so it never goes to the model.
-        return _skipped()
-    if _URL_VALUE.match(query) or _PATH_VALUE.match(query):
-        if "pageview_urls" in available_group_types:
-            return _rule_match("pageview_urls")
-        return _skipped()
-    if _DIGIT_RUN.search(query) or any(_OPAQUE_TOKEN.match(word) for word in query.split()):
-        return _skipped()
+    if (_URL_VALUE.match(query) or _PATH_VALUE.match(query)) and "pageview_urls" in available_group_types:
+        return _rule_match("pageview_urls")
     return None
+
+
+# Brackets, quotes and trailing punctuation around a value would otherwise hide it from the shape checks.
+_WRAPPING_PUNCTUATION = "()[]{}<>.,;:!?\"'`"
+_VALUE_MARKERS = ("@", "=")
+
+
+def _bare(word: str) -> str:
+    return word.strip(_WRAPPING_PUNCTUATION)
+
+
+def _placeholder(word: str) -> str | None:
+    """The shape of a value-shaped word, which the model reads instead of the value. None for an ordinary word."""
+    bare = _bare(word)
+    if "@" in bare:
+        return "<email>"
+    if "://" in bare or "www." in bare.lower() or _HOSTNAME.match(bare):
+        return "<url>"
+    if _IPV4.match(bare):
+        return "<ip>"
+    # A path can carry a token or personal data in any segment, a Windows path included.
+    if "/" in bare or "\\" in bare:
+        return "<path>"
+    if "=" in bare:
+        return "<value>"
+    if _DIGIT_RUN.search(bare):
+        return "<number>"
+    if _OPAQUE_TOKEN.match(bare):
+        return "<id>"
+    return None
+
+
+def redact_values(query: str) -> str | None:
+    """The search with each value-shaped word replaced by a placeholder that names its shape.
+
+    None when only values are left, because the model then has nothing to read.
+    """
+    words = query.split()
+    # A marker at a word's edge, as in "token = sk_live_x" or "ada @ example.com", leaves its value in the next word.
+    if any(bare[:1] in _VALUE_MARKERS or bare[-1:] in _VALUE_MARKERS for bare in map(_bare, words)):
+        return None
+    parts: list[str] = []
+    reads_a_word = False
+    start = 0
+    while start < len(words):
+        placeholder = _placeholder(words[start])
+        end = start if placeholder else _number_run_end(words, start)
+        if end > start:
+            parts.append("<number>")
+            start = end
+            continue
+        reads_a_word = reads_a_word or placeholder is None
+        parts.append(placeholder or words[start])
+        start += 1
+    return " ".join(parts) if reads_a_word else None
+
+
+def _number_run_end(words: list[str], start: int) -> int:
+    """The end of the digit groups from `start` when together they hold an id's worth of digits, else `start`.
+
+    A phone number such as "+1 (415) 555-2671" spreads its digits over several words, and no one word looks like an id.
+    """
+    end = start
+    while end < len(words) and _DIGIT_GROUP.match(_bare(words[end])):
+        end += 1
+    digits = sum(char.isdigit() for word in words[start:end] for char in word)
+    return end if digits >= _MIN_ID_DIGITS else start
 
 
 def search_intent_state(query: str, active_group_type: str, scene: str | None) -> str:
@@ -158,8 +232,11 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
     }
     if len(options) < 2:
         return _skipped()
+    model_query = redact_values(query)
+    if model_query is None:
+        return _skipped()
 
-    state = search_intent_state(query, request.active_group_type, request.scene)
+    state = search_intent_state(model_query, request.active_group_type, request.scene)
     key = _cache_key(
         request.team_id, SEARCH_INTENT_MODEL, state, prompt.instructions, options, prompt.confident_threshold
     )
@@ -188,6 +265,7 @@ def _classify(request: SearchIntentRequest, prompt: SearchIntentPrompt, *, use_c
         is_confident=answer.confidence >= prompt.confident_threshold,
         source=SearchIntentSource.MODEL,
         prompt_version=prompt.version,
+        model_query=model_query,
     )
     if use_cache:
         cache.set(key, _CACHED_INTENT.dump_json(intent).decode(), CACHE_TTL_SECONDS)

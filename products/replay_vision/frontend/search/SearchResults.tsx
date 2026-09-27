@@ -25,6 +25,7 @@ import {
     type ObservationSearchLogicProps,
     type ResultsView,
     SEARCH_PAGE_SIZE,
+    type SearchResultTarget,
     observationSearchLogic,
 } from './observationSearchLogic'
 import { snippetSegments } from './snippetSegments'
@@ -51,16 +52,19 @@ interface ResultProps {
     returnParams: Record<string, string>
     /** True once the recordings API confirmed this result's recording no longer exists. */
     expired: boolean
+    onOpen: (target: SearchResultTarget) => void
 }
 
 function WatchLink({
     observation,
     expired,
     compact,
+    onOpen,
 }: {
     observation: ReplayObservationApi
     expired: boolean
     compact?: boolean
+    onOpen: (target: SearchResultTarget) => void
 }): JSX.Element {
     const routerValues = useValues(router)
     const citedMs = firstCitedTimestampMs(observation)
@@ -95,6 +99,7 @@ function WatchLink({
     return (
         <Link
             to={watchMomentUrl(observation, citedMs, routerValues)}
+            onClick={() => onOpen('watch')}
             className={clsx('relative block text-primary group', compact && 'w-28')}
             data-attr="vision-search-result-watch"
         >
@@ -184,6 +189,7 @@ function MomentCard({
     searchedQuery,
     returnParams,
     expired,
+    onOpen,
     tier,
 }: ResultProps & { tier: Tier | null }): JSX.Element {
     const observation = result.observation
@@ -191,7 +197,7 @@ function MomentCard({
     return (
         <LemonCard className="flex flex-col rounded-lg p-0 overflow-hidden" data-attr="vision-search-result">
             <div className="relative">
-                <WatchLink observation={observation} expired={expired} />
+                <WatchLink observation={observation} expired={expired} onOpen={onOpen} />
                 <span className="absolute top-2 left-2 flex items-center gap-1">
                     {snapshot && <ScannerOutputBadge scannerType={snapshot.scanner_type} size="small" />}
                     {tier === 'top' && <TopMatchTag />}
@@ -210,6 +216,7 @@ function MomentCard({
                     <SubjectLink observation={observation} />
                     <Link
                         to={observationDetailUrl(observation.id, returnParams)}
+                        onClick={() => onOpen('detail')}
                         className="ml-auto shrink-0"
                         data-attr="vision-search-result-detail"
                     >
@@ -221,13 +228,13 @@ function MomentCard({
     )
 }
 
-function MomentRow({ result, searchedQuery, returnParams, expired }: ResultProps): JSX.Element {
+function MomentRow({ result, searchedQuery, returnParams, expired, onOpen }: ResultProps): JSX.Element {
     const observation = result.observation
     const snapshot = observation.scanner_snapshot
     return (
         <LemonCard className="flex gap-3 rounded-lg p-2 min-w-0" data-attr="vision-search-result">
             <div className="shrink-0 self-center">
-                <WatchLink observation={observation} expired={expired} compact />
+                <WatchLink observation={observation} expired={expired} compact onOpen={onOpen} />
             </div>
             <div className="flex flex-col gap-1 min-w-0 flex-1">
                 <div className="flex items-center gap-2 min-w-0">
@@ -238,6 +245,7 @@ function MomentRow({ result, searchedQuery, returnParams, expired }: ResultProps
                         <TZLabel time={observation.created_at} />
                         <Link
                             to={observationDetailUrl(observation.id, returnParams)}
+                            onClick={() => onOpen('detail')}
                             data-attr="vision-search-result-detail"
                         >
                             Details
@@ -317,7 +325,7 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
         scannerId,
         sourceObservationId,
         truncated,
-        topMatchDistanceCutoff,
+        topMatchIds,
         view,
         page,
         pageCount,
@@ -326,14 +334,14 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
         pageEndIndex,
         expiredSessionIds,
     } = useValues(logic)
-    const { setPage, setView } = useActions(logic)
+    const { setPage, setView, resultOpened } = useActions(logic)
 
     if (!searching && (!results || results.length === 0)) {
         return null
     }
     const returnParams = searchReturnParams(searchedQuery ?? '', scannerId, sourceObservationId)
     const tierOf = (result: ObservationSearchResultApi): Tier | null =>
-        topMatchDistanceCutoff === null ? null : result.distance <= topMatchDistanceCutoff ? 'top' : 'other'
+        topMatchIds === null ? null : topMatchIds.has(result.observation.id) ? 'top' : 'other'
     return (
         <div className="flex flex-col">
             <div className="flex items-center gap-2 mb-1">
@@ -370,6 +378,7 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                                 searchedQuery={searchedQuery ?? ''}
                                 returnParams={returnParams}
                                 expired={expiredSessionIds.has(result.observation.session_id)}
+                                onOpen={(target) => resultOpened(result.observation.id, target)}
                                 tier={tierOf(result)}
                             />
                         ))}
@@ -385,6 +394,7 @@ export function SearchResults(logicProps: ObservationSearchLogicProps): JSX.Elem
                                     searchedQuery={searchedQuery ?? ''}
                                     returnParams={returnParams}
                                     expired={expiredSessionIds.has(result.observation.session_id)}
+                                    onOpen={(target) => resultOpened(result.observation.id, target)}
                                 />
                             ))}
                         </div>
