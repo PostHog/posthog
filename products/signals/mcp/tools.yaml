@@ -518,9 +518,9 @@ tools:
             established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one,
             and `errored` retries it. Nothing else closes a check, so a run that investigates and never calls this
             leaves the report with an unanswered follow-up. You may also record a check on your own scout whose
-            `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for a
-            check on another scout, a `pending` check whose report has not resolved, a check that is not due yet, and a
-            check the coordinator measures itself.
+            `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for
+            a check on another scout, a `pending` check whose report has not resolved, a check that is not due yet, and
+            a check the coordinator measures itself.
     scout-config-create:
         operation: signals_scout_config_create
         enabled: true
