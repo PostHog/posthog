@@ -143,7 +143,7 @@ vi.mock("@posthog/ui/features/sessions/components/useComments", () => ({
   },
   useSetCommentResolved: (target: unknown) => {
     mocks.resolvedFor.push(target);
-    return { mutate: mocks.setResolved, isPending: false };
+    return { mutateAsync: mocks.setResolved, isPending: false };
   },
 }));
 

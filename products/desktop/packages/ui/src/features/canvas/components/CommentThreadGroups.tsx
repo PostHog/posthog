@@ -21,7 +21,15 @@ import {
 
 /** The icon a source shows wherever it's named — the card label and the
  *  filter menu — so the two always agree. */
-export function sourceIcon(kind: SourceKind, label: string, size = 12) {
+export function SourceIcon({
+  kind,
+  label,
+  size = 12,
+}: {
+  kind: SourceKind;
+  label: string;
+  size?: number;
+}) {
   switch (kind) {
     case "pr":
       return (
@@ -102,7 +110,7 @@ export function CommentThreadGroups({
                   !open && "-rotate-90",
                 )}
               />
-              {sourceIcon(sourceKind, sourceLabel)}
+              <SourceIcon kind={sourceKind} label={sourceLabel} />
               <span className="min-w-0 truncate">{sourceLabel}</span>
               <span className="ml-auto shrink-0 pl-2 font-normal text-muted-foreground tabular-nums">
                 {group.length}

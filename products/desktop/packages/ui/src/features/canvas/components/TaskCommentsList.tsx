@@ -163,7 +163,9 @@ function ResourceThreadRow({
           mentions,
         });
       }}
-      onResolve={(resolved) => setResolved.mutate({ root, resolved })}
+      onResolve={async (resolved) => {
+        await setResolved.mutateAsync({ root, resolved });
+      }}
     />
   );
 }

@@ -5,7 +5,7 @@ import {
   TabsList,
   TabsTrigger,
 } from "@posthog/quill";
-import { sourceIcon } from "@posthog/ui/features/canvas/components/CommentThreadGroups";
+import { SourceIcon } from "@posthog/ui/features/canvas/components/CommentThreadGroups";
 import type { ThreadSourceOption } from "@posthog/ui/features/canvas/components/taskCommentThreads";
 import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import {
@@ -81,7 +81,7 @@ export function CommentSourceFilter({
     ...options.map((option) => ({
       value: option.key,
       label: option.label,
-      icon: sourceIcon(option.kind, option.label),
+      icon: <SourceIcon kind={option.kind} label={option.label} />,
     })),
   ];
   return (

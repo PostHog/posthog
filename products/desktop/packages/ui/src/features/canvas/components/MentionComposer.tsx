@@ -13,7 +13,13 @@ import Mention, { type MentionNodeAttrs } from "@tiptap/extension-mention";
 import Placeholder from "@tiptap/extension-placeholder";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import "./mention-chip.css";
 import "./mention-composer.css";
 
@@ -93,7 +99,9 @@ export function MentionComposer({
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
   const onEscapeRef = useRef(onEscape);
-  onEscapeRef.current = onEscape;
+  useLayoutEffect(() => {
+    onEscapeRef.current = onEscape;
+  });
   const onMentionInsertRef = useRef(onMentionInsert);
   onMentionInsertRef.current = onMentionInsert;
   const openRef = useRef(open);

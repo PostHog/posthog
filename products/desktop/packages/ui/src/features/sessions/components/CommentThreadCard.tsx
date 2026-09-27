@@ -33,6 +33,7 @@ import {
   type KeyboardEvent,
   type ReactElement,
   type ReactNode,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -202,6 +203,16 @@ export function CommentThreadCard({
 }) {
   const [replying, setReplying] = useState(false);
   const openButtonRef = useRef<HTMLButtonElement>(null);
+  const focusAfterRemoval = useRef<HTMLElement | null>(null);
+  useEffect(
+    () => () => {
+      const next = focusAfterRemoval.current;
+      if (next?.isConnected && document.activeElement === document.body) {
+        next.focus();
+      }
+    },
+    [],
+  );
   const [reply, setReply] = useState("");
   const [showAllReplies, setShowAllReplies] = useState(false);
   const [root, ...replies] = entries;
@@ -231,7 +242,9 @@ export function CommentThreadCard({
           },
         });
       })
-      .catch(() => undefined);
+      .catch(() => {
+        focusAfterRemoval.current = null;
+      });
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -242,12 +255,8 @@ export function CommentThreadCard({
       startReply();
     } else if (event.key === "e" && canResolve && !busy) {
       event.preventDefault();
-      const current = event.currentTarget;
-      const next = adjacentThread(current);
+      focusAfterRemoval.current = adjacentThread(event.currentTarget);
       setThreadResolved(!resolved);
-      requestAnimationFrame(() => {
-        if (!current.isConnected) next?.focus();
-      });
     }
   };
 
@@ -312,7 +321,10 @@ export function CommentThreadCard({
                 size="xs"
                 variant="link-muted"
                 className="-mt-2 -mb-1 h-5 self-start px-0"
-                onClick={() => setShowAllReplies(true)}
+                onClick={() => {
+                  setShowAllReplies(true);
+                  openButtonRef.current?.focus();
+                }}
               >
                 <CaretRightIcon />
                 Show {hiddenReplies} earlier{" "}
