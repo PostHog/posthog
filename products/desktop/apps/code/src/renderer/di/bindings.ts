@@ -174,6 +174,10 @@ import {
   NOTIFICATIONS_SERVICE,
 } from "@posthog/platform/notifications";
 import type {
+  IScreenCapture,
+  SCREEN_CAPTURE_SERVICE,
+} from "@posthog/platform/screen-capture";
+import type {
   ISettingsBackupFiles,
   SETTINGS_BACKUP_FILES,
 } from "@posthog/platform/settings-backup-files";
@@ -303,6 +307,7 @@ import { TASK_SERVICE as RENDERER_TASK_SERVICE, TRPC_CLIENT } from "./tokens";
  * ContainerModules without typing their internal bindings).
  */
 export interface RendererBindings {
+  [SCREEN_CAPTURE_SERVICE]: IScreenCapture;
   [CODEX_CLOUD_ACCOUNT_HOST]: CodexCloudAccountHost;
   [SETTINGS_BACKUP_FILES]: ISettingsBackupFiles;
   // --- di/container.ts ---
