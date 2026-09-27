@@ -35,11 +35,11 @@ class ModelAliasBatch:
 
 
 def _checkpoint() -> None:
+    # Runs in a worker thread with no event loop, so Heartbeater sends the heartbeats instead.
     if activity.is_cancelled():
         raise CancelledError()
     if activity.is_worker_shutdown():
         raise RuntimeError("Worker is shutting down")
-    activity.heartbeat()
 
 
 @activity.defn
