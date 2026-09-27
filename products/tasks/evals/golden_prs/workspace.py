@@ -111,6 +111,12 @@ def _restore_export_ignored_files(repo: Path, ref: str, workdir: Path) -> None:
                 target.chmod(target.stat().st_mode | 0o111)
 
 
+def _remove_tree(path: Path) -> None:
+    # An agent that runs `flox activate` leaves a read-only Go module cache that rmtree cannot delete as is.
+    subprocess.run(["chmod", "-R", "u+w", path], check=False, capture_output=True)
+    shutil.rmtree(path, ignore_errors=True)
+
+
 @contextmanager
 def checkout_tree(repo: Path, ref: str, prepare: Callable[[Path], None] | None = None) -> Iterator[Path]:
     """Yield a fresh git repository holding only the tree at `ref`, with `prepare` applied before the base commit.
@@ -156,7 +162,7 @@ def checkout_tree(repo: Path, ref: str, prepare: Callable[[Path], None] | None =
         _git(workdir, "update-ref", BASELINE_REF, commit)
         yield workdir
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        _remove_tree(workdir)
 
 
 def checkout_parent(repo: Path, pr: GoldenPR) -> AbstractContextManager[Path]:

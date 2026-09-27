@@ -105,6 +105,7 @@ def build_prompt(claim: Claim) -> str:
     return (
         "You are working in a checkout of the PostHog repository. "
         "Implement the change described below by editing files in the working directory. "
+        "Do not install dependencies, set up an environment, or run the test suite. "
         "Do not commit. Stop when the change is complete.\n\n"
         f"{claim.task}\n"
     )

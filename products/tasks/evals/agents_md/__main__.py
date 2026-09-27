@@ -2,6 +2,7 @@
 import sys
 import json
 import argparse
+import traceback
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
@@ -217,13 +218,18 @@ def main(argv: list[str]) -> int:
 
     def run_job(job: Job) -> None:
         print(f"{job.name}: running", flush=True)
-        result, candidate, agent_log = evaluate(
-            job, agents_md, args.runtime, model, args.judge_model, args.case_timeout, args.repo, ref
-        )
+        try:
+            result, candidate, agent_log = evaluate(
+                job, agents_md, args.runtime, model, args.judge_model, args.case_timeout, args.repo, ref
+            )
+        except Exception:
+            print(f"{job.name}: crashed\n{traceback.format_exc()}", flush=True)
+            return
         write_result(results_dir, job.name, result, candidate, agent_log)
         outcome = "n/a" if result.violations is None else f"{result.violations:.0f}"
         print(f"{job.name}: violations {outcome}" + (f" ({result.failure})" if result.failure else ""), flush=True)
 
+    # The pool would otherwise hold a crash until iteration, after every other job has run.
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         list(pool.map(run_job, jobs))
     print(f"\nResults in {results_dir}\n")

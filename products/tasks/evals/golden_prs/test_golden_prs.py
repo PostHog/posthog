@@ -207,6 +207,12 @@ def test_checkout_parent_keeps_the_export_ignored_gitignore_so_build_output_stay
             (workdir / "build" / "out.txt").write_text("built\n")
             (workdir / "a.py").write_text("a = 2\n")
             assert changed_files(candidate_diff(workdir)) == {"a.py"}
+            read_only_cache = workdir / ".flox" / "cache"
+            read_only_cache.mkdir(parents=True)
+            (read_only_cache / "mod.go").write_text("")
+            (read_only_cache / "mod.go").chmod(0o444)
+            read_only_cache.chmod(0o555)
+        assert not workdir.exists()
 
 
 def test_agent_environment_drops_github_credentials_and_the_other_provider_key():

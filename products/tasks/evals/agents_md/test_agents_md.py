@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.tasks.evals.agents_md.__main__ import report
+from products.tasks.evals.agents_md.__main__ import main, report
 from products.tasks.evals.agents_md.claims import (
     AGENTS_MD_PATH,
     Claim,
@@ -68,6 +68,7 @@ def test_build_prompt_carries_the_task_and_not_the_rule():
     prompt = build_prompt(claim(task="Add a thing.", line="- **Explain why.** `[review]`"))
     assert "Add a thing." in prompt
     assert "Explain why" not in prompt
+    assert "Do not install dependencies" in prompt
 
 
 LONG_PROSE = "This sentence goes on for a while so that it is long enough to look like a wrapped paragraph and"
@@ -247,6 +248,21 @@ def test_detect_sums_detectors_and_reports_no_number_when_one_cannot_tell():
         detection = detect(candidate(diff_for("a.py", ["x"])), judged)
     assert detection.violations is None
     assert "down" in detection.details[0]
+
+
+def test_run_reports_a_crashed_job_and_finishes_the_others(capsys: pytest.CaptureFixture[str]):
+    first = load_claims()[0].id
+    with (
+        patch("products.tasks.evals.agents_md.__main__.resolve_ref", return_value="abc"),
+        patch("products.tasks.evals.agents_md.__main__.agents_md_at", return_value=AGENTS_MD_PATH.read_text()),
+        patch("products.tasks.evals.agents_md.__main__.evaluate", side_effect=RuntimeError("boom")) as evaluate,
+        tempfile.TemporaryDirectory() as results_dir,
+    ):
+        assert main(["run", "--claim", first, "--results-dir", results_dir, "--workers", "1"]) == 0
+    out = capsys.readouterr().out
+    assert evaluate.call_count == 2
+    assert out.count("crashed") == 2
+    assert "RuntimeError: boom" in out
 
 
 def result(**overrides: Any) -> dict[str, Any]:
