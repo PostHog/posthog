@@ -389,6 +389,17 @@ class TestValidateCredentials:
         else:
             assert message is not None and expected_message_part in message
 
+    def test_network_error_returns_false_instead_of_raising(self) -> None:
+        from requests.exceptions import ConnectionError
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.demodesk.demodesk.make_tracked_session"
+        ) as MockSession:
+            MockSession.return_value.get.side_effect = ConnectionError("boom")
+            is_valid, message = validate_credentials("test-key")
+
+        assert (is_valid, message) == (False, "boom")
+
 
 class TestToIso8601:
     @pytest.mark.parametrize(

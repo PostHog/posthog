@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
+from requests.exceptions import RequestException
 
 from posthog.dataclasses import frozen
 
@@ -115,6 +116,11 @@ def demodesk_client_config(api_key: str, api_version: DemodeskApiVersion) -> Cli
         # `Authorization` is, so `allow_redirects=False` is the only thing that keeps either auth
         # scheme's credential from following a spoofed 3xx off `BASE_URL`.
         "allow_redirects": False,
+        # `recording_summaries` bodies carry free-text AI meeting summaries and `recordings`
+        # carries signed `temporaryDirectUrl` links; keep both out of the shared HTTP sample
+        # store (still metered and logged) rather than trust the name-based scrubbers on
+        # unstructured content.
+        "capture": False,
     }
 
 
@@ -296,11 +302,15 @@ def demodesk_source(
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # `/v2/me` is the cheapest authenticated probe: it only confirms the key is genuine, without
     # touching a resource the key may lack visibility into.
-    res = make_tracked_session(redact_values=(api_key,), allow_redirects=False).get(
-        f"{BASE_URL}/v2/me",
-        headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
-        timeout=10,
-    )
+    try:
+        res = make_tracked_session(redact_values=(api_key,), allow_redirects=False, capture=False).get(
+            f"{BASE_URL}/v2/me",
+            headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
+            timeout=10,
+        )
+    except RequestException as exc:
+        return False, str(exc)
+
     if res.status_code == 200:
         return True, None
     if res.status_code in (401, 403):
