@@ -24,13 +24,16 @@ def _datetime_field(name: str) -> IncrementalField:
 _DEFAULT_INCREMENTAL_FIELDS: list[IncrementalField] = [_datetime_field("updated_at"), _datetime_field("created_at")]
 
 
-@dataclass
+# Mutable by choice, not oversight: instances flow into `build_dependent_resource`'s
+# `endpoint_configs: Mapping[str, FanoutEndpointLike]`, and mypy treats a frozen dataclass's
+# fields as read-only, which is incompatible with that Protocol's plain (read-write) attributes.
+@dataclass(frozen=False)
 class FleetioEndpointConfig:
     name: str
     path: str
     # The resource's API generation, which versions up to 2024-06-30 carry as a path segment
     # (`/api/v1/vehicles`, `/api/v2/service_entries/...`). 2025-05-05 dropped those segments, so it
-    # ignores this. Most resources are v1; service entry line items are only served under v2.
+    # ignores this. Fleetio moved several resources to v2 over time, so this is per resource.
     path_version: str = "v1"
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_DEFAULT_INCREMENTAL_FIELDS))
     # Partition by a stable field (created_at), never updated_at, so partitions don't rewrite each sync.
@@ -47,16 +50,17 @@ class FleetioEndpointConfig:
 
 
 # Core data streams a Fleetio user will actually want, cross-referenced against the dltHub Fleetio
-# source and the common Airbyte/Fivetran fleet-management stream list. All are top-level index
-# endpoints under https://secure.fleetio.com/api/v1 with `id`, `created_at`, and `updated_at`.
+# source and the common Airbyte/Fivetran fleet-management stream list. Every entry exposes `id`,
+# `created_at` and `updated_at`. `path_version` records the generation the 2024-06-30 docs serve the
+# resource under, since Fleetio removed the v1 paths of the resources it moved to v2.
 FLEETIO_ENDPOINTS: dict[str, FleetioEndpointConfig] = {
     "vehicles": FleetioEndpointConfig(name="vehicles", path="/vehicles"),
-    "contacts": FleetioEndpointConfig(name="contacts", path="/contacts"),
+    "contacts": FleetioEndpointConfig(name="contacts", path="/contacts", path_version="v2"),
     "fuel_entries": FleetioEndpointConfig(name="fuel_entries", path="/fuel_entries"),
     "meter_entries": FleetioEndpointConfig(name="meter_entries", path="/meter_entries"),
-    "service_entries": FleetioEndpointConfig(name="service_entries", path="/service_entries"),
-    "work_orders": FleetioEndpointConfig(name="work_orders", path="/work_orders"),
-    "issues": FleetioEndpointConfig(name="issues", path="/issues"),
+    "service_entries": FleetioEndpointConfig(name="service_entries", path="/service_entries", path_version="v2"),
+    "work_orders": FleetioEndpointConfig(name="work_orders", path="/work_orders", path_version="v2"),
+    "issues": FleetioEndpointConfig(name="issues", path="/issues", path_version="v2"),
     "parts": FleetioEndpointConfig(name="parts", path="/parts"),
     "vehicle_assignments": FleetioEndpointConfig(name="vehicle_assignments", path="/vehicle_assignments"),
     "expense_entries": FleetioEndpointConfig(name="expense_entries", path="/expense_entries"),

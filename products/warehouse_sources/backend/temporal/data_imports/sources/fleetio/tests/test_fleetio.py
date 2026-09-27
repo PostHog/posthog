@@ -346,9 +346,9 @@ class TestServiceEntryLineItemsFanout:
 
     @parameterized.expand(
         [
-            # The parent is a v1 resource and the child a v2 one, so a legacy pin cannot share one
-            # version segment between them.
-            (FLEETIO_LEGACY_VERSION, "/api/v1/service_entries", "/api/v2/service_entries/11/service_entry_line_items"),
+            # Fleetio removed `/v1/service_entries` when it moved the resource to v2, so a legacy
+            # pin that assumes one shared generation segment cannot list the fan-out's parents.
+            (FLEETIO_LEGACY_VERSION, "/api/v2/service_entries", "/api/v2/service_entries/11/service_entry_line_items"),
             (FLEETIO_VERSION_2025_05_05, "/api/service_entries", "/api/service_entries/11/service_entry_line_items"),
         ]
     )
