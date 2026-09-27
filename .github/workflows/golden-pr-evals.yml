@@ -1,0 +1,210 @@
+# Golden PR evals (products/tasks/evals/golden_prs): run a coding agent at the commit before a
+# human-written PR, prompt it with the PR description, and score its diff against the merged PR.
+#
+# Manual dispatch only. Every case runs an agent for up to half an hour and spends LLM credits,
+# and the score is a directional signal for comparing models, not a merge gate.
+# If a required secret is missing the job skips green with a warning, so a fork or a
+# not-yet-configured environment is unaffected.
+name: Golden PR Evals
+
+on:
+    workflow_dispatch:
+        inputs:
+            runtime:
+                description: 'Agent CLI that does the work'
+                type: choice
+                options:
+                    - claude
+                    - codex
+                default: claude
+            model:
+                description: 'Agent model. Leave empty for the runtime default.'
+                type: string
+                default: ''
+            prs:
+                description: 'PR numbers to run, comma separated. "all" runs the whole golden set.'
+                type: string
+                default: 'all'
+            judge_model:
+                description: 'Anthropic model that grades each result'
+                type: string
+                default: 'claude-opus-5'
+            case_timeout_minutes:
+                description: 'Minutes the agent gets per PR'
+                type: string
+                default: '30'
+
+permissions:
+    contents: read
+
+env:
+    RESULTS_DIR: /tmp/golden-pr-results
+
+jobs:
+    plan:
+        name: Select golden PRs
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        outputs:
+            prs: ${{ steps.select.outputs.prs }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: products/tasks/evals/golden_prs/golden_prs.json
+                  sparse-checkout-cone-mode: false
+
+            - name: Resolve the PR list
+              id: select
+              env:
+                  # Through env, not inline ${{ }}, so a dispatch input can never inject into the shell.
+                  PRS: ${{ inputs.prs }}
+              run: |
+                  prs=$(python3 - <<'EOF'
+                  import json, os
+                  golden = [entry["number"] for entry in json.load(open("products/tasks/evals/golden_prs/golden_prs.json"))]
+                  wanted = os.environ["PRS"].strip()
+                  selected = golden if wanted == "all" else [int(n) for n in wanted.split(",") if n.strip()]
+                  unknown = sorted(set(selected) - set(golden))
+                  if unknown:
+                      raise SystemExit(f"Not in the golden set: {unknown}")
+                  print(json.dumps(selected))
+                  EOF
+                  )
+                  echo "prs=$prs" >> "$GITHUB_OUTPUT"
+
+    evaluate:
+        name: PR ${{ matrix.pr }}
+        needs: plan
+        # A matrix that expands to zero cells fails its dependents and posts no check run.
+        if: needs.plan.outputs.prs != '[]'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 60
+        strategy:
+            fail-fast: false
+            max-parallel: 4
+            matrix:
+                pr: ${{ fromJSON(needs.plan.outputs.prs) }}
+        steps:
+            - name: Check required secrets
+              id: gate
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  RUNTIME: ${{ inputs.runtime }}
+              run: |
+                  missing=""
+                  [ -n "$ANTHROPIC_API_KEY" ] || missing="$missing ANTHROPIC_API_KEY"
+                  if [ "$RUNTIME" = "codex" ] && [ -z "$OPENAI_API_KEY" ]; then
+                      missing="$missing OPENAI_API_KEY"
+                  fi
+                  if [ -n "$missing" ]; then
+                      echo "enabled=false" >> "$GITHUB_OUTPUT"
+                      echo "::warning::Missing secrets:$missing; skipping the golden PR eval"
+                  else
+                      echo "enabled=true" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.gate.outputs.enabled == 'true'
+              with:
+                  # The runner fetches each golden commit itself; the checkout only needs the eval package
+                  # and the files the toolchain setup steps read.
+                  sparse-checkout: |
+                      .nvmrc
+                      pyproject.toml
+                      products/__init__.py
+                      products/tasks/__init__.py
+                      products/tasks/evals
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              if: steps.gate.outputs.enabled == 'true'
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Install the agent CLI
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  RUNTIME: ${{ inputs.runtime }}
+              run: |
+                  if [ "$RUNTIME" = "codex" ]; then
+                      npm install -g @openai/codex
+                  else
+                      npm install -g @anthropic-ai/claude-code
+                  fi
+                  "$RUNTIME" --version
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              if: steps.gate.outputs.enabled == 'true'
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install the judge SDK
+              if: steps.gate.outputs.enabled == 'true'
+              # Only what the runner imports; a full `uv sync` of the repo is minutes of work the eval never uses.
+              run: python -m pip install --quiet 'anthropic>=0.80,<1' 'pydantic>=2,<3'
+
+            - name: Run the eval
+              if: steps.gate.outputs.enabled == 'true'
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  PR: ${{ matrix.pr }}
+                  RUNTIME: ${{ inputs.runtime }}
+                  MODEL: ${{ inputs.model }}
+                  JUDGE_MODEL: ${{ inputs.judge_model }}
+                  CASE_TIMEOUT_MINUTES: ${{ inputs.case_timeout_minutes }}
+              run: |
+                  python -m products.tasks.evals.golden_prs run \
+                      --pr "$PR" \
+                      --runtime "$RUNTIME" \
+                      ${MODEL:+--model "$MODEL"} \
+                      --judge-model "$JUDGE_MODEL" \
+                      --case-timeout "$((CASE_TIMEOUT_MINUTES * 60))" \
+                      --results-dir "$RESULTS_DIR"
+
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              # Keep the diff and agent log of a failed case too; they are what explains the failure.
+              if: always() && steps.gate.outputs.enabled == 'true'
+              with:
+                  name: golden-pr-${{ matrix.pr }}
+                  path: ${{ env.RESULTS_DIR }}
+                  if-no-files-found: warn
+
+    report:
+        name: Score summary
+        needs: evaluate
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      products/__init__.py
+                      products/tasks/__init__.py
+                      products/tasks/evals
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: golden-pr-*
+                  path: ${{ env.RESULTS_DIR }}
+                  merge-multiple: true
+
+            - name: Publish the score table
+              env:
+                  RUNTIME: ${{ inputs.runtime }}
+                  MODEL: ${{ inputs.model }}
+              run: |
+                  python3 -m pip install --quiet 'anthropic>=0.80,<1' 'pydantic>=2,<3'
+                  {
+                      echo "## Golden PR evals: $RUNTIME ${MODEL:-default model}"
+                      echo ""
+                      python3 -m products.tasks.evals.golden_prs report --results-dir "$RESULTS_DIR"
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: golden-pr-results
+                  path: ${{ env.RESULTS_DIR }}
