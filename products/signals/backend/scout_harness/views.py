@@ -2231,7 +2231,9 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             "miss); `force_refresh=true` skips the cache and rebuilds from authoritative sources. Public read "
             "callers (session auth or a `signal_scout:read` PAK) get the newest cached profile, or 404 if none "
             "has been built yet — they never trigger a rebuild. Read this at the start of a run to orient on "
-            "the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface."
+            "the team's product mix, integrations, warehouse sources, signal coverage, and existing inbox surface. "
+            "`as_of` is the server's current UTC time for this response. Use it as the current date for "
+            "rolling windows and freshness checks."
         ),
     )
     @action(
@@ -2269,7 +2271,7 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         )
         if profile is None:
             raise exceptions.NotFound("No project profile has been built for this team yet.")
-        body = profile.as_dict()
+        body = {**profile.as_dict(), "as_of": timezone.now().isoformat()}
         _overlay_effective_emit_eligibility(
             body,
             team_id=team_id,

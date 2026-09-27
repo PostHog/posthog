@@ -961,6 +961,8 @@ class TestPromptBuilder(BaseTest):
         # Recency lens references the started_at anchor.
         assert "Recency lens" in prompt
         assert "2026-05-01T12:34:56+00:00" in prompt
+        # The runtime can state a stale date, so the prompt names the server clock as the authority.
+        assert "Use `as_of` from `scout-project-profile-get` as the current UTC time" in prompt
         # The base prompt nudges the scout to report operational friction via the
         # agent-feedback tool so the scout system improves over time.
         assert "Report operational friction" in prompt

@@ -348,7 +348,9 @@ def _self_validation_followups_section(*, report_channel: bool, can_emit_report:
 
 _RECENCY_LENS = """# Recency lens
 
-Default to recent windows (~last 72h) when querying, since fresh evidence is usually more actionable. Widen for slower patterns (cycles, drift, accumulation, multi-week experiments). Your skill body may set a different default for its domain."""
+Default to recent windows (~last 72h) when querying, since fresh evidence is usually more actionable. Widen for slower patterns (cycles, drift, accumulation, multi-week experiments). Your skill body may set a different default for its domain.
+
+The PostHog server clock in UTC is the only source of the current date and time. HogQL `now()`, relative date ranges such as `-7d`, run timestamps, and profile timestamps all use it. Your runtime can state a different current date, for example a date it computed before UTC midnight. Do not use that date. Use `as_of` from `scout-project-profile-get` as the current UTC time, and anchor rolling windows, freshness checks, and the dates you write to it. Later in a long run, get the time again with `SELECT now()` through `execute-sql`. When a tool timestamp disagrees with the date you expect, the tool is correct."""
 
 _FINDING_SCHEMA = """# Finding schema
 
@@ -1371,7 +1373,7 @@ def build_run_prompt(
 - **skill_name**: `{skill.name}`, your steering layer.
 - **skill_version**: `{skill.version}`, the version it is pinned to, written as a bare number and never `v`-prefixed. `skill_name` and `skill_version` are the two arguments the `skill-get` call in *First: read your skill* takes.{authors_line}
 - **run_id**: `{run_id}`, passed to every `scout-*` tool that takes it, including `{emit_tool}` and the report-check tools.
-- **started_at**: `{started_at_iso}`, when this run began (UTC). Informational; use current clock time for queries about "now"."""
+- **started_at**: `{started_at_iso}`, when this run began (UTC). It is not the current time: see *Recency lens* for the clock to use."""
     # Everything above this block is identical across runs of the same channel, so both runtimes'
     # prefix caches can reuse it. Every per-team and per-run interpolation belongs here, per-team
     # values first: one moved back up the prompt leaves every section after it uncacheable.

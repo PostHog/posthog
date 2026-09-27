@@ -2325,6 +2325,19 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
 
     @parameterized.expand([(False,), (True,)])
+    def test_cached_profile_read_after_utc_midnight_reports_the_current_date(self, summary_only: bool) -> None:
+        _authenticate_as_scout(self)
+        with time_machine.travel("2026-09-26T23:58:00Z", tick=False):
+            seeded_id = self._seed_profile()
+        with time_machine.travel("2026-09-27T00:05:00Z", tick=False):
+            response = self.client.get(self._list_url(), {"summary_only": str(summary_only).lower()})
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["profile_id"] == seeded_id
+        assert body["computed_at"].startswith("2026-09-26T23:58")
+        assert body["as_of"] == "2026-09-27T00:05:00+00:00"
+
+    @parameterized.expand([(False,), (True,)])
     def test_scout_read_reports_its_own_dry_run_block_though_the_team_can_emit(self, summary_only: bool) -> None:
         run = _make_run(self.team)
         assert run.scout_config is not None
