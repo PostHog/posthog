@@ -238,7 +238,7 @@ class TestCommentSlackDm(CommentActivityTestCase):
 
         self._record_activity(comment, [self.author.id])
 
-        assert f"/code/task/{self.task.id}?comment={comment.id}" in self._dm_heading()
+        assert f"/desktop/task/{self.task.id}?comment={comment.id}" in self._dm_heading()
 
     def test_canvas_comment_does_not_dm_a_recipient_without_canvas_access(self):
         personal_channel = Channel.objects.unscoped().create(

@@ -49,6 +49,22 @@ class SharingConfiguration(models.Model):
         null=True,
         blank=True,
     )
+    # Sealed reverse accessors: a canvas and a run artifact are owned by their product, so
+    # nothing outside it reaches its shares by traversing back from the model.
+    canvas = models.ForeignKey(
+        "canvas.Canvas",
+        related_name="+",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    task_artifact = models.ForeignKey(
+        "tasks.SharedTaskArtifact",
+        related_name="+",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
@@ -90,6 +106,8 @@ class SharingConfiguration(models.Model):
         recording: models.Model | None = None,
         notebook: models.Model | None = None,
         interviewee_context: models.Model | None = None,
+        canvas: models.Model | None = None,
+        task_artifact: models.Model | None = None,
     ) -> dict[str, Any]:
         return {
             "team_id": team_id,
@@ -98,6 +116,8 @@ class SharingConfiguration(models.Model):
             "recording": recording,
             "notebook": notebook,
             "interviewee_context": interviewee_context,
+            "canvas": canvas,
+            "task_artifact": task_artifact,
         }
 
     @classmethod
@@ -158,7 +178,15 @@ class SharingConfiguration(models.Model):
         # Resolve each parent model from its own FK instead of importing it. This keeps the module
         # free of product imports (``user_interviews`` only exposes its webhooks via tach's
         # ``[[interfaces]]``).
-        for field_name in ("dashboard", "insight", "notebook", "recording", "interviewee_context"):
+        for field_name in (
+            "dashboard",
+            "insight",
+            "notebook",
+            "recording",
+            "interviewee_context",
+            "canvas",
+            "task_artifact",
+        ):
             fk_value = getattr(self, f"{field_name}_id")
             if not fk_value:
                 continue
@@ -179,6 +207,8 @@ class SharingConfiguration(models.Model):
             recording=self.recording,
             notebook=self.notebook,
             interviewee_context=self.interviewee_context,
+            canvas=self.canvas,
+            task_artifact=self.task_artifact,
         )
 
     def rotate_access_token(self) -> "SharingConfiguration":
@@ -218,6 +248,8 @@ class SharingConfiguration(models.Model):
                 recording=source.recording,
                 notebook=source.notebook,
                 interviewee_context=source.interviewee_context,
+                canvas=source.canvas,
+                task_artifact=source.task_artifact,
                 enabled=source.enabled,
                 settings=source.settings,
                 password_required=source.password_required,
@@ -269,7 +301,15 @@ class SharingConfiguration(models.Model):
         if obj._meta.object_name == "Insight" and (self.dashboard or self.notebook):
             return cast(Insight, obj).id in self.get_connected_insight_ids()
 
-        for comparison in [self.insight, self.dashboard, self.recording, self.notebook, self.interviewee_context]:
+        for comparison in [
+            self.insight,
+            self.dashboard,
+            self.recording,
+            self.notebook,
+            self.interviewee_context,
+            self.canvas,
+            self.task_artifact,
+        ]:
             if comparison and comparison == obj:
                 return True
 

@@ -380,6 +380,12 @@ class CSPMiddleware:
                 "form-action 'self' https://accounts.google.com",
             ]
 
+            canvas_frame_src = getattr(request, "canvas_frame_src", None)
+            if canvas_frame_src:
+                csp_parts = [
+                    f"frame-src {canvas_frame_src}" if part.startswith("frame-src ") else part for part in csp_parts
+                ]
+
             # The hosts and the config token below belong to PostHog Cloud, so self-hosted installs, E2E
             # runs and the dev environment keep the wildcards. A load from a PostHog host that is not
             # listed here therefore fails only in production.
@@ -441,7 +447,12 @@ class CSPMiddleware:
                 response.headers["Reporting-Endpoints"] = f'default="{report_endpoint}"'
             header_name = app_csp_header_name(request)
             response.headers[header_name] = "; ".join(csp_parts)
-            if header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
+            if canvas_frame_src:
+                # Shared pages are intentionally frameable, so their complete app policy remains
+                # report-only. This enforced directive only prevents the nested canvas from
+                # navigating away from its artifact origin.
+                response.headers["Content-Security-Policy"] = f"frame-src {canvas_frame_src}"
+            elif header_name == "Content-Security-Policy-Report-Only" and not is_embeddable_document(request.path):
                 # Django owns this header. A responseHeadersPolicy on the Contour ingress replaces
                 # it, and with it the enforced app policy above, so the ingress must not set one.
                 response.headers["Content-Security-Policy"] = frame_ancestors

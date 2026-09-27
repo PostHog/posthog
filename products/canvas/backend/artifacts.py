@@ -23,10 +23,12 @@ from django.core import signing
 from django.http import Http404, HttpRequest, HttpResponse, HttpResponseNotModified
 from django.views.decorators.clickjacking import xframe_options_exempt
 
+from posthog.constants import AvailableFeature
+from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.storage import object_storage
 
 from products.canvas.backend.contract import artifact_csp
-from products.canvas.backend.models import CanvasBuild
+from products.canvas.backend.models import Canvas, CanvasBuild
 
 ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
 # Tokens embed a coarse time bucket instead of a per-second timestamp, so the
@@ -34,6 +36,10 @@ ARTIFACT_TOKEN_SALT = "posthog.canvas.artifact.v1"
 # churn on every lifecycle poll) while still expiring: a token is accepted for
 # its own bucket and the next one, i.e. between one and two hours.
 ARTIFACT_TOKEN_BUCKET_SECONDS = 3600
+# A member's artifact URL names one immutable, content-addressed build, so their browser may hold
+# it. A share-scoped URL may not outlive the token that carries it, because only the origin re-checks
+# whether the link is still live.
+ARTIFACT_CLIENT_CACHE_SECONDS = 31536000
 
 
 def _configured_artifact_host() -> str | None:
@@ -56,20 +62,72 @@ def _artifact_signing_keys() -> list[str]:
     return configured or [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]
 
 
-def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
+def _share_generation(access_token: str) -> str:
+    """A non-secret tag for one generation of a public link, derived from its access token.
+
+    Rotating the link mints a new token, so a URL carrying the old generation stops matching
+    and is retired with the page it was served on.
+    """
+    return hashlib.sha256(access_token.encode()).hexdigest()[:16]
+
+
+def create_canvas_artifact_token(build: CanvasBuild, *, share_token: str | None = None) -> str | None:
+    """Mint a capability for one build's assets.
+
+    ``share_token`` is the access token of the public link that serves the URL: it marks a token
+    handed to an anonymous viewer, and binds it to that link's generation. The token itself lives
+    for one to two buckets, which outlasts a revocation, so delivery re-checks the share for such
+    a token (see ``_shared_build_is_live``). A token minted for a signed-in client carries no
+    share and needs no such check: the caller already passed the canvas's own access rules.
+    """
     keys = _artifact_signing_keys()
     if not keys or (not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST)):
         return None
     if not (settings.DEBUG or settings.TEST) and (len(keys[0]) < 32 or _configured_artifact_host() is None):
         return None
     bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
-    return signing.Signer(key=keys[0], salt=ARTIFACT_TOKEN_SALT).sign_object(
-        {"team_id": build.team_id, "canvas_id": str(build.canvas_id), "build_id": str(build.id), "bucket": bucket},
-        compress=True,
+    claims: dict[str, Any] = {
+        "team_id": build.team_id,
+        "canvas_id": str(build.canvas_id),
+        "build_id": str(build.id),
+        "bucket": bucket,
+    }
+    if share_token is not None:
+        claims["share"] = _share_generation(share_token)
+    return signing.Signer(key=keys[0], salt=ARTIFACT_TOKEN_SALT).sign_object(claims, compress=True)
+
+
+def _shared_build_is_live(*, team_id: int, canvas_id: UUID, build_id: UUID, share: str) -> bool:
+    """Whether the public link this token was minted on still serves this build.
+
+    Turning a share off, rotating its token, unpinning the build, or turning public sharing off
+    for the organization each has to take the artifact with it, the same way it takes the shared
+    page. The page itself applies these rules in ``SharingViewerPageViewSet``. Rotation keeps the
+    previous link alive for its grace period, so the generation is matched against every active
+    share rather than the newest one.
+    """
+    config = next(
+        (
+            candidate
+            for candidate in SharingConfiguration.objects.filter(
+                SharingConfiguration.tokens_active_q(), team_id=team_id, canvas_id=canvas_id
+            ).select_related("team__organization")
+            if candidate.access_token and _share_generation(candidate.access_token) == share
+        ),
+        None,
     )
+    if config is None:
+        return False
+    organization = config.team.organization
+    if (
+        organization.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS)
+        and not organization.allow_publicly_shared_resources
+    ):
+        return False
+    return Canvas.objects.for_team(team_id).filter(id=canvas_id, shared_build_id=build_id).exists()
 
 
-def _artifact_origin() -> str:
+def artifact_origin() -> str:
     """The origin artifacts are linked from and served on.
 
     DEBUG/TEST with no CANVAS_ARTIFACT_ORIGIN falls back to the application
@@ -83,11 +141,11 @@ def _artifact_origin() -> str:
     return settings.CANVAS_ARTIFACT_ORIGIN or settings.SITE_URL
 
 
-def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | None:
-    token = create_canvas_artifact_token(build)
+def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str, *, share_token: str | None = None) -> str | None:
+    token = create_canvas_artifact_token(build, share_token=share_token)
     if token is None:
         return None
-    return f"{_artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
+    return f"{artifact_origin()}/canvas-artifacts/{token}/{artifact_path}"
 
 
 def _read_token(token: str) -> dict[str, Any]:
@@ -124,6 +182,11 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     )
     if build is None or not build.artifact_object_prefix or not isinstance(build.manifest, dict):
         raise Http404
+    share = claims.get("share")
+    if isinstance(share, str) and not _shared_build_is_live(
+        team_id=team_id, canvas_id=canvas_id, build_id=build_id, share=share
+    ):
+        raise Http404
     assets = build.manifest.get("assets")
     asset = (
         next((item for item in assets if isinstance(item, dict) and item.get("path") == artifact_path), None)
@@ -142,7 +205,7 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
     if request.headers.get("If-None-Match") == etag:
         response: HttpResponse = HttpResponseNotModified()
         response["Content-Type"] = content_type
-        return _with_artifact_headers(response, etag, build.manifest, token_expires_at)
+        return _with_artifact_headers(response, etag, build.manifest, token_expires_at, share_scoped=share is not None)
 
     try:
         content = object_storage.read_bytes(f"{build.artifact_object_prefix}/{artifact_path}")
@@ -156,23 +219,27 @@ def canvas_artifact(request: HttpRequest, token: str, artifact_path: str) -> Htt
         raise Http404
     response = HttpResponse(content, content_type=content_type)
     response["Content-Disposition"] = "inline"
-    return _with_artifact_headers(response, etag, build.manifest, token_expires_at)
+    return _with_artifact_headers(response, etag, build.manifest, token_expires_at, share_scoped=share is not None)
 
 
-def _with_artifact_headers(response: HttpResponse, etag: str, manifest: dict, token_expires_at: int) -> HttpResponse:
+def _with_artifact_headers(
+    response: HttpResponse, etag: str, manifest: dict, token_expires_at: int, *, share_scoped: bool
+) -> HttpResponse:
     response["ETag"] = etag
+    token_seconds_left = max(0, token_expires_at - math.ceil(time.time()))
+    client_cache_seconds = token_seconds_left if share_scoped else ARTIFACT_CLIENT_CACHE_SECONDS
     shared_cache_seconds = settings.CANVAS_ARTIFACT_SHARED_CACHE_SECONDS
     if shared_cache_seconds > 0:
-        shared_cache_seconds = max(0, min(shared_cache_seconds, token_expires_at - math.ceil(time.time())))
+        shared_cache_seconds = min(shared_cache_seconds, token_seconds_left)
         # CDN mode. Every header below still applies, and in particular the
         # CORS and CSP headers must survive the CDN unchanged, or the sandboxed
         # iframe's module fetches (and with them ph.query/ph.state canvases)
         # break. Configure the CDN to forward these headers as-is.
         response["Cache-Control"] = (
-            f"public, max-age=31536000, s-maxage={shared_cache_seconds}, must-revalidate, immutable"
+            f"public, max-age={client_cache_seconds}, s-maxage={shared_cache_seconds}, must-revalidate, immutable"
         )
     else:
-        response["Cache-Control"] = "private, max-age=31536000, immutable"
+        response["Cache-Control"] = f"private, max-age={client_cache_seconds}, immutable"
     response["Cross-Origin-Resource-Policy"] = "cross-origin"
     # The canvas iframe is sandboxed without allow-same-origin, so its document
     # has an opaque origin and the entry's module scripts are fetched in CORS
