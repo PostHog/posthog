@@ -1,9 +1,11 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -247,6 +249,41 @@ describe('userLogic', () => {
             }).toDispatchActions(['updateUserFailure'])
 
             expect(captureSpy).toHaveBeenCalled()
+        })
+    })
+
+    describe('credential review redirect', () => {
+        const userNeedingReview = { ...MOCK_DEFAULT_USER, requires_credential_review: true }
+
+        beforeEach(() => {
+            userLogic.unmount()
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                current_user: userNeedingReview,
+            } as any
+            useMocks({
+                get: {
+                    '/api/users/@me/': () => [200, userNeedingReview],
+                },
+            })
+            initKeaTests(false)
+            router.actions.push('/inbox/reports/triage', { q: 'a' })
+            userLogic.mount()
+        })
+
+        it('redirects on the first user load and keeps the page to return to', () => {
+            expect(router.values.location.pathname).toEqual('/account/credential-review')
+            expect(removeProjectIdIfPresent(router.values.searchParams.next)).toEqual('/inbox/reports/triage?q=a')
+        })
+
+        it('does not redirect again on later user loads', async () => {
+            router.actions.push('/inbox/reports/triage')
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.loadUser()
+            }).toDispatchActions(['loadUserSuccess'])
+
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual('/inbox/reports/triage')
         })
     })
 })

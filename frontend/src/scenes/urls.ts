@@ -195,7 +195,8 @@ export const urls = {
     accountConnected: (kind: string = ':kind'): string =>
         kind === ':kind' ? '/account-connected/:kind' : `/account-connected/${kind}`,
     /** One-shot credential review interstitial shown to users with existing API keys they haven't acknowledged. */
-    credentialReview: (): string => '/account/credential-review',
+    credentialReview: (next?: string): string =>
+        `/account/credential-review${next ? `?next=${encodeURIComponent(next)}` : ''}`,
     cliAuthorize: (): string => '/cli/authorize',
     cliLive: (): string => '/cli/live',
     liveDebugger: (): string => '/live-debugger',

@@ -724,14 +724,20 @@ export const userLogic = kea<userLogicType>([
                 // to the credential review screen before they enter the app. Gated server-side
                 // by UserSerializer.get_requires_credential_review.
                 //
+                // Only the first user load of the session redirects. Later loads (after settings
+                // changes, team switches, and so on) must not pull the user off the page they opened.
                 // credentialReviewDismissedInSession suppresses a bounce-back if a loadUser
                 // call that was in-flight at dismiss time resolves later with stale state.
+                const isFirstUserLoad = !cache.credentialReviewChecked
+                cache.credentialReviewChecked = true
+                const { pathname, search, hash } = router.values.location
                 if (
+                    isFirstUserLoad &&
                     user.requires_credential_review &&
                     !values.credentialReviewDismissedInSession &&
-                    !router.values.location.pathname.startsWith('/account/credential-review')
+                    !pathname.startsWith('/account/credential-review')
                 ) {
-                    router.actions.push(urls.credentialReview())
+                    router.actions.push(urls.credentialReview(pathname + search + hash))
                 }
             }
         },
