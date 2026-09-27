@@ -241,6 +241,7 @@ def test_detect_sums_detectors_and_reports_no_number_when_one_cannot_tell():
     two = claim(detectors=({"name": "indented_imports"}, {"name": "count_added_matching", "pattern": "x"}))
     assert detect(candidate(diff_for("a.py", ["    import x", "x = 1"])), two).violations == 3
     assert detect(candidate(""), two).violations is None
+    assert detect(candidate(""), claim(detectors=two.detectors, no_change_is_compliant=True)).violations == 0.0
     judged = claim(detectors=({"name": "judge"},))
     with patch(
         "products.tasks.evals.agents_md.detectors.structured_answer", return_value=Answer(value=None, failure="down")

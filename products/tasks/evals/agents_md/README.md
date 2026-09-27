@@ -43,6 +43,7 @@ Each run writes a `.json` with the violation count and details, the `.diff`, and
 An entry's `starts_with` is the start of the bullet text. It must match exactly one bullet.
 
 A claim with no small task that has one right answer gets `untestable` with the reason instead of a task.
+A claim whose right answer is to refuse the task gets `no_change_is_compliant`, so an empty diff scores zero instead of "cannot tell".
 
 Detectors take their parameters from the entry. `count_added_matching` and `missing_added_matching` cover most rules with a regex.
 Add a function to `detectors.py` when a rule needs to read the file or parse the code.

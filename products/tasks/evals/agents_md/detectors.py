@@ -324,7 +324,8 @@ class Detection:
 def detect(candidate: Candidate, claim: Claim, judge_model: str = DEFAULT_JUDGE_MODEL) -> Detection:
     """Sum the claim's detectors, so a claim with two rules in one bullet reports one number."""
     if not candidate.diff.strip():
-        return Detection(violations=None, details=("the agent changed no files",))
+        violations = 0.0 if claim.no_change_is_compliant else None
+        return Detection(violations=violations, details=("the agent changed no files",))
     observations: list[Observation] = []
     for spec in claim.detectors:
         params: dict[str, Any] = {key: value for key, value in spec.items() if key != "name"}

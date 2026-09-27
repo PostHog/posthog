@@ -26,6 +26,7 @@ class Claim:
     task: str | None
     detectors: tuple[dict[str, Any], ...]
     untestable: str | None
+    no_change_is_compliant: bool = False
 
     @property
     def text(self) -> str:
@@ -68,6 +69,7 @@ def load_claims(agents_md: str | None = None, claims_path: Path = CLAIMS_PATH) -
             task=entry.get("task"),
             detectors=tuple(entry.get("detectors", ())),
             untestable=entry.get("untestable"),
+            no_change_is_compliant=entry.get("no_change_is_compliant", False),
         )
         for section, line in review_bullets(text)
         for entry in [_entry_for(line, entries)]

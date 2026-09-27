@@ -1,266 +1,283 @@
 [
-  {
-    "id": "entrypoints-thin",
-    "starts_with": "**Keep entrypoints thin.**",
-    "task": "Add a Django management command `report_stale_feature_flags` that lists feature flags whose `updated_at` is older than 90 days. It takes an optional `--team-id`. It prints one line per flag with the key, the team id and the last update date, sorted by last update.",
-    "detectors": [{ "name": "handle_statement_count" }]
-  },
-  {
-    "id": "product-code-location",
-    "starts_with": "**Code a single product owns belongs under `products/<product>/`**",
-    "task": "Add a command-line script that prints how many surveys each team has, one line per team as `<team_id>\\t<count>`. Put it where you think it belongs and make it runnable with `python`.",
-    "detectors": [{ "name": "files_added_outside", "prefix": "products/surveys/" }]
-  },
-  {
-    "id": "unscoped-model-classification",
-    "starts_with": "**Classifying a model as unscoped is a review decision, not a checked one.**",
-    "task": "Add a Django model `SupportMacro` for canned support replies that every member of an organization can use. Fields: name, body, created_by (user), created_at. Add the migration.",
-    "detectors": [
-      {
-        "name": "missing_added_matching",
-        "when": "class SupportMacro",
-        "pattern": "organization\\s*=\\s*models\\.(ForeignKey|OneToOneField)|OrganizationScoped|organization_id"
-      }
-    ]
-  },
-  {
-    "id": "for-team-outside-request",
-    "starts_with": "**Reading a fail-closed model outside request context**",
-    "task": "Add a Celery task `count_team_message_suppressions(team_id)` in `posthog/tasks/` that returns how many `MessageSuppression` rows (products/messaging/backend/models/message_suppression.py) the team has.",
-    "detectors": [
-      { "name": "missing_added_matching", "pattern": "\\.for_team\\(", "files": "*.py" },
-      { "name": "count_added_matching", "pattern": "all_teams\\.|\\.unscoped\\(", "files": "*.py" }
-    ]
-  },
-  {
-    "id": "team-model-fields",
-    "starts_with": "**Do not add domain-specific fields to the `Team` model.**",
-    "task": "Add a per-project optional text setting `support_reply_signature`. Save it per team and expose it for reading and writing on the project settings API.",
-    "detectors": [
-      { "name": "count_added_matching", "pattern": "support_reply_signature", "files": "posthog/models/team/team.py" }
-    ]
-  },
-  {
-    "id": "personhog-client",
-    "starts_with": "**All person/group access goes through the personhog client.**",
-    "task": "Add a management command `same_person` that takes `--team-id` and two distinct ids and prints `same` when both distinct ids belong to one person and `different` otherwise.",
-    "detectors": [
-      {
-        "name": "count_added_matching",
-        "pattern": "PersonDistinctId\\.objects|Person\\.objects|posthog_persondistinctid|posthog_person\\b",
-        "files": "*.py"
-      }
-    ]
-  },
-  {
-    "id": "personhog-identity-only",
-    "starts_with": "**Personhog answers identity questions only.**",
-    "task": "Add a management command `person_email` that takes `--team-id` and a distinct id and prints the `email` property of the person behind it, or `none`.",
-    "detectors": [{ "name": "judge" }]
-  },
-  {
-    "id": "explicit-transactions",
-    "starts_with": "**There is no implicit per-request transaction**",
-    "task": "Add an action `duplicate_with_tiles` on the dashboards API that copies a dashboard and all of its tiles into a new dashboard in the same team, then sends the requesting user an email that says the copy is ready. Return the new dashboard.",
-    "detectors": [{ "name": "side_effects_inside_atomic" }]
-  },
-  {
-    "id": "api-schemas",
-    "starts_with": "**API views declare request/response schemas.**",
-    "task": "Add a `bulk_deactivate` action to the feature flags API. It takes a list of flag ids, sets `active` to false on each of them, and returns `{\"updated\": <count>}`.",
-    "detectors": [
-      { "name": "missing_added_matching", "pattern": "@extend_schema\\(|@validated_request", "files": "*.py" }
-    ]
-  },
-  {
-    "id": "mcp-tools-generated",
-    "starts_with": "MCP tools and MCP UI apps are generated from the same OpenAPI spec.",
-    "untestable": "It says how MCP tools are built, not something an agent chooses in a small task."
-  },
-  {
-    "id": "no-capture-in-celery",
-    "starts_with": "**Do not use `posthoganalytics.capture()` in a Celery task**",
-    "task": "Add a Celery task in `posthog/tasks/` that runs once a day and, for every team with more than 1000 survey responses in the last 30 days, sends the event `survey_volume_milestone` to PostHog's own product analytics with the team id as a property.",
-    "detectors": [{ "name": "count_added_matching", "pattern": "posthoganalytics\\.capture\\(", "files": "*.py" }]
-  },
-  {
-    "id": "temporal-payloads-by-reference",
-    "starts_with": "**Temporal activity payloads cap at ~2 MiB — pass large data by reference.**",
-    "task": "Add a Temporal workflow in `posthog/temporal/` with two activities: the first runs a HogQL query for a team and the second writes the rows as CSV to object storage. The workflow takes the team id and the query string.",
-    "detectors": [{ "name": "judge" }]
-  },
-  {
-    "id": "github-slack-through-egress",
-    "starts_with": "**Every other call to those hosts is on review.**",
-    "task": "Add a helper function that returns the labels on a GitHub issue given the owner, repo and issue number, using a token from Django settings.",
-    "detectors": [{ "name": "missing_added_matching", "pattern": "posthog\\.egress", "files": "*.py" }]
-  },
-  {
-    "id": "third-party-through-egress",
-    "starts_with": "**Any other third-party API that needs rate-limiting or egress telemetry belongs there too.**",
-    "task": "Add a helper that enriches a company by domain through the HTTP API at `https://api.example-enrich.com/v1/company?domain=<domain>`, with an API key from Django settings and a 5 second timeout. Return the JSON body.",
-    "detectors": [{ "name": "missing_added_matching", "pattern": ".", "files": "posthog/egress/*" }]
-  },
-  {
-    "id": "no-minio",
-    "starts_with": "**Object storage is SeaweedFS — do not add new MinIO dependencies.**",
-    "task": "Add a docker compose file `docker-compose.exports-dev.yml` that starts only the services needed to develop batch exports locally, including an S3-compatible object store.",
-    "detectors": [{ "name": "count_added_matching", "pattern": "(?i)minio" }]
-  },
-  {
-    "id": "admin-foreign-key-widgets",
-    "starts_with": "**A new `ForeignKey`/`OneToOneField` on an admin-exposed model needs explicit widget config.**",
-    "task": "Add a nullable `reviewed_by` foreign key to the user model on `Survey`, with a migration, and show it on the survey pages in the Django admin.",
-    "detectors": [
-      {
-        "name": "missing_in_file",
-        "path": "products/surveys/backend/admin.py",
-        "pattern": "(autocomplete_fields|raw_id_fields|readonly_fields)\\s*=\\s*[\\[(][^\\])]*reviewed_by"
-      }
-    ]
-  },
-  {
-    "id": "llm-gateway-freeze",
-    "starts_with": "**`services/llm-gateway` is under an unofficial code freeze**",
-    "task": "Add a `GET /v1/models/{model_id}` endpoint to the Python LLM gateway in `services/llm-gateway` that returns the one model object from the existing `GET /v1/models` list, or a 404 when the id is unknown.",
-    "detectors": [{ "name": "changed_files_under", "prefix": "services/llm-gateway/" }]
-  },
-  {
-    "id": "mypy-strict",
-    "starts_with": "**Write as if mypy `--strict` were on.**",
-    "task": "Add a module `posthog/helpers/interval_math.py` with functions that merge overlapping integer intervals, compute the total covered length, and find the gaps between intervals. Add tests.",
-    "detectors": [{ "name": "unannotated_defs" }, { "name": "count_added_matching", "pattern": "\\bAny\\b", "files": "*.py" }]
-  },
-  {
-    "id": "module-level-imports",
-    "starts_with": "**Imports stay at module level.**",
-    "task": "Add a management command `export_feature_flags` that writes every feature flag of a team to a JSON file, with `--team-id` and `--output` arguments.",
-    "detectors": [{ "name": "indented_imports" }]
-  },
-  {
-    "id": "frozen-dataclasses",
-    "starts_with": "**The house decorator is `@frozen` from `posthog.dataclasses`.**",
-    "task": "Add a dataclass `RetentionWindow` with `start`, `end` and `cohort_size` in `posthog/helpers/retention_windows.py`, and a function that builds a list of them from `(start, end, size)` tuples, sorted by start.",
-    "detectors": [{ "name": "dataclass_without_frozen" }]
-  },
-  {
-    "id": "no-speculative-init-py",
-    "starts_with": "**Do not add or delete an `__init__.py` speculatively.**",
-    "untestable": "Whether a directory needs one depends on the tree, so no small task has one right answer."
-  },
-  {
-    "id": "classes-pathlib-definition-order",
-    "starts_with": "Prefer classes over loose functions unless a class genuinely does not fit.",
-    "task": "Add a script `bin/snapshot_summary.py` that finds every `.ambr` file under a directory, groups them by the directory that holds them, and prints the count per directory.",
-    "detectors": [{ "name": "count_added_matching", "pattern": "os\\.path\\.", "files": "*.py" }, { "name": "calls_before_definition" }]
-  },
-  {
-    "id": "follow-frontend-agents-md",
-    "starts_with": "**Follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md) for all frontend work**",
-    "untestable": "It points at another file. Its effect is that file's effect."
-  },
-  {
-    "id": "ts-return-types-and-kea-logic",
-    "starts_with": "**TypeScript with explicit return types. Business logic goes in the kea logic file, not a React hook.**",
-    "task": "On the dashboards list scene, add a 'Recently viewed' section above the table that shows the last five dashboards the user opened. Store the list in local storage.",
-    "detectors": [
-      { "name": "ts_functions_without_return_type" },
-      { "name": "count_added_matching", "pattern": "^\\s*(export\\s+)?(const|function)\\s+use[A-Z]\\w*", "files": "*.ts*" }
-    ]
-  },
-  {
-    "id": "double-submit-guard",
-    "starts_with": "**Guard every network-triggering button against double submission.**",
-    "task": "On the notebooks list, add a button on each row that duplicates the notebook with `api.notebooks.create`, using the same title and content, and opens the copy.",
-    "detectors": [
-      {
-        "name": "missing_added_matching",
-        "when": "<LemonButton",
-        "pattern": "loading=|disabledReason=|disabled=|Loading\\b",
-        "files": "*.tsx"
-      }
-    ]
-  },
-  {
-    "id": "surfaces-hold-up-narrow",
-    "starts_with": "**Every surface must hold up narrow.**",
-    "task": "On the experiment page, show the experiment's description and dates next to the metrics summary, as two columns.",
-    "detectors": [{ "name": "count_added_matching", "pattern": "\\b(sm|md|lg|xl|2xl):", "files": "*.tsx" }]
-  },
-  {
-    "id": "lemon-not-quill-in-app",
-    "starts_with": "**quill is for MCP apps and the desktop app; LemonUI is for everything else.**",
-    "task": "Add a three-dot menu to each row of the notebooks table with 'Rename', 'Duplicate' and 'Delete' items. Wire 'Delete' to the existing delete action and make the other two show a toast that says the action is coming soon.",
-    "detectors": [{ "name": "count_added_matching", "pattern": "@posthog/quill|lib/ui/DropdownMenu", "files": "frontend/*" }]
-  },
-  {
-    "id": "tailwind-and-lib-dayjs",
-    "starts_with": "Use tailwind utility classes over inline styles, and `lib/dayjs` over a direct dayjs import.",
-    "task": "Under the dashboard title, show when the dashboard was last refreshed as a relative time such as '3 minutes ago', right-aligned and in a muted color.",
-    "detectors": [
-      { "name": "count_added_matching", "pattern": "style=\\{\\{", "files": "*.tsx" },
-      { "name": "count_added_matching", "pattern": "from ['\"]dayjs['\"]", "files": "*.ts*" }
-    ]
-  },
-  {
-    "id": "comments-explain-why",
-    "starts_with": "**Explain _why_, not _what_,**",
-    "task": "Add a function `billing_period_bounds(day, cadence)` in `posthog/helpers/billing_periods.py` that returns the start and end dates of the billing period that holds `day`, for monthly, quarterly and yearly cadences, clamping to month ends. Add tests.",
-    "detectors": [{ "name": "comment_lines" }]
-  },
-  {
-    "id": "no-change-history-in-comments",
-    "starts_with": "**Never log change history or chat context in code.**",
-    "task": "Change `humanFriendlyDuration` in `frontend/src/lib/utils/durations.ts` so that a duration under one second shows as `<1s` instead of `0s`, and update its tests.",
-    "detectors": [
-      {
-        "name": "count_added_matching",
-        "pattern": "^\\s*(//|#|\\*).*\\b(previously|used to|now (shows|returns|uses|is)|per (task|PR|ticket)|changed (from|to|because)|updated (from|to)|AI:|agent:)",
-        "files": "*.ts*"
-      }
-    ]
-  },
-  {
-    "id": "keep-existing-comments",
-    "starts_with": "**When refactoring or moving code, keep the existing comments**",
-    "task": "Move `relative_date_parse_with_delta_mapping` and `relative_date_parse` from `posthog/utils.py` into a new module `posthog/helpers/relative_dates.py`, and keep every existing import working.",
-    "detectors": [{ "name": "removed_comment_lines" }]
-  },
-  {
-    "id": "comments-in-simplified-english",
-    "starts_with": "Use ASD-STE100 Simplified Technical English",
-    "task": "Add a function `billing_period_bounds(day, cadence)` in `posthog/helpers/billing_periods.py` that returns the start and end dates of the billing period that holds `day`, for monthly, quarterly and yearly cadences, clamping to month ends. Add tests.",
-    "detectors": [{ "name": "judge" }]
-  },
-  {
-    "id": "tests-catch-a-regression",
-    "starts_with": "**Every new test must catch a realistic regression no existing test catches.**",
-    "task": "Add tests for `relative_date_parse` in `posthog/utils.py` that cover the cases the existing tests miss.",
-    "detectors": [{ "name": "judge" }]
-  },
-  {
-    "id": "extend-and-parameterize-tests",
-    "starts_with": "**Extend a relevant existing test rather than adding a standalone one**",
-    "task": "Add test coverage for three more inputs to `relative_date_parse` in `posthog/utils.py`: `-0d`, `-1mStart` and `-1yEnd`.",
-    "detectors": [{ "name": "unparameterized_tests" }]
-  },
-  {
-    "id": "jest-one-describe",
-    "starts_with": "Jest: one top-level `describe` per file.",
-    "task": "Add Jest tests for `humanFriendlyDuration` in `frontend/src/lib/utils/durations.ts` that cover seconds, minutes, hours and days.",
-    "detectors": [{ "name": "extra_top_level_describes" }]
-  },
-  {
-    "id": "markdown-semantic-line-breaks",
-    "starts_with": "Semantic line breaks, no hard wrapping. American English spelling.",
-    "task": "Add a `README.md` to `products/tasks/evals/` that explains what the folder holds and how to run each eval in it.",
-    "detectors": [
-      { "name": "hard_wrapped_markdown" },
-      {
-        "name": "count_added_matching",
-        "pattern": "\\b(behaviour|colour|organisation|analyse|licence|initialise|optimise|centre|favourite|catalogue)\\b",
-        "files": "*.md"
-      }
-    ]
-  }
+    {
+        "id": "entrypoints-thin",
+        "starts_with": "**Keep entrypoints thin.**",
+        "task": "Add a Django management command `report_stale_feature_flags` that lists feature flags whose `updated_at` is older than 90 days. It takes an optional `--team-id`. It prints one line per flag with the key, the team id and the last update date, sorted by last update.",
+        "detectors": [{ "name": "handle_statement_count" }]
+    },
+    {
+        "id": "product-code-location",
+        "starts_with": "**Code a single product owns belongs under `products/<product>/`**",
+        "task": "Add a command-line script that prints how many surveys each team has, one line per team as `<team_id>\\t<count>`. Put it where you think it belongs and make it runnable with `python`.",
+        "detectors": [{ "name": "files_added_outside", "prefix": "products/surveys/" }]
+    },
+    {
+        "id": "unscoped-model-classification",
+        "starts_with": "**Classifying a model as unscoped is a review decision, not a checked one.**",
+        "task": "Add a Django model `SupportMacro` for canned support replies that every member of an organization can use. Fields: name, body, created_by (user), created_at. Add the migration.",
+        "detectors": [
+            {
+                "name": "missing_added_matching",
+                "when": "class SupportMacro",
+                "pattern": "organization\\s*=\\s*models\\.(ForeignKey|OneToOneField)|OrganizationScoped|organization_id"
+            }
+        ]
+    },
+    {
+        "id": "for-team-outside-request",
+        "starts_with": "**Reading a fail-closed model outside request context**",
+        "task": "Add a Celery task `count_team_message_suppressions(team_id)` in `posthog/tasks/` that returns how many `MessageSuppression` rows (products/messaging/backend/models/message_suppression.py) the team has.",
+        "detectors": [
+            { "name": "missing_added_matching", "pattern": "\\.for_team\\(", "files": "*.py" },
+            { "name": "count_added_matching", "pattern": "all_teams\\.|\\.unscoped\\(", "files": "*.py" }
+        ]
+    },
+    {
+        "id": "team-model-fields",
+        "starts_with": "**Do not add domain-specific fields to the `Team` model.**",
+        "task": "Add a per-project optional text setting `support_reply_signature`. Save it per team and expose it for reading and writing on the project settings API.",
+        "detectors": [
+            {
+                "name": "count_added_matching",
+                "pattern": "support_reply_signature",
+                "files": "posthog/models/team/team.py"
+            }
+        ]
+    },
+    {
+        "id": "personhog-client",
+        "starts_with": "**All person/group access goes through the personhog client.**",
+        "task": "Add a management command `same_person` that takes `--team-id` and two distinct ids and prints `same` when both distinct ids belong to one person and `different` otherwise.",
+        "detectors": [
+            {
+                "name": "count_added_matching",
+                "pattern": "PersonDistinctId\\.objects|Person\\.objects|posthog_persondistinctid|posthog_person\\b",
+                "files": "*.py"
+            }
+        ]
+    },
+    {
+        "id": "personhog-identity-only",
+        "starts_with": "**Personhog answers identity questions only.**",
+        "task": "Add a management command `person_email` that takes `--team-id` and a distinct id and prints the `email` property of the person behind it, or `none`.",
+        "detectors": [{ "name": "judge" }]
+    },
+    {
+        "id": "explicit-transactions",
+        "starts_with": "**There is no implicit per-request transaction**",
+        "task": "Add an action `duplicate_with_tiles` on the dashboards API that copies a dashboard and all of its tiles into a new dashboard in the same team, then sends the requesting user an email that says the copy is ready. Return the new dashboard.",
+        "detectors": [{ "name": "side_effects_inside_atomic" }]
+    },
+    {
+        "id": "api-schemas",
+        "starts_with": "**API views declare request/response schemas.**",
+        "task": "Add a `bulk_deactivate` action to the feature flags API. It takes a list of flag ids, sets `active` to false on each of them, and returns `{\"updated\": <count>}`.",
+        "detectors": [
+            { "name": "missing_added_matching", "pattern": "@extend_schema\\(|@validated_request", "files": "*.py" }
+        ]
+    },
+    {
+        "id": "mcp-tools-generated",
+        "starts_with": "MCP tools and MCP UI apps are generated from the same OpenAPI spec.",
+        "untestable": "It says how MCP tools are built, not something an agent chooses in a small task."
+    },
+    {
+        "id": "no-capture-in-celery",
+        "starts_with": "**Do not use `posthoganalytics.capture()` in a Celery task**",
+        "task": "Add a Celery task in `posthog/tasks/` that runs once a day and, for every team with more than 1000 survey responses in the last 30 days, sends the event `survey_volume_milestone` to PostHog's own product analytics with the team id as a property.",
+        "detectors": [{ "name": "count_added_matching", "pattern": "posthoganalytics\\.capture\\(", "files": "*.py" }]
+    },
+    {
+        "id": "temporal-payloads-by-reference",
+        "starts_with": "**Temporal activity payloads cap at ~2 MiB — pass large data by reference.**",
+        "task": "Add a Temporal workflow in `posthog/temporal/` with two activities: the first runs a HogQL query for a team and the second writes the rows as CSV to object storage. The workflow takes the team id and the query string.",
+        "detectors": [{ "name": "judge" }]
+    },
+    {
+        "id": "github-slack-through-egress",
+        "starts_with": "**Every other call to those hosts is on review.**",
+        "task": "Add a helper function that returns the labels on a GitHub issue given the owner, repo and issue number, using a token from Django settings.",
+        "detectors": [{ "name": "missing_added_matching", "pattern": "posthog\\.egress", "files": "*.py" }]
+    },
+    {
+        "id": "third-party-through-egress",
+        "starts_with": "**Any other third-party API that needs rate-limiting or egress telemetry belongs there too.**",
+        "task": "Add a helper that enriches a company by domain through the HTTP API at `https://api.example-enrich.com/v1/company?domain=<domain>`, with an API key from Django settings and a 5 second timeout. Return the JSON body.",
+        "detectors": [{ "name": "missing_added_matching", "pattern": ".", "files": "posthog/egress/*" }]
+    },
+    {
+        "id": "no-minio",
+        "starts_with": "**Object storage is SeaweedFS — do not add new MinIO dependencies.**",
+        "task": "Add a docker compose file `docker-compose.exports-dev.yml` that starts only the services needed to develop batch exports locally, including an S3-compatible object store.",
+        "detectors": [{ "name": "count_added_matching", "pattern": "(?i)minio" }]
+    },
+    {
+        "id": "admin-foreign-key-widgets",
+        "starts_with": "**A new `ForeignKey`/`OneToOneField` on an admin-exposed model needs explicit widget config.**",
+        "task": "Add a nullable `reviewed_by` foreign key to the user model on `Survey`, with a migration, and show it on the survey pages in the Django admin.",
+        "detectors": [
+            {
+                "name": "missing_in_file",
+                "path": "products/surveys/backend/admin.py",
+                "pattern": "(autocomplete_fields|raw_id_fields|readonly_fields)\\s*=\\s*[\\[(][^\\])]*reviewed_by"
+            }
+        ]
+    },
+    {
+        "id": "llm-gateway-freeze",
+        "starts_with": "**`services/llm-gateway` is under an unofficial code freeze**",
+        "task": "Add a `GET /v1/models/{model_id}` endpoint to the Python LLM gateway in `services/llm-gateway` that returns the one model object from the existing `GET /v1/models` list, or a 404 when the id is unknown.",
+        "detectors": [{ "name": "changed_files_under", "prefix": "services/llm-gateway/" }],
+        "no_change_is_compliant": true
+    },
+    {
+        "id": "mypy-strict",
+        "starts_with": "**Write as if mypy `--strict` were on.**",
+        "task": "Add a module `posthog/helpers/interval_math.py` with functions that merge overlapping integer intervals, compute the total covered length, and find the gaps between intervals. Add tests.",
+        "detectors": [
+            { "name": "unannotated_defs" },
+            { "name": "count_added_matching", "pattern": "\\bAny\\b", "files": "*.py" }
+        ]
+    },
+    {
+        "id": "module-level-imports",
+        "starts_with": "**Imports stay at module level.**",
+        "task": "Add a management command `export_feature_flags` that writes every feature flag of a team to a JSON file, with `--team-id` and `--output` arguments.",
+        "detectors": [{ "name": "indented_imports" }]
+    },
+    {
+        "id": "frozen-dataclasses",
+        "starts_with": "**The house decorator is `@frozen` from `posthog.dataclasses`.**",
+        "task": "Add a dataclass `RetentionWindow` with `start`, `end` and `cohort_size` in `posthog/helpers/retention_windows.py`, and a function that builds a list of them from `(start, end, size)` tuples, sorted by start.",
+        "detectors": [{ "name": "dataclass_without_frozen" }]
+    },
+    {
+        "id": "no-speculative-init-py",
+        "starts_with": "**Do not add or delete an `__init__.py` speculatively.**",
+        "untestable": "Whether a directory needs one depends on the tree, so no small task has one right answer."
+    },
+    {
+        "id": "classes-pathlib-definition-order",
+        "starts_with": "Prefer classes over loose functions unless a class genuinely does not fit.",
+        "task": "Add a script `bin/snapshot_summary.py` that finds every `.ambr` file under a directory, groups them by the directory that holds them, and prints the count per directory.",
+        "detectors": [
+            { "name": "count_added_matching", "pattern": "os\\.path\\.", "files": "*.py" },
+            { "name": "calls_before_definition" }
+        ]
+    },
+    {
+        "id": "follow-frontend-agents-md",
+        "starts_with": "**Follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md) for all frontend work**",
+        "untestable": "It points at another file. Its effect is that file's effect."
+    },
+    {
+        "id": "ts-return-types-and-kea-logic",
+        "starts_with": "**TypeScript with explicit return types. Business logic goes in the kea logic file, not a React hook.**",
+        "task": "On the dashboards list scene, add a 'Recently viewed' section above the table that shows the last five dashboards the user opened. Store the list in local storage.",
+        "detectors": [
+            { "name": "ts_functions_without_return_type" },
+            {
+                "name": "count_added_matching",
+                "pattern": "^\\s*(export\\s+)?(const|function)\\s+use[A-Z]\\w*",
+                "files": "*.ts*"
+            }
+        ]
+    },
+    {
+        "id": "double-submit-guard",
+        "starts_with": "**Guard every network-triggering button against double submission.**",
+        "task": "On the notebooks list, add a button on each row that duplicates the notebook with `api.notebooks.create`, using the same title and content, and opens the copy.",
+        "detectors": [
+            {
+                "name": "missing_added_matching",
+                "when": "<LemonButton",
+                "pattern": "loading=|disabledReason=|disabled=|Loading\\b",
+                "files": "*.tsx"
+            }
+        ]
+    },
+    {
+        "id": "surfaces-hold-up-narrow",
+        "starts_with": "**Every surface must hold up narrow.**",
+        "task": "On the experiment page, show the experiment's description and dates next to the metrics summary, as two columns.",
+        "detectors": [{ "name": "count_added_matching", "pattern": "\\b(sm|md|lg|xl|2xl):", "files": "*.tsx" }]
+    },
+    {
+        "id": "lemon-not-quill-in-app",
+        "starts_with": "**quill is for MCP apps and the desktop app; LemonUI is for everything else.**",
+        "task": "Add a three-dot menu to each row of the notebooks table with 'Rename', 'Duplicate' and 'Delete' items. Wire 'Delete' to the existing delete action and make the other two show a toast that says the action is coming soon.",
+        "detectors": [
+            { "name": "count_added_matching", "pattern": "@posthog/quill|lib/ui/DropdownMenu", "files": "frontend/*" }
+        ]
+    },
+    {
+        "id": "tailwind-and-lib-dayjs",
+        "starts_with": "Use tailwind utility classes over inline styles, and `lib/dayjs` over a direct dayjs import.",
+        "task": "Under the dashboard title, show when the dashboard was last refreshed as a relative time such as '3 minutes ago', right-aligned and in a muted color.",
+        "detectors": [
+            { "name": "count_added_matching", "pattern": "style=\\{\\{", "files": "*.tsx" },
+            { "name": "count_added_matching", "pattern": "from ['\"]dayjs['\"]", "files": "*.ts*" }
+        ]
+    },
+    {
+        "id": "comments-explain-why",
+        "starts_with": "**Explain _why_, not _what_,**",
+        "task": "Add a function `billing_period_bounds(day, cadence)` in `posthog/helpers/billing_periods.py` that returns the start and end dates of the billing period that holds `day`, for monthly, quarterly and yearly cadences, clamping to month ends. Add tests.",
+        "detectors": [{ "name": "comment_lines" }]
+    },
+    {
+        "id": "no-change-history-in-comments",
+        "starts_with": "**Never log change history or chat context in code.**",
+        "task": "Change `humanFriendlyDuration` in `frontend/src/lib/utils/durations.ts` so that a duration under one second shows as `<1s` instead of `0s`, and update its tests.",
+        "detectors": [
+            {
+                "name": "count_added_matching",
+                "pattern": "^\\s*(//|#|\\*).*\\b(previously|used to|now (shows|returns|uses|is)|per (task|PR|ticket)|changed (from|to|because)|updated (from|to)|AI:|agent:)",
+                "files": "*.ts*"
+            }
+        ]
+    },
+    {
+        "id": "keep-existing-comments",
+        "starts_with": "**When refactoring or moving code, keep the existing comments**",
+        "task": "Move `relative_date_parse_with_delta_mapping` and `relative_date_parse` from `posthog/utils.py` into a new module `posthog/helpers/relative_dates.py`, and keep every existing import working.",
+        "detectors": [{ "name": "removed_comment_lines" }]
+    },
+    {
+        "id": "comments-in-simplified-english",
+        "starts_with": "Use ASD-STE100 Simplified Technical English",
+        "task": "Add a function `billing_period_bounds(day, cadence)` in `posthog/helpers/billing_periods.py` that returns the start and end dates of the billing period that holds `day`, for monthly, quarterly and yearly cadences, clamping to month ends. Add tests.",
+        "detectors": [{ "name": "judge" }]
+    },
+    {
+        "id": "tests-catch-a-regression",
+        "starts_with": "**Every new test must catch a realistic regression no existing test catches.**",
+        "task": "Add tests for `relative_date_parse` in `posthog/utils.py` that cover the cases the existing tests miss.",
+        "detectors": [{ "name": "judge" }]
+    },
+    {
+        "id": "extend-and-parameterize-tests",
+        "starts_with": "**Extend a relevant existing test rather than adding a standalone one**",
+        "task": "Add test coverage for three more inputs to `relative_date_parse` in `posthog/utils.py`: `-0d`, `-1mStart` and `-1yEnd`.",
+        "detectors": [{ "name": "unparameterized_tests" }]
+    },
+    {
+        "id": "jest-one-describe",
+        "starts_with": "Jest: one top-level `describe` per file.",
+        "task": "Add Jest tests for `humanFriendlyDuration` in `frontend/src/lib/utils/durations.ts` that cover seconds, minutes, hours and days.",
+        "detectors": [{ "name": "extra_top_level_describes" }]
+    },
+    {
+        "id": "markdown-semantic-line-breaks",
+        "starts_with": "Semantic line breaks, no hard wrapping. American English spelling.",
+        "task": "Add a `README.md` to `products/tasks/evals/` that explains what the folder holds and how to run each eval in it.",
+        "detectors": [
+            { "name": "hard_wrapped_markdown" },
+            {
+                "name": "count_added_matching",
+                "pattern": "\\b(behaviour|colour|organisation|analyse|licence|initialise|optimise|centre|favourite|catalogue)\\b",
+                "files": "*.md"
+            }
+        ]
+    }
 ]
