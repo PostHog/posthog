@@ -17,6 +17,11 @@ STATS_PAGE_SIZE = 10
 # Without this, the underlying rest_source client never times out a stalled connection.
 REQUEST_TIMEOUT_SECONDS = 60
 
+# The workspace limit is 100 requests per minute. A 429 without a Retry-After header falls back to
+# exponential backoff, and the client's default 5 attempts wait about 15 seconds in total, which is
+# shorter than that window. 8 attempts wait about 2 minutes (1+2+4+8+16+32+60 seconds).
+MAX_RETRY_ATTEMPTS = 8
+
 # The campaign-stats API rejects a start_date..end_date span wider than 30 days, so the aggregate
 # campaign_report snapshot asks for exactly that trailing window.
 REPORT_WINDOW_DAYS = 30

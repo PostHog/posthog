@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.s
     ATTRIBUTION_TYPE,
     DEFAULT_BACKFILL_DAYS,
     MAX_BACKFILL_DAYS,
+    MAX_RETRY_ATTEMPTS,
     METRIC_TYPE,
     MOENGAGE_DATA_CENTERS,
     MOENGAGE_ENDPOINTS,
@@ -345,6 +346,7 @@ def _client_config(data_center: str, workspace_id: str, api_key: str) -> ClientC
         },
         # Without this, a stalled MoEngage connection would hold the sync open indefinitely.
         "request_timeout": REQUEST_TIMEOUT_SECONDS,
+        "max_retries": MAX_RETRY_ATTEMPTS,
     }
 
 

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.moengage.s
     ATTRIBUTION_TYPE,
     DEFAULT_BACKFILL_DAYS,
     MAX_BACKFILL_DAYS,
+    MAX_RETRY_ATTEMPTS,
     METRIC_TYPE,
     MOENGAGE_DATA_CENTERS,
     REPORT_WINDOW_DAYS,
@@ -463,6 +464,21 @@ class TestMoEngageSourceDailyReport:
         assert [body["start_date"] for body in sent_bodies] == [
             (today - timedelta(days=5 - i)).isoformat() for i in range(6)
         ]
+
+    @mock.patch("tenacity.nap.time.sleep")
+    def test_rate_limited_stats_request_outlasts_the_per_minute_window(self, mock_sleep: mock.MagicMock) -> None:
+        today = datetime.now(UTC).date()
+        sent_bodies, _, rows, _ = _drive(
+            "daily_campaign_report",
+            [*[_response({}, status=429) for _ in range(MAX_RETRY_ATTEMPTS - 1)], _stats_page(["c1"])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=today,
+        )
+
+        assert len(sent_bodies) == MAX_RETRY_ATTEMPTS
+        assert [row["campaign_id"] for row in rows] == ["c1"]
+        # A 429 without Retry-After backs off exponentially; the waits must span the 60-second window.
+        assert sum(call.args[0] for call in mock_sleep.call_args_list) > 60
 
     def test_full_refresh_starts_at_the_configured_date(self) -> None:
         today = datetime.now(UTC).date()
