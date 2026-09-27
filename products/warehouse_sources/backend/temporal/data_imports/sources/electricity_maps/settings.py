@@ -17,6 +17,10 @@ ENDPOINT_PATHS: dict[str, str] = {
 # comfortably under that cap.
 WINDOW_DAYS = 5
 
+# (connect, read) timeout in seconds. Without it, a stalled response holds the import worker
+# indefinitely — see `request_timeout` on `ClientConfig`.
+REQUEST_TIMEOUT_SECONDS: tuple[float, float] = (10.0, 60.0)
+
 # How far back the first sync reaches when the user leaves the history field empty. History depth
 # is gated by the customer's Electricity Maps plan, so this stays modest.
 DEFAULT_HISTORY_DAYS = 30

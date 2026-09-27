@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.electricit
     BASE_URL,
     DEFAULT_HISTORY_DAYS,
     ENDPOINT_PATHS,
+    REQUEST_TIMEOUT_SECONDS,
     WINDOW_DAYS,
 )
 
@@ -202,6 +203,7 @@ def electricity_maps_source(
             # request (including resumed ones) to the base URL's host.
             "allowed_hosts": [],
             "allow_redirects": False,
+            "request_timeout": REQUEST_TIMEOUT_SECONDS,
             "paginator": paginator,
         },
         "resource_defaults": {},
@@ -254,7 +256,9 @@ def validate_credentials(api_token: str, zones: list[str]) -> tuple[bool, str | 
     # plan, so it both proves the token and surfaces per-zone entitlement before the first sync.
     for zone in zones:
         try:
-            response = session.get(f"{BASE_URL}/carbon-intensity/latest", params={"zone": zone})
+            response = session.get(
+                f"{BASE_URL}/carbon-intensity/latest", params={"zone": zone}, timeout=REQUEST_TIMEOUT_SECONDS
+            )
         except RequestException as e:
             return False, str(e)
 

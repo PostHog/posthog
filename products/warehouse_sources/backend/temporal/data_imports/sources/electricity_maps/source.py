@@ -93,7 +93,11 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
         return validate_electricity_maps_credentials(config.api_token, zones)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ElectricityMapsResumeConfig]:
-        return ResumableSourceManager[ElectricityMapsResumeConfig](inputs, ElectricityMapsResumeConfig)
+        # carbon_intensity and power_breakdown each keep their own (window, zone) cursor, so a
+        # retry that switches endpoints can't load the other endpoint's resume state.
+        return ResumableSourceManager[ElectricityMapsResumeConfig](inputs, ElectricityMapsResumeConfig).with_namespace(
+            inputs.schema_name
+        )
 
     def source_for_pipeline(
         self,
