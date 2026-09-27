@@ -1153,7 +1153,9 @@ describe('runStreamLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.threadItems).toHaveLength(2)
-            expect(logic.values.threadItems[0]).toMatchObject({
+            // The echo keeps the row the placeholder drew, rather than minting a second id.
+            expect(logic.values.threadItems[0]).toEqual({
+                id: 'human-0',
                 type: 'human_message',
                 text: 'hello agent',
                 complete: true,
@@ -1214,6 +1216,11 @@ describe('runStreamLogic', () => {
                     })
                 )
                 logic.actions.pushHumanMessage('typed while it worked')
+                // Taken up inside the same turn, so only the draw placed it — the foot-of-thread
+                // sink no longer covers for a message drawn in the wrong spot.
+                logic.actions.ingestAcpFrame(
+                    notification('_posthog/user_message', { content: 'typed while it worked' })
+                )
             }).toFinishAllListeners()
 
             expect(

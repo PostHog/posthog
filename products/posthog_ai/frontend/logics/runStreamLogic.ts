@@ -1521,14 +1521,14 @@ export function foldLogToThread(
     let bufferedAttachments: ThreadAttachment[] = []
 
     /**
-     * A wire turn opens with its message, so `atTurnStart` is the default. A send the agent has not
-     * taken up opens nothing and waits at the foot of the thread instead. `reuseId` keeps the row
-     * React already rendered when an echo takes a placeholder's place.
+     * A wire turn opens with its message, so that is where a message goes by default. A send the
+     * agent has not taken up opens nothing and waits `atFoot` instead. `reuseId` keeps the row React
+     * already rendered when an echo takes a placeholder's place.
      */
     const pushHuman = (
         text: string,
         attachments: ThreadAttachment[] = [],
-        placement: { atTurnStart?: boolean; reuseId?: string } = {}
+        placement: { atFoot?: boolean; reuseId?: string } = {}
     ): string => {
         if (options.pendingMessage?.text === text && entryRunId === options.pendingMessage.runId) {
             pendingMessageSeen = true
@@ -1542,7 +1542,7 @@ export function foldLogToThread(
             ...(carried.length > 0 && { attachments: carried }),
             ...(timestamp !== undefined && { startedAt: timestamp }),
         }
-        if (placement.atTurnStart === false) {
+        if (placement.atFoot) {
             items.push(item)
         } else {
             items = insertHumanMessageAtTurnStart(items, item)
@@ -1676,14 +1676,7 @@ export function foldLogToThread(
     }
 
     /** The oldest send of this text the agent has not taken up, which is the one it takes up next. */
-    const takeWaitingPlaceholder = (text: string): string | undefined => {
-        const waiting = waitingPlaceholders.get(text)
-        const id = waiting?.shift()
-        if (waiting && waiting.length === 0) {
-            waitingPlaceholders.delete(text)
-        }
-        return id
-    }
+    const takeWaitingPlaceholder = (text: string): string | undefined => waitingPlaceholders.get(text)?.shift()
 
     const renderLiveHuman = (rawText: string): void => {
         const { text, contextBlocks } = splitUserMessageContent(rawText)
@@ -1706,8 +1699,12 @@ export function foldLogToThread(
         if (waitingId !== undefined) {
             pairedSends.add(text)
             const index = items.findIndex((item) => item.id === waitingId)
-            const currentTurnStart = items.findLastIndex((item) => item.type === 'turn_separator') + 1
-            if (index === -1 || index >= currentTurnStart) {
+            if (index >= items.findLastIndex((item) => item.type === 'turn_separator') + 1) {
+                // The placeholder already sits in this turn, which is where the echo would put it.
+                return
+            }
+            if (index === -1) {
+                pushHuman(text)
                 return
             }
             const [placeholder] = items.splice(index, 1)
@@ -1794,7 +1791,7 @@ export function foldLogToThread(
         if (method === '_client/human_message') {
             const optimisticText = String(params.content ?? '')
             const waiting = waitingPlaceholders.get(optimisticText) ?? []
-            waiting.push(pushHuman(optimisticText, optimisticAttachments(params.attachments), { atTurnStart: false }))
+            waiting.push(pushHuman(optimisticText, optimisticAttachments(params.attachments), { atFoot: true }))
             waitingPlaceholders.set(optimisticText, waiting)
             continue
         }
@@ -2043,17 +2040,9 @@ export function foldLogToThread(
 
     // A send the agent has not taken up sits below everything that has landed, in send order, however
     // much arrived after the composer drew it.
-    if (waitingPlaceholders.size > 0) {
-        const stillWaiting = new Set<string>()
-        for (const ids of waitingPlaceholders.values()) {
-            ids.forEach((id) => stillWaiting.add(id))
-        }
-        const landed: ThreadItem[] = []
-        const waiting: ThreadItem[] = []
-        for (const item of items) {
-            ;(stillWaiting.has(item.id) ? waiting : landed).push(item)
-        }
-        items = [...landed, ...waiting]
+    const waiting = new Set([...waitingPlaceholders.values()].flat())
+    if (waiting.size > 0) {
+        items = [...items.filter((item) => !waiting.has(item.id)), ...items.filter((item) => waiting.has(item.id))]
     }
 
     if (options.pendingMessage && !pendingMessageSeen) {
