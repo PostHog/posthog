@@ -74,6 +74,8 @@ _MAX_CANDIDATE_ROWS = 50_000
 _QUERY_TIMEOUT_S = 60
 
 _QUERY_VECTOR_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="replay-vision-query-vector")
+# Warming gets its own pool so a burst of page views never queues a live search behind it.
+_WARM_VECTOR_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="replay-vision-query-vector-warm")
 
 _EMBEDDINGS_TABLE = f"distributed_posthog_document_embeddings_{OBSERVATION_EMBEDDING_MODEL.value.replace('-', '_')}"
 _SCOPE_PREWHERE = """team_id = %(team_id)s
@@ -446,7 +448,7 @@ def warm_query_vectors(team: Team, texts: list[str]) -> list[Future[list[float]]
     futures = []
     for text in texts:
         if cache.get(_query_vector_cache_key(text)) is None:
-            future = _QUERY_VECTOR_EXECUTOR.submit(query_vector_for, team, text)
+            future = _WARM_VECTOR_EXECUTOR.submit(query_vector_for, team, text)
             future.add_done_callback(_log_warm_failure)
             futures.append(future)
     return futures
