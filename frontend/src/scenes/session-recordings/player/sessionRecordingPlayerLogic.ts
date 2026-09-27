@@ -706,9 +706,21 @@ function armFirstLoadBufferingTimeout(
     cache: Record<string, any>,
     actions: { firstLoadBufferingTimedOut: () => void }
 ): void {
+    // Dispose first, so the old cleanup does not subtract its elapsed time from the new limit.
+    cache.disposables.dispose('firstLoadBufferingTimeout')
+    cache.firstLoadBufferingRemainingMs = FIRST_LOAD_BUFFERING_TIMEOUT_MS
+    // The plugin re-runs this setup when a hidden tab becomes visible, so keep the remaining time
+    // across tab switches instead of a fresh full limit.
     cache.disposables.add(() => {
-        const timerId = setTimeout(() => actions.firstLoadBufferingTimedOut(), FIRST_LOAD_BUFFERING_TIMEOUT_MS)
-        return () => clearTimeout(timerId)
+        const startedAt = performance.now()
+        const timerId = setTimeout(() => actions.firstLoadBufferingTimedOut(), cache.firstLoadBufferingRemainingMs)
+        return () => {
+            clearTimeout(timerId)
+            cache.firstLoadBufferingRemainingMs = Math.max(
+                0,
+                cache.firstLoadBufferingRemainingMs - (performance.now() - startedAt)
+            )
+        }
     }, 'firstLoadBufferingTimeout')
 }
 
