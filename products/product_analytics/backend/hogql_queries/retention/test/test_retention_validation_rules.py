@@ -8,6 +8,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     AggregationType,
+    Breakdown,
     BreakdownFilter,
     BreakdownType,
     DateRange,
@@ -37,10 +38,15 @@ from products.product_analytics.backend.hogql_queries.retention.retention_valida
 
 
 class TestElementBreakdownValidation(SimpleTestCase):
-    def test_disallow_element_breakdowns(self) -> None:
+    @parameterized.expand(["single", "multiple"])
+    def test_disallow_element_breakdowns(self, breakdown_shape: str) -> None:
         query = RetentionQuery(
             retentionFilter=RetentionFilter(),
-            breakdownFilter=BreakdownFilter(breakdown="text", breakdown_type=BreakdownType.ELEMENT),
+            breakdownFilter=(
+                BreakdownFilter(breakdown="text", breakdown_type=BreakdownType.ELEMENT)
+                if breakdown_shape == "single"
+                else BreakdownFilter(breakdowns=[Breakdown(property="text", type=BreakdownType.ELEMENT)])
+            ),
         )
         context = QueryValidationContext(query=query, team=MagicMock(), user=None, runner=MagicMock())
 
