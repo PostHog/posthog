@@ -71,6 +71,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountEmailThreadSerializer,
     AccountNotebookSerializer,
     AccountNoteSerializer,
+    AccountPresenceListRequestSerializer,
+    AccountPresenceSerializer,
     AccountPresenceViewerSerializer,
     AccountRelationshipDefinitionSerializer,
     AccountRelationshipSerializer,
@@ -912,12 +914,12 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         responses={
             200: OpenApiResponse(
                 response=UserCustomerAnalyticsConfigSerializer,
-                description="The requesting user's account sidebar configuration.",
+                description="The requesting user's account sidebar and notification configuration.",
             )
         },
         summary="Get account sidebar configuration",
         description=(
-            "Get the requesting user's account sidebar configuration for this project. "
+            "Get the requesting user's account sidebar and task digest configuration for this project. "
             "The first read creates an empty configuration row."
         ),
     )
@@ -939,26 +941,42 @@ class UserCustomerAnalyticsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         },
         summary="Update account sidebar configuration",
         description=(
-            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided. "
-            "Omitting pinned_properties leaves the configuration unchanged. "
+            "Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, "
+            "and change the task digest email preferences when task_digest is provided. "
+            "Anything omitted keeps its current value. "
             "At most 50 account custom properties and relationships can be pinned."
         ),
     )
     def partial_update(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        if "pinned_properties" not in request.validated_data:
-            return self.retrieve(request, *args, **kwargs)
-        pinned_properties = [
-            contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
-            for reference in request.validated_data["pinned_properties"]
-        ]
-        try:
-            config = api.update_user_customer_analytics_config(
+        user_id = cast(User, request.user).id
+        config: contracts.UserCustomerAnalyticsConfig | None = None
+
+        if "pinned_properties" in request.validated_data:
+            pinned_properties = [
+                contracts.PinnedAccountProperty(kind=reference["kind"], id=reference["id"])
+                for reference in request.validated_data["pinned_properties"]
+            ]
+            try:
+                config = api.update_user_customer_analytics_config(
+                    team_id=self.team_id,
+                    user_id=user_id,
+                    pinned_properties=pinned_properties,
+                )
+            except api.InvalidPinnedAccountProperties as error:
+                raise ValidationError({"pinned_properties": error.errors})
+
+        if "task_digest" in request.validated_data:
+            task_digest = request.validated_data["task_digest"]
+            config = api.update_user_task_digest_preferences(
                 team_id=self.team_id,
-                user_id=cast(User, request.user).id,
-                pinned_properties=pinned_properties,
+                user_id=user_id,
+                enabled=task_digest.get("enabled"),
+                send_time=task_digest.get("send_time"),
+                cadence=task_digest.get("cadence"),
             )
-        except api.InvalidPinnedAccountProperties as error:
-            raise ValidationError({"pinned_properties": error.errors})
+
+        if config is None:
+            return self.retrieve(request, *args, **kwargs)
         return Response(UserCustomerAnalyticsConfigSerializer(instance=config).data)
 
 
@@ -1852,6 +1870,28 @@ class AccountViewSet(
         if viewers is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountPresenceViewerSerializer(instance=viewers, many=True).data)
+
+    @validated_request(
+        request_serializer=AccountPresenceListRequestSerializer,
+        operation_id="accounts_presence_list",
+        responses={200: AccountPresenceSerializer(many=True)},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        pagination_class=None,
+        required_scopes=["account:read"],
+    )
+    def presence_list(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        account_ids = [str(account_id) for account_id in request.validated_data["account_ids"]]
+        viewer_user_id = None if is_service_auth(request) else cast(User, request.user).id
+        presence = api.list_accounts_presence(
+            self.team_id,
+            account_ids,
+            self.user_access_control,
+            viewer_user_id=viewer_user_id,
+        )
+        return Response(AccountPresenceSerializer(instance=presence, many=True).data)
 
     @extend_schema(parameters=[_ACCOUNT_ID_PARAM], responses={200: SupportTicketSerializer(many=True)})
     @action(methods=["GET"], detail=True, pagination_class=None)

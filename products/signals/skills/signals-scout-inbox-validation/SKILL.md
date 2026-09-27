@@ -160,7 +160,7 @@ The checks are the queue now, so memory is only for what a check cannot hold: wh
 - key `spotcheck:inbox_validation:report-019e1a2b` — _"Spot-checked 2026-06-14: issue 0d4c... at 3 occ/day over the 48h after the merge (was 310 before). Held. Report's check also passed. Done — don't revisit."_
 - key `spotcheck-disagree:inbox_validation:report-019e1a2b` — _"Check passed on the rolled-up issue count; spot check found the child fingerprint still at 40 occ/day. Filed report <id>."_ Keep these; they are the record of where the checks are wrong.
 
-Keep the working set under the 100-row search cap: when entries pile up, `scratchpad-forget` ones whose reports are older than ~30 days — they're cold backlog by then.
+Keep the working set under the 100-row search cap: when entries pile up, `scout-scratchpad-forget` ones whose reports are older than ~30 days — they're cold backlog by then.
 
 ### Decide
 
@@ -175,7 +175,7 @@ Fix confirmations are deliberately memory-only: a "it worked" finding per merged
 
 ### Secondary: dismissed-but-escalating (strictly gated)
 
-Dismissal rationale isn't readable here (the DISMISSAL artefact has no MCP surface), so you cannot tell "dismissed as already fixed" from "dismissed as not worth it" — respect the human's call either way and never relitigate a dismissal. Neither is the dismissal _time_: a suppressed report's `updated_at` bumps whenever new matching signals arrive, so a fresh `updated_at` means fresh activity on a dismissed topic, not a recent dismissal. The one exception to leaving these alone: `inbox-reports-list {"status": "suppressed", "ordering": "-updated_at", "limit": 10}` — a suppressed report with fresh activity whose underlying entity is now **escalated materially above its report-era baseline** (≥ 2× the rate the report originally described, at meaningful absolute volume, measured the same way as a validation probe). That's new information the dismisser didn't have, whenever they dismissed. Author at most one report per run, P3, explicitly noting the report was dismissed and what changed since (cite the dismissed report's id in an `inbox` evidence entry). Anything below that bar: leave dismissed reports alone.
+Dismissal rationale is readable: `inbox-reports-retrieve` returns `dismissal_reason` and `dismissal_note`, so you can tell "dismissed as already fixed" from "dismissed as not worth it". Read it, then respect the human's call either way and never relitigate a dismissal. The dismissal _time_ is still not readable: a suppressed report's `updated_at` bumps whenever new matching signals arrive, so a fresh `updated_at` means fresh activity on a dismissed topic, not a recent dismissal. The one exception to leaving these alone: `inbox-reports-list {"status": "suppressed", "ordering": "-updated_at", "limit": 10}` — a suppressed report with fresh activity whose underlying entity is now **escalated materially above its report-era baseline** (≥ 2× the rate the report originally described, at meaningful absolute volume, measured the same way as a validation probe). That's new information the dismisser didn't have, whenever they dismissed. Author at most one report per run, P3, explicitly noting the report was dismissed and what changed since (cite the dismissed report's id in an `inbox` evidence entry). Anything below that bar: leave dismissed reports alone.
 
 ### Close out
 

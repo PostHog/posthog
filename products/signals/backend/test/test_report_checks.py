@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import timedelta
 
@@ -34,7 +35,12 @@ from products.signals.backend.report_check_agent import (
     build_check_run_note,
     resolve_check_skill_name,
 )
-from products.signals.backend.report_check_authoring import CheckCreationError, create_check, create_checks_from_specs
+from products.signals.backend.report_check_authoring import (
+    CheckCreationError,
+    arm_pending_checks,
+    create_check,
+    create_checks_from_specs,
+)
 from products.signals.backend.report_check_execution import (
     CHECK_ERROR_RETRY_AFTER,
     CheckVerdict,
@@ -56,6 +62,7 @@ from products.signals.backend.report_checks import (
     MAX_CHECK_PROBE_HINT_LENGTH,
     MAX_CHECK_PROBE_HINTS,
     MAX_CHECK_RUNS,
+    MAX_CHECK_SOAK_HOURS,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     MIN_CHECK_INTERVAL_MINUTES,
     AgentCheckConfig,
@@ -910,6 +917,50 @@ class TestAgentCheckDispatch(APIBaseTest):
         check.refresh_from_db()
         assert check.consecutive_errors == 1
 
+    def test_a_check_on_a_retired_scout_runs_on_the_follow_up_scout(self) -> None:
+        # Retiring a scout must not turn every open check bound to it into an errored result on a
+        # report. The fallback scout re-measures resolved reports for a living, so it answers them.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-health-checks", is_latest=True, deleted=False)
+        SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name="signals-scout-health-checks",
+            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+            pause_reason=SignalScoutConfig.PauseReason.RETIRED,
+            enabled=False,
+        )
+        self._check(
+            config={
+                "instructions": "Re-read the issue and say whether it still fires.",
+                "skill_name": "signals-scout-health-checks",
+            }
+        )
+
+        with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
+            summary = run_due_report_checks()
+
+        assert summary.dispatched == 1
+        assert dispatch.call_args.kwargs["skill_name"] == FALLBACK_CHECK_SKILL_NAME
+        assert self._results() == []
+
+    def test_a_check_on_a_scout_a_person_paused_still_reports_the_refusal(self) -> None:
+        # A pause is somebody's decision, so saying the check could not run is more honest than
+        # quietly answering the question on another scout.
+        LLMSkill.objects.create(team=self.team, name="signals-scout-health-checks", is_latest=True, deleted=False)
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-health-checks", enabled=False)
+        self._check(
+            config={
+                "instructions": "Re-read the issue and say whether it still fires.",
+                "skill_name": "signals-scout-health-checks",
+            }
+        )
+
+        with patch(_CONNECT), patch(_DISPATCH) as dispatch:
+            summary = run_due_report_checks()
+
+        assert summary.errored == 1
+        dispatch.assert_not_called()
+        assert "is paused" in self._results()[0].content
+
     def test_an_unenrolled_project_records_an_errored_result(self) -> None:
         self._enrol({"guaranteed_team_ids": []})
         self._check()
@@ -996,6 +1047,9 @@ class TestCheckResultTool(APIBaseTest):
             skill_name=FALLBACK_CHECK_SKILL_NAME,
             skill_version=1,
         )
+        # A live lane for the other scout, so a check naming it is one another scout really
+        # owns rather than one the dispatch would have resolved onto the fallback anyway.
+        LLMSkill.objects.create(team=self.team, name=_OTHER_SKILL, is_latest=True, deleted=False)
 
     def _check(self, **overrides) -> SignalReportCheck:
         now = timezone.now()
@@ -1309,8 +1363,50 @@ class TestScoutCheckTools(APIBaseTest):
 
         check = SignalReportCheck.objects.for_team(self.team.id).get(id=summary.check_id)
         assert check.task_id == self.task.id
-        assert check.status == SignalReportCheck.Status.ACTIVE
         assert check.report_id == self.report.id
+
+    @parameterized.expand([(SignalReport.Status.READY,), (SignalReport.Status.SUPPRESSED,)])
+    def test_a_check_on_an_unresolved_report_waits_for_the_resolve(self, report_status: str) -> None:
+        self.report.status = report_status
+        self.report.save(update_fields=["status"])
+
+        check = SignalReportCheck.objects.for_team(self.team.id).get(id=self._create().check_id)
+
+        assert check.status == SignalReportCheck.Status.PENDING
+        # The gap the run left before its date is what the check waits out after the resolve.
+        assert check.soak_minutes == 3 * 24 * 60
+        assert collect_due_checks(timezone.now() + timedelta(days=7)) == []
+
+    def test_the_resolve_starts_the_clock_on_a_check_a_run_dated(self) -> None:
+        check = SignalReportCheck.objects.for_team(self.team.id).get(id=self._create().check_id)
+        before = timezone.now()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.report.status = SignalReport.Status.RESOLVED
+            self.report.save(update_fields=["status"])
+
+        check.refresh_from_db()
+        soak = timedelta(days=3)
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert before + soak <= check.next_run_at <= timezone.now() + soak
+
+    def test_a_check_on_a_resolved_report_runs_on_the_date_the_run_named(self) -> None:
+        self.report.status = SignalReport.Status.RESOLVED
+        self.report.save(update_fields=["status"])
+        first_run = timezone.now() + timedelta(days=3)
+
+        check = SignalReportCheck.objects.for_team(self.team.id).get(id=self._create(next_run_at=first_run).check_id)
+
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.next_run_at == first_run
+        assert check.soak_minutes is None
+
+    def test_a_date_beyond_the_longest_soak_becomes_the_longest_soak(self) -> None:
+        check = SignalReportCheck.objects.for_team(self.team.id).get(
+            id=self._create(next_run_at=timezone.now() + timedelta(days=60)).check_id
+        )
+
+        assert check.soak_minutes == MAX_CHECK_SOAK_HOURS * 60
 
     def test_a_run_reads_back_the_checks_it_would_otherwise_duplicate(self) -> None:
         written = self._create()
@@ -1339,7 +1435,7 @@ class TestScoutCheckTools(APIBaseTest):
             cancel_report_check(team=self.team, run=self.scout_run, check_id=written.check_id)
 
         check = SignalReportCheck.objects.for_team(self.team.id).get()
-        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert check.status == SignalReportCheck.Status.PENDING
 
     def test_another_projects_report_is_not_reachable(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")
@@ -1414,6 +1510,20 @@ class TestResearchAuthoredChecks(APIBaseTest):
         assert written == []
         assert not SignalReportCheck.objects.for_team(self.team.id).filter(report=self.report).exists()
 
+    def test_a_spec_written_after_the_report_resolved_starts_its_soak_at_once(self) -> None:
+        self.report.status = SignalReport.Status.RESOLVED
+        self.report.save(update_fields=["status"])
+        before = timezone.now()
+
+        written = create_checks_from_specs(
+            report=self.report, specs=[self._spec()], attribution=ArtefactAttribution.system()
+        )
+
+        # Nothing left to wait for, so the check is armed rather than held for a resolve that already happened.
+        soak = timedelta(hours=DEFAULT_CHECK_SOAK_HOURS)
+        assert written[0].status == SignalReportCheck.Status.ACTIVE
+        assert before + soak <= written[0].next_run_at <= timezone.now() + soak
+
     def test_a_longer_soak_is_honoured_for_a_fix_that_reaches_users_slowly(self) -> None:
         written = create_checks_from_specs(
             report=self.report, specs=[self._spec(soak_hours=72)], attribution=ArtefactAttribution.system()
@@ -1434,3 +1544,149 @@ class TestResearchAuthoredChecks(APIBaseTest):
         else:
             with self.assertRaises(PydanticValidationError):
                 CheckSpec.model_validate(payload)
+
+
+class TestReportCheckLifecycleLog(APIBaseTest):
+    """The activity entries a check leaves other than its verdict.
+
+    Without them the log is silent for the whole soak window, which is the stretch a reader most
+    wants explained: a check that never ran and one that was stopped both read as "nothing
+    happened".
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED, title="Fix")
+        self.url = f"/api/projects/{self.team.id}/signals/reports/{self.report.id}/checks/"
+
+    def _create(self, **overrides) -> SignalReportCheck:
+        spec: dict = {
+            "title": "Checkout errors stay low",
+            "kind": SignalReportCheck.Kind.METRIC_THRESHOLD,
+            "config": _threshold_config(),
+            "next_run_at": timezone.now() + timedelta(days=7),
+        }
+        spec.update(overrides)
+        return create_check(report=self.report, attribution=ArtefactAttribution.system(), **spec)
+
+    def _entries(self, artefact_type: str, report: SignalReport | None = None) -> list[dict]:
+        return [
+            json.loads(artefact.content)
+            for artefact in SignalReportArtefact.objects.filter(
+                report=report or self.report, type=artefact_type
+            ).order_by("created_at")
+        ]
+
+    def test_writing_a_check_opens_the_log_with_its_date_and_its_lane(self) -> None:
+        check = self._create(
+            kind=SignalReportCheck.Kind.AGENT,
+            config={"instructions": "Read the issue again.", "skill_name": "signals-scout-error-tracking"},
+        )
+
+        entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_SCHEDULED)
+        assert len(entries) == 1
+        assert entries[0]["check_id"] == str(check.id)
+        assert entries[0]["title"] == "Checkout errors stay low"
+        assert entries[0]["skill_name"] == "signals-scout-error-tracking"
+        assert entries[0]["arms_on_resolve"] is False
+        assert entries[0]["next_run_at"] == check.next_run_at.isoformat()
+
+    def test_a_check_waiting_on_the_resolve_says_so_and_is_not_logged_twice_when_armed(self) -> None:
+        open_report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Open")
+        check = create_check(
+            report=open_report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config=_threshold_config(),
+            soak_minutes=DEFAULT_CHECK_SOAK_HOURS * 60,
+            attribution=ArtefactAttribution.system(),
+        )
+
+        arm_pending_checks(team_id=self.team.id, report_id=open_report.id, resolved_at=timezone.now())
+
+        entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_SCHEDULED, open_report)
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert len(entries) == 1
+        assert entries[0]["arms_on_resolve"] is True
+        assert entries[0]["soak_minutes"] == DEFAULT_CHECK_SOAK_HOURS * 60
+
+    def test_the_sweep_logs_each_check_it_retires_and_says_it_never_ran(self) -> None:
+        check = self._create()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            expires_at=timezone.now() - timedelta(days=1)
+        )
+
+        assert expire_overdue_checks(timezone.now()) == 1
+
+        entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_EXPIRED)
+        assert len(entries) == 1
+        assert entries[0]["check_id"] == str(check.id)
+        assert entries[0]["last_run_at"] is None
+
+    def test_the_sweep_logs_nothing_for_a_check_whose_report_resolved_under_it(self) -> None:
+        overdue = self._create()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=overdue.id).update(
+            expires_at=timezone.now() - timedelta(days=1)
+        )
+        armed = self._create(title="Still watched")
+
+        assert expire_overdue_checks(timezone.now()) == 1
+
+        entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_EXPIRED)
+        armed.refresh_from_db()
+        assert armed.status == SignalReportCheck.Status.ACTIVE
+        assert [entry["check_id"] for entry in entries] == [str(overdue.id)]
+
+    def test_stopping_a_check_from_the_report_logs_who_stopped_it(self) -> None:
+        check = self._create()
+
+        cancelled = self.client.delete(f"{self.url}{check.id}/")
+
+        assert cancelled.status_code == status.HTTP_200_OK
+        entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_CANCELLED)
+        assert len(entries) == 1
+        assert entries[0]["check_id"] == str(check.id)
+        assert entries[0]["reason"] == "stopped_by_person"
+
+    def test_a_refused_cancel_logs_nothing(self) -> None:
+        check = self._create()
+        SignalReportCheck.objects.for_team(self.team.id).filter(id=check.id).update(
+            status=SignalReportCheck.Status.PASSED
+        )
+
+        refused = self.client.delete(f"{self.url}{check.id}/")
+
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._entries(SignalReportArtefact.ArtefactType.CHECK_CANCELLED) == []
+
+    def test_a_re_research_pass_logs_the_pending_checks_it_replaced(self) -> None:
+        open_report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Open")
+        replaced = create_check(
+            report=open_report,
+            title="Checkout errors stay low",
+            kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+            config=_threshold_config(),
+            soak_minutes=DEFAULT_CHECK_SOAK_HOURS * 60,
+            attribution=ArtefactAttribution.system(),
+        )
+
+        create_checks_from_specs(
+            report=open_report,
+            specs=[
+                CheckSpec.model_validate(
+                    {
+                        "title": "Checkout errors stay under 5 a day",
+                        "rationale": "The retry fix should hold.",
+                        "kind": "metric_threshold",
+                        "config": {"query": _PAGEVIEWS, "comparison": {"operator": "lte", "value": 5}},
+                    }
+                )
+            ],
+            attribution=ArtefactAttribution.system(),
+        )
+
+        entries = self._entries(SignalReportArtefact.ArtefactType.CHECK_CANCELLED, open_report)
+        assert len(entries) == 1
+        assert entries[0]["check_id"] == str(replaced.id)
+        assert entries[0]["reason"] == "replaced_by_research"

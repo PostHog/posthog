@@ -1,4 +1,4 @@
-{% from "_macros.jinja" import cite_in, rate_notability %}Rate this session against the following criterion: {{ user_prompt }}
+{% from "_macros.jinja" import cite_in, pick_media, rate_notability %}Rate this session against the following criterion: {{ user_prompt }}
 
 Before scoring, verify the moments that drive your score with `get_events_around`: what the events record at a moment outranks a visual impression of it, and a score toward either end of the scale needs event-checked moments behind it, not just how the session looks.
 
@@ -7,3 +7,5 @@ In `reasoning`, work through what you observed in the session that bears on this
 {{ cite_in('reasoning') }}
 
 {{ rate_notability() }}
+
+{{ pick_media() }}

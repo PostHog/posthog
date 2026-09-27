@@ -19,6 +19,10 @@ Which job are you doing?
 - No endpoint exists for this third party, or the semgrep rule flagged a hand-rolled verifier: **add a provider**, then add its consumer.
 - Outbound call to a vendor API, which is the other direction: `/routing-outbound-api-calls`.
 
+Before you migrate a verifier, read what the existing code verifies with.
+A verifier the vendor ships in its SDK, or one from a maintained library, stays as it is: it is written by the people who define the scheme, and a reimplementation only adds bugs.
+Ingress wraps such a verifier at most. Only a hand-rolled `hmac` check is a migration.
+
 ## Add a consumer
 
 A product declares its consumers in `products/<product>/backend/webhook_consumers.py`, in a `WEBHOOK_CONSUMERS` sequence of `WebhookConsumer` values from `posthog.ingress.contracts`.
@@ -44,7 +48,7 @@ Rules that decide whether this works:
 - Keep the module cheap to import. The registry imports it on the first delivery through `load_product_modules("webhook_consumers")`, so defer heavy imports into the handler behind `# noqa: PLC0415` with a reason.
 - The handler runs synchronously inside the request. Enqueue a task for real work, the way stamphog and conversations do.
 - A handler that reads the database wraps the read in `bounded_statement_timeout(ms, models=...)` from `posthog.ingress.dispatch.database`, passing only the models the read actually uses. Opening an alias is itself unbounded, so naming one the read never touches can stall the delivery on connection setup.
-- An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade.
+- An import-linter contract (`webhook consumers must only import facade`) holds the module to its own product's `facade/`. Reach product internals through the facade. `hogli product:lint` holds the same rule by AST for every product that has a `webhook_consumers.py`, including relative imports and products with no contract yet.
 - A consumer whose resources are split across regions declares `ownership=`, pointing at a facade function that returns a `DeliveryOwnership`. Ingress forwards the signed request when the answer is `ELSEWHERE`, and dispatches locally either way. The lookup runs inside the request, so bound it with `bounded_statement_timeout(ms, models=...)`. Let a transient error out of the lookup rather than answering `LOCAL` or `UNDECIDED` through it: a lookup that raises asks a provider with `retry_status` for the delivery again, and a guessed answer receipts a delivery the other region never sees.
 
 Tests: extend the product's existing webhook test module rather than starting a parallel one.
@@ -55,6 +59,7 @@ Reset the process-cached registry and the dedup cache between tests with `reset_
 
 Create `posthog/ingress/<provider>/` with an `__init__.py` and a `provider.py`.
 Copy `github/` for the full shape, or `vapi/` for a small one.
+Copy the layout, not the behavior: a provider package holds only what is specific to its third party. A need that a second provider could share becomes a lane, a scheme option or a `WebhookProvider` attribute, the way `retry_status` and `throttle_class` did. A true one-off stays in the provider with a `# One-off:` comment that says why no other provider needs it.
 `provider.py` holds three things:
 
 - `SPECS`, one `ProviderSpec` per app, naming the event types that app is subscribed to. The registry validates consumers against these.
@@ -64,6 +69,7 @@ Copy `github/` for the full shape, or `vapi/` for a small one.
   - `throttle_class` names a DRF throttle from `posthog.rate_limit`, run in front of verification. Set one when the endpoint is public and its verification is expensive, such as a JWT signing-key lookup.
   - `retry_status` is the status answered instead of the receipt when ingress cannot vouch that the delivery was accepted: an ownership lookup failed, the forward to the owning region failed, a consumer raised, or the budget skipped a consumer. Set it when the provider redelivers on a non-2xx, and leave it `None` when it does not, because the non-2xx then only loses the delivery. A retry replays the delivery against every consumer on the endpoint, and dedup is what stops the ones that already accepted it from running twice.
 - A `build_<provider>_provider(...)` function returning it. Secrets and verifiers a product owns are **passed into this builder**, never imported: nothing under `posthog/ingress/` may import a product.
+  A builder that takes an `app` name calls `require_known_app(provider, app, SPECS)` from `posthog/ingress/providers.py` first, so a typo raises `UnknownApp` at import instead of serving an endpoint no consumer is registered against.
 
 ### Picking a scheme
 
@@ -76,10 +82,10 @@ Three exist. Configure one; do not write a fourth without reading [the Schemes s
 Then:
 
 1. Add the module path to `_INCARNATION_MODULES` in `posthog/ingress/providers.py`, or the registry never sees its specs or core consumers.
-2. Wire the URL with `build_webhook_view()` where the App registration lives. The owner of the third-party App owns the route: a product that registered the App declares `urlpatterns` in its own `products/<product>/backend/routes.py`, for example `opt_slash_path("webhooks/<product>/<provider>", build_webhook_view(build_<provider>_provider()))`. The path must start with `webhooks/<product>/` or `api/<product>/`, or the URL conf fails to load. Only an App several products consume stays in `posthog/urls.py`, which today is the customer-facing GitHub App alone. See [docs/internal/url-routing.md](../../../docs/internal/url-routing.md).
+2. Wire the URL with `build_webhook_view()` where the App registration lives. The owner of the third-party App owns the route: a product that registered the App declares `webhook_urlpatterns` in its own `products/<product>/backend/routes.py`, for example `opt_slash_path("<provider>", build_webhook_view(build_<provider>_provider()))`. Core mounts that list at `webhooks/<product>/`, so the route is relative to it. Only an App several products consume stays in `posthog/urls.py`, which today is the customer-facing GitHub App alone. See [docs/internal/url-routing.md](../../../docs/internal/url-routing.md).
 3. Write `posthog/ingress/<provider>/README.md` with the fixed sections, in this order: headers, signature scheme, delivery id and event type, apps and secrets, quirks, consumers. `posthog/ingress/test/test_provider_readme_sections.py` fails on a provider folder without one, and on a README with different or reordered headings.
 4. Add the provider's signature header name to the `$HEADER` regex in `.semgrep/rules/devex/inbound-webhooks-go-through-ingress.yaml`, plus a fixture case in the `.py` beside it. The header names are spelled out rather than matched generically because a generic header pattern makes semgrep time out on a large module, which drops that file from the scan without failing it.
-5. Delete the migrated endpoint's line from `paths.exclude` in the same rule. That list is a ratchet of verifiers that predate ingress, and the migrating PR removes its own entry.
+5. Do not add the endpoint to `paths.exclude` in the same rule. Every verifier that predated ingress is migrated, so the rule has no grandfathered paths left.
 6. Preserve the endpoint's externally observable behavior. Existing tests are the contract: move or extend them, do not drop assertions.
 
 ### The DRF adapter path
@@ -97,9 +103,10 @@ Each was a real proposal already; ["Non-goals" in the package README](../../../p
 ## Verify
 
 ```sh
-semgrep --config .semgrep/rules/devex/ .          # the ratchet entry is really gone
+semgrep --config .semgrep/rules/devex/ .          # no hand-rolled verifier is left
 semgrep --test .semgrep/                          # only if you changed the rule itself
 lint-imports                                      # the webhook_consumers contract
+hogli product:lint <product>                      # the AST backstop for that contract
 hogli test products/<product>/backend/tests/test_webhook_consumers.py
 hogli test posthog/ingress/test/
 ruff check --fix <touched files> && ruff format <touched files>

@@ -19,6 +19,19 @@ export const DesktopFeedbackSourceEnumApi = {
     VisitingPostHogWeb: 'Visiting PostHog web',
 } as const
 
+/**
+ * * `bug` - Bug
+ * * `feature` - Feature
+ * * `general` - General
+ */
+export type DesktopFeedbackTypeEnumApi = (typeof DesktopFeedbackTypeEnumApi)[keyof typeof DesktopFeedbackTypeEnumApi]
+
+export const DesktopFeedbackTypeEnumApi = {
+    Bug: 'bug',
+    Feature: 'feature',
+    General: 'general',
+} as const
+
 export interface DesktopFeedbackRequestApi {
     /**
      * Feedback text entered by the user.
@@ -35,6 +48,12 @@ export interface DesktopFeedbackRequestApi {
      * @maxLength 100
      */
     feedback_view: string
+    /** Feedback type selected by the user: bug, feature, or general.
+     *
+     * * `bug` - Bug
+     * * `feature` - Feature
+     * * `general` - General */
+    feedback_type?: DesktopFeedbackTypeEnumApi
     /**
      * Task that was active when the feedback form opened.
      * @maxLength 100

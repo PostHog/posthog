@@ -500,7 +500,7 @@ export interface ReviewTriggerRequestApi {
 export interface ReviewTriggerResponseApi {
     /** Temporal workflow id for the started review run; empty when no run was started. */
     workflow_id: string
-    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review (no new run starts), 'joined_running_review' when a review was already in flight (no new run starts and its mode stays unchanged; requests for Full mode lift a cheaper stored tier for later Full reviews, while Flash requests leave the tier unchanged). */
+    /** Run lifecycle marker: 'started' when the review was queued, 'already_reviewed' when the pull request's current commit already has a published review in the requested mode, 'joined_running_review' when a review was already in flight and the request joined its queue. A requested Full review waits for an active Flash review. */
     status: string
 }
 
@@ -508,6 +508,18 @@ export interface ReviewTriggerErrorApi {
     /** Human-readable explanation of why the trigger was rejected. */
     error: string
 }
+
+/**
+ * * `medium` - Medium
+ * * `xhigh` - Extra high
+ */
+export type ReviewUserSettingsFlashReasoningEffortEnumApi =
+    (typeof ReviewUserSettingsFlashReasoningEffortEnumApi)[keyof typeof ReviewUserSettingsFlashReasoningEffortEnumApi]
+
+export const ReviewUserSettingsFlashReasoningEffortEnumApi = {
+    Medium: 'medium',
+    Xhigh: 'xhigh',
+} as const
 
 /**
  * * `consider` - Consider
@@ -532,6 +544,13 @@ export interface ReviewUserSettingsApi {
     review_labeled_prs?: boolean
     /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
     resolve_comments?: boolean
+    /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+    review_authored_prs?: boolean
+    /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
+     *
+     * * `medium` - Medium
+     * * `xhigh` - Extra high */
+    flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnumApi
     /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider
@@ -553,6 +572,13 @@ export interface PatchedReviewUserSettingsApi {
     review_labeled_prs?: boolean
     /** After a review of the user's pull requests is published, run the resolution stage: triage the PR's unresolved review threads, implement the worth-and-safe fixes on the PR branch, and reply on every thread. On by default; turning it off makes reviews stop at publishing. */
     resolve_comments?: boolean
+    /** Automatically review pull requests authored by this user in PostHog/posthog in Flash mode. Off by default. Flash reviews post findings without resolving comments. */
+    review_authored_prs?: boolean
+    /** Reasoning effort for this user's automatic and manually requested Flash reviews: 'medium' (default) or 'xhigh'. Applies to both review and validation. Saved independently of the automatic-review toggle.
+     *
+     * * `medium` - Medium
+     * * `xhigh` - Extra high */
+    flash_reasoning_effort?: ReviewUserSettingsFlashReasoningEffortEnumApi
     /** Minimum priority a validated finding needs to be published: 'consider' (default) publishes everything, 'should_fix' drops consider-level findings, 'must_fix' publishes only blocking issues.
      *
      * * `consider` - Consider

@@ -432,6 +432,10 @@ class TestPostgresSourceNonRetryableErrors:
             'could not translate host name "bad-hostname.example.com" to address: Name or service not known',
             'FATAL:  password authentication failed for user "myuser"',
             'FATAL: no such database "nonexistent_db"',
+            # A connection pooler (e.g. PgBouncer) rejects a username it doesn't recognize.
+            # Distinct from "password authentication failed for user", which means the username
+            # exists but the password is wrong.
+            'connection failed: connection to server at "10.0.0.1", port 6543 failed: FATAL:  no such user',
             "Name or service not known",
             "OperationalError: [Errno -5] No address associated with hostname",
             "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
@@ -535,6 +539,21 @@ class TestPostgresSourceNonRetryableErrors:
         assert matches[0] is not None, "a database not accepting connections must surface an actionable message"
         assert "re-enable the sync" in matches[0].lower()
         assert "db.example.com" not in matches[0]
+
+    def test_ssh_gateway_session_failure_tells_the_customer_to_re_enable(self, source):
+        # This entry is non-retryable, so matching it switches the schema off. Without the
+        # re-enable step the customer fixes the bastion and the sync stays silently stopped.
+        # Mirror the finalizer's first-match selection so a reorder that shadows it with an
+        # earlier None-valued key is caught.
+        error_msg = "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway"
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "an unreachable SSH gateway must be classified non-retryable"
+        assert matches[0] is not None, "an unreachable SSH gateway must surface an actionable message"
+        assert "re-enable the sync" in matches[0].lower()
 
     @pytest.mark.parametrize(
         ("error_msg", "reason_code", "expected_word"),
@@ -810,6 +829,16 @@ class TestPostgresSourceNonRetryableErrors:
                 "OperationalError: Your project has exceeded the data transfer quota. Upgrade your plan to increase limits.",
                 "data transfer quota",
             ),
+            # Some refusals from the same family name no quota at all, so only the sentence they
+            # all end with is left to classify them by.
+            (
+                'connection failed: connection to server at "203.0.113.10", port 5432 failed: ERROR:  Your account or project has exceeded the quota. Upgrade your plan to increase limits.',
+                "a plan quota",
+            ),
+            (
+                "OperationalError: Your account or project has exceeded the quota. Upgrade your plan to increase limits.",
+                "a plan quota",
+            ),
         ],
     )
     def test_exceeded_provider_quota_is_non_retryable_with_friendly_message(self, source, error_msg, expected_fragment):
@@ -862,6 +891,51 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "Server out-of-memory error should surface an actionable message"
         assert "ran out of memory" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)). The request size
+            # is volatile; the "invalid memory alloc request size" text is stable.
+            "invalid memory alloc request size 18446744073709551613",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InternalError_: invalid memory alloc request size 18446744073709551613",
+        ],
+    )
+    def test_invalid_memory_alloc_request_size_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid memory alloc request size error should be non-retryable: {error_msg}"
+
+    def test_invalid_memory_alloc_request_size_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "invalid memory alloc request size 18446744073709551613"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Invalid memory alloc request size error should surface an actionable message"
+        assert "corrupted" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg messages (what the activity-level check sees via str(e)). The chunk and
+            # block numbers and the relation names are volatile.
+            "missing chunk number 0 for toast value 90210 in pg_toast_16384",
+            'index "orders_pkey" contains unexpected zero page at block 42',
+            'could not read block 7 in file "base/16384/16385": read only 0 of 8192 bytes',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InternalError_: missing chunk number 0 for toast value 90210 in pg_toast_16384",
+        ],
+    )
+    def test_damaged_source_page_is_non_retryable(self, source, error_msg):
+        # The sibling wordings of the allocation-size failure above name the page rather than the
+        # row length, so none of them match that key and each would otherwise retry to exhaustion.
+        non_retryable = source.get_non_retryable_errors()
+        assert error_message_matches(error_msg, non_retryable.keys()), (
+            f"Damaged source page should be non-retryable: {error_msg}"
+        )
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Damaged source page should surface an actionable message"
+        assert "damaged data on disk" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1087,6 +1161,35 @@ class TestPostgresSourceNonRetryableErrors:
         friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
         assert friendly, "IP-not-in-allow-list error should surface an actionable message"
         assert "allow list" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg,expected_fragment",
+        [
+            (
+                'connection failed: connection to server at "203.0.113.30", port 5432 failed: ERROR:  This IP '
+                "address 198.51.100.7 is not allowed to connect to this endpoint.\n"
+                'connection to server at "203.0.113.30", port 5432 failed: ERROR:  connection is insecure',
+                "allow list",
+            ),
+            (
+                'connection failed: connection to server at "203.0.113.31", port 5432 failed: ERROR:  This '
+                "connection is trying to access this endpoint from a blocked network.\n"
+                'connection to server at "203.0.113.31", port 5432 failed: ERROR:  connection is insecure',
+                "public access",
+            ),
+        ],
+    )
+    def test_neon_network_policy_rejection_is_non_retryable_with_friendly_message(
+        self, source, error_msg, expected_fragment
+    ):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [
+            reason
+            for pattern, reason in non_retryable.items()
+            if error_message_matches(error_msg, [pattern]) and reason
+        ]
+        assert friendly, f"Network policy rejection should be non-retryable with an actionable message: {error_msg}"
+        assert expected_fragment in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",

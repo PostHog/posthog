@@ -12,3 +12,8 @@ Cite key moments inside `{{ field_name }}` as `(t <seconds>)`, following the Cit
 {%- macro rate_notability() -%}
 Separately from your answer above, judge the session itself: in `notability_reason` name the single moment a product team would most want to see (or say plainly that nothing stands out), then set `notability` per the notability calibration rules. Judge what happened to the person, not whether it matches your answer above — a session can be worth watching even when your answer is a non-event, and a routine session stays low even when your answer is a hit. Weigh the area this scanner watches: the team chose it, so difficulty there matters more to them than the same difficulty elsewhere in the session, and repeated or severe trouble in that area is worth watching even when your answer already covers it.
 {%- endmacro -%}
+
+{# The poster frame, asked in the core turn: a turn of its own costs a full conversation re-send per scan. Call as `{{ pick_media() }}`. #}
+{%- macro pick_media() -%}
+Last, pick the single frame that best illustrates what you found, so a person scanning a list of recordings can tell at a glance what this one is about, and give it in `thumbnail_t` in whole seconds of video time, the same scale you cite moments in, not the footer's `REC_T`. Pick a frame where the screen shows the thing itself: the error, the broken layout, the step the user was stuck on, the page your answer is about. Avoid a blank page, a full-page spinner, a modal backdrop mid-fade, and the first and last seconds of the recording, which usually show the page loading or unloading. When nothing stands out, pick a moment where the user was clearly doing something rather than the start of the video.
+{%- endmacro -%}

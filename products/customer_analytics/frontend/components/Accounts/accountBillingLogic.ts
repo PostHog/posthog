@@ -26,7 +26,7 @@ import {
     ProductKey,
     QueryLogTags,
 } from '~/queries/schema/schema-general'
-import { InsightShortId, QueryBasedInsightModel } from '~/types'
+import { InsightShortId, InsightModel } from '~/types'
 
 import type { Node } from '../../../../../frontend/src/queries/schema/schema-general'
 import { BillingUsageInterval, billingUsageQuery, supportsUsageAggregation } from './billingUsageQuery'
@@ -50,7 +50,7 @@ const END_VARIABLE = 'billing_end_date'
 // backend could attribute it by.
 const BILLING_QUERY_TAGS: QueryLogTags = { productKey: ProductKey.CUSTOMER_ANALYTICS, scene: 'CustomerAnalytics' }
 
-function withBillingQueryTags(insight: QueryBasedInsightModel): QueryBasedInsightModel {
+function withBillingQueryTags(insight: InsightModel): InsightModel {
     const query = insight.query
     if (!query || query.kind !== NodeKind.DataVisualizationNode) {
         return insight
@@ -60,7 +60,7 @@ function withBillingQueryTags(insight: QueryBasedInsightModel): QueryBasedInsigh
         ...dataViz,
         source: { ...dataViz.source, tags: { ...BILLING_QUERY_TAGS, ...dataViz.source.tags } },
     }
-    return { ...insight, query: taggedQuery as QueryBasedInsightModel['query'] }
+    return { ...insight, query: taggedQuery as InsightModel['query'] }
 }
 
 export interface BillingDateRange {
@@ -87,7 +87,7 @@ export function getBillingDataVisualizationKey(queryKey: string): string {
 // Inject the account's org and the chosen date range into the saved insight's SQL variables, keyed by their
 // variableId as read from the fetched insight (so this works regardless of the variable UUIDs in each env).
 function buildVariableOverrides(
-    insight: QueryBasedInsightModel,
+    insight: InsightModel,
     resolvedDateRange: BillingDateRange,
     externalId: string
 ): Record<string, HogQLVariable> | undefined {
@@ -120,11 +120,11 @@ function buildVariableOverrides(
 export interface accountBillingLogicValues {
     canAggregateUsage: boolean
     dateRange: BillingDateRange
-    displayInsights: QueryBasedInsightModel[] | null
+    displayInsights: InsightModel[] | null
     ephemeralHiddenSeriesKeysByShortId: Record<string, string[]>
     queryKeyFor: (shortId: string) => string
     resolvedDateRange: BillingDateRange
-    savedInsights: QueryBasedInsightModel[] | null
+    savedInsights: InsightModel[] | null
     savedInsightsLoading: boolean
     usageInterval: BillingUsageInterval
     variableOverridesByShortId: Record<string, Record<string, HogQLVariable>>
@@ -141,10 +141,10 @@ export interface accountBillingLogicActions {
         errorObject?: any
     }
     loadSavedInsightsSuccess: (
-        savedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[],
+        savedInsights: InsightModel<Node<Record<string, any>>>[],
         payload?: any
     ) => {
-        savedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[]
+        savedInsights: InsightModel<Node<Record<string, any>>>[]
         payload?: any
     }
     setAllSeriesHidden: (
@@ -181,18 +181,15 @@ export interface accountBillingLogicActions {
 export interface accountBillingLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        canAggregateUsage: (
-            savedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[] | null,
-            arg: any
-        ) => boolean
+        canAggregateUsage: (savedInsights: InsightModel<Node<Record<string, any>>>[] | null, arg: any) => boolean
         displayInsights: (
-            savedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[] | null,
+            savedInsights: InsightModel<Node<Record<string, any>>>[] | null,
             usageInterval: BillingUsageInterval,
             canAggregateUsage: boolean
-        ) => QueryBasedInsightModel[] | null
+        ) => InsightModel[] | null
         resolvedDateRange: (dateRange: BillingDateRange) => BillingDateRange
         variableOverridesByShortId: (
-            savedInsights: QueryBasedInsightModel<Node<Record<string, any>>>[] | null,
+            savedInsights: InsightModel<Node<Record<string, any>>>[] | null,
             resolvedDateRange: BillingDateRange,
             arg: any
         ) => Record<string, Record<string, HogQLVariable>>
@@ -259,7 +256,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
         ],
     })),
     listeners(({ props, values, cache }) => {
-        const preloadSavedInsights = (savedInsights: QueryBasedInsightModel[]): void => {
+        const preloadSavedInsights = (savedInsights: InsightModel[]): void => {
             for (const insight of savedInsights) {
                 if (!insight.query || insight.query.kind !== NodeKind.DataVisualizationNode) {
                     continue
@@ -309,7 +306,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
     }),
     loaders(({ props }) => ({
         savedInsights: [
-            null as QueryBasedInsightModel[] | null,
+            null as InsightModel[] | null,
             {
                 loadSavedInsights: async (_ = null, breakpoint) => {
                     const insights = await Promise.all(
@@ -330,7 +327,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                     )
                     breakpoint()
                     return insights
-                        .filter((insight): insight is QueryBasedInsightModel => insight !== null)
+                        .filter((insight): insight is InsightModel => insight !== null)
                         .map(withBillingQueryTags)
                 },
             },
@@ -339,7 +336,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
     selectors({
         canAggregateUsage: [
             (s) => [s.savedInsights, (_, p) => p.kind],
-            (savedInsights: QueryBasedInsightModel[] | null, kind: AccountBillingKind): boolean =>
+            (savedInsights: InsightModel[] | null, kind: AccountBillingKind): boolean =>
                 kind === 'usage' &&
                 !!savedInsights?.length &&
                 savedInsights.every(({ query }) => supportsUsageAggregation(query)),
@@ -347,10 +344,10 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
         displayInsights: [
             (s) => [s.savedInsights, s.usageInterval, s.canAggregateUsage],
             (
-                savedInsights: QueryBasedInsightModel[] | null,
+                savedInsights: InsightModel[] | null,
                 interval: BillingUsageInterval,
                 canAggregate: boolean
-            ): QueryBasedInsightModel[] | null =>
+            ): InsightModel[] | null =>
                 canAggregate
                     ? savedInsights!.map((insight) => ({
                           ...insight,
@@ -373,7 +370,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
         variableOverridesByShortId: [
             (s) => [s.savedInsights, s.resolvedDateRange, (_, p) => p.externalId],
             (
-                savedInsights: QueryBasedInsightModel[] | null,
+                savedInsights: InsightModel[] | null,
                 resolvedDateRange: BillingDateRange,
                 externalId
             ): Record<string, Record<string, HogQLVariable>> => {

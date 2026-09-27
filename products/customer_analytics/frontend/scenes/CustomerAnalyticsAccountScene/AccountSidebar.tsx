@@ -13,7 +13,8 @@ import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSc
 export function AccountSidebar({ account }: { account: AccountApi }): JSX.Element {
     const { tagsSaving } = useValues(customerAnalyticsAccountSceneLogic)
     const { updateTags } = useActions(customerAnalyticsAccountSceneLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
 
     return (
         <aside
@@ -25,7 +26,8 @@ export function AccountSidebar({ account }: { account: AccountApi }): JSX.Elemen
                 <ObjectTags
                     tags={account.tags ?? []}
                     onChange={updateTags}
-                    saving={tagsSaving}
+                    onEdit={loadTagsIfNeeded}
+                    saving={tagsSaving || tagsLoading}
                     tagsAvailable={tagsAvailable}
                     wrap
                 />

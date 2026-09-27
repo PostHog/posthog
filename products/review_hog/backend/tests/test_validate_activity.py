@@ -21,6 +21,7 @@ from products.review_hog.backend.reviewer.models.issue_validation import IssueVa
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.temporal.activities import ValidateChunkInput, validate_chunk_activity
+from products.tasks.backend.facade.run_config import ReasoningEffort
 
 _MODULE = "products.review_hog.backend.temporal.activities"
 _CHUNK_ID = 3
@@ -188,14 +189,22 @@ async def test_session_open_failure_raises_even_on_the_final_attempt() -> None:
 
 
 @pytest.mark.parametrize(
-    "review_mode,expected",
+    "review_mode,effort,expected",
     [
-        pytest.param(REVIEW_MODE_FULL, DEFAULT_VALIDATION_ARM, id="full"),
-        pytest.param(REVIEW_MODE_FLASH, FLASH_ARM, id="flash"),
+        pytest.param(REVIEW_MODE_FULL, ReasoningEffort.MEDIUM, DEFAULT_VALIDATION_ARM, id="full"),
+        pytest.param(REVIEW_MODE_FLASH, ReasoningEffort.MEDIUM, FLASH_ARM, id="flash-medium"),
+        pytest.param(
+            REVIEW_MODE_FLASH,
+            ReasoningEffort.XHIGH,
+            dataclasses.replace(FLASH_ARM, reasoning_effort=ReasoningEffort.XHIGH),
+            id="flash-xhigh",
+        ),
     ],
 )
 @pytest.mark.asyncio
-async def test_validation_session_opens_on_the_modes_arm(review_mode: str, expected: ReviewArm) -> None:
+async def test_validation_session_opens_on_the_modes_arm(
+    review_mode: str, effort: ReasoningEffort, expected: ReviewArm
+) -> None:
     # The validator seat is chosen per turn: a flash turn that validated on the Opus pins would
     # cost the full price under a flash label, and the pin kwargs default to None, so a dropped
     # kwarg would silently run the agent server's default with every other assertion green.
@@ -207,7 +216,10 @@ async def test_validation_session_opens_on_the_modes_arm(review_mode: str, expec
         patch(f"{_MODULE}.start_sandbox_session", mock_start),
         patch(f"{_MODULE}.end_sandbox_session", AsyncMock()),
     ):
-        result = await _env(attempt=1).run(validate_chunk_activity, _input([issue], review_mode=review_mode))
+        result = await _env(attempt=1).run(
+            validate_chunk_activity,
+            dataclasses.replace(_input([issue], review_mode=review_mode), flash_reasoning_effort=effort.value),
+        )
 
     assert result.validated_count == 1
     kwargs = mock_start.call_args.kwargs

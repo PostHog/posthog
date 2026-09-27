@@ -86,6 +86,8 @@ jobs:
                         - 'packages/llm-normalizer/**'
                         # MCP integration tests exercise the full PostHog backend
                         - 'posthog/**/*.py'
+                        # The personhog gRPC stubs the backend's person reads go through
+                        - 'packages/personhog-proto/**'
                         - 'ee/**/*.py'
                         - 'common/**/*.py'
                         - 'products/*/backend/**/*.py'
@@ -689,7 +691,7 @@ jobs:
                   import django, os
                   os.environ['DJANGO_SETTINGS_MODULE'] = 'posthog.settings'
                   django.setup()
-                  from posthog.models import Organization, Team, User, EventDefinition
+                  from posthog.models import Organization, Team, User, EventDefinition, PropertyDefinition
                   from posthog.models.personal_api_key import PersonalAPIKey
                   from posthog.models.utils import hash_key_value
                   org = Organization.objects.first()
@@ -704,6 +706,10 @@ jobs:
                   # Ensure common event definitions exist for MCP integration tests
                   for event_name in ['\$pageview', '\$pageleave', '\$autocapture', '\$screen']:
                       EventDefinition.objects.get_or_create(name=event_name, team=team)
+                  PropertyDefinition.objects.get_or_create(
+                      name='\$browser', team=team, type=PropertyDefinition.Type.EVENT,
+                      defaults={'property_type': 'String'},
+                  )
                   print(f'TEST_ORG_ID={org.id}')
                   print(f'TEST_PROJECT_ID={team.id}')
                   " >> $GITHUB_ENV

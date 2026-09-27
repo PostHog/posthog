@@ -10,8 +10,13 @@ import { MlBlockMetadataRow } from './block-metadata-row'
 import { MlEncryptedEnvelope } from './keys/crypto'
 import { MlParquetSinkMetrics } from './metrics'
 import { rowsToParquetBuffer } from './parquet-writer'
-import { EncryptedReplayIndex, replayIndexPartitions, replayIndexToParquetBuffer } from './replay-index'
-import { sessionStartMonth } from './session-identifier-format'
+import {
+    EncryptedReplayIndex,
+    replayIndexPartitions,
+    replayIndexToParquetBuffer,
+    v3ReplayIndexByKind,
+} from './replay-index'
+import { sessionStartMonth, usesV3Dataset } from './session-identifier-format'
 
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -19,13 +24,19 @@ const DAY_MS = 86_400_000
 // The `dt=` partition is a UTC date, so measure lag and span in whole UTC days to match it.
 const utcDay = (ms: number): number => Math.floor(ms / DAY_MS)
 
+/** A session's start selects its dataset, and each dataset has a bucket of its own. */
+export interface MlDatasetBuckets {
+    v2: string
+    v3: string
+}
+
 export class BlockMetadataParquetStore {
     private seq = 0
     private readonly nodeId: string
 
     constructor(
         private readonly s3Client: S3Client,
-        private readonly bucket: string,
+        private readonly buckets: MlDatasetBuckets,
         private readonly prefix: string,
         nodeId?: string
     ) {
@@ -39,7 +50,7 @@ export class BlockMetadataParquetStore {
             return
         }
         if (rows.some((row) => row.format_version === 2)) {
-            throw new Error('ML v2 metadata must use encrypted storage')
+            throw new Error('ML raw-identifier metadata must use sealed v2 or plain v3 storage')
         }
         await this.writeDataset(rows, this.prefix, `${this.prefix}-replay-index/v1`)
     }
@@ -48,15 +59,15 @@ export class BlockMetadataParquetStore {
         if (envelopes.length === 0) {
             return
         }
-        const months = new Map<string, MlEncryptedEnvelope[]>()
+        const partitions = new Map<string, MlEncryptedEnvelope[]>()
         for (const envelope of envelopes) {
-            const month = sessionStartMonth(envelope.context.sessionId ?? '')
-            const group = months.get(month) ?? []
+            const partition = `${this.prefix}/v2/${sealedSessionMonth(envelope)}`
+            const group = partitions.get(partition) ?? []
             group.push(envelope)
-            months.set(month, group)
+            partitions.set(partition, group)
         }
-        for (const [month, group] of months) {
-            const bytes = await this.writeEncryptedPartition(`${this.prefix}/v2/${month}`, group)
+        for (const [partition, group] of partitions) {
+            const bytes = await this.writeEncryptedPartition(partition, group)
             MlParquetSinkMetrics.observeWrite(group.length, bytes)
         }
     }
@@ -64,9 +75,7 @@ export class BlockMetadataParquetStore {
     public async writeEncryptedReplayIndex(indexes: EncryptedReplayIndex[]): Promise<void> {
         const partitions = new Map<string, EncryptedReplayIndex[]>()
         for (const index of indexes) {
-            const { kind, envelope } = index
-            const month = sessionStartMonth(envelope.context.sessionId ?? '')
-            const partition = `${this.prefix}-replay-index/v2/${month}/kind=${kind}`
+            const partition = `${this.prefix}-replay-index/v2/${sealedSessionMonth(index.envelope)}/kind=${index.kind}`
             const group = partitions.get(partition) ?? []
             group.push(index)
             partitions.set(partition, group)
@@ -80,6 +89,51 @@ export class BlockMetadataParquetStore {
                 group[0].kind,
                 group.reduce((count, index) => count + index.rowCount, 0)
             )
+        }
+    }
+
+    /** Writes v3 metadata and its replay index as plain Parquet columns, partitioned by the session's UTC start month. */
+    public async writePlainV3(rows: MlBlockMetadataRow[]): Promise<void> {
+        const months = new Map<string, MlBlockMetadataRow[]>()
+        for (const row of rows) {
+            if (!usesV3Dataset(row.session_id)) {
+                throw new Error('ML plain storage holds only v3 sessions')
+            }
+            const month = sessionStartMonth(row.session_id)
+            const group = months.get(month) ?? []
+            group.push(row)
+            months.set(month, group)
+        }
+        try {
+            // Every body is encoded before the first upload, so a row that the writer rejects leaves no object behind.
+            const uploads: { prefix: string; body: Buffer; rows: number; indexKind?: string }[] = []
+            for (const [month, group] of months) {
+                group.sort((a, b) => cmp(a.team_id, b.team_id) || cmp(a.session_id, b.session_id))
+                for (const [kind, records] of v3ReplayIndexByKind(group)) {
+                    uploads.push({
+                        prefix: `${this.prefix}-replay-index/v3/${month}/kind=${kind}`,
+                        body: await replayIndexToParquetBuffer(records),
+                        rows: records.length,
+                        indexKind: kind,
+                    })
+                }
+                uploads.push({
+                    prefix: `${this.prefix}/v3/${month}`,
+                    body: await rowsToParquetBuffer(group),
+                    rows: group.length,
+                })
+            }
+            for (const upload of uploads) {
+                await this.putParquet(this.buckets.v3, upload.prefix, upload.body)
+                if (upload.indexKind) {
+                    MlParquetSinkMetrics.incReplayIndexRows(upload.indexKind, upload.rows)
+                } else {
+                    MlParquetSinkMetrics.observeWrite(upload.rows, upload.body.length)
+                }
+            }
+        } catch (error) {
+            MlParquetSinkMetrics.incWriteError()
+            throw error
         }
     }
 
@@ -101,20 +155,24 @@ export class BlockMetadataParquetStore {
                     payload: Buffer.from(JSON.stringify(envelope)),
                 }))
             )
-            await this.s3Client.send(
-                new PutObjectCommand({
-                    Bucket: this.bucket,
-                    Key: `${prefix}/part-${this.nodeId}-${Date.now()}-${++this.seq}.parquet`,
-                    Body: body,
-                    ContentType: 'application/vnd.apache.parquet',
-                }),
-                { abortSignal: AbortSignal.timeout(30_000) }
-            )
+            await this.putParquet(this.buckets.v2, prefix, body)
         } catch (error) {
             MlParquetSinkMetrics.incWriteError()
             throw error
         }
         return body.length
+    }
+
+    private async putParquet(bucket: string, prefix: string, body: Buffer): Promise<void> {
+        await this.s3Client.send(
+            new PutObjectCommand({
+                Bucket: bucket,
+                Key: `${prefix}/part-${this.nodeId}-${Date.now()}-${++this.seq}.parquet`,
+                Body: body,
+                ContentType: 'application/vnd.apache.parquet',
+            }),
+            { abortSignal: AbortSignal.timeout(30_000) }
+        )
     }
 
     private async writeDataset(rows: MlBlockMetadataRow[], prefix: string, indexPrefix: string): Promise<void> {
@@ -131,7 +189,7 @@ export class BlockMetadataParquetStore {
                 this.seq += 1
                 await this.s3Client.send(
                     new PutObjectCommand({
-                        Bucket: this.bucket,
+                        Bucket: this.buckets.v2,
                         Key: `${indexPrefix}/${partition}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`,
                         Body: indexBody,
                         ContentType: 'application/vnd.apache.parquet',
@@ -144,7 +202,7 @@ export class BlockMetadataParquetStore {
             key = this.objectKey(prefix, new Date(bounds.minMs).toISOString().slice(0, 10))
             await this.s3Client.send(
                 new PutObjectCommand({
-                    Bucket: this.bucket,
+                    Bucket: this.buckets.v2,
                     Key: key,
                     Body: body,
                     ContentType: 'application/vnd.apache.parquet',
@@ -169,6 +227,14 @@ export class BlockMetadataParquetStore {
         this.seq += 1
         return `${prefix}/dt=${dt}/part-${this.nodeId}-${Date.now()}-${this.seq}.parquet`
     }
+}
+
+function sealedSessionMonth(envelope: MlEncryptedEnvelope): string {
+    const sessionId = envelope.context.sessionId ?? ''
+    if (usesV3Dataset(sessionId)) {
+        throw new Error('ML v3 metadata uses plain storage')
+    }
+    return sessionStartMonth(sessionId)
 }
 
 /**

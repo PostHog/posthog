@@ -1,40 +1,66 @@
 #!/usr/bin/env bash
-# Verifies capture-ai -> Kafka -> combined ingestion's AI consumer (blob offload) -> ClickHouse ai_events.
+# Verifies capture-ai -> Kafka -> combined ingestion's AI consumer (blob offload) -> ClickHouse ai_events,
+# once through the v0 batch endpoint SDKs use and once through the v1 endpoint Django's internal capture uses.
 set -euo pipefail
 
 PROXY="${PROXY:-http://localhost:8010}"
 API_KEY="${API_KEY:?set API_KEY to a project api_token}"
-TRACE_ID="verify-$(uuidgen | tr '[:upper:]' '[:lower:]')"
 
 # Must stay over AI_BLOB_OFFLOAD_MIN_BASE64_LENGTH (20480) or ingestion leaves the image inline.
 BLOB="$(head -c 18750 /dev/urandom | base64 | tr -d '\n' | head -c 25000)"
+CID="$(docker ps -q -f name=clickhouse | head -1)"
 
-echo "Posting \$ai_generation with trace_id=$TRACE_ID"
+lower_uuid() { uuidgen | tr '[:upper:]' '[:lower:]'; }
+
+ai_generation_properties() {
+    local trace_id="$1"
+    printf '{"$ai_trace_id":"%s","$ai_model":"gpt-4o-mini","$ai_provider":"openai","$ai_input":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,%s"}}]}]}' \
+        "$trace_id" "$BLOB"
+}
+
+await_offloaded_row() {
+    local trace_id="$1" label="$2"
+    for _ in $(seq 1 30); do
+        INPUT="$(docker exec "$CID" clickhouse-client -q \
+            "SELECT input FROM posthog.ai_events WHERE trace_id = '$trace_id' LIMIT 1" 2>/dev/null || true)"
+        if [ -n "$INPUT" ]; then
+            case "$INPUT" in
+                *phaiblob://*) echo "PASS ($label): offloaded to a blob pointer"; return 0 ;;
+                *) echo "FAIL ($label): row landed but was not offloaded (no phaiblob:// pointer):"; echo "$INPUT" | head -c 300; return 1 ;;
+            esac
+        fi
+        sleep 2
+    done
+    echo "FAIL ($label): no ai_events row for trace_id=$trace_id after 60s"
+    return 1
+}
+
+V0_TRACE_ID="verify-v0-$(lower_uuid)"
+echo "Posting \$ai_generation to /i/v0/ai/batch/ with trace_id=$V0_TRACE_ID"
 curl -sS -f -X POST "$PROXY/i/v0/ai/batch/" \
     -H 'Content-Type: application/json' \
     -d "{\"api_key\":\"$API_KEY\",\"batch\":[{
           \"event\":\"\$ai_generation\",
           \"distinct_id\":\"verify-user\",
-          \"properties\":{
-            \"\$ai_trace_id\":\"$TRACE_ID\",
-            \"\$ai_model\":\"gpt-4o-mini\",
-            \"\$ai_provider\":\"openai\",
-            \"\$ai_input\":[{\"role\":\"user\",\"content\":[
-              {\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,$BLOB\"}}
-            ]}]
-          }}]}" >/dev/null
+          \"properties\":$(ai_generation_properties "$V0_TRACE_ID")}]}" >/dev/null
+await_offloaded_row "$V0_TRACE_ID" "v0"
 
-CID="$(docker ps -q -f name=clickhouse | head -1)"
-for _ in $(seq 1 30); do
-    INPUT="$(docker exec "$CID" clickhouse-client -q \
-        "SELECT input FROM posthog.ai_events WHERE trace_id = '$TRACE_ID' LIMIT 1" 2>/dev/null || true)"
-    if [ -n "$INPUT" ]; then
-        case "$INPUT" in
-            *phaiblob://*) echo "PASS: offloaded to a blob pointer"; exit 0 ;;
-            *) echo "FAIL: row landed but was not offloaded (no phaiblob:// pointer):"; echo "$INPUT" | head -c 300; exit 1 ;;
-        esac
-    fi
-    sleep 2
-done
-echo "FAIL: no ai_events row for trace_id=$TRACE_ID after 60s"
-exit 1
+# Same headers Django's capture_ai_internal sends (posthog/api/capture.py _build_v1_headers).
+V1_TRACE_ID="verify-v1-$(lower_uuid)"
+NOW="$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+echo "Posting \$ai_generation to /i/v1/ai/events with trace_id=$V1_TRACE_ID"
+curl -sS -f -X POST "$PROXY/i/v1/ai/events" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H 'Content-Type: application/json' \
+    -H 'User-Agent: verify-ai-ingestion-stack/1.0' \
+    -H 'PostHog-Sdk-Info: verify-ai-ingestion-stack/1.0' \
+    -H 'PostHog-Attempt: 1' \
+    -H "PostHog-Request-Id: $(lower_uuid)" \
+    -H "PostHog-Request-Timestamp: $NOW" \
+    -d "{\"created_at\":\"$NOW\",\"batch\":[{
+          \"event\":\"\$ai_generation\",
+          \"uuid\":\"$(lower_uuid)\",
+          \"distinct_id\":\"verify-user\",
+          \"timestamp\":\"$NOW\",
+          \"properties\":$(ai_generation_properties "$V1_TRACE_ID")}]}" >/dev/null
+await_offloaded_row "$V1_TRACE_ID" "v1"

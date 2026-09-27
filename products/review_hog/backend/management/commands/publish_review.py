@@ -13,6 +13,7 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_MODE_FULL,
 )
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.review_state import review_mode_for_run
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.reviewer.tools.publish_review import publish_persisted_review
@@ -60,8 +61,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--review-mode",
             choices=(REVIEW_MODE_FULL, REVIEW_MODE_FLASH),
-            default=REVIEW_MODE_FULL,
-            help="Mode that produced the stored review; use flash to preserve its Flash labels",
+            default=None,
+            help="Mode that produced the stored review; inferred from the completed run when omitted",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -87,6 +88,15 @@ class Command(BaseCommand):
         if not head_sha:
             raise CommandError(f"Review for {repository}#{pr_number} has no reviewed head_sha; nothing to publish.")
 
+        # The latest completed turn's findings live under run_index == run_count: fetch sets
+        # run_index = run_count + 1, and finalize bumps run_count after they're persisted.
+        run_index = report.run_count
+        review_mode = review_mode_for_run(report, run_index)
+        if options["review_mode"] is not None and options["review_mode"] != review_mode:
+            raise CommandError(
+                f"The stored review used {review_mode} mode. Omit --review-mode or use --review-mode {review_mode}."
+            )
+
         github = GitHubIntegration.first_for_team_repository(team_id, repository)
         if github is None:
             raise CommandError(
@@ -106,9 +116,6 @@ class Command(BaseCommand):
         if warning:
             self.stdout.write(self.style.WARNING(warning))
 
-        # The latest completed turn's findings live under run_index == run_count: fetch sets
-        # run_index = run_count + 1, and finalize bumps run_count after they're persisted.
-        run_index = report.run_count
         self.stdout.write(
             self.style.MIGRATE_HEADING(
                 f"ReviewHog ▶ publishing {repository}#{pr_number} · report {report.id} · head {head_sha[:12]}"
@@ -129,7 +136,7 @@ class Command(BaseCommand):
             token=token,
             urgency_threshold=_run_threshold(report.run_urgency_threshold),
             installation_id=installation_id,
-            review_mode=options["review_mode"],
+            review_mode=review_mode,
         )
         if outcome.posted:
             self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ published {repository}#{pr_number}"))

@@ -18,6 +18,8 @@
         "@posthog/icons": "catalog:",
         "@posthog/react": "*",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
         "@types/react": "*",
         "react": "*"
     }

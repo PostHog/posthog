@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
-// Allow an empty numeric part so a cleared input keeps its unit instead of resetting to a default.
-const DURATION_REGEX = /^(\d*\.?\d*)([dhms])$/
+import { splitPartialDuration } from '../durations'
 
 const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
     d: 30,
@@ -47,12 +46,10 @@ export function HogFlowDuration({
     maxValueForUnit?: Record<string, number>
 }): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
-    const parts = value.match(DURATION_REGEX)
-    const numberValueString = parts?.[1] ?? ''
-    const unit = parts?.[2] ?? 'm'
+    const { amountText, unit } = splitPartialDuration(value)
 
     // Keep undefined (empty field) distinct from a real number so clearing doesn't snap back to a default.
-    const parsedNumber = parseFloat(numberValueString)
+    const parsedNumber = parseFloat(amountText)
     const numberValue = Number.isFinite(parsedNumber) ? parsedNumber : undefined
 
     // The parent commits config through an async kea listener, so binding the field straight to the derived

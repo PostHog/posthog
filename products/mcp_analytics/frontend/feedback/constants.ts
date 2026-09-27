@@ -17,3 +17,11 @@ export const MCP_ANALYTICS_SESSION_FEEDBACK_PROMPT: MCPAnalyticsFeedbackPromptCo
     question: 'Did this session help you find what you needed?',
     followUpQuestion: 'What did you learn, or what was missing?',
 }
+
+export const MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT: MCPAnalyticsFeedbackPromptConfig = {
+    entryPoint: 'dashboard_review_prompt',
+    tab: 'dashboard',
+    version: 1,
+    question: 'Did this dashboard help you understand how your MCP server is being used?',
+    followUpQuestion: 'What did you learn, or what was missing?',
+}

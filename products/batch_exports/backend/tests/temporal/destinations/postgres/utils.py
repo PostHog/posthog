@@ -19,6 +19,22 @@ from products.batch_exports.backend.tests.temporal.utils.records import (
     remove_duplicates_from_records,
 )
 
+EXPECTED_EVENTS_BATCH_EXPORT_FIELDS = [
+    "uuid",
+    "event",
+    "properties",
+    "elements",
+    "set",
+    "set_once",
+    "distinct_id",
+    "team_id",
+    "ip",
+    "site_url",
+    "timestamp",
+    "person_properties",
+    "person_id",
+]
+
 EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
     "team_id",
     "distinct_id",
@@ -133,6 +149,9 @@ async def assert_clickhouse_records_in_postgres(
         extra_query_parameters = None
         fields = None
         filters = None
+
+    if model_name == "events" and fields is None and expected_fields is None:
+        expected_fields = EXPECTED_EVENTS_BATCH_EXPORT_FIELDS
 
     expected_records = []
     queue = RecordBatchQueue()

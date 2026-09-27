@@ -127,6 +127,7 @@ class Feature(StrEnum):
     # is hit from every taxonomic property-value picker across the app, so attribution by scene
     # would be misleading; tagging by endpoint name keeps the signal honest.
     EVENTS_VALUES_API = "events_values_api"
+    SESSIONS_VALUES_API = "sessions_values_api"
     USAGE_REPORT = "usage_report"
     DATA_FRESHNESS = "data_freshness"  # "when did this project last receive data" probes
     BILLING_ETL = "billing_etl"
@@ -420,6 +421,7 @@ class QueryTags(BaseModel):
     dashboard_id: Optional[int] = None
     insight_id: Optional[int] = None
     lookup: Optional[str] = None  # a runner's internal lookup before its real query, e.g. "earliest_timestamp"
+    dashboard_all_time: Optional[bool] = None  # the dashboard's date filter, not the insight's range, chose All time
     scanner_id: Optional[str] = None  # replay-vision scanner, for per-scanner read metering
     exported_asset_id: Optional[int] = None
     export_format: Optional[str] = None
