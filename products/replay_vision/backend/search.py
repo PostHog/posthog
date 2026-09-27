@@ -390,7 +390,12 @@ def search_observations(
     rank_limit = limit * RANK_OVERFETCH_FACTOR
     # Copying the context keeps the request's log fields and trace on the embedding call.
     vector_future = _QUERY_VECTOR_EXECUTOR.submit(copy_context().run, query_vector)
-    cutoff = candidate_cutoff(team, scanner_ids, filters)
+    try:
+        cutoff = candidate_cutoff(team, scanner_ids, filters)
+    except BaseException:
+        # Frees a still-queued embedding so repeated ClickHouse failures cannot fill the pool.
+        vector_future.cancel()
+        raise
     # Resolved even when the scope is empty, so an embedding failure still reaches the caller.
     vector = vector_future.result()
     matches = rank_observations(team, scanner_ids, vector, rank_limit, filters, cutoff=cutoff)
@@ -456,7 +461,11 @@ def warm_query_vectors(team: Team, texts: list[str]) -> list[Future[list[float]]
     """Embed and cache texts a person is about to search for, such as the suggested searches on screen, so the
     search skips the embedding round trip. Runs in the background and returns at once. A failure only means the
     search embeds the text itself."""
-    cached = cache.get_many([_query_vector_cache_key(text) for text in texts])
+    try:
+        cached = cache.get_many([_query_vector_cache_key(text) for text in texts])
+    except Exception:
+        logger.warning("replay_vision.search.query_vector_warm_setup_failed", exc_info=True)
+        return []
     misses = [text for text in texts if _query_vector_cache_key(text) not in cached]
     futures = [_WARM_VECTOR_EXECUTOR.submit(_in_current_context(query_vector_for, team, text)) for text in misses]
     for future in futures:
