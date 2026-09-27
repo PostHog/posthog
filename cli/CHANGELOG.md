@@ -1,5 +1,23 @@
 # posthog-cli
 
+## 0.18.7 — 2026-09-24
+
+### Patch changes
+
+- [0298cb7450a](https://github.com/PostHog/posthog/commit/0298cb7450ac6480b26f1c170806ab048d5e0f34) Add `posthog-cli update`. It updates in place when you installed with the install script, and prints the right command when npm, Homebrew or cargo owns the binary. The old `posthog-cli-update` is no longer installed; it could not reach a release and never worked. — Thanks @hpouillot!
+
+## 0.18.6 — 2026-09-24
+
+### Patch changes
+
+- [4dedd8363d1](https://github.com/PostHog/posthog/commit/4dedd8363d1505e376bfc0269375b935f95d6e41) Publish to crates.io again, so `cargo install posthog-cli` gets the current version. The crate had been left on 0.5.11 since December. — Thanks @hpouillot!
+
+## 0.18.5 — 2026-09-23
+
+### Patch changes
+
+- [d9d6409aa72](https://github.com/PostHog/posthog/commit/d9d6409aa72c8a4ee0d446d6009d6d753efc9de1) Install with Homebrew: `brew install posthog/tap/posthog-cli`. Installers now download from releases.posthog.com, falling back to GitHub Releases. — Thanks @hpouillot!
+
 ## 0.18.4 — 2026-09-23
 
 ### Patch changes

@@ -15,14 +15,18 @@ export interface TerminalNode {
     writable: boolean
     writeKey?: string
     mkdir?: (name: string) => Promise<TerminalNode>
+    create?: (name: string, signal?: AbortSignal) => Promise<TerminalNode>
     rename?: (parent: TerminalNode, name: string) => Promise<void>
     remove?: () => Promise<void>
     removed?: boolean
 }
 
 export class FilesystemError extends Error {
-    constructor(readonly errno: number) {
-        super(`Filesystem error ${errno}`)
+    constructor(
+        readonly errno: number,
+        message = `Filesystem error ${errno}`
+    ) {
+        super(message)
     }
 }
 
@@ -30,6 +34,7 @@ export const MAX_TERMINAL_FILE_BYTES = 4 * 1024 * 1024
 
 export class TerminalFilesystem {
     private nextId = 1
+    readonly writers = new Set<string | number>()
     readonly root: TerminalNode = this.directory('')
     readonly recovery = this.directory('recovery', this.root)
 

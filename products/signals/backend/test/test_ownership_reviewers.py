@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
+from posthog.ownership.paths import PathOwnership
 
-from products.engineering_analytics.backend.facade.contracts import PathOwnership
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import SignalFinding, SuggestedReviewers
 from products.signals.backend.models import SignalReport, SignalReportArtefact

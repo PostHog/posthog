@@ -14,6 +14,12 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT
 
 from posthog.cdp.validation import compile_hog
+from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval_for_event
+from posthog.temporal.ai_observability.evaluation_llm_judge import (
+    ExecuteLLMJudgeInputs,
+    _execute_llm_judge_activity,
+    get_output_type_config,
+)
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
@@ -31,6 +37,14 @@ from posthog.temporal.ai_observability.run_session_evaluation import (
     run_hog_eval_over_recent_sessions,
     session_fetch_lookback,
 )
+from posthog.temporal.ai_observability.run_trace_evaluation import (
+    ExecuteTraceEvaluationInputs,
+    TraceFetchOutcome,
+    execute_trace_hog_eval_activity,
+    execute_trace_llm_judge_activity,
+)
+
+from products.ai_observability.backend.hog import compile_ai_observability_hog
 
 FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
 
@@ -461,6 +475,85 @@ class TestFetchSessionForEvaluation:
 
 
 class TestExecuteSessionActivities:
+    @pytest.mark.parametrize("runtime", ["hog", "llm_judge"])
+    @pytest.mark.parametrize("target", ["generation", "trace", "session"])
+    @pytest.mark.parametrize("score", [0.25, None])
+    def test_numeric_outputs_across_targets(self, runtime: str, target: str, score: float | None) -> None:
+        trace = _trace("trace-1", cost=0, latency=0)
+        evaluation = {
+            "id": "numeric-eval",
+            "team_id": 1,
+            "evaluation_type": runtime,
+            "evaluation_config": {
+                "prompt": "Rate quality",
+                "bytecode": compile_ai_observability_hog(
+                    "return null" if score is None else "return 0.25",
+                    "destination",
+                ),
+            },
+            "output_type": "numeric",
+            "output_config": {"min": 0, "max": 1, "allows_na": True},
+        }
+        schema = get_output_type_config(True, output_type="numeric").response_format
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+                return_value=SessionFetchOutcome(traces=[trace], skip_reason=None, event_count=1),
+            ),
+            patch(
+                "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+                return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
+            ),
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as model_spec,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client,
+        ):
+            model_spec.return_value.resolve.return_value = Mock(
+                provider="openai",
+                model="gpt-4o-mini",
+                provider_key=None,
+                is_byok=False,
+            )
+            client.return_value.complete.return_value = Mock(
+                parsed=schema.model_validate({"reasoning": "Quality", "score": score}),
+                usage=None,
+            )
+            if target == "generation":
+                event_data = {"event": "$ai_generation", "properties": trace.events[0].properties}
+                result = (
+                    async_to_sync(run_hog_eval_for_event)(evaluation, event_data)
+                    if runtime == "hog"
+                    else _execute_llm_judge_activity(
+                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data)
+                    )
+                )
+            elif target == "trace":
+                trace_inputs = ExecuteTraceEvaluationInputs(
+                    evaluation=evaluation, team_id=1, trace_id="trace-1", window_start=FROZEN_NOW.isoformat()
+                )
+                result = (
+                    async_to_sync(execute_trace_hog_eval_activity)(trace_inputs)
+                    if runtime == "hog"
+                    else execute_trace_llm_judge_activity(trace_inputs)
+                )
+            else:
+                session_inputs = ExecuteSessionEvaluationInputs(
+                    evaluation=evaluation, team_id=1, session_id="session-1", window_start=FROZEN_NOW.isoformat()
+                )
+                result = (
+                    async_to_sync(execute_session_hog_eval_activity)(session_inputs)
+                    if runtime == "hog"
+                    else execute_session_llm_judge_activity(session_inputs)
+                )
+        assert result["result_type"] == "numeric"
+        assert "verdict" not in result
+        assert result["applicable"] is (score is not None)
+        if score is None:
+            assert "score" not in result
+        else:
+            assert result["score"] == score
+            assert result["score_min"] == 0
+            assert result["score_max"] == 1
+
     @pytest.mark.parametrize(
         "skip_reason",
         [
@@ -471,7 +564,8 @@ class TestExecuteSessionActivities:
             "property_access_restricted",
         ],
     )
-    def test_hog_skips_carry_a_session_specific_reason(self, skip_reason):
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
+    def test_hog_skips_carry_a_session_specific_reason(self, skip_reason, output_type):
         with patch(
             "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
             return_value=SessionFetchOutcome(traces=None, skip_reason=skip_reason, event_count=0),
@@ -482,6 +576,7 @@ class TestExecuteSessionActivities:
                         "evaluation_type": "hog",
                         "evaluation_config": {"bytecode": ["_H", 1, 32, True]},
                         "output_config": {"allows_na": False},
+                        "output_type": output_type,
                     },
                     team_id=1,
                     session_id="s-1",
@@ -491,6 +586,10 @@ class TestExecuteSessionActivities:
         assert result["skipped"] is True
         assert result["skip_reason"] == skip_reason
         assert "session" in result["reasoning"].lower()
+        assert result["result_type"] == output_type
+        assert "score" not in result
+        if output_type == "numeric":
+            assert "verdict" not in result
 
     def test_judge_rejects_a_non_judge_evaluation(self):
         with pytest.raises(ApplicationError, match="Unsupported evaluation type"):
@@ -503,8 +602,9 @@ class TestExecuteSessionActivities:
                 )
             )
 
+    @pytest.mark.parametrize("output_type", ["boolean", "numeric"])
     @pytest.mark.parametrize("skip_reason", ["session_truncated", "property_access_restricted"])
-    def test_judge_skips_without_judging(self, skip_reason: str) -> None:
+    def test_judge_skips_without_judging(self, output_type: str, skip_reason: str) -> None:
         with (
             patch(
                 "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
@@ -517,7 +617,7 @@ class TestExecuteSessionActivities:
                     evaluation={
                         "evaluation_type": "llm_judge",
                         "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
-                        "output_type": "boolean",
+                        "output_type": output_type,
                         "output_config": {"allows_na": False},
                     },
                     team_id=1,
@@ -527,6 +627,10 @@ class TestExecuteSessionActivities:
             )
         assert result["skipped"] is True
         assert result["skip_reason"] == skip_reason
+        assert result["result_type"] == output_type
+        assert "score" not in result
+        if output_type == "numeric":
+            assert "verdict" not in result
         if skip_reason == "property_access_restricted":
             assert "property access rules" in result["reasoning"]
         # The whole point of the truncation-as-skip choice: never grade a partial transcript.

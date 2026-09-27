@@ -122,6 +122,8 @@ import { CohortRealtimeTag } from 'products/cohorts/frontend/realtime/CohortReal
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 import { experimentsLogic } from 'products/experiments/frontend/scenes/experimentsLogic'
 import { groupDisplayId } from 'products/persons/frontend/components/GroupActorDisplay'
+import { PersonSearchMatchTags } from 'products/persons/frontend/components/PersonSearchMatchTags'
+import type { PersonListRecordApi } from 'products/persons/frontend/generated/api.schemas'
 import { LazyHogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/LazyHogFlowTaxonomicFilters'
 
 import type { Noun } from '../../../models/groupsModel'
@@ -552,6 +554,7 @@ export interface taxonomicFilterLogicValues {
     infiniteListResultCounts: {
         [k: string]: number
     }
+    intentPromotedGroupType: TaxonomicFilterGroupType | null
     loadingGroupTypes: TaxonomicFilterGroupType[]
     maxContextOptions: any
     metaGroupTypes: Set<string>
@@ -646,6 +649,9 @@ export interface taxonomicFilterLogicActions {
     }
     setIncludeStaleEvents: (includeStaleEvents: boolean) => {
         includeStaleEvents: boolean
+    }
+    setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => {
+        groupType: TaxonomicFilterGroupType | null
     }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
@@ -803,7 +809,8 @@ export interface taxonomicFilterLogicMeta {
         ) => string
         suggestedFilterGroupOrder: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
+            metaGroupTypes: Set<string>,
+            intentPromotedGroupType: TaxonomicFilterGroupType | null
         ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
             topMatchItems: (TaxonomicDefinitionTypes & {
@@ -891,6 +898,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }),
         openRevealBarrier: true,
         setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
+        setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => ({ groupType }),
     })),
     reducers(({ props }) => ({
         searchQuery: [
@@ -973,6 +981,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     includeStaleEvents,
                 setSearchQuery: () => false,
                 setActiveTab: () => false,
+            },
+        ],
+        intentPromotedGroupType: [
+            // Set by taxonomicSearchIntentLogic in the promote arm of its experiment. Every new
+            // search clears it, so a promotion never outlives the search it was made for.
+            null as TaxonomicFilterGroupType | null,
+            {
+                setIntentPromotedGroupType: (_, { groupType }) => groupType,
+                setSearchQuery: () => null,
             },
         ],
     })),
@@ -1953,9 +1970,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Persons',
                         searchPlaceholder: 'persons',
                         type: TaxonomicFilterGroupType.Persons,
-                        endpoint: `api/projects/${teamId}/persons/`,
+                        endpoint: `api/projects/${teamId}/persons/?include_matched_fields=true`,
                         getName: (person: PersonType) => person.name || 'Anon user?',
                         getValue: (person: PersonType) => person.distinct_ids?.[0],
+                        getTag: (person: PersonListRecordApi) => (
+                            <PersonSearchMatchTags matchedFields={person.matched_fields} />
+                        ),
                         getPopoverHeader: () => `Person`,
                     },
                     {
@@ -2459,12 +2479,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         suggestedFilterGroupOrder: [
             // The order the cross-category "All" list renders its groups in. Every consumer of that
             // list must read this, so the skeleton rows and the revealed rows land in the same place.
-            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes, s.intentPromotedGroupType],
             (
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
-                metaGroupTypes: Set<string>
-            ): TaxonomicFilterGroupType[] =>
-                demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))),
+                metaGroupTypes: Set<string>,
+                intentPromotedGroupType: TaxonomicFilterGroupType | null
+            ): TaxonomicFilterGroupType[] => {
+                const order = demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t)))
+                if (!intentPromotedGroupType || !order.includes(intentPromotedGroupType)) {
+                    return order
+                }
+                return [intentPromotedGroupType, ...order.filter((t) => t !== intentPromotedGroupType)]
+            },
         ],
         redistributedTopMatchItems: [
             (s) => [s.topMatchItems, s.suggestedFilterGroupOrder],

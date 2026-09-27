@@ -1456,6 +1456,28 @@ describe('survey filters', () => {
         expect((exportSource as { query: string }).query).not.toContain('AS response,')
     })
 
+    it('adds only the chosen context columns to the responses table and the export', async () => {
+        const tableQuery = (): string => (logic.values.dataTableQuery?.source as { query: string }).query
+
+        await expectLogic(logic, () => {
+            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+        }).toDispatchActions(['loadSurveySuccess'])
+
+        expect(tableQuery()).not.toContain('current_url')
+        expect(logic.values.responsesExportQuery?.columns).not.toContain('Current URL')
+
+        await expectLogic(logic, () => {
+            logic.actions.setResponseContextColumn('current_url', true)
+        }).toDispatchActions(['setResponseContextColumn'])
+
+        expect(tableQuery()).toContain('properties.`$current_url` AS current_url')
+        // Row actions render in the rightmost column, so context columns come before them.
+        expect(tableQuery()).toContain('current_url AS current_url,\nuuid AS actions')
+        expect(tableQuery()).not.toContain('person_id AS person_id')
+        expect(logic.values.responsesExportQuery?.columns).toContain('Current URL')
+        expect(logic.values.responsesExportQuery?.columns).not.toContain('Person ID')
+    })
+
     it('keeps question text out of the generated HogQL', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
         // whose text spans multiple lines used to leak past the `--` comment appended per response

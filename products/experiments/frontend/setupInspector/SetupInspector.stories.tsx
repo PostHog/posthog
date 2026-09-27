@@ -81,6 +81,7 @@ const FULL_CONTEXT: ExperimentSetupContextResponseApi = {
             unique_persons: 8_470,
             exposures_per_day_estimate: 605,
             libs: [{ lib: 'web', category: 'web', unique_persons: 8_470, anonymous_share: 0.38, device_id_share: 1 }],
+            libs_truncated: false,
             anonymous_share: 0.38,
             device_id_share: 1,
         },

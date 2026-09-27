@@ -167,11 +167,23 @@ class AlertState(StrEnum):
     SNOOZED = "Snoozed"
 
 
+class AmazonAdsDefaultSources(StrEnum):
+    AMAZON = "amazon"
+    AMAZON_ADS = "amazon_ads"
+
+
 class AnnotationScope(StrEnum):
     DASHBOARD_ITEM = "dashboard_item"
     DASHBOARD = "dashboard"
     PROJECT = "project"
     ORGANIZATION = "organization"
+
+
+class AppleSearchAdsDefaultSources(StrEnum):
+    APPLE = "apple"
+    APPLE_SEARCH_ADS = "apple_search_ads"
+    APPLE_ADS = "apple_ads"
+    ASA = "asa"
 
 
 class ApprovalDecisionStatus(StrEnum):
@@ -1816,6 +1828,7 @@ class MCPToolQualitySortColumn(StrEnum):
     USERS = "users"
     SESSIONS = "sessions"
     LAST_SEEN = "last_seen"
+    TREND_SCORE = "trend_score"
 
 
 class MCPToolQualitySortDirection(StrEnum):
@@ -2085,6 +2098,9 @@ class NativeMarketingSource(StrEnum):
     BING_ADS = "BingAds"
     SNAPCHAT_ADS = "SnapchatAds"
     PINTEREST_ADS = "PinterestAds"
+    APPLE_SEARCH_ADS = "AppleSearchAds"
+    OPEN_AI_ADS = "OpenAIAds"
+    AMAZON_ADS = "AmazonAds"
 
 
 class NodeKind(StrEnum):
@@ -2203,6 +2219,12 @@ class NodeKind(StrEnum):
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     MCP_MISSING_CAPABILITIES_QUERY = "MCPMissingCapabilitiesQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
+
+
+class OpenAIAdsDefaultSources(StrEnum):
+    OPENAI = "openai"
+    CHATGPT = "chatgpt"
+    OPENAI_ADS = "openai_ads"
 
 
 class PathType(StrEnum):
@@ -2377,6 +2399,7 @@ class ProductItemCategory(StrEnum):
     ANALYTICS = "Analytics"
     AI_ENGINEERING = "AI engineering"
     BEHAVIOR = "Behavior"
+    MESSAGING = "Messaging"
     APP_MONITORING = "App monitoring"
     FEATURES = "Features"
     TOOLS = "Tools"

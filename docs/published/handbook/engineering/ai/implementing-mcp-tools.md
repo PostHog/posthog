@@ -52,6 +52,10 @@ Agents compose these primitives into higher-level workflows.
 The reasoning: agents are better at composing simple tools than navigating complex ones,
 and simple tools are reusable across many workflows.
 
+For lookup tools, return an explicit normal result when absence is an expected answer (for example,
+checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
+server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
+
 ## Two MCP server versions
 
 Clients must support two main capabilities: MCPs and skills.
@@ -149,6 +153,12 @@ standard DRF validation errors (`type`, `code`, `attr`, `detail`). It keeps know
 codes and public request fields, replaces upstream messages with controlled text,
 and masks unrecognized failures. The shared MCP client handles these errors without
 a billing-specific tool wrapper.
+
+The billing usage/spend tools accept `usage_types` as an array of strings.
+Their field description lists the accepted identifiers from `ee/billing/billing_types.py`, through the generated API schema.
+The MCP client JSON-encodes the array for the HTTP API.
+The billing overview, usage, and spend tools do not need a rollout flag.
+API scopes and billing access checks still apply.
 
 System tables are defined in [`posthog/hogql/database/schema/system.py`](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database/schema/system.py) as `PostgresTable` instances.
 Each table must include a `team_id` column for data isolation.
@@ -328,6 +338,9 @@ Product teams own their definitions and control which operations are exposed as 
          message: "About to {action}. Reply 'confirm' to proceed." # prompt shown to user
          action_label: Short action label # optional, defaults to tool title
    ```
+
+   For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
+   The MCP tool then requires the field, even when the generated PATCH body marks it optional.
 
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
@@ -546,6 +559,14 @@ Runtime access still comes from the viewset's `scope_object`,
 `scope_object_read_actions`, `scope_object_write_actions`,
 and any per-action `required_scopes` or `dangerously_get_required_scopes` overrides.
 Only mark the actions you actually want PATs, OAuth tokens, and MCP clients to call.
+
+### MCP-only endpoints
+
+An endpoint that is in the public schema becomes a REST contract: it shows up in Swagger, Redoc and the API docs, and people build on it.
+To generate MCP tools and frontend types for an endpoint without that contract, mark it with `@extend_schema(extensions={"x-internal": True})`.
+The codegen build (`hogli build:openapi`, which sets `OPENAPI_INCLUDE_INTERNAL=1`) keeps the operation.
+The served `/api/schema/` drops it, the same way `@extend_schema(exclude=True)` does.
+The marker only controls schema inclusion. The endpoint stays reachable, and auth and scopes still apply.
 
 ## HogQL query schemas (WIP)
 

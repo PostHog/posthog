@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
     DISPATCH_BATCH_INTERVAL_SECONDS,
     DISPATCH_SMEAR_SECONDS,
+    MAX_ENABLED_SCOUTS_PER_TEAM,
 )
 
 # The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
@@ -52,6 +53,8 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_slot_aligned_dispatch,
     _resolve_withheld_skills,
     _team_configs,
+    max_enabled_scouts_for_team,
+    resolve_max_enabled_scouts,
 )
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     COORDINATOR_INTERVAL_MINUTES,
@@ -1282,6 +1285,78 @@ async def test_per_team_config_override_keyed_by_child_env_applies_to_parent(ate
     await sync_to_async(child.delete)()
 
 
+# ── Enabled-scout ceiling via the flag payload (max_enabled_scouts) ──────────────
+
+
+@pytest.mark.parametrize(
+    "layers,expected",
+    [
+        ([{"max_enabled_scouts": 500}, {"max_enabled_scouts": 300}], 500),  # project override wins
+        ([{}, {"max_enabled_scouts": 300}], 300),  # fleet default when the project sets none
+        ([{}, {}], MAX_ENABLED_SCOUTS_PER_TEAM),  # neither layer → the code fallback
+        ([], MAX_ENABLED_SCOUTS_PER_TEAM),  # no layers at all → the code fallback
+        (None, MAX_ENABLED_SCOUTS_PER_TEAM),
+        # Every invalid shape falls through to the next layer rather than binding, so a typo can
+        # neither widen nor narrow what a project may switch on.
+        ([{"max_enabled_scouts": None}, {"max_enabled_scouts": 300}], 300),
+        ([{"max_enabled_scouts": 0}, {"max_enabled_scouts": 300}], 300),
+        ([{"max_enabled_scouts": -5}, {"max_enabled_scouts": 300}], 300),
+        ([{"max_enabled_scouts": 1.5}, {"max_enabled_scouts": 300}], 300),
+        ([{"max_enabled_scouts": "500"}, {"max_enabled_scouts": 300}], 300),
+        ([{"max_enabled_scouts": True}, {"max_enabled_scouts": 300}], 300),
+        ([{"max_enabled_scouts": 0}, {"max_enabled_scouts": "nope"}], MAX_ENABLED_SCOUTS_PER_TEAM),
+    ],
+)
+def test_resolve_max_enabled_scouts(layers, expected):
+    assert resolve_max_enabled_scouts(layers) == expected
+
+
+@pytest.mark.django_db
+@pytest.mark.flag_off
+def test_max_enabled_scouts_for_team_falls_back_when_the_flag_read_fails(team):
+    # A flag outage must leave the ceiling at the code fallback rather than at zero, or every
+    # enable on every project would start failing.
+    with patch(_PAYLOAD_PATH, side_effect=Exception("flag service down")):
+        assert max_enabled_scouts_for_team(team.id) == MAX_ENABLED_SCOUTS_PER_TEAM
+
+
+@pytest.mark.django_db
+@pytest.mark.flag_off
+def test_max_enabled_scouts_for_team_is_per_project(team):
+    # Two projects, one override: the listed project gets the raised ceiling and the other keeps
+    # the fleet default, which is the whole point of moving this off a global constant.
+    other = Team.objects.create(organization=team.organization, name="SignalsCapOtherProject")
+    payload = {
+        "default_team_config": {"max_enabled_scouts": 300},
+        "team_configs": {str(team.id): {"max_enabled_scouts": 500}},
+    }
+
+    with patch(_PAYLOAD_PATH, return_value=payload):
+        assert max_enabled_scouts_for_team(team.id) == 500
+        assert max_enabled_scouts_for_team(other.id) == 300
+
+    other.delete()
+
+
+@pytest.mark.django_db
+@pytest.mark.flag_off
+@pytest.mark.parametrize("key_parent_too", [False, True])
+def test_max_enabled_scouts_for_team_resolves_child_environment_keys(team, key_parent_too):
+    # Scout rows live on the parent project, so an override keyed on a child environment has to
+    # canonicalize onto it. An explicit parent-keyed entry still wins over the child's.
+    child = Team.objects.create(organization=team.organization, name="SignalsCapChildEnv", parent_team=team)
+    team_configs: dict[str, dict] = {str(child.id): {"max_enabled_scouts": 400}}
+    if key_parent_too:
+        team_configs[str(team.id)] = {"max_enabled_scouts": 700}
+
+    with patch(_PAYLOAD_PATH, return_value={"team_configs": team_configs}):
+        resolved = max_enabled_scouts_for_team(team.id)
+
+    assert resolved == (700 if key_parent_too else 400)
+
+    child.delete()
+
+
 # ── Fleet-wide default config via the flag payload (default_team_config) ──────────
 
 
@@ -1342,6 +1417,48 @@ async def test_default_team_config_resolution(ateam, team_override_cap, expected
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "payload_caps,expect_fresh_enabled",
+    [
+        # The fleet default caps the project at one enabled scout, so the fresh one registers paused.
+        ({"default_team_config": {"max_enabled_scouts": 1}}, False),
+        # A per-project override raises the ceiling above the fleet default, so it registers enabled.
+        (
+            {"default_team_config": {"max_enabled_scouts": 1}, "team_configs": {"max_enabled_scouts": 5}},
+            True,
+        ),
+        # An invalid per-project override falls through to the fleet default rather than widening.
+        (
+            {"default_team_config": {"max_enabled_scouts": 1}, "team_configs": {"max_enabled_scouts": 0}},
+            False,
+        ),
+    ],
+)
+async def test_auto_register_honours_the_flag_configured_enabled_cap(ateam, payload_caps, expect_fresh_enabled):
+    # Registration reads the same `max_enabled_scouts` layers the API enforces, so a project given
+    # more capacity in the flag gets its next scout enabled instead of parked.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-existing")
+    await database_sync_to_async(_create_config)(ateam, "signals-scout-existing", enabled=True)
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-fresh")
+
+    def _payload(*_a, **_k):
+        payload: dict[str, Any] = {"guaranteed_team_ids": [int(t) for t in _FLAGGED_TEAM_IDS]}
+        payload["default_team_config"] = payload_caps["default_team_config"]
+        if "team_configs" in payload_caps:
+            payload["team_configs"] = {str(ateam.id): payload_caps["team_configs"]}
+        return payload
+
+    with patch(_PAYLOAD_PATH, side_effect=_payload):
+        await _run_activity()
+
+    fresh = await database_sync_to_async(
+        lambda: SignalScoutConfig.all_teams.get(team_id=ateam.id, skill_name="signals-scout-fresh")
+    )()
+    assert fresh.enabled is expect_fresh_enabled
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
     # One enabled scout puts the team at the (patched) cap; a freshly authored skill must
     # still get a config row — but disabled, so it adds no spend and isn't planned.
@@ -1349,7 +1466,7 @@ async def test_auto_register_past_enabled_cap_creates_disabled_config(ateam):
     await database_sync_to_async(_create_config)(ateam, "signals-scout-existing", enabled=True)
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-fresh")
 
-    with patch("products.signals.backend.scout_harness.config_registry.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
+    with patch("products.signals.backend.scout_harness.team_limits.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
         planned = await _run_activity()
 
     fresh = await database_sync_to_async(
@@ -1550,7 +1667,7 @@ async def test_operational_scout_seeds_enabled_past_the_enabled_cap(ateam):
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-fresh")
     await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
 
-    with patch("products.signals.backend.scout_harness.config_registry.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
+    with patch("products.signals.backend.scout_harness.team_limits.MAX_ENABLED_SCOUTS_PER_TEAM", 1):
         await _run_activity()
 
     rows = await database_sync_to_async(

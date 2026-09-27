@@ -65,6 +65,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
+    metric_display_rank,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.metric_resolution import is_scheduled_metric
@@ -274,6 +275,7 @@ class TargetSurface:
     unique_persons: int
     exposures_per_day_estimate: float
     libs: list[LibReach]
+    libs_truncated: bool
     anonymous_share: float | None
     device_id_share: float | None
 
@@ -520,7 +522,7 @@ def _cache_key(team: Team, section: str, inputs: dict[str, Any]) -> str:
     # Bump the version whenever a cached dataclass changes shape: entries are pickled, so a deploy
     # would otherwise restore instances that miss the new fields.
     digest = hashlib.sha256(json.dumps(inputs, sort_keys=True).encode()).hexdigest()
-    return f"experiment_setup_context_v2_{team.pk}_{section}_{digest}"
+    return f"experiment_setup_context_v3_{team.pk}_{section}_{digest}"
 
 
 def _cached(key: str, ttl: int, compute: Callable[[], T]) -> T:
@@ -875,7 +877,7 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
         """,
         {
             "where": _and(conditions),
-            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS),
+            "limit": ast.Constant(value=TARGET_SURFACE_MAX_LIBS + 1),
         },
     )
     unique_persons, events, device_id_events, anonymous_ids, identity_known_ids, top_libs = (
@@ -906,8 +908,9 @@ def _compute_target_surface(team: Team, inputs: SetupContextInputs) -> TargetSur
                 lib_identity_known_ids,
                 lib_device_id_events,
                 lib_events,
-            ) in top_libs or []
+            ) in (top_libs or [])[:TARGET_SURFACE_MAX_LIBS]
         ],
+        libs_truncated=len(top_libs or []) > TARGET_SURFACE_MAX_LIBS,
         anonymous_share=_share(anonymous_ids, identity_known_ids),
         device_id_share=_share(device_id_events, events),
     )
@@ -1060,9 +1063,9 @@ def _outcome_metric(experiment: Experiment) -> OutcomeMetric | None:
         ]
         if is_scheduled_metric(metric)
     ]
-    position = {uuid: index for index, uuid in enumerate(experiment.primary_metrics_ordered_uuids or [])}
+    rank = metric_display_rank(experiment.primary_metrics_ordered_uuids)
     # Stable, so a metric the experiment does not order keeps its declared place behind the ordered ones.
-    ordered = sorted(candidates, key=lambda candidate: position.get(candidate.uuid, len(position)))
+    ordered = sorted(candidates, key=lambda candidate: rank(candidate.uuid))
     for candidate in ordered:
         if candidate.metric_type in EXPOSURE_SHAPED_METRIC_TYPES:
             return candidate

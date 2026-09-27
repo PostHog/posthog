@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     slot_exists,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _is_dropped_or_connect_timeout,
     _retry_on_connection_dropped,
     source_requires_ssl,
 )
@@ -48,14 +49,27 @@ logger = logging.getLogger(__name__)
 _retry_logger = structlog.get_logger(__name__)
 
 
-def _slot_setup_error_message(exc: Exception) -> str:
-    """User-facing message for a failed slot/publication setup.
+def _customer_fixable_setup_message(exc: BaseException) -> str | None:
+    """User-facing advice when a slot/publication setup failure is one the customer can fix on
+    their own database, or None for anything else.
 
     When the failure is a lack of replication privilege — the most common CDC blocker —
     point at the simplest fix rather than only echoing the raw error: switch the affected
     tables to Incremental sync, which needs only SELECT.
     """
     message = str(exc).lower()
+    # PostgreSQL rejects CREATE PUBLICATION FOR TABLE and ALTER PUBLICATION ADD TABLE with this
+    # wording when the connecting role does not own the table. A role with REPLICATION and SELECT
+    # but no ownership reaches that point, so it needs its own guidance: the replication grant the
+    # permission branch below asks for does not fix it.
+    if "must be owner of" in message:
+        return (
+            f"Could not publish the tables CDC syncs: {exc} "
+            "PostgreSQL only lets a table's owner publish it. Make the database user the owner of "
+            "these tables, or add it to the role that owns them. If you can't change ownership, "
+            "switch these tables to Incremental sync instead of CDC. Incremental needs only SELECT "
+            "permission."
+        )
     is_permission_error = isinstance(exc, psycopg.errors.InsufficientPrivilege) or (
         "permission denied" in message or "must be superuser" in message
     )
@@ -75,7 +89,12 @@ def _slot_setup_error_message(exc: Exception) -> str:
             "Connect to the primary database, or switch these tables to Incremental sync, which "
             "needs only SELECT."
         )
-    return f"Failed to create replication slot: {exc}"
+    return None
+
+
+def _slot_setup_error_message(exc: Exception) -> str:
+    """User-facing message for a failed slot/publication setup."""
+    return _customer_fixable_setup_message(exc) or f"Failed to create replication slot: {exc}"
 
 
 def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, str]:
@@ -169,6 +188,9 @@ class PostgresCDCAdapter:
         # None points at a bug in our code.
         return isinstance(exc, psycopg.OperationalError | BaseSSHTunnelForwarderError | HostNotAllowedError)
 
+    def customer_fixable_error_message(self, exc: BaseException) -> str | None:
+        return _customer_fixable_setup_message(exc)
+
     def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
         category = classify_postgres_cdc_error(exc)
         return cdc_error_info(category) if category is not None else None
@@ -209,9 +231,16 @@ class PostgresCDCAdapter:
         # connection (the slot invalidation that triggered recovery), so a transient drop
         # mid-recreate — the server terminating our backend on a deploy/failover, an idle cull —
         # is likely. drop_slot runs first on every attempt, so retrying is idempotent; absorb the
-        # drop in-process instead of failing the whole recovery. Permanent errors (auth, a missing
-        # customer-owned publication) don't match the predicate and re-raise immediately.
-        consistent_point = _retry_on_connection_dropped(_recreate, _retry_logger)
+        # drop in-process instead of failing the whole recovery. Widen the predicate to also
+        # retry connect-time timeouts: cdc_pg_connection opens with the same _connect_to_postgres
+        # the main streaming path uses, and classify_postgres_cdc_error now treats an exhausted
+        # ConnectionTimeout as non-retryable on the assumption every reconnect already timed out —
+        # without retrying it here first, a single transient connect timeout would abort recovery
+        # instead of reaching that exhausted state. Permanent errors (auth, a missing
+        # customer-owned publication) don't match either predicate and re-raise immediately.
+        consistent_point = _retry_on_connection_dropped(
+            _recreate, _retry_logger, is_retryable=_is_dropped_or_connect_timeout
+        )
 
         # Every schema is reset to snapshot before this runs, so no change from the dead slot is owed
         # to the legacy lane: the new slot starts on the buffer, as a new source does.
