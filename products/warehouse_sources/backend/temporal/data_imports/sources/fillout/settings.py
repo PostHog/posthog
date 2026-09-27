@@ -23,7 +23,7 @@ SUBMISSION_TIME_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=True)
 class FilloutEndpointConfig:
     name: str
     path: str
