@@ -27,7 +27,7 @@ export interface TurnFeedbackActionsProps {
 }
 
 /**
- * Feedback actions under a completed turn: the completion time, copy, thumbs up/down, and a
+ * Feedback actions under a completed turn: copy, thumbs up/down, the completion time, and a
  * free-text form on thumbs-down. Counterpart of the legacy thread's `SuccessActions` — same events
  * (`$ai_metric` quality / `$ai_feedback`), plus runtime/task/run properties.
  */
@@ -69,7 +69,6 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
     return (
         <>
             <div className="flex items-center ml-1">
-                {timestamp !== undefined && <TZLabel time={dayjs(timestamp)} className="text-xs text-muted mr-1" />}
                 {turnText && (
                     <LemonButton
                         icon={<IconCopy />}
@@ -100,6 +99,7 @@ export const TurnFeedbackActions = memo(function TurnFeedbackActions({
                         onClick={() => submitRating('bad')}
                     />
                 )}
+                {timestamp !== undefined && <TZLabel time={dayjs(timestamp)} className="text-xs text-muted ml-1" />}
             </div>
             {feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
