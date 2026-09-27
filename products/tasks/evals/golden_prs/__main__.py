@@ -89,6 +89,11 @@ def load_results(results_dir: Path) -> list[dict]:
     return sorted((json.loads(path.read_text()) for path in results_dir.rglob("*.json")), key=lambda r: r["pr"])
 
 
+def _cost(result: dict) -> str:
+    cost = result["usage"].get("total_cost_usd")
+    return "n/a" if cost is None else f"{cost:.2f}"
+
+
 def report(results: list[dict]) -> str:
     if not results:
         return "No results found.\n"
@@ -97,7 +102,7 @@ def report(results: list[dict]) -> str:
         f"| #{r['pr']} | {r['title']} | {r['author']} | {r['runtime']} {r['model']} "
         f"| {r['scores']['file_recall']:.2f} | {r['scores']['added_line_f1']:.2f} | {r['judge_score']:.2f} "
         f"| {r['duration_seconds'] / 60:.1f}{' (timed out)' if r['timed_out'] else ''} "
-        f"| {r['usage'].get('total_cost_usd', 0):.2f} |"
+        f"| {_cost(r)} |"
         for r in results
     ]
     means = (

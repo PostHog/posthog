@@ -11,7 +11,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from products.tasks.evals.golden_prs.__main__ import report, verdict_for
-from products.tasks.evals.golden_prs.agents import AgentRun, agent_environment, agent_failure
+from products.tasks.evals.golden_prs.agents import AgentRun, agent_environment, agent_failure, agent_usage
 from products.tasks.evals.golden_prs.cases import GoldenPR, build_prompt, load_golden_prs, select_golden_prs
 from products.tasks.evals.golden_prs.scoring import added_lines, changed_files, judge, score_diffs
 from products.tasks.evals.golden_prs.workspace import candidate_diff, checkout_parent
@@ -172,6 +172,34 @@ def test_agent_failure_explains_a_non_zero_exit(_name: str, run: AgentRun, expec
     assert agent_failure(run) == expected
 
 
+CODEX_STREAM = (
+    '{"type":"item.completed","item":{"type":"agent_message","text":"done"}}\n'
+    '{"type":"turn.completed","usage":{"input_tokens":100,"cached_input_tokens":40,"output_tokens":10}}\n'
+    '{"type":"turn.completed","usage":{"input_tokens":50,"cached_input_tokens":0,"output_tokens":5}}\n'
+)
+
+
+@parameterized.expand(
+    [
+        (
+            "claude cost and turns",
+            agent_run(
+                stdout='{"total_cost_usd": 1.5, "num_turns": 3, "usage": {"input_tokens": 7, "output_tokens": 2}}'
+            ),
+            {"total_cost_usd": 1.5, "num_turns": 3, "input_tokens": 7, "output_tokens": 2},
+        ),
+        (
+            "codex tokens summed over turns",
+            agent_run(runtime="codex", stdout=CODEX_STREAM),
+            {"num_turns": 2, "input_tokens": 150, "cached_input_tokens": 40, "output_tokens": 15},
+        ),
+        ("nothing parseable", agent_run(stdout="not json"), {}),
+    ]
+)
+def test_agent_usage_reads_each_runtime(_name: str, run: AgentRun, expected: dict[str, float | int]):
+    assert agent_usage(run) == expected
+
+
 def test_verdict_for_a_failed_agent_names_the_failure_instead_of_judging():
     verdict = verdict_for(agent_run(exit_code=1, stderr="boom"), "task", "", GOLDEN, "judge-model")
     assert verdict.score == 0.0
@@ -252,6 +280,6 @@ def test_report_lists_each_case_and_the_mean():
     ]
     rendered = report(results)
     assert "| #1 | fix: a | pauldambra | claude m | 1.00 | 0.50 | 0.80 | 2.0 | 1.50 |" in rendered
-    assert "| 30.0 (timed out) | 0.00 |" in rendered
+    assert "| 30.0 (timed out) | n/a |" in rendered
     assert "| **Mean** | | | | 0.50 | 0.25 | 0.40 | | |" in rendered
     assert report([]) == "No results found.\n"

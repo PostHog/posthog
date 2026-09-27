@@ -59,10 +59,34 @@ def _claude_report(run: AgentRun) -> dict:
         return {}
 
 
+TOKEN_KEYS = ("input_tokens", "cached_input_tokens", "output_tokens")
+
+
+def _codex_turn_usage(run: AgentRun) -> list[dict]:
+    if run.runtime != "codex":
+        return []
+    turns = []
+    for line in run.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if event.get("type") == "turn.completed" and isinstance(event.get("usage"), dict):
+            turns.append(event["usage"])
+    return turns
+
+
 def agent_usage(run: AgentRun) -> dict[str, float | int]:
-    """Cost and turn count as the Claude CLI reports them; Codex emits an event stream we do not parse."""
+    """Cost, turns and tokens. Claude reports its own cost; Codex reports tokens per turn and no price."""
     report = _claude_report(run)
-    return {key: report[key] for key in ("total_cost_usd", "num_turns") if key in report}
+    usage: dict[str, float | int] = {key: report[key] for key in ("total_cost_usd", "num_turns") if key in report}
+    claude_tokens = report.get("usage") or {}
+    usage.update({key: claude_tokens[key] for key in TOKEN_KEYS if key in claude_tokens})
+    turns = _codex_turn_usage(run)
+    if turns:
+        usage["num_turns"] = len(turns)
+        usage.update({key: sum(turn.get(key, 0) for turn in turns) for key in TOKEN_KEYS})
+    return usage
 
 
 def agent_failure(run: AgentRun) -> str | None:
