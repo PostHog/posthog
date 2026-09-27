@@ -11,7 +11,6 @@ from django.utils import timezone
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
-from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
@@ -40,6 +39,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
+    repartition_import_hold_reason,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
@@ -86,6 +88,15 @@ class SourceOrSchemaDeletedError(NonReportableError):
     activity can find the rows gone. The run must still fail, because there is no schema left
     to create a job for. It is not a defect either, so subclassing ``NonReportableError`` keeps
     the race out of error tracking instead of opening an issue per orphaned run.
+    """
+
+
+class V3PipelineLockLostError(NonReportableError):
+    """Another run's lock takeover (see acquire_v3_lock.py) reassigned the v3 pipeline lock
+    away from this run before it reached job creation. The takeover path only steals from a
+    holder whose Temporal workflow already looks terminal, so a resumed run landing here is
+    the mechanism working as designed, not a defect — subclassing ``NonReportableError`` keeps
+    it out of error tracking, matching ``SourceOrSchemaDeletedError`` above.
     """
 
 
@@ -141,10 +152,7 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
     if holder is None:
         return
     if holder != run_id:
-        raise ApplicationError(
-            "v3 pipeline lock lost to another run before job creation",
-            non_retryable=True,
-        )
+        raise V3PipelineLockLostError("v3 pipeline lock lost to another run before job creation")
 
 
 # Per-run state, not configuration. `cdc_deferred_runs` is a notification queue that reaches
@@ -211,13 +219,15 @@ def _create_job(
 # TODO: remove dependency
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CreateExternalDataJobModelActivityInputs:
     team_id: int
     schema_id: uuid.UUID
     source_id: uuid.UUID
     billable: bool
     is_v3: bool = False
+    # Admin resyncs and non-billable resumes start the workflow directly and must not become a full refresh.
+    started_by_schedule: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -274,14 +284,8 @@ def _fast_return_eligible(
     if data_quality_checks_needed_for(team_id, schema.table_id):
         return False
 
-    last_full_run_at = schema.last_full_run_at
-    if last_full_run_at is None:
-        return False
-    try:
-        stamped = dt.datetime.fromisoformat(last_full_run_at)
-    except (TypeError, ValueError):
-        return False
-    if stamped.tzinfo is None:
+    stamped = schema.last_full_run
+    if stamped is None:
         return False
     return dt.datetime.now(dt.UTC) - stamped < FAST_RETURN_FULL_RUN_INTERVAL
 
@@ -315,6 +319,9 @@ class CreateExternalDataJobModelActivityOutputs:
     # Computed here because this activity already resolves the repair gates the decision needs.
     # Defaults False so a payload from a worker that predates the field takes the full path.
     fast_return_eligible: bool = False
+    # The workflow hands this to the import, which resets only while the schema is still due. Nothing is
+    # stored on the schema, so a run that stops before the wipe leaves no reset behind for later runs.
+    scheduled_full_refresh: bool = False
 
 
 @activity.defn
@@ -351,13 +358,27 @@ def create_external_data_job_model_activity(
             inputs.team_id, source.source_type
         ):
             destination_ids = destination_ids_for_run(schema)
+        # A refresh run skips the repartition activity, the only thing that ends a repartition hold on
+        # the import. A refresh while the import is held never wipes the table or restarts the clock,
+        # so the refresh waits until the repartition resolves.
+        scheduled_full_refresh = (
+            inputs.started_by_schedule
+            and not schema.reset_pipeline
+            and schema.scheduled_full_refresh_due()
+            and repartition_import_hold_reason(schema, logger) is None
+        )
+        schema_snapshot = _build_schema_snapshot(schema)
+        if scheduled_full_refresh:
+            schema_snapshot["scheduled_full_refresh"] = True
+            logger.info("This sync is a scheduled full refresh. It re-imports every row of the table.")
+
         job = _create_job(
             team_id=inputs.team_id,
             source_id=inputs.source_id,
             schema_id=inputs.schema_id,
             pipeline_version=pipeline_version,
             billable=inputs.billable,
-            schema_snapshot=_build_schema_snapshot(schema),
+            schema_snapshot=schema_snapshot,
             destination_ids=destination_ids,
         )
         # Persist the Running status only after the job row exists: a Running schema with no job
@@ -403,7 +424,7 @@ def create_external_data_job_model_activity(
         # customer_analytics via external_product_hooks; not imported here).
         person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
 
-        fast_return_eligible = _fast_return_eligible(
+        fast_return_eligible = not scheduled_full_refresh and _fast_return_eligible(
             schema=schema,
             team_id=inputs.team_id,
             enrichment_needed=enrichment_needed,
@@ -423,7 +444,12 @@ def create_external_data_job_model_activity(
             statistics_needed=statistics_needed,
             person_property_sync_enabled=person_property_sync_enabled,
             fast_return_eligible=fast_return_eligible,
+            scheduled_full_refresh=scheduled_full_refresh,
         )
+    except V3PipelineLockLostError:
+        # The takeover race the guard handles, not a defect — skip the generic handler's
+        # stack trace log, same reasoning as SourceOrSchemaDeletedError above.
+        raise
     except Exception as e:
         logger.exception(
             f"External data job failed on create_external_data_job_model_activity for {str(inputs.source_id)} with error: {e}"

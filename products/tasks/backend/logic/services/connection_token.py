@@ -24,6 +24,8 @@ SANDBOX_EVENT_INGEST_AUDIENCE = "posthog:sandbox_event_ingest"
 SANDBOX_EVENT_INGEST_TOKEN_TTL_BUFFER = timedelta(hours=1)
 SANDBOX_EVENT_INGEST_TOKEN_TTL = timedelta(seconds=SANDBOX_TTL_SECONDS) + SANDBOX_EVENT_INGEST_TOKEN_TTL_BUFFER
 
+SANDBOX_CODEX_SUBSCRIPTION_AUDIENCE = "posthog:sandbox_codex_subscription"
+
 SANDBOX_JWT_STATE_KID_KEY = "sandbox_jwt_kid"
 
 STREAM_READ_AUDIENCE = "posthog:stream_read"
@@ -50,6 +52,14 @@ class _SandboxJwtKey:
     kid: str
     private_key_pem: str = field(repr=False)
     public_key_pem: str
+
+
+@dataclass(frozen=True)
+class CodexSubscriptionRunTokenPayload:
+    run_id: str
+    task_id: str
+    team_id: int
+    sandbox_id: str
 
 
 @dataclass(frozen=True)
@@ -312,6 +322,38 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         thin_tail=thin_tail,
         origin_product=origin_product,
     )
+
+
+def create_codex_subscription_run_token(
+    task_run: TaskRun,
+    *,
+    sandbox_id: str,
+    ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL,
+) -> str:
+    """Create the run-scoped JWT the agent-server presents to fetch the owner's ChatGPT access token.
+
+    The token is a second factor next to the sandbox OAuth token: it reaches the agent-server
+    over an inherited file descriptor and never enters the sandbox environment, so a process
+    the agent starts holds the OAuth token but not this one. Bound to the sandbox so a token
+    captured in a snapshot stops working after a resume.
+    """
+    return _encode_run_scoped_token(task_run, SANDBOX_CODEX_SUBSCRIPTION_AUDIENCE, ttl, {"sandbox_id": sandbox_id})
+
+
+def validate_codex_subscription_run_token(token: str) -> CodexSubscriptionRunTokenPayload:
+    payload = _decode_sandbox_token(token, SANDBOX_CODEX_SUBSCRIPTION_AUDIENCE)
+
+    run_id = payload.get("run_id")
+    task_id = payload.get("task_id")
+    team_id = payload.get("team_id")
+    sandbox_id = payload.get("sandbox_id")
+
+    if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
+        raise jwt.InvalidTokenError("Codex subscription run token has invalid claims")
+    if not isinstance(sandbox_id, str) or not sandbox_id:
+        raise jwt.InvalidTokenError("Codex subscription run token has invalid claims")
+
+    return CodexSubscriptionRunTokenPayload(run_id=run_id, task_id=task_id, team_id=team_id, sandbox_id=sandbox_id)
 
 
 def create_stream_read_token(task_run: TaskRun, ttl: timedelta = STREAM_READ_TOKEN_TTL) -> str:

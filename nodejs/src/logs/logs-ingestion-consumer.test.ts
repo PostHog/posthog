@@ -51,6 +51,7 @@ import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import { DEFAULT_TRACES_RETENTION_DAYS } from './retention/tracing-config-cache'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
@@ -2384,6 +2385,38 @@ describe('LogsIngestionConsumer', () => {
 
             expect(limiterConfig.LOGS_LIMITER_BUCKET_SIZE_KB).toBe(42)
             expect(limiterConfig.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND).toBe(7)
+        })
+
+        it('evaluates the span retention rules, not the log ones', () => {
+            const tracesConsumer = createTracesIngestionConsumer()
+
+            expect(tracesConsumer['retentionRuleSource']).toBe('spans')
+        })
+
+        it('gates retention on TRACES_RETENTION_* rather than the logs config', () => {
+            const tracesConsumer = createTracesIngestionConsumer({ TRACES_RETENTION_KILLSWITCH: true })
+
+            expect(tracesConsumer['isRetentionEvalEnabledForTeam'](team.id)).toBe(false)
+        })
+
+        it('takes its default retention from the tracing config, not logs_settings', async () => {
+            const tracingConfigCache = { getRetentionDays: jest.fn().mockResolvedValue(90) }
+            const tracesConsumer = createTracesIngestionConsumer()
+            tracesConsumer['tracingConfigCache'] = tracingConfigCache as any
+
+            // A different logs period must not reach spans.
+            const days = await tracesConsumer['defaultRetentionDays'](team.id, { retention_days: 30 })
+
+            expect(days).toBe(90)
+            expect(tracingConfigCache.getRetentionDays).toHaveBeenCalledWith(team.id)
+        })
+
+        it('falls back to the built-in default when no tracing config cache is wired', async () => {
+            const tracesConsumer = createTracesIngestionConsumer()
+
+            expect(await tracesConsumer['defaultRetentionDays'](team.id, { retention_days: 30 })).toBe(
+                DEFAULT_TRACES_RETENTION_DAYS
+            )
         })
     })
 

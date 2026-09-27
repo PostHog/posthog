@@ -25,12 +25,13 @@ from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, ReportLink, SuggestedReviewers
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
+from products.signals.backend.models import ArtefactAttribution, SignalActorKind, SignalReport, SignalReportArtefact
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_content_gates import team_report_metrics_enabled
+from products.signals.backend.report_generation.ownership_reviewers import suggest_repository_owners
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
@@ -41,6 +42,7 @@ from products.signals.backend.report_generation.research import (
     run_multi_turn_research,
 )
 from products.signals.backend.report_generation.resolve_reviewers import (
+    MAX_SUGGESTED_REVIEWERS,
     ReviewerResolutionDiagnostics,
     resolve_suggested_reviewers_with_diagnostics,
 )
@@ -322,19 +324,40 @@ def _build_reviewers_content(
                 commit_hashes_with_reasons[sha] = str(reason) if reason else ""
 
     resolution = resolve_suggested_reviewers_with_diagnostics(team_id, repository, commit_hashes_with_reasons)
+    paths = [path for finding in findings for path in finding.relevant_code_paths]
+    owner_reviewers = suggest_repository_owners(
+        team_id, repository, paths, [reviewer.login.lower() for reviewer in resolution.reviewers]
+    )
 
     reviewers_content: list[ReviewerContent] = []
+    reviewers_by_login = {reviewer.login.lower(): reviewer for reviewer in resolution.reviewers}
+    for owner in owner_reviewers:
+        reviewer = reviewers_by_login.get(owner.login)
+        reviewers_content.append(
+            ReviewerContent(
+                github_login=owner.login,
+                user_uuid=None,
+                github_name=reviewer.name if reviewer else None,
+                relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits] if reviewer else [],
+                reason=owner.reason,
+                is_skill_owner=False,
+                source_skill=None,
+            )
+        )
+        if len(reviewers_content) == MAX_SUGGESTED_REVIEWERS:
+            break
     for reviewer in resolution.reviewers:
+        if len(reviewers_content) == MAX_SUGGESTED_REVIEWERS:
+            break
+        if reviewer.login.lower() in {entry["github_login"] for entry in reviewers_content}:
+            continue
         reviewers_content.append(
             ReviewerContent(
                 github_login=reviewer.login.lower(),
-                # Commit authorship only ever names a GitHub account, so this path stores no uuid;
-                # read-time enrichment resolves the login to a member as it always has.
                 user_uuid=None,
                 github_name=reviewer.name,
                 relevant_commits=[dict(commit.model_dump()) for commit in reviewer.commits],
                 reason=None,
-                # Pipeline reviewers are commit-authorship-derived, never owner-injected.
                 is_skill_owner=False,
                 source_skill=None,
             )
@@ -410,7 +433,7 @@ def _reviewer_selection_written_since(team_id: int, report_id: str, since: datet
     ).exists()
 
 
-def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> None:
+def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts: list[ArtefactDraft]) -> bool:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
     # the latest row of each type; findings are keyed by `signal_id` (latest per signal wins).
@@ -426,7 +449,20 @@ def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts:
     # `mark_report_pending_input`). The research activity only resolves the payload; see
     # `_resolve_report_charts_payload` and `RunAgenticReportOutput.charts`.
     with transaction.atomic():
+        if any(isinstance(draft.content, SuggestedReviewers) for draft in artefacts):
+            SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+            human_selected_reviewers = SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                report_id=report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                actor_kind=SignalActorKind.USER,
+            ).exists()
+        else:
+            human_selected_reviewers = False
+        wrote_reviewers = False
         for draft in artefacts:
+            if human_selected_reviewers and isinstance(draft.content, SuggestedReviewers):
+                continue
             SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
@@ -434,6 +470,8 @@ def _append_agentic_report_artefacts(*, team_id: int, report_id: str, artefacts:
                 attribution=draft.attribution,
                 reevaluate_autostart=False,
             )
+            wrote_reviewers |= isinstance(draft.content, SuggestedReviewers)
+    return wrote_reviewers
 
 
 def _resolve_report_charts_payload(
@@ -558,7 +596,7 @@ async def _persist_agentic_report_artefacts(
             )
         )
 
-    await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
+    wrote_reviewers = await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
         artefacts=artefacts,
@@ -568,7 +606,7 @@ async def _persist_agentic_report_artefacts(
     # above, so re-promotions without new findings don't re-fire. Delivery is at-least-once
     # (a retry of this activity re-captures an identical payload), so consumers read report
     # state as the latest event per report_id rather than counting raw events.
-    if reviewers_content and has_new_finding:
+    if wrote_reviewers:
         await database_sync_to_async(capture_suggested_reviewers_resolved, thread_sensitive=False)(
             team_id=team_id,
             report_id=report_id,

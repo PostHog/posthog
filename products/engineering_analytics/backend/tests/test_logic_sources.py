@@ -9,6 +9,7 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.engineering_analytics.backend.logic.sources import (
+    DEPOT_JOB_ATTEMPTS_SCHEMA,
     ISSUE_EVENTS_SCHEMA,
     PULL_REQUESTS_SCHEMA,
     TEAM_MEMBERS_SCHEMA,
@@ -22,12 +23,14 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_job_source_tables,
     resolve_team_membership_table,
 )
+from products.engineering_analytics.backend.logic.views.depot_ci import DepotJobAttempts
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    create_depot_source,
     create_warehouse_table_row,
     link_schema,
 )
@@ -68,10 +71,12 @@ class TestResolveGitHubTables(BaseTest):
     _BOTH_SYNCED = [(PULL_REQUESTS_SCHEMA, True, True), (WORKFLOW_RUNS_SCHEMA, True, True)]
 
     def test_resolves_non_default_prefix_tables(self) -> None:
-        self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
+        source = self._connect(prefix="myprefix", schemas=self._BOTH_SYNCED)
         tables = resolve_github_tables(team=self.team)
         assert tables == GitHubTables(
-            pull_requests="myprefixgithub_pull_requests", workflow_runs="myprefixgithub_workflow_runs"
+            pull_requests="myprefixgithub_pull_requests",
+            workflow_runs="myprefixgithub_workflow_runs",
+            source_id=str(source.id),
         )
 
     @parameterized.expand([("with_team_requests", ["event", "requested_team"], True), ("without", ["event"], False)])
@@ -164,10 +169,12 @@ class TestResolveGitHubTables(BaseTest):
     def test_skips_incomplete_source_for_a_complete_one(self) -> None:
         # The oldest source is missing an endpoint; resolution falls through to the complete one.
         self._connect(prefix="incomplete", schemas=[(PULL_REQUESTS_SCHEMA, True, True)])
-        self._connect(prefix="complete", schemas=self._BOTH_SYNCED)
+        complete = self._connect(prefix="complete", schemas=self._BOTH_SYNCED)
         tables = resolve_github_tables(team=self.team)
         assert tables == GitHubTables(
-            pull_requests="completegithub_pull_requests", workflow_runs="completegithub_workflow_runs"
+            pull_requests="completegithub_pull_requests",
+            workflow_runs="completegithub_workflow_runs",
+            source_id=str(complete.id),
         )
 
     def test_ignores_soft_deleted_source(self) -> None:
@@ -181,7 +188,9 @@ class TestResolveGitHubTables(BaseTest):
         newer = self._connect(prefix="newer", schemas=self._BOTH_SYNCED)
         tables = resolve_github_tables(team=self.team, source_id=str(newer.id))
         assert tables == GitHubTables(
-            pull_requests="newergithub_pull_requests", workflow_runs="newergithub_workflow_runs"
+            pull_requests="newergithub_pull_requests",
+            workflow_runs="newergithub_workflow_runs",
+            source_id=str(newer.id),
         )
 
     def test_unknown_source_id_raises(self) -> None:
@@ -337,7 +346,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
     def test_new_source_single_qualified_repo_resolves(self) -> None:
         # A source created via the multi-repo `repositories` field has no legacy `repository`, so its
         # one repo is qualified from day one. Bare-name matching would 400 this — the onboarding break.
-        self._multi_repo_source(
+        source = self._multi_repo_source(
             prefix="fresh",
             repos={"PostHog/posthog": [(PULL_REQUESTS_SCHEMA, True), (WORKFLOW_RUNS_SCHEMA, True)]},
         )
@@ -346,6 +355,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
             pull_requests="freshgithub_posthog_posthog_pull_requests",
             workflow_runs="freshgithub_posthog_posthog_workflow_runs",
             repository="posthog/posthog",
+            source_id=str(source.id),
         )
 
     @parameterized.expand(
@@ -470,7 +480,7 @@ class TestMultiRepoGitHubResolution(BaseTest):
     def test_cost_pairs_include_every_repo_in_a_source(self) -> None:
         # The cost view unions (jobs, runs) across repos. A multi-repo source must contribute one
         # pair per fully-synced repo — collapsing it to one repo silently under-counts the view.
-        self._multi_repo_source(
+        source = self._multi_repo_source(
             prefix="cost",
             legacy_repository="PostHog/posthog",
             repos={
@@ -480,6 +490,14 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 "posthog/other": [(WORKFLOW_RUNS_SCHEMA, True)],
             },
         )
+        # A Depot source joins only the repository it syncs, matched case-insensitively.
+        depot = create_depot_source(self.team, prefix="ci", repository="posthog/PostHog")
+        link_schema(
+            self.team,
+            depot,
+            name=DEPOT_JOB_ATTEMPTS_SCHEMA,
+            table=create_warehouse_table_row(self.team, name="cidepot_job_attempts", source=depot),
+        )
         # pull_requests stays None here: these views qualify on jobs + runs, so a repo reaches them
         # with no PR snapshot and the run builder's PR attribution degrades to the message suffix.
         assert set(resolve_job_source_tables(self.team)) == {
@@ -487,11 +505,14 @@ class TestMultiRepoGitHubResolution(BaseTest):
                 workflow_jobs="costgithub_posthog_posthog_workflow_jobs",
                 workflow_runs="costgithub_posthog_posthog_workflow_runs",
                 pull_requests=None,
+                source_id=str(source.id),
+                depot_job_attempts=DepotJobAttempts(table="cidepot_job_attempts", repository="posthog/posthog"),
             ),
             JobSourceTables(
                 workflow_jobs="costgithub_posthog_posthog_com_workflow_jobs",
                 workflow_runs="costgithub_posthog_posthog_com_workflow_runs",
                 pull_requests=None,
+                source_id=str(source.id),
             ),
         }
 

@@ -5,7 +5,6 @@
  */
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -67,7 +66,6 @@ export const manifest: ProductManifest = {
         productKey: ProductKey.MCP_ANALYTICS,
         hasDataEvents: ['$mcp_tool_call'],
         waitingEvents: ['$mcp_initialize'],
-        featureFlag: FEATURE_FLAGS.MCP_ANALYTICS,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -84,7 +82,6 @@ export const manifest: ProductManifest = {
                 'var(--color-product-mcp-analytics-dark)',
             ] as FileSystemIconColor,
             href: urls.mcpAnalytics(),
-            flag: FEATURE_FLAGS.MCP_ANALYTICS,
             tags: ['beta'],
             sceneKey: 'MCPAnalytics',
         },

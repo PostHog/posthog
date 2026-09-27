@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 import yaml
-from owners_yaml.resolver import OWNERS_FILENAME, OwnersResolver, Purpose, team_channel, teams_registry
+from owners_yaml.resolver import OwnersResolver, Purpose
 
 CONFORMANCE_DIR = Path(__file__).parent.parent / "conformance"
 CASE_FILES = sorted((CONFORMANCE_DIR / "cases").glob("*.yaml"))
@@ -38,32 +38,23 @@ def load_cases() -> list[pytest.ParameterSet]:
     return params
 
 
-def resolve_channel(case: ConformanceCase, owners: list[str], resolved_slack: str | None) -> str | None:
-    if case.producer is None or not owners or owners[0].startswith("@"):
-        return resolved_slack
-    # OwnersResolver takes no producer, so a producer case looks the channel up with team_channel.
-    registry = teams_registry(case.files.get(OWNERS_FILENAME, ""))
-    return team_channel(owners[0], registry, case.purpose, case.producer).channel
-
-
 @pytest.mark.parametrize("case", load_cases())
 def test_conformance_case(tmp_path: Path, case: ConformanceCase) -> None:
     for rel, text in case.files.items():
         target = tmp_path / rel
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(text)
-    resolver = OwnersResolver(repo_root=tmp_path, purpose=case.purpose)
+    resolver = OwnersResolver(repo_root=tmp_path, purpose=case.purpose, producer=case.producer)
 
     actual = {}
     for path in case.expect:
         resolution = resolver.resolve(path)
-        owners = resolution.owners or []
         actual[path] = {
-            "owners": owners,
+            "owners": resolution.owners or [],
             "unowned_by_design": resolution.unowned_by_design,
             "status": resolution.status,
             "source": resolution.source,
-            "slack": resolve_channel(case, owners, resolution.slack),
+            "slack": resolution.slack,
             "additions": resolution.additions,
         }
     # A case that leaves `additions` out expects none, so the cases written before the field

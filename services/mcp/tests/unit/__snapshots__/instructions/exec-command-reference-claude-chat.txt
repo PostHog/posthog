@@ -22,7 +22,7 @@ Load all matching topics in one `learn` command first. Topics are cumulative.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
-**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Inspect the complete governed catalog with `metric-list` before `read-data-schema`, insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in query context.
+**Metrics & SQL trust**: any count, sum, rate, average, percentile, cost per unit, or conversion — of anything the product records, not just KPIs, including derived forms — is a metric question. Inspect the complete governed catalog with `metric-list` before `read-data-schema`, insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in the `context` argument of the `execute-sql` call that answers it, never in the answer; with no such call, omit it.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
@@ -115,7 +115,7 @@ WRONG: Confirm the event with `call read-data-schema {"query":{"kind":"events"}}
 
 - If a tool call fails, the error includes a suggestion and similar tool names. Read the suggestion before retrying.
 - If a tool name doesn't exist, run `tools` again to find the correct name.
-- If no tool covers a PostHog capability the user asks about, don't conclude it doesn't exist — PostHog ships changes daily. Check what's new via the `docs-search` tool or the changelog (https://posthog.com/changelog.md).
+- If no tool covers a PostHog capability the user asks about, don't conclude it doesn't exist — PostHog ships changes daily. Check what's new with `call docs-search <json_input>` or the changelog (https://posthog.com/changelog.md).
 
 ### Basic functionality
 
@@ -150,12 +150,10 @@ Only fall back to `tools` if you have no idea which domain to search, or if `sea
 
 PostHog tools have lowercase kebab-case naming. Tools are organized by category:
 
-business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|query
+business-knowledge-documents|dashboard|docs-search|execute-sql|feature-flag|project|query
 Typical action names: list/retrieve/get/create/update/delete/query.
 Example tool names: execute-sql, experiment-create, feature-flag-get-all.
 
-Defined group types: organization, project
+### Active environment
 
-You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).
-Project timezone: America/New_York.
-The user's name is Jane Doe (jane@acme.com).
+Call `project-get` without an ID to read the active project: its name, id, organization, timezone, person-on-events mode, test account filter default, and enabled products. Call it before you rely on one of these, for example the timezone for a date range. For the project's group types, run `execute-sql` on `system.group_type_mappings`.

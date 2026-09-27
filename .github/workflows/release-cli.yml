@@ -1007,8 +1007,8 @@ jobs:
               uses: aws-actions/configure-aws-credentials@254c19bd240aabef8777f48595e9d2d7b972184b # v6.2.1
               with:
                   role-to-assume: ${{ vars.AWS_CLI_RELEASES_ROLE_ARN }}
-                  # The bucket lives in shared-services us-east-1, and CloudFront
-                  # only reads certificates from that region anyway.
+                  # The bucket and its distribution live in the prod-us account,
+                  # us-east-1, next to the other release mirrors there.
                   aws-region: us-east-1
                   mask-aws-account-id: true
                   unset-current-credentials: true
@@ -1157,6 +1157,8 @@ jobs:
         # `brew install` resolves. npm can at least carry a prerelease on a
         # separate dist-tag. Do not "fix" this to match publish-npm.
         if: ${{ needs.plan-release.result == 'success' && !fromJson(needs.plan-release.outputs.val).announcement_is_prerelease }}
+        # Holds the tap token and only admits master.
+        environment: homebrew-tap
         steps:
             # cargo-dist generates the formula complete with per-platform URLs and
             # checksums, so unlike the phrocs formula there is no template to fill.
@@ -1193,12 +1195,75 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
 
+    publish-cargo:
+        needs:
+            - release
+            - plan-release
+            - host-release
+        runs-on: 'ubuntu-22.04'
+        timeout-minutes: 15
+        # Same gate as publish-npm. crates.io understands prerelease semver and
+        # `cargo install` will not pick one by default, so the Homebrew
+        # stable-only rule does not apply here.
+        if: ${{ needs.plan-release.result == 'success' && (!fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases) }}
+        permissions:
+            contents: read
+            # Exchanged for a short-lived crates.io token by the auth action, so
+            # there is no CARGO_REGISTRY_TOKEN secret to hold or rotate.
+            id-token: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ needs.release.outputs.release-commit }}
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+            - name: Fetch release artifacts
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  pattern: artifacts-*
+                  path: artifacts/
+                  merge-multiple: true
+            # Taken from the npm package rather than rebuilt from services/mcp, so
+            # the crate ships the same bytes every other channel does. A rebuild
+            # could drift.
+            #
+            # This path is not incidental: package/lib/posthog-api-cli.mjs is what
+            # `npm i -g @posthog/cli` installs and runs, so it cannot go missing
+            # without breaking npm first. If it ever does, tar exits non-zero here
+            # and the crate is not published, which is the outcome we want.
+            - name: Take the API bundle from the npm package
+              run: |
+                  set -euo pipefail
+                  tar -xzf artifacts/posthog-cli-npm-package.tar.gz \
+                      -C "$RUNNER_TEMP" package/lib/posthog-api-cli.mjs
+                  cp "$RUNNER_TEMP/package/lib/posthog-api-cli.mjs" cli/lib/posthog-api-cli.mjs
+            # build.rs treats a missing bundle as None and still compiles, so
+            # without this check a broken extraction would publish a crate whose
+            # `posthog-cli api` is dead, and nothing would fail.
+            - name: Verify the bundle is present
+              run: |
+                  set -euo pipefail
+                  test -s cli/lib/posthog-api-cli.mjs
+                  echo "bundle: $(wc -c < cli/lib/posthog-api-cli.mjs) bytes"
+            - name: Authenticate with crates.io
+              id: auth
+              uses: rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18 # v1.0.5
+            - name: Publish to crates.io
+              working-directory: cli
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+              # --allow-dirty because lib/posthog-api-cli.mjs is gitignored, so it
+              # is always an untracked file in the checkout.
+              run: cargo publish -p posthog-cli --allow-dirty
+
     notify-released:
         name: Notify Slack - Release Published
-        needs: [notify-approval-needed, release, host-release, publish-npm, publish-homebrew]
+        needs: [notify-approval-needed, release, host-release, publish-npm, publish-homebrew, publish-cargo]
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && (needs.publish-homebrew.result == 'success' || needs.publish-homebrew.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
+        if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && (needs.publish-homebrew.result == 'success' || needs.publish-homebrew.result == 'skipped') && (needs.publish-cargo.result == 'success' || needs.publish-cargo.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
         steps:
             - name: Notify Slack - Release Published
               uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
@@ -1223,12 +1288,13 @@ jobs:
             - host-release
             - publish-npm
             - publish-homebrew
+            - publish-cargo
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
             always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'
             || needs.build-global-artifacts.result == 'failure' || needs.host-release.result == 'failure'
-            || needs.publish-npm.result == 'failure' || needs.publish-homebrew.result == 'failure')
+            || needs.publish-npm.result == 'failure' || needs.publish-homebrew.result == 'failure' || needs.publish-cargo.result == 'failure')
         steps:
             - name: Collect failed jobs
               id: failure-metadata
