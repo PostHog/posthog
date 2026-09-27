@@ -23,6 +23,7 @@ export function CommentComposer({
   submitLabel = "Comment",
   autoFocus = false,
   onSendToAgent,
+  compact = false,
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -36,6 +37,7 @@ export function CommentComposer({
   /** For a composer the user just opened, so they can type straight away. */
   autoFocus?: boolean;
   onSendToAgent?: (content: string) => void;
+  compact?: boolean;
 }) {
   const sendToAgentId = useId();
   const [sendToAgent, setSendToAgent] = useState(false);
@@ -59,13 +61,17 @@ export function CommentComposer({
       value={value}
       onValueChange={onValueChange}
       onSubmit={submit}
+      onEscape={onCancel}
       members={mentionMembers}
       autoFocus={autoFocus}
       placeholder={placeholder}
       rows={rows}
       inputClassName="max-h-40 text-[13px]"
     >
-      <InputGroupAddon align="block-end" className="p-1">
+      <InputGroupAddon
+        align={compact ? "inline-end" : "block-end"}
+        className={compact ? "self-end p-1" : "p-1"}
+      >
         {showMentionsDisabled && (
           <output className="px-1 text-muted-foreground text-xs">
             {mentionsDisabledReason}
@@ -94,7 +100,7 @@ export function CommentComposer({
             <XIcon />
           </InputGroupButton>
         )}
-        <span className="ml-auto">
+        <span className={compact ? undefined : "ml-auto"}>
           <InputGroupButton
             variant="primary"
             size="icon-sm"

@@ -34,10 +34,11 @@ rendering each, from separate snapshots, so a missing snapshot costs one family 
 
 Two further assets grade the day's models on data no example covers. `inbox_ranking_unseen_scores`
 scores every report born on D (`unseen_pool` explains why no example can cover one);
-`inbox_ranking_unseen_graded` reads each head's scores from `D - horizon_days` and grades them
-against the dt=D labels. The holdout AUC grades the recipe, because the shipped booster is refit on
-train plus holdout; the unseen AUC grades the model on reports it never saw, and the two are
-comparable because both apply the same `Head` cohort, label and horizon.
+`inbox_ranking_unseen_graded` evaluates saved scores daily against the dt=D labels until each
+head's horizon, keeping provisional evaluations separate from mature grades. The holdout AUC
+grades the recipe, because the shipped booster is refit on train plus holdout; the baked unseen
+AUC grades the model on reports it never saw. The two are comparable because both apply the
+same `Head` cohort, label and horizon.
 """
 
 import json
@@ -119,6 +120,7 @@ from products.signals.dags.inbox_ranking.training.telemetry import (
     promotion_event,
     serving_manifest_event,
     unseen_calibration_events,
+    unseen_head_evaluated_events,
     unseen_head_graded_events,
     unseen_report_graded_events,
     unseen_score_events,
@@ -939,7 +941,7 @@ def publish_serving_models(
     return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
 
 
-# dt=D grades the scores written on D - horizon_days, so the mapping reaches back as far as the
+# dt=D evaluates scores from birth through maturity, so the mapping reaches back as far as the
 # longest head horizon. Partitions before the scores asset existed have no upstream to map to.
 _HORIZON_MAPPING = dagster.TimeWindowPartitionMapping(
     start_offset=-max(HEADS_BY_HORIZON),
@@ -1168,16 +1170,18 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
 
     labels = load_snapshots(client, bucket, prefix, [day], required=day)[day].labels
     grades: list[HeadGrade] = []
+    evaluations: list[HeadGrade] = []
     skipped: dict[str, str] = {}
     report_rows: list[dict[str, object]] = []
-    # Walk the horizons, not the heads: heads that share a horizon read the same scores object.
-    for horizon_days, heads in HEADS_BY_HORIZON.items():
-        scoring_partition = (day - datetime.timedelta(days=horizon_days)).isoformat()
+    # Read each saved scores object once, even when several heads are still maturing.
+    for observed_days in range(max(HEADS_BY_HORIZON) + 1):
+        heads = [head for head in HEADS if observed_days <= head.horizon_days]
+        scoring_partition = (day - datetime.timedelta(days=observed_days)).isoformat()
         table = read_parquet_if_exists(
             client, bucket, partition_object_key(prefix, UNSEEN_SCORES_TABLE, scoring_partition)
         )
         if table is None:
-            skipped.update({head.name: f"no unseen scores for dt={scoring_partition}" for head in heads})
+            skipped[scoring_partition] = "no unseen scores"
             continue
         scores = with_model_names(table.to_pandas())
         pool = scored_pool(scores)
@@ -1185,17 +1189,22 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
         for head in heads:
             missing = missing_label_columns(labels, head)
             if missing:
-                skipped[head.name] = f"dt={partition_key} labels lack {', '.join(missing)}"
+                skipped[f"{scoring_partition}/{head.name}"] = f"dt={partition_key} labels lack {', '.join(missing)}"
                 continue
             head_scores = scores[scores["head"] == head.name]
             if head_scores.empty:
-                skipped[head.name] = f"dt={scoring_partition} scored no {head.name} row"
+                skipped[f"{scoring_partition}/{head.name}"] = "head was not scored"
                 continue
             graded = graded_rows(head_scores, labels, head, pool=pool)
-            graded_by_head[head.name] = graded
-            grades.extend(head_grades(graded, head, pool=pool, scoring_partition=scoring_partition))
+            evaluated = head_grades(graded, head, pool=pool, scoring_partition=scoring_partition, include_empty=True)
+            evaluations.extend(evaluated)
+            if observed_days == head.horizon_days:
+                graded_by_head[head.name] = graded
+                grades.extend(grade for grade in evaluated if grade.rows)
         report_rows.extend(
-            report_grade_rows(graded_by_head, pool=pool, horizon_days=horizon_days, scoring_partition=scoring_partition)
+            report_grade_rows(
+                graded_by_head, pool=pool, horizon_days=observed_days, scoring_partition=scoring_partition
+            )
         )
 
     for grade in grades:
@@ -1203,14 +1212,26 @@ def inbox_ranking_unseen_graded(context: dagster.AssetExecutionContext) -> None:
     for head_name, reason in skipped.items():
         context.log.info(f"{head_name}: not graded, {reason}")
 
-    context.add_output_metadata({**grade_metadata(grades), "skipped_heads": dagster.MetadataValue.json(skipped)})
+    context.add_output_metadata(
+        {
+            **grade_metadata(grades),
+            "daily_evaluations": dagster.MetadataValue.int(len(evaluations)),
+            "skipped_heads": dagster.MetadataValue.json(skipped),
+        }
+    )
     capture_training_events(
         context,
         partition_key,
         [
-            *unseen_head_graded_events(run_id=context.run.run_id, grades=grades),
-            *unseen_calibration_events(run_id=context.run.run_id, rows=calibration_rows(grades)),
-            *unseen_report_graded_events(run_id=context.run.run_id, rows=report_rows),
+            *unseen_head_evaluated_events(
+                run_id=context.run_id,
+                grades=evaluations,
+                evaluation_partition=partition_key,
+                evaluated_at=datetime.datetime.now(datetime.UTC),
+            ),
+            *unseen_head_graded_events(run_id=context.run_id, grades=grades),
+            *unseen_calibration_events(run_id=context.run_id, rows=calibration_rows(grades)),
+            *unseen_report_graded_events(run_id=context.run_id, rows=report_rows),
         ],
     )
 

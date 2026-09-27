@@ -10456,7 +10456,7 @@
         }
     },
     "scout-report-check-list": {
-        "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass the `run_id` of your own in-progress run and the `report_id` of the report to read; both are required. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal.",
+        "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's follow-up checks",

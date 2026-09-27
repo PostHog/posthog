@@ -69,8 +69,10 @@ the row lists both.
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
+| amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
+| anvil                            | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | apify_dataset                    | HTTP                        | requests                                                        | ✅                          |
 | apitally                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | apollo                           | HTTP                        | requests                                                        | ✅                          |
@@ -232,6 +234,7 @@ the row lists both.
 | deel                             | HTTP                        | requests                                                        | ✅                          |
 | deepgram                         | HTTP                        | requests                                                        | ✅                          |
 | deepsource                       | HTTP (GraphQL)              | requests                                                        | ✅                          |
+| demodesk                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | deno_deploy                      | HTTP                        | requests                                                        | ✅                          |
 | depot                            | HTTP (Connect RPC)          | requests                                                        | ✅                          |
 | descope                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -453,6 +456,7 @@ the row lists both.
 | marketstack                      | HTTP                        | requests                                                        | ✅                          |
 | matomo                           | HTTP                        | requests                                                        | ✅                          |
 | maxio                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| medusa                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mention                          | HTTP                        | requests                                                        | ✅                          |
 | mercury                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | meta_ads                         | HTTP                        | requests                                                        | ✅                          |
@@ -575,6 +579,7 @@ the row lists both.
 | qualaroo                         | HTTP                        | requests                                                        | ✅                          |
 | qualtrics                        | HTTP                        | requests                                                        | ✅                          |
 | qualys_vmdr                      | HTTP (XML responses)        | requests                                                        | ✅                          |
+| quo                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | railway                          | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | recurly                          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp                             | HTTP                        | requests                                                        | ✅                          |
@@ -623,6 +628,7 @@ the row lists both.
 | sendowl                          | HTTP                        | requests                                                        | ✅                          |
 | sentinelone                      | HTTP                        | requests                                                        | ✅                          |
 | sentry                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| sequenzy                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicem8                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow                       | HTTP                        | requests                                                        | ✅                          |
 | sftp                             | SSH (SFTP)                  | paramiko                                                        | ➖                          |
@@ -641,6 +647,7 @@ the row lists both.
 | simplecast                       | HTTP                        | requests                                                        | ✅                          |
 | simplesat                        | HTTP                        | requests                                                        | ✅                          |
 | singlestore                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| skio                             | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | skyvern                          | HTTP                        | requests                                                        | ✅                          |
 | slack                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | sleekplan                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -850,10 +857,8 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- amplemarket
 - anodot_cost
 - anomalo
-- anvil
 - apaleo
 - appcues
 - appdirect
@@ -984,7 +989,6 @@ doesn't conflict with concurrent PRs.
 - dayforce
 - db2
 - deelflows
-- demodesk
 - deno_deploy
 - deputy
 - develocity
@@ -1179,7 +1183,6 @@ doesn't conflict with concurrent PRs.
 - mantle
 - manychat
 - mastodon
-- medusa
 - meetup
 - memberful
 - membrain
@@ -1305,7 +1308,6 @@ doesn't conflict with concurrent PRs.
 - qonto
 - quay
 - quickbooks
-- quo
 - railz
 - raisely
 - raken
@@ -1356,7 +1358,6 @@ doesn't conflict with concurrent PRs.
 - semrush
 - sendpulse
 - senseforce
-- sequenzy
 - serpstat
 - service_fusion
 - servicetitan
@@ -1380,7 +1381,6 @@ doesn't conflict with concurrent PRs.
 - sinch
 - singular
 - site24x7
-- skio
 - skyvern
 - slash
 - sleuth
