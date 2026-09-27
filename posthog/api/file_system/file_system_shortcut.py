@@ -119,7 +119,7 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: OpenApiResponse(response=FileSystemShortcutSerializer(many=True))},
         description="Set the display order of the current user's shortcuts. `ordered_ids` becomes the new top-to-bottom order; any unknown IDs are rejected.",
     )
-    @action(detail=False, methods=["post"], url_path="reorder")
+    @action(detail=False, methods=["post"], url_path="reorder", required_scopes=["file_system_shortcut:write"])
     def reorder(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         serializer = FileSystemShortcutReorderSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

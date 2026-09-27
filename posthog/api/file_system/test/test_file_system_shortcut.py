@@ -9,6 +9,7 @@ from rest_framework import status
 
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -173,6 +174,52 @@ class TestFileSystemShortcutAPI(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _authenticate_with_token(self, auth: str, scopes: list[str]) -> None:
+        if auth == "personal_api_key":
+            token = self.create_personal_api_key_with_scopes(scopes)
+        else:
+            app = OAuthApplication.objects.create(
+                name="Shortcut reorder test",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+            )
+            token = OAuthAccessToken.objects.create(
+                user=self.user,
+                application=app,
+                token="pha_shortcut_reorder",
+                scope=" ".join(scopes),
+                expires=timezone.now() + timedelta(hours=1),
+            ).token
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    @parameterized.expand(
+        [
+            ("personal_api_key_write", "personal_api_key", ["file_system_shortcut:write"], status.HTTP_200_OK),
+            ("personal_api_key_read", "personal_api_key", ["file_system_shortcut:read"], status.HTTP_403_FORBIDDEN),
+            ("oauth_write", "oauth", ["file_system_shortcut:write"], status.HTTP_200_OK),
+            ("oauth_read", "oauth", ["file_system_shortcut:read"], status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_reorder_with_scoped_token(self, _name: str, auth: str, scopes: list[str], expected_status: int):
+        first = FileSystemShortcut.objects.create(team=self.team, path="First", type="t", user=self.user, order=0)
+        second = FileSystemShortcut.objects.create(team=self.team, path="Second", type="t", user=self.user, order=1)
+        self._authenticate_with_token(auth, scopes)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system_shortcut/reorder/",
+            {"ordered_ids": [str(second.id), str(first.id)]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        second.refresh_from_db()
+        self.assertEqual(second.order, 0 if expected_status == status.HTTP_200_OK else 1)
 
 
 class TestFileSystemShortcutAccessLevels(APIBaseTest):
