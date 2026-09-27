@@ -1,5 +1,5 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 from posthog.test.base import BaseTest
@@ -10,6 +10,7 @@ from django.test import override_settings
 from langchain_core.agents import AgentAction
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig, RunnableLambda
+from parameterized import parameterized
 
 from posthog.schema import (
     ArtifactContentType,
@@ -183,12 +184,17 @@ class TestSchemaGeneratorNode(BaseTest):
             generator_model_mock.return_value = RunnableLambda(assert_prompt)
             await node(state, {})
 
-    async def test_failover_with_malformed_query(self):
+    @parameterized.expand(
+        [
+            ("query_is_a_list", lambda: json.dumps(DummySchema.model_construct(query=[]).model_dump())),  # type: ignore
+            # JsonOutputParser raises a bare ValueError when an integer exceeds the int digit limit
+            ("integer_over_digit_limit", lambda: json.loads('{"query": {"samplingFactor": 1' + "0" * 5000 + "}}")),
+        ]
+    )
+    async def test_failover_with_malformed_query(self, _name: str, model_output: Callable[[], Any]):
         node = DummyGeneratorNode(self.team, self.user)
         with patch.object(DummyGeneratorNode, "_model") as generator_model_mock:
-            # Emulate an incorrect JSON - it should be an object, but let's make it a list here
-            output = DummySchema.model_construct(query=[]).model_dump()  # type: ignore
-            generator_model_mock.return_value = RunnableLambda(lambda _: json.dumps(output))
+            generator_model_mock.return_value = RunnableLambda(lambda _: model_output())
 
             new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})
             new_state = cast(PartialAssistantState, new_state)
@@ -203,6 +209,16 @@ class TestSchemaGeneratorNode(BaseTest):
             )
             assert new_state is not None
             self.assertEqual(len(new_state.intermediate_steps or []), 2)
+
+            with self.assertRaises(SchemaGenerationException):
+                await node(
+                    AssistantState(
+                        messages=[HumanMessage(content="Text")],
+                        intermediate_steps=[(AgentAction(tool="", tool_input="", log="exception"), "exception")]
+                        * RETRIES_ALLOWED,
+                    ),
+                    {},
+                )
 
     async def test_quality_check_failure_with_retries_available(self):
         """Test quality check failure triggering retry when retries are available."""
