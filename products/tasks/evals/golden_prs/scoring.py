@@ -109,24 +109,40 @@ def judge(
         f"<golden_diff>\n{_bounded(golden)}\n</golden_diff>\n\n"
         f"<candidate_diff>\n{_bounded(candidate)}\n</candidate_diff>"
     )
+    answer = structured_answer(model, JUDGE_SYSTEM_PROMPT, request, Verdict, client)
+    # A missing verdict is a broken judge, which must score 0 rather than vanish from the mean.
+    return answer.value or Verdict(score=0.0, reasoning=f"The judge returned no verdict: {answer.failure}")
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Answer[T: BaseModel]:
+    value: T | None
+    failure: str = ""
+
+
+def structured_answer[T: BaseModel](
+    model: str, system_prompt: str, request: str, output_type: type[T], client: anthropic.Anthropic | None = None
+) -> Answer[T]:
+    """Ask a model for an `output_type`, through the SDK with an API key or the signed-in `claude` CLI without one."""
     if client is None and not os.environ.get("ANTHROPIC_API_KEY"):
-        return _judge_with_claude_cli(model, request)
+        return _answer_with_claude_cli(model, system_prompt, request, output_type)
     client = client or anthropic.Anthropic()
     response = client.messages.parse(
         model=model,
         max_tokens=4096,
-        system=JUDGE_SYSTEM_PROMPT,
+        system=system_prompt,
         messages=[{"role": "user", "content": request}],
-        output_format=Verdict,
+        output_format=output_type,
     )
-    # A missing verdict is a broken judge, which must score 0 rather than vanish from the mean.
-    return response.parsed_output or Verdict(score=0.0, reasoning="The judge returned no verdict.")
+    return Answer(value=response.parsed_output, failure="the model returned no structured output")
 
 
 JUDGE_CLI_TIMEOUT_SECONDS = 10 * 60
 
 
-def _judge_with_claude_cli(model: str, request: str) -> Verdict:
+def _answer_with_claude_cli[T: BaseModel](
+    model: str, system_prompt: str, request: str, output_type: type[T]
+) -> Answer[T]:
     """The CLI signs in with its own credentials, so a devbox with `claude` logged in needs no API key."""
     command = [
         "claude",
@@ -139,9 +155,9 @@ def _judge_with_claude_cli(model: str, request: str) -> Verdict:
         "--output-format",
         "json",
         "--system-prompt",
-        JUDGE_SYSTEM_PROMPT,
+        system_prompt,
         "--json-schema",
-        json.dumps(Verdict.model_json_schema()),
+        json.dumps(output_type.model_json_schema()),
     ]
     # A neutral working directory, so the CLI does not load this repository's CLAUDE.md and hooks into the judge.
     try:
@@ -155,12 +171,12 @@ def _judge_with_claude_cli(model: str, request: str) -> Verdict:
             timeout=JUDGE_CLI_TIMEOUT_SECONDS,
         )
     except subprocess.TimeoutExpired:
-        return Verdict(score=0.0, reasoning="The judge returned no verdict: the CLI timed out.")
+        return Answer(value=None, failure="the CLI timed out")
     try:
         report = json.loads(completed.stdout)
     except json.JSONDecodeError:
         report = {}
     if report.get("structured_output"):
-        return Verdict.model_validate(report["structured_output"])
+        return Answer(value=output_type.model_validate(report["structured_output"]))
     failure = report.get("result") or completed.stderr.strip() or f"exit code {completed.returncode}"
-    return Verdict(score=0.0, reasoning=f"The judge returned no verdict: {failure}")
+    return Answer(value=None, failure=str(failure))

@@ -2,8 +2,8 @@ import os
 import shutil
 import tempfile
 import subprocess
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 
 from .cases import GoldenPR
@@ -112,17 +112,17 @@ def _restore_export_ignored_files(repo: Path, ref: str, workdir: Path) -> None:
 
 
 @contextmanager
-def checkout_parent(repo: Path, pr: GoldenPR) -> Iterator[Path]:
-    """Yield a fresh git repository holding only the tree at the commit before the PR.
+def checkout_tree(repo: Path, ref: str, prepare: Callable[[Path], None] | None = None) -> Iterator[Path]:
+    """Yield a fresh git repository holding only the tree at `ref`, with `prepare` applied before the base commit.
 
-    An archive rather than a worktree, so the agent cannot read the merged PR out of
+    An archive rather than a worktree, so the agent cannot read the rest of the history out of
     the shared object store with `git log` or `git show`.
     """
-    # A prefix and commit message that carry no PR number, so an agent inspecting its own cwd or
-    # `git log` cannot learn which public PR it is meant to reproduce.
-    workdir = Path(tempfile.mkdtemp(prefix="golden-pr-"))
+    # A prefix and commit message that carry no PR number or rule name, so an agent inspecting its
+    # own cwd or `git log` cannot learn what it is being measured against.
+    workdir = Path(tempfile.mkdtemp(prefix="posthog-"))
     try:
-        archive = subprocess.Popen(["git", "archive", pr.parent_sha], cwd=repo, stdout=subprocess.PIPE)
+        archive = subprocess.Popen(["git", "archive", ref], cwd=repo, stdout=subprocess.PIPE)
         try:
             try:
                 tar_result = subprocess.run(
@@ -140,7 +140,9 @@ def checkout_parent(repo: Path, pr: GoldenPR) -> Iterator[Path]:
             raise subprocess.CalledProcessError(tar_result.returncode, "tar")
         if archive_returncode != 0:
             raise subprocess.CalledProcessError(archive_returncode, "git archive")
-        _restore_export_ignored_files(repo, pr.parent_sha, workdir)
+        _restore_export_ignored_files(repo, ref, workdir)
+        if prepare:
+            prepare(workdir)
         _git(workdir, "init", "-q")
         # Forced: the parent tree can hold a file (like `.envrc`) that a `.gitignore` restored a
         # moment ago now matches, and a plain `add -A` would silently drop it from the baseline.
@@ -155,6 +157,10 @@ def checkout_parent(repo: Path, pr: GoldenPR) -> Iterator[Path]:
         yield workdir
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def checkout_parent(repo: Path, pr: GoldenPR) -> AbstractContextManager[Path]:
+    return checkout_tree(repo, pr.parent_sha)
 
 
 def candidate_diff(workdir: Path) -> str:
