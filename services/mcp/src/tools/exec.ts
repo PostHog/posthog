@@ -829,6 +829,47 @@ export function rewrapFlattenedArguments(
     return schema.safeParse(rebuilt).success ? rebuilt : undefined
 }
 
+/**
+ * The mirror of `rewrapFlattenedArguments`: lifts a payload the caller nested under one
+ * undeclared key, such as `{query: {series}}`, back to the top level the schema declares.
+ *
+ * A nested `query` object is the natural shape for a query tool, and callers keep sending
+ * it even when the description says not to, so the rejection alone costs a round trip.
+ *
+ * Returns undefined when the wrapper or its siblings carry a key the schema does not
+ * declare, because the parse would drop that key without a word, or when the lifted
+ * payload does not parse.
+ */
+export function unwrapOverWrappedArguments(
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    const key = overWrappedPayloadKey(input, schema)
+    if (!schema || !key || !isRecord(input)) {
+        return undefined
+    }
+    const inner = input[key] as Record<string, unknown>
+    const siblings = Object.fromEntries(Object.entries(input).filter(([name]) => name !== key))
+    const declared = topLevelFieldNames(schema)
+    if (Object.keys(siblings).some((name) => !declared.has(name))) {
+        return undefined
+    }
+    if (Object.keys(inner).some((name) => !declared.has(name) || name in siblings)) {
+        return undefined
+    }
+    const unwrapped = { ...siblings, ...inner }
+    return schema.safeParse(unwrapped).success ? unwrapped : undefined
+}
+
+/** Repairs a call whose payload sits one level off from where the schema wants it, in either direction. */
+export function repairArgumentNesting(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    return rewrapFlattenedArguments(error, input, schema) ?? unwrapOverWrappedArguments(input, schema)
+}
+
 function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
     const root = inputJsonSchema(schema)
     const properties = isRecord(root) ? root['properties'] : undefined
@@ -1872,7 +1913,7 @@ export function createExecTool(
                     // field. Dispatch the parsed output so coerced values and defaults apply.
                     let validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
+                        const rewrapped = repairArgumentNesting(validation.error, input, toolSchema)
                         if (rewrapped) {
                             input = rewrapped
                             validation = toolSchema.safeParse(input, { reportInput: true })
