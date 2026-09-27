@@ -92,7 +92,7 @@ function SummarizeButton({ sessionId, scanBlock }: { sessionId: string; scanBloc
     const idleLabel = defaultSummarizer ? `Summarize with ${defaultSummarizer.name}` : 'Summarize this recording'
     const label = summarizePending ? 'Summarizing…' : idleLabel
     // On the consent path the click only opens a popover, so the button stays pressed while it is open
-    // and spins while the approval saves. Without this, people clicked again because nothing changed.
+    // and spins while the approval saves. Otherwise nothing shows that the click landed.
     const consentLabel = dataProcessingApprovalPending ? 'Allowing AI analysis…' : 'Allow AI analysis and summarize'
     const summarizerTooltip = summarizePending
         ? 'Watching this recording. The summary appears below when it is ready.'
