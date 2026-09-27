@@ -3867,6 +3867,18 @@ export interface DataDeletionPreviewApi {
     readonly count: number
 }
 
+export interface EmojiSuggestionApi {
+    /** The suggested emoji character. */
+    emoji: string
+    /** The emoji's English name. */
+    label: string
+}
+
+export interface EmojiSearchResponseApi {
+    /** Related emojis, or an empty list. */
+    suggestions: EmojiSuggestionApi[]
+}
+
 /**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
@@ -4418,6 +4430,33 @@ export interface SearchIntentResponseApi {
      * @nullable
      */
     prompt_version: number | null
+    /**
+     * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
+     * @nullable
+     */
+    model_query: string | null
+}
+
+export interface EventMatchRequestApi {
+    /**
+     * What the person typed into the events list search box, which matched no event name.
+     * @maxLength 200
+     */
+    query: string
+}
+
+export interface EventMatchApi {
+    /** The event name to select, such as $autocapture. */
+    name: string
+    /** The event's display name, such as Autocapture. */
+    display_name: string
+    /** How likely the search means this event, from 0 to 1. */
+    probability: number
+}
+
+export interface EventMatchResponseApi {
+    /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
+    matches: EventMatchApi[]
 }
 
 export interface UploadedMediaApi {
@@ -5627,6 +5666,15 @@ export type DataDeletionRequestsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string
 }
 
 export type ExportsListParams = {
