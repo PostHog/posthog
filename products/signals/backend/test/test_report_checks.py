@@ -1167,6 +1167,28 @@ class TestCheckResultTool(APIBaseTest):
 
         assert result.check_status == SignalReportCheck.Status.FAILED
 
+    @parameterized.expand(
+        [
+            ("its_report_is_suppressed", SignalReport.Status.SUPPRESSED, timedelta(days=30)),
+            ("its_horizon_passed", SignalReport.Status.RESOLVED, -timedelta(minutes=1)),
+        ]
+    )
+    def test_a_due_check_the_coordinator_would_not_dispatch_is_paused(self, _name, report_status, expires_in) -> None:
+        SignalReport.objects.filter(id=self.report.id).update(status=report_status)
+        now = timezone.now()
+        check = self._check(dispatched_at=None, next_run_at=now - timedelta(hours=1), expires_at=now + expires_in)
+
+        (listed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
+        assert listed.run_state == "paused"
+        with self.assertRaises(InvalidCheckResultError):
+            self._record(check)
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.ACTIVE
+        assert not SignalReportArtefact.objects.filter(
+            report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_RESULT
+        ).exists()
+
     def test_another_projects_check_is_not_reachable(self) -> None:
         other_team = self.organization.teams.create(name="Other")
         other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.RESOLVED)

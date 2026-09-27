@@ -519,8 +519,9 @@ tools:
             and `errored` retries it. Nothing else closes a check, so a run that investigates and never calls this
             leaves the report with an unanswered follow-up. You may also record a check on your own scout whose
             `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for
-            a check on another scout, a `pending` check whose report has not resolved, a check that is not due yet, and
-            a check the coordinator measures itself.
+            a check on another scout, a `pending` check whose report has not resolved, a check that is not due yet, a
+            `paused` check whose report is suppressed or whose horizon passed, and a check the coordinator measures
+            itself.
     scout-config-create:
         operation: signals_scout_config_create
         enabled: true
@@ -971,7 +972,7 @@ tools:
             already carrying one for the same claim needs no second, and a report holds at most five open checks at a
             time. A `pending` check is waiting for the report to resolve before its clock starts; every status other
             than `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`,
-            `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`,
+            `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`,
             `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched and when.
     scout-report-checks-list:
         operation: signals_scout_report_check_list
