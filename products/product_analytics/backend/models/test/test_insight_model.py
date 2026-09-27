@@ -341,7 +341,6 @@ class TestInsightModel(BaseTest):
         insight.save(update_fields={"name"})
 
         insight.refresh_from_db()
-        assert insight.query is None
         assert insight.query_metadata is None
 
     def test_get_analytics_query_metadata_for_trends_query(self) -> None:

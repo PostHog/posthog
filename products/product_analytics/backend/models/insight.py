@@ -179,8 +179,8 @@ class Insight(Taggable, RootTeamMixin, FileSystemSyncMixin, models.Model):
                 # Django accepts any iterable here, so build a new list instead of mutating the caller's value
                 if kwargs.get("update_fields") is not None:
                     update_fields = [*kwargs["update_fields"]]
-                    # Skip metadata for an unsaved query, so it always describes the stored query
-                    if "query" in update_fields or self.query == self._original_query:
+                    # Only save metadata with the query, so it always describes the stored query
+                    if "query" in update_fields:
                         update_fields.append("query_metadata")
                     kwargs["update_fields"] = update_fields
         super().save(*args, **kwargs)
