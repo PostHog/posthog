@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
-import { PostHogTransportError } from '@/lib/errors'
+import { PostHogRateLimitError, PostHogTransportError } from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import type { Context } from '@/tools/types'
@@ -544,6 +544,27 @@ describe('ApiClient', () => {
 
             expect(result).toEqual({ name: 'skills-store', body: 'page three' })
             expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(Date.now() - startedAt).toBeLessThan(30_000)
+        })
+
+        it('does not wait out a 429 past the skill read deadline', async () => {
+            const stalled = (_url: string, init?: RequestInit): Promise<Response> =>
+                new Promise<Response>((_resolve, reject) => {
+                    init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+                })
+            const mockFetch = vi
+                .fn()
+                .mockImplementationOnce(stalled)
+                .mockImplementationOnce(stalled)
+                .mockResolvedValueOnce(new Response('{}', { status: 429, headers: { 'Retry-After': '20' } }))
+                .mockResolvedValue(new Response(JSON.stringify({ name: 'skills-store' }), { status: 200 }))
+            vi.stubGlobal('fetch', mockFetch)
+            const startedAt = Date.now()
+
+            const error = await runTool('skill-get', { skill_name: 'skills-store', body_offset: 8000 })
+
+            expect(error).toBeInstanceOf(PostHogRateLimitError)
+            expect(mockFetch).toHaveBeenCalledTimes(3)
             expect(Date.now() - startedAt).toBeLessThan(30_000)
         })
 

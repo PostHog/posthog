@@ -48,12 +48,17 @@ const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 const TRANSPORT_MAX_RETRIES = 2
 const TRANSPORT_BASE_BACKOFF_MS = 250
 
-// Per-attempt deadline for skill reads. A healthy read answers in about a
-// second, but an attempt the upstream never answers otherwise holds the tool
-// call until the MCP client gives up, and the transport retry never runs. Three
-// attempts plus backoff must finish inside the 30 s default MCP request timeout.
-const SKILL_READ_ATTEMPT_TIMEOUT_MS = 8_000
+// Deadlines for skill reads. A healthy read answers in about a second, but an
+// attempt the upstream never answers otherwise holds the tool call until the MCP
+// client gives up, and the transport retry never runs. The total covers every
+// attempt, backoff and 429 wait, and stays inside the 30 s default MCP request timeout.
+const SKILL_READ_DEADLINE: RequestDeadline = { attemptMs: 8_000, totalMs: 28_000 }
 const SKILL_READ_PATH = /^\/api\/(?:projects|environments)\/[^/]+\/llm_skills\/name\//
+
+interface RequestDeadline {
+    attemptMs: number
+    totalMs: number
+}
 
 /** Methods that carry no upstream effect, so a repeat after a failed
  *  connection cannot apply the same work twice. */
@@ -349,9 +354,8 @@ export class ApiClient {
             return (await response.text()) as T
         }
 
-        const attemptTimeoutMs =
-            opts.method === 'GET' && SKILL_READ_PATH.test(opts.path) ? SKILL_READ_ATTEMPT_TIMEOUT_MS : undefined
-        const result = await this.fetchJson<T>(url, fetchOptions, attemptTimeoutMs)
+        const deadline = opts.method === 'GET' && SKILL_READ_PATH.test(opts.path) ? SKILL_READ_DEADLINE : undefined
+        const result = await this.fetchJson<T>(url, fetchOptions, deadline)
 
         if (!result.success) {
             // Re-throw the original error instance so callers can instanceof-check
@@ -593,8 +597,10 @@ export class ApiClient {
         })
     }
 
-    private async fetchJson<T>(url: string, options?: RequestInit, attemptTimeoutMs?: number): Promise<Result<T>> {
+    private async fetchJson<T>(url: string, options?: RequestInit, deadline?: RequestDeadline): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
+        const expiresAt = deadline && Date.now() + deadline.totalMs
+        const remainingMs = (): number => (expiresAt === undefined ? Infinity : expiresAt - Date.now())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
@@ -602,6 +608,7 @@ export class ApiClient {
         for (;;) {
             let response: Response
             let bodyText: string
+            const attemptTimeoutMs = deadline && Math.max(0, Math.min(deadline.attemptMs, remainingMs()))
             const attempt = attemptTimeoutMs === undefined ? undefined : new AbortController()
             const attemptTimer =
                 attempt &&
@@ -623,10 +630,14 @@ export class ApiClient {
                 const isSafeMethod = SAFE_HTTP_METHODS.has(method.toUpperCase())
                 // A spent attempt deadline is a stalled upstream, not the caller's own abort.
                 const attemptTimedOut = attemptSignal?.aborted === true && !options?.signal?.aborted
+                // Equal jitter so concurrent failures do not retry in lockstep.
+                const backoffMs = TRANSPORT_BASE_BACKOFF_MS * 2 ** transportRetries
+                const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
                 const canRetry =
                     (attemptTimedOut || !isAbortError(error)) &&
                     isSafeMethod &&
-                    transportRetries < TRANSPORT_MAX_RETRIES
+                    transportRetries < TRANSPORT_MAX_RETRIES &&
+                    delayMs < remainingMs()
                 if (!canRetry) {
                     console.error(`[API] Transport failure on ${method} ${url}: ${String(error)}`)
                     return {
@@ -640,9 +651,6 @@ export class ApiClient {
                         }),
                     }
                 }
-                // Equal jitter so concurrent failures do not retry in lockstep.
-                const backoffMs = TRANSPORT_BASE_BACKOFF_MS * 2 ** transportRetries
-                const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
                 transportRetries++
                 console.warn(
                     `[API] Transport failure on ${method} ${url}: ${String(error)}. Retrying in ${Math.round(delayMs)}ms (attempt ${transportRetries}/${TRANSPORT_MAX_RETRIES})`
@@ -679,9 +687,10 @@ export class ApiClient {
                         : // Equal jitter so concurrent 429s don't retry in lockstep.
                           backoffMs / 2 + Math.random() * (backoffMs / 2)
 
-                if (delayMs > waitBudgetMs) {
+                const allowedWaitMs = Math.min(waitBudgetMs, remainingMs())
+                if (delayMs >= allowedWaitMs) {
                     console.warn(
-                        `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
+                        `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(allowedWaitMs / 1000)}s retry budget; not retrying.`
                     )
                     return rateLimitFailure()
                 }
