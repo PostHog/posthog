@@ -189,8 +189,7 @@ describe('taxonomicSearchIntentLogic', () => {
     it.each(['control', 'banner'])('promotes the predicted group on the All tab in the %s arm too', async (variant) => {
         enroll(variant)
         const captureSpy = jest.spyOn(posthog, 'capture')
-        filterLogic.actions.setSearchQuery('email')
-        await expectLogic(logic).toFinishAllListeners()
+        await search('email')
 
         expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(TaxonomicFilterGroupType.PersonProperties)
         expect(captureSpy).toHaveBeenCalledWith(
