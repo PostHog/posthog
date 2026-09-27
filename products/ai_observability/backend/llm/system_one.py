@@ -60,7 +60,7 @@ class SystemOneRequestRejectedError(LLMError):
     pass
 
 
-class SystemOneEndpointBlockedError(SystemOneRequestRejectedError):
+class SystemOneEndpointBlockedError(LLMError):
     pass
 
 
@@ -187,6 +187,7 @@ class SystemOneClient:
             ProviderConnectionError,
             RateLimitError,
             StructuredOutputParseError,
+            SystemOneEndpointBlockedError,
             SystemOneRequestRejectedError,
             ContextWindowExceededError,
         ) as error:

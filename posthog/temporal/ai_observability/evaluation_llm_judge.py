@@ -539,9 +539,9 @@ def call_llm_judge(
                 )
             )
     except SystemOneEndpointBlockedError as e:
-        increment_user_errors("request_rejected", provider=provider)
+        increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
-            spec=require_user_error_spec("request_rejected", is_byok=is_byok),
+            spec=require_user_error_spec("endpoint_blocked", is_byok=is_byok),
             message=str(e),
             allows_na=allows_na,
             output_type=output_type,

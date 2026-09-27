@@ -31,10 +31,10 @@ class EvaluationErrorSpec:
 
 
 USER_ERROR_SPECS: dict[str, EvaluationErrorSpec] = {
-    "request_rejected": EvaluationErrorSpec(
-        error_type="request_rejected",
+    "endpoint_blocked": EvaluationErrorSpec(
+        error_type="endpoint_blocked",
         owner="user",
-        safe_message="The judge endpoint rejected the request. Check the connection settings and evaluation criteria.",
+        safe_message="The judge endpoint is not allowed. Check the connection settings.",
         status_reason=EvaluationStatusReason.PROVIDER_KEY_INVALID,
         disables_evaluation=True,
         provider_key_state=LLMProviderKey.State.ERROR,

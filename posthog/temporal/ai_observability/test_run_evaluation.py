@@ -234,8 +234,13 @@ def test_system_one_restricted_connection_does_not_send_evaluation_data(base_url
     request.assert_not_called()
 
 
-@pytest.mark.parametrize("status", [301, 400, 422])
-def test_system_one_rejections_preserve_shared_key_for_input_errors(status: int) -> None:
+@pytest.mark.parametrize(
+    "status, expected_skip_reason",
+    [(301, "endpoint_blocked"), (400, "request_rejected"), (422, "request_rejected")],
+)
+def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
+    status: int, expected_skip_reason: str
+) -> None:
     key = MagicMock(
         provider="system_one",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
@@ -261,7 +266,7 @@ def test_system_one_rejections_preserve_shared_key_for_input_errors(status: int)
             user_prompt="Hello!",
             allows_na=False,
         )
-    assert result["skip_reason"] == "request_rejected"
+    assert result["skip_reason"] == expected_skip_reason
     if status == 301:
         assert result["terminal_user_error"] is True
         assert result["provider_key_state"] == "error"
