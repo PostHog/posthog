@@ -35753,6 +35753,18 @@ export namespace Schemas {
       idempotent_replay: boolean;
     }
 
+    export interface EmojiSuggestion {
+      /** The suggested emoji character. */
+      emoji: string;
+      /** The emoji's English name. */
+      label: string;
+    }
+
+    export interface EmojiSearchResponse {
+      /** Related emojis, or an empty list. */
+      suggestions: EmojiSuggestion[];
+    }
+
     export interface EndExperiment {
       /** The conclusion of the experiment.
        *
@@ -109615,6 +109627,15 @@ export namespace Schemas {
     value?: string;
     };
 
+    export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string;
+    };
+
     export type EndpointsListParams = {
     created_by?: number;
     is_active?: boolean;
@@ -116258,6 +116279,13 @@ export namespace Schemas {
      * @maximum 100
      */
     per_scout_limit?: number;
+    };
+
+    export type SignalsScoutReportCheckListParams = {
+    /**
+     * The report whose checks to list.
+     */
+    report_id: string;
     };
 
     export type SignalsScoutScratchpadSearchParams = {
