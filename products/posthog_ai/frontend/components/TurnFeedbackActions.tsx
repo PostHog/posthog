@@ -13,7 +13,7 @@ import { stripMarkdown } from 'lib/utils/markdown'
 import { messageRatingsLogic } from '../logics/messageRatingsLogic'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { RunRef, captureTurnFeedbackText, captureTurnRating } from '../utils/feedbackEvents'
-import { TurnRevealContext } from './TurnReveal'
+import { TurnRevealContext } from './TurnRevealContext'
 
 export interface TurnFeedbackActionsProps {
     /** Task id backing the sandbox conversation. Lands in `$ai_session_id`. */

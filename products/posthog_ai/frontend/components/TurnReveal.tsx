@@ -1,9 +1,7 @@
-import { type ReactNode, createContext, useSyncExternalStore } from 'react'
+import { type ReactNode, useSyncExternalStore } from 'react'
 
 import type { TurnHoverStore } from '../utils/turnHoverStore'
-
-/** True while the pointer is over any row of the turn that this trailer closes. */
-export const TurnRevealContext = createContext(false)
+import { TurnRevealContext } from './TurnRevealContext'
 
 /** Wraps a turn trailer: tells its content when the turn is hovered, and counts the trailer as part of the turn. */
 export function TurnReveal({
