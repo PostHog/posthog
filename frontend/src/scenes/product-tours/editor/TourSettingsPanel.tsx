@@ -5,10 +5,8 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonInput, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ProductTourAppearance } from '~/types'
 
@@ -36,9 +34,6 @@ export function TourSettingsPanel({ tourId }: TourSettingsPanelProps): JSX.Eleme
         productTourLogic({ id: tourId })
     )
     const { setProductTourFormValue } = useActions(productTourLogic({ id: tourId }))
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const translationsEnabled = featureFlags[FEATURE_FLAGS.PRODUCT_TOURS_LOCALIZATION]
 
     const isBanner = productTour ? isBannerAnnouncement(productTour) : false
     const conditions = productTourForm.content?.conditions || {}
@@ -262,20 +257,16 @@ export function TourSettingsPanel({ tourId }: TourSettingsPanelProps): JSX.Eleme
                                 header: 'Theme',
                                 content: styleContent,
                             },
-                            ...(translationsEnabled
-                                ? [
-                                      {
-                                          key: 'translations',
-                                          header: (
-                                              <div className="flex gap-2 items-center">
-                                                  Translations
-                                                  {selectedLanguage && <LemonTag>{selectedLanguage}</LemonTag>}
-                                              </div>
-                                          ),
-                                          content: <TranslationsPanel tourId={tourId} />,
-                                      },
-                                  ]
-                                : []),
+                            {
+                                key: 'translations',
+                                header: (
+                                    <div className="flex gap-2 items-center">
+                                        Translations
+                                        {selectedLanguage && <LemonTag>{selectedLanguage}</LemonTag>}
+                                    </div>
+                                ),
+                                content: <TranslationsPanel tourId={tourId} />,
+                            },
                         ]}
                     />
                 </div>
