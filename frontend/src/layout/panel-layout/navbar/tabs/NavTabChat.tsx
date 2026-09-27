@@ -325,7 +325,7 @@ export function NavTabChat({
                 onInputValueChange={setInputValue}
             >
                 <div className="flex flex-col h-full min-h-0">
-                    <div className="flex items-center gap-1 p-1 shrink-0">
+                    <div className="flex items-center gap-1 px-2 py-1 shrink-0">
                         <LemonInput
                             inputComponent={Combobox.Input}
                             id={searchInputId}
