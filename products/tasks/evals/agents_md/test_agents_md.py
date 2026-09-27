@@ -142,7 +142,7 @@ LONG_PROSE = "This sentence goes on for a while so that it is long enough to loo
         ),
         (
             "stdlib dataclass",
-            "dataclass_without_frozen",
+            "stdlib_dataclass_decorators",
             {},
             diff_for("a.py", ["@dataclass(frozen=True)", "@frozen"]),
             1,
@@ -194,6 +194,7 @@ DEFS = "def f(a):\n    pass\n\n\ndef g(a: int) -> int:\n    return a\n"
 CALL_FIRST = "def a():\n    return b()\n\n\ndef b():\n    return 1\n"
 ATOMIC_WITH_EMAIL = "def view():\n    with transaction.atomic():\n        Thing.objects.create()\n        send_mail()\n"
 ATOMIC_CLEAN = "def view():\n    with transaction.atomic():\n        Thing.objects.create()\n    send_mail()\n"
+ATOMIC_CLEAN_ABOVE_OLD = ATOMIC_CLEAN + "\n\ndef old():\n    with transaction.atomic():\n        send_mail()\n"
 TWO_DESCRIBES = "describe('a', () => {})\ndescribe('b', () => {})\n"
 
 
@@ -211,8 +212,25 @@ TWO_DESCRIBES = "describe('a', () => {})\ndescribe('b', () => {})\n"
         ("no handle added", "handle_statement_count", {}, "posthog/management/commands/x.py", HANDLE, ["x = 1"], None),
         ("unannotated def", "unannotated_defs", {}, "a.py", DEFS, ["def f(a):", "def g(a: int) -> int:"], 1),
         ("call before definition", "calls_before_definition", {}, "a.py", CALL_FIRST, ["def a():"], 1),
-        ("email inside atomic", "side_effects_inside_atomic", {}, "a.py", ATOMIC_WITH_EMAIL, ["send_mail()"], 1),
-        ("email after atomic", "side_effects_inside_atomic", {}, "a.py", ATOMIC_CLEAN, ["send_mail()"], 0),
+        (
+            "email inside atomic",
+            "side_effects_inside_atomic",
+            {},
+            "a.py",
+            ATOMIC_WITH_EMAIL,
+            ATOMIC_WITH_EMAIL.splitlines(),
+            1,
+        ),
+        ("email after atomic", "side_effects_inside_atomic", {}, "a.py", ATOMIC_CLEAN, ATOMIC_CLEAN.splitlines(), 0),
+        (
+            "old email inside an atomic block the agent did not touch",
+            "side_effects_inside_atomic",
+            {},
+            "a.py",
+            ATOMIC_CLEAN_ABOVE_OLD,
+            ATOMIC_CLEAN.splitlines(),
+            0,
+        ),
         ("no atomic", "side_effects_inside_atomic", {}, "a.py", "def view():\n    send_mail()\n", ["send_mail()"], 1),
         ("two describes", "extra_top_level_describes", {}, "a.test.ts", TWO_DESCRIBES, ["describe('b', () => {})"], 1),
         (
@@ -259,7 +277,7 @@ def test_run_reports_a_crashed_job_and_finishes_the_others(capsys: pytest.Captur
         patch("products.tasks.evals.agents_md.__main__.evaluate", side_effect=RuntimeError("boom")) as evaluate,
         tempfile.TemporaryDirectory() as results_dir,
     ):
-        assert main(["run", "--claim", first, "--results-dir", results_dir, "--workers", "1"]) == 0
+        assert main(["run", "--claim", first, "--claim", first, "--results-dir", results_dir, "--workers", "1"]) == 0
     out = capsys.readouterr().out
     assert evaluate.call_count == 2
     assert out.count("crashed") == 2

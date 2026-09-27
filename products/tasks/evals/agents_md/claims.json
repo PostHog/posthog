@@ -103,7 +103,7 @@
         "id": "third-party-through-egress",
         "starts_with": "**Any other third-party API that needs rate-limiting or egress telemetry belongs there too.**",
         "task": "Add a helper that enriches a company by domain through the HTTP API at `https://api.example-enrich.com/v1/company?domain=<domain>`, with an API key from Django settings and a 5 second timeout. Return the JSON body.",
-        "detectors": [{ "name": "missing_added_matching", "pattern": ".", "files": "posthog/egress/*" }]
+        "detectors": [{ "name": "missing_added_matching", "pattern": "example[-_]enrich", "files": "posthog/egress/*" }]
     },
     {
         "id": "no-minio",
@@ -149,7 +149,7 @@
         "id": "frozen-dataclasses",
         "starts_with": "**The house decorator is `@frozen` from `posthog.dataclasses`.**",
         "task": "Add a dataclass `RetentionWindow` with `start`, `end` and `cohort_size` in `posthog/helpers/retention_windows.py`, and a function that builds a list of them from `(start, end, size)` tuples, sorted by start.",
-        "detectors": [{ "name": "dataclass_without_frozen" }]
+        "detectors": [{ "name": "stdlib_dataclass_decorators" }]
     },
     {
         "id": "no-speculative-init-py",

@@ -2,11 +2,13 @@ import subprocess
 from contextlib import AbstractContextManager
 from pathlib import Path
 
-from products.tasks.evals.golden_prs.workspace import checkout_tree
+from products.tasks.evals.golden_prs.workspace import GIT_TIMEOUT_SECONDS, checkout_tree
 
 
 def _git_out(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=True, check=True).stdout
+    return subprocess.run(
+        ["git", *args], cwd=repo, capture_output=True, text=True, check=True, timeout=GIT_TIMEOUT_SECONDS
+    ).stdout
 
 
 def resolve_ref(repo: Path, ref: str) -> str:

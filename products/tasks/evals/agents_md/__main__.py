@@ -200,7 +200,11 @@ def main(argv: list[str]) -> int:
             )
             print(f"{claim.id}\t{claim.section}\t{status}")
         return 0
-    selected = select_claims(claims, args.claim) if args.claim else [claim for claim in claims if claim.testable]
+    selected = (
+        select_claims(claims, dict.fromkeys(args.claim))
+        if args.claim
+        else [claim for claim in claims if claim.testable]
+    )
     untestable = [claim.id for claim in selected if not claim.testable]
     if untestable:
         raise SystemExit(f"These claims have no trap task: {untestable}")

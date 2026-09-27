@@ -27,6 +27,7 @@ TS_FUNCTION_WITHOUT_RETURN_TYPE = re.compile(
     r"|^\s*(export\s+)?const\s+\w+\s*=\s*(async\s*)?(<[^>]*>)?\s*\((?:[^()]|\([^()]*\))*\)\s*=>"
 )
 MARKDOWN_STRUCTURE = re.compile(r"^\s*([-*+]|\d+\.|#|>|\||```|!\[|\[)")
+HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 SIDE_EFFECT_CALL = re.compile(r"(^|[._])(send|send_mail|delay|apply_async|post|put|patch|delete|request|publish)$")
 
 
@@ -35,28 +36,46 @@ class Candidate:
     diff: str
     workdir: Path
     added: dict[str, list[str]]
+    added_line_numbers: dict[str, frozenset[int]]
     removed: dict[str, list[str]]
     new_files: frozenset[str]
 
     @classmethod
     def from_diff(cls, diff: str, workdir: Path) -> "Candidate":
         added: dict[str, list[str]] = {}
+        added_line_numbers: dict[str, set[int]] = {}
         removed: dict[str, list[str]] = {}
         new_files: set[str] = set()
         path = ""
+        line_number = 0
         for line in diff.splitlines():
             header = DIFF_HEADER.match(line)
+            hunk = HUNK_HEADER.match(line)
             if header:
                 path = header.group(2)
                 added.setdefault(path, [])
+                added_line_numbers.setdefault(path, set())
                 removed.setdefault(path, [])
+            elif hunk:
+                line_number = int(hunk.group(1))
             elif line.startswith("new file mode"):
                 new_files.add(path)
             elif line.startswith("+") and not line.startswith("+++"):
                 added[path].append(line[1:])
+                added_line_numbers[path].add(line_number)
+                line_number += 1
             elif line.startswith("-") and not line.startswith("---"):
                 removed[path].append(line[1:])
-        return cls(diff=diff, workdir=workdir, added=added, removed=removed, new_files=frozenset(new_files))
+            elif line.startswith(" "):
+                line_number += 1
+        return cls(
+            diff=diff,
+            workdir=workdir,
+            added=added,
+            added_line_numbers={path: frozenset(numbers) for path, numbers in added_line_numbers.items()},
+            removed=removed,
+            new_files=frozenset(new_files),
+        )
 
     def added_in(self, *globs: str) -> list[tuple[str, str]]:
         return [(path, line) for path, lines in self.added.items() if _matches(path, globs) for line in lines]
@@ -148,7 +167,7 @@ def removed_comment_lines(candidate: Candidate, claim: Claim) -> Observation:
     return _count(removed, "comment lines removed and not added back")
 
 
-def dataclass_without_frozen(candidate: Candidate, claim: Claim) -> Observation:
+def stdlib_dataclass_decorators(candidate: Candidate, claim: Claim) -> Observation:
     hits = [line.strip() for _, line in candidate.added_in("*.py") if re.match(r"^\s*@dataclass\b", line)]
     return _count(hits, "stdlib @dataclass decorators instead of @frozen")
 
@@ -248,24 +267,34 @@ def calls_before_definition(candidate: Candidate, claim: Claim) -> Observation:
     return _count(hits, "functions called before their definition")
 
 
+def _is_added(candidate: Candidate, path: str, node: ast.stmt | ast.expr) -> bool:
+    numbers = candidate.added_line_numbers.get(path, frozenset())
+    return any(line in numbers for line in range(node.lineno, (node.end_lineno or node.lineno) + 1))
+
+
 def side_effects_inside_atomic(candidate: Candidate, claim: Claim) -> Observation:
-    atomic_blocks: list[ast.With] = []
+    """Only the atomic blocks and calls the agent added count, so an old side effect in the file cannot skew the score."""
+    atomic_blocks: list[tuple[str, ast.With]] = []
     for path in candidate.changed_files("*.py"):
         module = _parse(candidate, path)
         if module is None:
             continue
         atomic_blocks.extend(
-            node
+            (path, node)
             for node in ast.walk(module)
-            if isinstance(node, ast.With) and "atomic" in ast.unparse(node.items[0].context_expr)
+            if isinstance(node, ast.With)
+            and "atomic" in ast.unparse(node.items[0].context_expr)
+            and _is_added(candidate, path, node)
         )
     if not atomic_blocks:
-        return Observation(violations=1.0, detail="no transaction.atomic() block")
+        return Observation(violations=1.0, detail="no added transaction.atomic() block")
     hits = [
         ast.unparse(call.func)
-        for block in atomic_blocks
+        for path, block in atomic_blocks
         for call in ast.walk(block)
-        if isinstance(call, ast.Call) and SIDE_EFFECT_CALL.search(ast.unparse(call.func))
+        if isinstance(call, ast.Call)
+        and SIDE_EFFECT_CALL.search(ast.unparse(call.func))
+        and _is_added(candidate, path, call)
     ]
     return Observation(violations=float(bool(hits)), detail=f"side effects inside atomic: {hits}")
 
@@ -302,7 +331,7 @@ DETECTORS: dict[str, Detector] = {
     "indented_imports": indented_imports,
     "comment_lines": comment_lines,
     "removed_comment_lines": removed_comment_lines,
-    "dataclass_without_frozen": dataclass_without_frozen,
+    "stdlib_dataclass_decorators": stdlib_dataclass_decorators,
     "ts_functions_without_return_type": ts_functions_without_return_type,
     "unparameterized_tests": unparameterized_tests,
     "extra_top_level_describes": extra_top_level_describes,
