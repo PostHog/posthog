@@ -45,6 +45,12 @@ export function screenshotArea(
   viewport: { width: number; height: number },
 ): ScreenshotArea | null {
   if (viewport.width <= 0 || viewport.height <= 0) return null;
+  const offscreen =
+    element.right <= 0 ||
+    element.bottom <= 0 ||
+    element.left >= viewport.width ||
+    element.top >= viewport.height;
+  if (offscreen) return null;
   const [left, right] = span(
     element.left,
     element.right,
