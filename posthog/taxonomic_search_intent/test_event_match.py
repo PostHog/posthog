@@ -113,6 +113,7 @@ class TestMatchCoreEvents(BaseTest):
             EventMatch(name="$autocapture", label="Autocapture", probability=0.95),
             EventMatch(name="$rageclick", label="Rageclick", probability=0.75),
             EventMatch(name="$pageview", label="Pageview", probability=0.72),
+            EventMatch(name="$exception", label="Exception", probability=0.71),
         ]
 
     @parameterized.expand([("same_team", False, 1), ("other_team", True, 2)])
