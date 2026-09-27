@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -11,7 +13,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 
 
-@dataclass
+@frozen
 class FireHydrantEndpointConfig:
     path: str
     # Field to partition by. Must be a STABLE creation timestamp (never updated_at), and only set
@@ -93,7 +95,7 @@ FIREHYDRANT_ENDPOINTS: dict[str, FireHydrantEndpointConfig] = {
     ),
     # The spec documents the request but leaves the response body empty, as it does for 100+ other
     # FireHydrant endpoints (signals_on_call included). Transport reads the standard `data` envelope
-    # and degrades to zero rows if this endpoint turns out to answer differently.
+    # and fails loud if this endpoint turns out to answer differently.
     "team_escalation_policies": FireHydrantEndpointConfig(
         path="/v1/teams/{team_id}/escalation_policies",
         primary_keys=["team_id", "id"],

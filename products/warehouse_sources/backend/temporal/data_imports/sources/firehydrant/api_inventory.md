@@ -45,11 +45,11 @@ Walked once per parent row, through the shared dependent-resource helper. The pa
 into each child row and forms part of the primary key, because FireHydrant only documents the child
 ids as unique within their parent.
 
-| Schema name              | Path                                        | Parent    | Primary key         | Partition key |
-| ------------------------ | ------------------------------------------- | --------- | ------------------- | ------------- |
-| incident_milestones      | `/v1/incidents/{incident_id}/milestones`    | incidents | incident_id, id     | created_at    |
-| incident_tasks           | `/v1/incidents/{incident_id}/tasks`         | incidents | incident_id, id     | created_at    |
-| team_escalation_policies | `/v1/teams/{team_id}/escalation_policies`   | teams     | team_id, id         | —             |
+| Schema name              | Path                                      | Parent    | Primary key     | Partition key |
+| ------------------------ | ----------------------------------------- | --------- | --------------- | ------------- |
+| incident_milestones      | `/v1/incidents/{incident_id}/milestones`  | incidents | incident_id, id | created_at    |
+| incident_tasks           | `/v1/incidents/{incident_id}/tasks`       | incidents | incident_id, id | created_at    |
+| team_escalation_policies | `/v1/teams/{team_id}/escalation_policies` | teams     | team_id, id     | —             |
 
 `/v1/incidents/{incident_id}/milestones` is the one paginated endpoint whose spec entry lists no
 `page` / `per_page` params, though it returns the same paginated envelope as its siblings. The spec

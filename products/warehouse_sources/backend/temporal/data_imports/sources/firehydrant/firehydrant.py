@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Any, Optional, cast
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -31,7 +33,7 @@ BASE_URLS: dict[str, str] = {
 DEFAULT_REGION = "us"
 
 
-@dataclasses.dataclass
+@frozen
 class FireHydrantResumeConfig:
     # Opaque framework checkpoint: `{"cursor": <next page>}` for a top-level endpoint (FireHydrant
     # paginates with `page` / `per_page` and returns `pagination.next`, or null on the last page), or
@@ -132,8 +134,18 @@ def firehydrant_source(
                 job_id=job_id,
                 db_incremental_field_last_value=None,
                 page_size_param="per_page",
-                parent_endpoint_extra={"data_selector": "data"},
-                child_endpoint_extra={"data_selector": "data"},
+                # A response that drops the `data` envelope is a shape change, not an empty page:
+                # tolerating it would silently replace the whole table with no rows.
+                parent_endpoint_extra={
+                    "data_selector": "data",
+                    "data_selector_required": True,
+                    "data_selector_empty_ok": True,
+                },
+                child_endpoint_extra={
+                    "data_selector": "data",
+                    "data_selector_required": True,
+                    "data_selector_empty_ok": True,
+                },
                 resume_hook=save_checkpoint,
                 initial_paginator_state=initial_paginator_state,
             ),

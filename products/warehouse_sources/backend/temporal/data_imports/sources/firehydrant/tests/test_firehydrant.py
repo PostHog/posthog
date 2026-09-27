@@ -1,6 +1,7 @@
 import json
 from typing import Any
 
+import pytest
 from unittest import mock
 
 import requests
@@ -260,6 +261,43 @@ class TestFanout:
         _rows(firehydrant_source("fhb_test", "incident_tasks", team_id=1, job_id="j", resumable_source_manager=manager))
 
         assert manager.save_state.call_args.args[0].paginator_state["completed"] == ["/v1/incidents/inc1/tasks"]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_child_response_without_the_data_envelope_fails_loud(self, MockSession) -> None:
+        # A shape change has to stop the sync. Reading it as an empty page would replace the whole
+        # table with no rows, and nothing downstream would report that.
+        session = MockSession.return_value
+        renamed_envelope = Response()
+        renamed_envelope.status_code = 200
+        renamed_envelope._content = json.dumps({"escalation_policies": [{"id": "ep1"}]}).encode()
+        _wire(session, [_response([{"id": "t1"}], next_page=None), renamed_envelope])
+
+        with pytest.raises(ValueError, match="data_selector"):
+            _rows(
+                firehydrant_source(
+                    "fhb_test",
+                    "team_escalation_policies",
+                    team_id=1,
+                    job_id="j",
+                    resumable_source_manager=_make_manager(),
+                )
+            )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_empty_child_body_is_zero_rows(self, MockSession) -> None:
+        # An empty container carries no rows and no alternative shape, so it must not fail loud.
+        session = MockSession.return_value
+        empty = Response()
+        empty.status_code = 200
+        empty._content = b"{}"
+        _wire(session, [_response([{"id": "t1"}], next_page=None), empty])
+
+        rows = _rows(
+            firehydrant_source(
+                "fhb_test", "team_escalation_policies", team_id=1, job_id="j", resumable_source_manager=_make_manager()
+            )
+        )
+        assert rows == []
 
 
 class TestSourceResponse:
