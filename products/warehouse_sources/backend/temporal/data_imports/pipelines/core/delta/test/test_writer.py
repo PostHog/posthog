@@ -654,7 +654,7 @@ class TestSchemaEvolutionNullability:
         status_field = next(f for f in result.schema().fields if f.name == "status")
         assert status_field.nullable is True
 
-        await DeltaMaintenance(helper).compact_table()
+        assert await DeltaMaintenance(helper).compact_if_fragmented(partition_count=None, threshold=0) is True
 
         final = result.to_pyarrow_table()
         by_id = dict(zip(final.column("id").to_pylist(), final.column("status").to_pylist()))

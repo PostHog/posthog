@@ -453,7 +453,7 @@ async def _run(
     )
 
     with (
-        mock.patch.object(DeltaMaintenance, "compact_table") as mock_compact_table,
+        mock.patch.object(DeltaMaintenance, "run_scheduled") as mock_run_scheduled,
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_data_import_finished_metric"
         ) as mock_get_data_import_finished_metric,
@@ -491,7 +491,7 @@ async def _run(
             # so that case only checks storage_delta_mib was computed at all, above.
             assert run.storage_delta_mib != 0
 
-        mock_compact_table.assert_called()
+        mock_run_scheduled.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
             source_type=source_type, status=ExternalDataJobStatus.COMPLETED.lower()
         )
@@ -3264,7 +3264,7 @@ async def test_append_only_table(team, mock_stripe_client):
         sync_type_config={"incremental_field": "created", "incremental_field_type": "integer"},
     )
 
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         await _execute_run(str(uuid.uuid4()), inputs, [])
 
     run_for_replay = await sync_to_async(
@@ -4349,7 +4349,7 @@ async def test_stripe_webhook_s3_charges(team, stripe_charge, mock_stripe_client
     assert len(files.get("Contents", [])) == 1
 
     # Run the pipeline again to ingest the webhook parquet
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
@@ -4540,7 +4540,7 @@ async def test_stripe_webhook_consumer_e2e(team, stripe_charge, mock_stripe_clie
     consumer._consumer.commit.assert_called_once_with(asynchronous=False)
 
     # 6. Run the import pipeline to ingest the parquet
-    with mock.patch.object(DeltaMaintenance, "compact_table"):
+    with mock.patch.object(DeltaMaintenance, "run_scheduled"):
         workflow_id = str(uuid.uuid4())
         await _execute_run(workflow_id, inputs, stripe_charge["data"])
 
