@@ -346,6 +346,34 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "columns",
+                "SELECT table_schema, table_name, column_name FROM system.information_schema.columns "
+                "WHERE table_schema = 'system' AND table_name = 'insights'",
+            ),
+            (
+                "tables",
+                "SELECT table_schema, table_name, table_catalog FROM system.information_schema.tables "
+                "WHERE table_schema = 'system' AND table_name IN ('insights', 'events')",
+            ),
+        ]
+    )
+    def test_schema_split_filter_finds_system_tables(self, _name: str, query: str):
+        response = execute_hogql_query(query, team=self.team, user=self.user)
+        rows = response.results or []
+        assert rows
+        assert {(row[0], row[1]) for row in rows} == {("system", "insights")}
+
+    def test_bare_system_table_name_without_schema_matches_nothing(self):
+        response = execute_hogql_query(
+            "SELECT column_name FROM system.information_schema.columns WHERE table_name = 'insights'",
+            team=self.team,
+            user=self.user,
+        )
+        assert response.results == []
+
+    @parameterized.expand(
+        [
             ("person_id", "UUID"),
             ("event_issue_id", "UUID"),
             ("issue_id", "UUID"),
