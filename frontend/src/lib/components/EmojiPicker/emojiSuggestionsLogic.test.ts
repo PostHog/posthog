@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import * as api from '~/generated/core/api'
@@ -14,6 +16,9 @@ describe('emojiSuggestionsLogic', () => {
         initKeaTests()
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 1, name: 'Test project' } as any)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMOJI_RELATED_SEARCH], {
+            [FEATURE_FLAGS.EMOJI_RELATED_SEARCH]: true,
+        })
         jest.mocked(api.emojiSearchSuggestRetrieve).mockReset()
     })
 
@@ -21,23 +26,34 @@ describe('emojiSuggestionsLogic', () => {
         jest.useRealTimers()
     })
 
-    it('only requests suggestions for the last query typed in a burst', async () => {
-        jest.useFakeTimers()
-        jest.mocked(api.emojiSearchSuggestRetrieve).mockResolvedValue({ suggestions: [] })
-        const logic = emojiSuggestionsLogic({ pickerKey: 'test' })
-        logic.mount()
+    it.each([
+        { flagEnabled: true, expectedQueries: ['qzxyz'] },
+        { flagEnabled: false, expectedQueries: [] },
+    ])(
+        'with the flag enabled $flagEnabled, requests suggestions for $expectedQueries after a burst',
+        async ({ flagEnabled, expectedQueries }) => {
+            jest.useFakeTimers()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMOJI_RELATED_SEARCH], {
+                [FEATURE_FLAGS.EMOJI_RELATED_SEARCH]: flagEnabled,
+            })
+            jest.mocked(api.emojiSearchSuggestRetrieve).mockResolvedValue({ suggestions: [] })
+            const logic = emojiSuggestionsLogic({ pickerKey: 'test' })
+            logic.mount()
 
-        logic.actions.setQuery('qzx')
-        await jest.advanceTimersByTimeAsync(100)
-        logic.actions.setQuery('qzxy')
-        await jest.advanceTimersByTimeAsync(100)
-        logic.actions.setQuery('qzxyz')
-        expect(logic.values.loading).toBe(true)
-        await jest.advanceTimersByTimeAsync(200)
+            logic.actions.setQuery('qzx')
+            await jest.advanceTimersByTimeAsync(100)
+            logic.actions.setQuery('qzxy')
+            await jest.advanceTimersByTimeAsync(100)
+            logic.actions.setQuery('qzxyz')
+            expect(logic.values.loading).toBe(flagEnabled)
+            await jest.advanceTimersByTimeAsync(200)
 
-        expect(jest.mocked(api.emojiSearchSuggestRetrieve).mock.calls.map((call) => call[1].query)).toEqual(['qzxyz'])
-        expect(logic.values.loading).toBe(false)
-    })
+            expect(jest.mocked(api.emojiSearchSuggestRetrieve).mock.calls.map((call) => call[1].query)).toEqual(
+                expectedQueries
+            )
+            expect(logic.values.loading).toBe(false)
+        }
+    )
 
     it.each(['jurassic', 'constructor'])(
         'shows an earlier query %s from the cache without a new request',

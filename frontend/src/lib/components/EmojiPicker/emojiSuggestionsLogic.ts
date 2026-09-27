@@ -1,5 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import * as api from '~/generated/core/api'
@@ -13,6 +15,7 @@ const REQUEST_TIMEOUT_MS = 2500
 type EmojiSuggestionsLogicType = MakeLogicType<
     {
         currentProjectId: number | null
+        featureFlags: FeatureFlagsSet
         query: string
         suggestionsByQuery: Record<string, EmojiSuggestionApi[]>
         failedQuery: string | null
@@ -40,7 +43,7 @@ export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
     props({} as EmojiSuggestionsLogicProps),
     key((props) => props.pickerKey),
     path((key) => ['lib', 'components', 'EmojiPicker', 'emojiSuggestionsLogic', key]),
-    connect(() => ({ values: [projectLogic, ['currentProjectId']] })),
+    connect(() => ({ values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']] })),
     actions({
         setQuery: (query: string) => ({ query: query.trim() }),
         setSuggestions: (query: string, suggestions: EmojiSuggestionApi[]) => ({ query, suggestions }),
@@ -57,8 +60,11 @@ export const emojiSuggestionsLogic = kea<EmojiSuggestionsLogicType>([
     }),
     selectors({
         isSearchable: [
-            (s) => [s.query, s.currentProjectId],
-            (query, currentProjectId): boolean => {
+            (s) => [s.query, s.currentProjectId, s.featureFlags],
+            (query, currentProjectId, featureFlags): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.EMOJI_RELATED_SEARCH]) {
+                    return false
+                }
                 // The endpoint counts characters, so count code points and not UTF-16 units.
                 const length = [...query].length
                 return !!currentProjectId && length >= MIN_QUERY_LENGTH && length <= MAX_QUERY_LENGTH

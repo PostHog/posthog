@@ -4,6 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import emojibaseData from 'emojibase-data/en/data.json'
 import emojibaseMessages from 'emojibase-data/en/messages.json'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { emojiSearchSuggestRetrieve } from '~/generated/core/api'
@@ -28,6 +30,9 @@ describe('EmojiPickerPanel', () => {
         initKeaTests()
         projectLogic.mount()
         projectLogic.actions.loadCurrentProjectSuccess({ id: 1, name: 'Test project' } as any)
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EMOJI_RELATED_SEARCH], {
+            [FEATURE_FLAGS.EMOJI_RELATED_SEARCH]: true,
+        })
         jest.mocked(emojiSearchSuggestRetrieve).mockReset()
         // frimousse caches the data in localStorage and skips the fetch on a hit.
         localStorage.clear()
