@@ -235,7 +235,7 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
                 promptVersion: intent.prompt_version,
                 suggestsSwitch: intent.suggests_switch,
                 wouldPromote: canPromote,
-                shown: values.variant === 'banner' ? !!values.suggestedSwitch : promoted,
+                shown: promoted || (values.variant === 'banner' && !!values.suggestedSwitch),
                 query: intent.model_query ?? undefined,
             })
         },

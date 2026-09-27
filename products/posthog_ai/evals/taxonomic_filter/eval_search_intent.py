@@ -187,7 +187,7 @@ WRONG_TAB_CASES = [
         tabs=PROPERTY_FILTER,
         acceptable=("elements",),
     ),
-    # The SDK sets the library version on every event. Seen answered as the open tab with high confidence.
+    # The SDK sets the library version on every event. The model answered this as the open tab with high confidence.
     _case(
         "lib_version_in_person_properties_tab",
         "lib version",
