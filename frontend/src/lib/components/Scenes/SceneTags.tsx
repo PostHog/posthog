@@ -46,10 +46,10 @@ export const SceneTags = ({
     }
 
     useEffect(() => {
-        if (!localIsEditing) {
-            setLocalTags(tags)
-        }
-    }, [tags, localIsEditing])
+        // Keep local state in sync with prop. While editing, we still sync when suggestions arrive
+        // and update the insight's tags (which are merged with current tags before arriving).
+        setLocalTags(tags)
+    }, [tags]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const label = (
         <span className="flex items-center gap-1.5">

@@ -45,6 +45,7 @@ export function SuggestMetadataButton({
                 aria-label={label}
                 data-attr={dataAttr}
                 className="shrink-0 border border-dashed border-accent"
+                onMouseDown={(e) => e.preventDefault()}
             />
         </Tooltip>
     )
