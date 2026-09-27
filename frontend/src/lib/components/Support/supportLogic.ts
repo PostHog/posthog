@@ -437,7 +437,7 @@ export const supportLogic = kea<supportLogicType>([
             } as SupportFormFields,
             errors: ({ name, email, message }) => {
                 return {
-                    name: !values.user && !name ? 'Please enter your name' : undefined,
+                    name: !values.user && !name.trim() ? 'Please enter your name' : undefined,
                     email: !values.user
                         ? !email.trim()
                             ? 'Please enter your email'
