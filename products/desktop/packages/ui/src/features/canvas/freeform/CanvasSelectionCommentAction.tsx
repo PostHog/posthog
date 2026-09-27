@@ -1,4 +1,3 @@
-import type { CanvasTextSelection } from "@posthog/core/canvas/freeformSchemas";
 import type { TextCommentAnchor } from "@posthog/core/comments/anchors";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
@@ -10,6 +9,7 @@ import {
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
 import { useCreateComment } from "@posthog/ui/features/sessions/components/useComments";
 import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
+import type { HostCanvasTextSelection } from "./canvasSelection";
 
 export function CanvasSelectionCommentAction({
   selection,
@@ -19,7 +19,7 @@ export function CanvasSelectionCommentAction({
   versionId,
   onDismiss,
 }: {
-  selection: CanvasTextSelection | null;
+  selection: HostCanvasTextSelection | null;
   taskId: string | null;
   dashboardId: string;
   canvasName: string;
@@ -54,6 +54,7 @@ export function CanvasSelectionCommentAction({
                 top: selection.rect.top,
                 endX: selection.rect.right,
                 bottom: selection.rect.bottom,
+                bounds: selection.frame,
               },
             }
           : null
