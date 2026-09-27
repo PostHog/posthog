@@ -540,9 +540,8 @@ def test_train_head_learns_a_separable_signal_and_names_its_features():
     assert holdout.threshold == pytest.approx(trained.metrics.train_positives / trained.metrics.train_rows)
     assert trained.metrics.refit_classification_threshold == pytest.approx(examples["label"].mean())
     assert holdout.threshold != trained.metrics.refit_classification_threshold
-    assert holdout.true_positives + holdout.false_positives + holdout.true_negatives + holdout.false_negatives == (
-        trained.metrics.holdout_rows
-    )
+    counts = (holdout.true_positives, holdout.false_positives, holdout.true_negatives, holdout.false_negatives)
+    assert sum(count or 0 for count in counts) == trained.metrics.holdout_rows
     assert holdout.precision is not None and holdout.precision > 0.8
     assert holdout.recall is not None and holdout.recall > 0.8
     metadata_head = trained.metrics.as_dict()
@@ -997,7 +996,7 @@ def test_daily_evaluation_keeps_empty_and_single_class_cohorts_explicit(impressi
     assert (grade.auc, grade.recency_auc, grade.null_auc) == (None, None, None)
     assert grade.readable is False
     assert grade.classification.threshold == 0.2
-    assert grade.classification.true_positives + grade.classification.false_positives == impressions
+    assert (grade.classification.true_positives or 0) + (grade.classification.false_positives or 0) == impressions
     assert grade.classification.recall is None
     if not impressions:
         assert (grade.mean_score, grade.base_rate, grade.expected_calibration_error) == (None, None, None)
