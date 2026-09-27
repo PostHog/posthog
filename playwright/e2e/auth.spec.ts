@@ -114,7 +114,7 @@ test.describe('Auth', () => {
         await loginPage.enterPassword(LOGIN_PASSWORD)
         await loginPage.clickLogin()
 
-        await expect(page).toHaveURL(/\/activity\/explore/)
+        await expect(page).toHaveURL(/\/activity\/events/)
     })
 
     test('Redirect to appropriate place after login with complex URL', async ({ page, context }) => {
