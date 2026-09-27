@@ -105,8 +105,23 @@ def _fetch(session: requests.Session, path: str, params: dict[str, Any], logger:
     return response.json()
 
 
+def _expand_columnar(data: Any) -> list[dict[str, Any]]:
+    """Zip Finnhub's parallel candle arrays (o/h/l/c/v/t) back into one row per bar."""
+    if not isinstance(data, dict) or data.get("s") != "ok":
+        # `s` is "no_data" when the symbol has no bars in the window.
+        return []
+    columns = {key: value for key, value in data.items() if isinstance(value, list)}
+    if not columns:
+        return []
+    # Defend against a short array leaving a row half-populated.
+    length = min(len(values) for values in columns.values())
+    return [{key: values[index] for key, values in columns.items()} for index in range(length)]
+
+
 def _extract_rows(data: Any, config: FinnhubEndpointConfig) -> list[dict[str, Any]]:
     """Normalize a Finnhub response into a list of row dicts per the endpoint's shape."""
+    if config.columnar:
+        return _expand_columnar(data)
     if config.single_object:
         # Snapshot endpoints (quote/profile/metric) return a single object. Finnhub returns an
         # empty object for an unknown symbol, which we skip.
@@ -127,6 +142,10 @@ def _window(config: FinnhubEndpointConfig, last_value: Any) -> SyncWindow[str]:
     return SyncWindow(start=start.isoformat(), end=end.isoformat())
 
 
+def _to_epoch(iso_date: str) -> int:
+    return int(datetime.fromisoformat(iso_date).replace(tzinfo=UTC).timestamp())
+
+
 def _request_params(
     config: FinnhubEndpointConfig,
     symbol: str | None,
@@ -145,8 +164,15 @@ def _request_params(
         # endpoints (calendars) always sweep the full rolling window.
         last_value = db_incremental_field_last_value if should_use_incremental_field else None
         window = _window(config, last_value)
-        params["from"] = window.start
-        params["to"] = window.end
+        if config.epoch_window:
+            # Candles take UNIX seconds. Rounding the watermark down to midnight also re-fetches
+            # the day it fell in, so a bar captured before the session closed is replaced by the
+            # settled one rather than kept at its intraday value.
+            params["from"] = _to_epoch(window.start)
+            params["to"] = _to_epoch(window.end)
+        else:
+            params["from"] = window.start
+            params["to"] = window.end
     return params
 
 
@@ -164,6 +190,18 @@ def _emit(rows: list[dict[str, Any]], symbol: str | None, config: FinnhubEndpoin
         watermark = config.incremental_fields[0]["field"]
         rows.sort(key=lambda r: r[watermark])
     return rows
+
+
+def _warn_if_capped(
+    rows: list[dict[str, Any]], config: FinnhubEndpointConfig, symbol: str | None, logger: FilteringBoundLogger
+) -> None:
+    if config.max_rows_per_request is None or len(rows) < config.max_rows_per_request:
+        return
+    logger.warning(
+        f"Finnhub: endpoint '{config.name}' returned its per-request cap of {config.max_rows_per_request} rows"
+        f"{f' for {symbol}' if symbol else ''}; anything else in this window was dropped by the API. "
+        "Sync this table incrementally so each window stays under the cap."
+    )
 
 
 def get_rows(
@@ -191,12 +229,14 @@ def get_rows(
                 config, ticker, exchange, should_use_incremental_field, db_incremental_field_last_value
             )
             rows = _extract_rows(_fetch(session, config.path, params, logger), config)
+            _warn_if_capped(rows, config, ticker, logger)
             if rows:
                 yield _emit(rows, ticker, config)
         return
 
     params = _request_params(config, None, exchange, should_use_incremental_field, db_incremental_field_last_value)
     rows = _extract_rows(_fetch(session, config.path, params, logger), config)
+    _warn_if_capped(rows, config, None, logger)
     if rows:
         yield _emit(rows, None, config)
 
