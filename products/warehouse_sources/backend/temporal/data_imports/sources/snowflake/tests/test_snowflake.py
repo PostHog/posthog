@@ -970,6 +970,20 @@ class TestSnowflakeSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            "has exceeded its quota",
+            # The query id, warehouse, and monitor names vary, but the quota substring is stable.
+            "090073 (22000): 01c5aaaa-0000-1111-0000-222233334444: Warehouse 'EXAMPLE_WH' cannot be resumed "
+            "because resource monitor 'EXAMPLE_MONITOR' has exceeded its quota.",
+        ],
+    )
+    def test_resource_monitor_quota_exceeded_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Resource-monitor quota error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             "invalid identifier 'PROPERTIES_HS_DATE_ENTERED_2698018010'",
             # The real shape from production: the error code and identifier vary, but the
             # "invalid identifier" substring is stable. Newlines are normalized to spaces upstream.
