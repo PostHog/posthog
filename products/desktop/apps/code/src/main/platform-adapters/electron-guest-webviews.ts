@@ -32,7 +32,10 @@ export interface TaskBrowserBridge {
   recordNetwork(webContentsId: number | undefined, text: string): void;
 }
 
-function recordFailedRequests(partition: string, bridge: TaskBrowserBridge) {
+function recordFailedRequests(
+  partition: string,
+  bridge: TaskBrowserBridge,
+): void {
   const guestSession = session.fromPartition(partition);
   guestSession.webRequest.onCompleted((details) => {
     if (details.statusCode >= 400) {

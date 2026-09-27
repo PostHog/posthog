@@ -18,7 +18,14 @@ import {
 import { sendCommentToAgent } from "@posthog/ui/features/sessions/sendCommentToAgent";
 import { showTaskChat } from "@posthog/ui/features/sessions/showTaskChat";
 import { toast } from "@posthog/ui/primitives/toast";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { browserCommentPage } from "./browserComments";
 import { PickModeBanner } from "./PickModeBanner";
 import {
@@ -119,7 +126,9 @@ export function CommentableFrame({
   );
 
   const openPageRef = useRef(surface.onOpenPage);
-  openPageRef.current = surface.onOpenPage;
+  useLayoutEffect(() => {
+    openPageRef.current = surface.onOpenPage;
+  });
   const openedForNonce = useRef<number | null>(null);
   const followsFocus = surface.kind === "preview" || surface.active;
   useEffect(() => {

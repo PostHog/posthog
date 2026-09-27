@@ -20,6 +20,13 @@ describe("isTabScopedCdpMethod", () => {
     ["CacheStorage.requestEntries", false],
     ["SystemInfo.getInfo", false],
     ["Tracing.start", false],
+    ["Fetch.enable", false],
+    ["Security.setIgnoreCertificateErrors", false],
+    ["Page.addScriptToEvaluateOnNewDocument", false],
+    ["Page.setBypassCSP", false],
+    ["Network.setExtraHTTPHeaders", false],
+    ["Network.loadNetworkResource", false],
+    ["DOM.setFileInputFiles", false],
     ["not-a-method", false],
   ])("allows %s only when it stays in the tab", (method, allowed) => {
     expect(isTabScopedCdpMethod(method)).toBe(allowed);

@@ -54,6 +54,7 @@ import { useCompletedArtifactUploads } from "@posthog/ui/features/sessions/compo
 import { useCommentsForTargetsQuery } from "@posthog/ui/features/sessions/components/useComments";
 import { useSessionSelector } from "@posthog/ui/features/sessions/sessionStore";
 import { useArtifactDownload } from "@posthog/ui/features/sessions/useArtifactDownload";
+import { previewCommentTarget } from "@posthog/ui/features/task-preview/previewCommentTarget";
 import { previewLabel } from "@posthog/ui/features/task-preview/previewLabel";
 import { useTaskPreviewPorts } from "@posthog/ui/features/task-preview/useTaskPreviewPorts";
 import {
@@ -532,7 +533,11 @@ export function TaskArtifactsList({
             port={row.port}
             name={row.name}
             portCount={portCount}
-            commentCount={openCountByItem.get(`${row.taskId}:${row.port}`) ?? 0}
+            commentCount={
+              openCountByItem.get(
+                previewCommentTarget(row.taskId, row.port).itemId,
+              ) ?? 0
+            }
           />
         ) : row.kind === "pr" ? (
           <PrRow

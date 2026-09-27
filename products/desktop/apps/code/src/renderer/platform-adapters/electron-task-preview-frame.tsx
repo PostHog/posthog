@@ -5,7 +5,7 @@ import type {
   TaskPreviewPin,
   TaskPreviewRect,
 } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import {
   HOST_TO_TASK_PREVIEW_CHANNEL,
   TASK_BROWSER_PARTITION,
@@ -149,7 +149,9 @@ export function ElectronTaskPreviewFrame({
     }
   };
   const sendRef = useRef(send);
-  sendRef.current = send;
+  useLayoutEffect(() => {
+    sendRef.current = send;
+  });
 
   useEffect(() => {
     const mount = mountRef.current;

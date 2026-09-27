@@ -42,6 +42,7 @@ const RUN_TIMEOUT_MS = 90_000;
 const MAX_CALLS_PER_RUN = 300;
 const MAX_OUTPUT_CHARS = 60_000;
 const MAX_LOG_ENTRIES = 200;
+const MAX_LOG_ENTRY_CHARS = 2_000;
 const SNAPSHOT_MAX_CHARS = 24_000;
 const MAX_WAIT_MS = 20_000;
 
@@ -97,7 +98,7 @@ export function siteDecisionResult(decision: PermissionDecision): {
 }
 
 function pushLog(entries: LogEntry[], text: string): void {
-  entries.push({ at: Date.now(), text });
+  entries.push({ at: Date.now(), text: text.slice(0, MAX_LOG_ENTRY_CHARS) });
   if (entries.length > MAX_LOG_ENTRIES) entries.shift();
 }
 
@@ -120,6 +121,7 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     { taskId: string; url: string }
   >();
   private readonly activeRuns = new Map<string, number>();
+  private readonly agentOpened = new Set<string>();
   private readonly sites: SitePolicyStore;
 
   constructor(
@@ -381,12 +383,18 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
       .filter(
         (tab) => tab.taskId === taskId && !this.host.isDestroyed(tab.tabId),
       )
-      .map((tab) => ({
-        id: tab.browserId,
-        kind: tab.kind,
-        url: this.host.url(tab.tabId),
-        title: this.host.title(tab.tabId),
-      }));
+      .map((tab) => {
+        const url = this.host.url(tab.tabId);
+        const origin = originOf(url);
+        const visible =
+          origin !== null && this.sites.access(taskId, origin) === "allowed";
+        return {
+          id: tab.browserId,
+          kind: tab.kind,
+          url: visible ? url : (origin ?? ""),
+          title: visible ? this.host.title(tab.tabId) : "",
+        };
+      });
   }
 
   private async open(context: CallContext, url: string) {
@@ -394,6 +402,7 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     if (!origin) throw new BrowserToolError("Only http and https URLs open.");
     await this.ensureSiteAccess(context, origin);
     const browserId = this.requestOpen(context.taskId, url);
+    this.agentOpened.add(browserId);
     const tab = await this.awaitTab(browserId);
     await this.host.waitForLoad(tab.tabId);
     return {
@@ -408,6 +417,10 @@ export class TaskBrowserService extends TypedEventEmitter<TaskBrowserEvents> {
     if (!tab || tab.taskId !== taskId) {
       throw new BrowserToolError(`No open tab ${browserId} in this task.`);
     }
+    if (!this.agentOpened.has(browserId)) {
+      throw new BrowserToolError("The agent can close only tabs it opened.");
+    }
+    this.agentOpened.delete(browserId);
     this.tabs.delete(browserId);
     this.reopenable.delete(browserId);
     this.emit(TaskBrowserEvent.CloseRequest, { taskId, browserId });

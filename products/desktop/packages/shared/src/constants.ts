@@ -12,6 +12,7 @@ export const POSTHOG_CODE_INTERNAL_CHILD_ENV = "POSTHOG_CODE_INTERNAL_CHILD";
 export const IMAGE_TOOLS_ENV_KEY = "POSTHOG_IMAGE_TOOLS";
 
 export const TASK_BROWSER_MCP_SERVER = "posthog-browser";
+export const TASK_PREVIEW_TOKEN_PARAM = "_modal_connect_token";
 
 // Mirrors --color-background (dark) in packages/ui globals.css, for surfaces
 // that cannot read CSS variables: the Electron window and the boot error screen.

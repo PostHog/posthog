@@ -1,10 +1,10 @@
 import { ELEMENT_ANCHOR_LIMITS } from "@posthog/core/comments/anchors";
+import { TASK_PREVIEW_TOKEN_PARAM } from "@posthog/shared/constants";
 import type {
   TaskPreviewElement,
   TaskPreviewPin,
   TaskPreviewRect,
 } from "@posthog/ui/features/task-preview/taskPreviewFrameHost";
-import { TASK_PREVIEW_TOKEN_PARAM } from "../shared/constants";
 import type {
   TaskPreviewGuestMessage,
   TaskPreviewHostMessage,

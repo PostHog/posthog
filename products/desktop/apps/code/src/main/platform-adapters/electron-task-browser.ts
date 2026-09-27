@@ -1,29 +1,10 @@
-import type { WebContents } from "electron";
-import {
-  TASK_BROWSER_PARTITION,
-  TASK_PREVIEW_TOKEN_PARAM,
-} from "../../shared/constants";
 import {
   createNewWindowLimiter,
-  lockDownGuestSession,
-} from "./electron-task-preview";
-
-const WEB_PROTOCOLS = new Set(["http:", "https:"]);
-
-export function isAllowedTaskBrowserUrl(url: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    return false;
-  }
-  return (
-    WEB_PROTOCOLS.has(parsed.protocol) &&
-    !parsed.username &&
-    !parsed.password &&
-    !parsed.searchParams.has(TASK_PREVIEW_TOKEN_PARAM)
-  );
-}
+  isAllowedTaskBrowserUrl,
+} from "@posthog/core/task-browser/guest-policy";
+import type { WebContents } from "electron";
+import { TASK_BROWSER_PARTITION } from "../../shared/constants";
+import { lockDownGuestSession } from "./electron-task-preview";
 
 export function isAllowedTaskBrowser(
   src: string,

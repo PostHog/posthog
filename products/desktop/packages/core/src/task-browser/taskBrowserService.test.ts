@@ -134,6 +134,20 @@ describe("TaskBrowserService", () => {
     await run.finish();
   });
 
+  it("hides the page of a tab the task may not use, and closes only tabs the agent opened", async () => {
+    const { openTab, startRun } = setup();
+    openTab("task-1", "tab-a", 1, "https://example.com/inbox?thread=secret");
+    const run = startRun("task-1");
+
+    await expect(run.call("tabs")).resolves.toEqual([
+      { id: "tab-a", kind: "browser", url: "https://example.com", title: "" },
+    ]);
+    await expect(run.call("close", "tab-a")).rejects.toThrow(
+      "The agent can close only tabs it opened.",
+    );
+    await run.finish();
+  });
+
   it("asks before the agent submits a filled form with Enter", async () => {
     const { openTab, startRun, answers, prompts, tabs } = setup({
       form: { password: false, payment: false, filled: true },

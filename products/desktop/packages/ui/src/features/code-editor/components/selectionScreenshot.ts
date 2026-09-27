@@ -4,7 +4,13 @@ import { screenshotArea } from "@posthog/shared/screenshot-area";
 const ACCENT = "#f54e00";
 const PIN_SIZE = 22;
 
-export type SelectionAnchor = { top: number; endX: number; bottom: number };
+export type SelectionAnchor = {
+  top: number;
+  endX: number;
+  bottom: number;
+  startX?: number;
+  startTop?: number;
+};
 
 function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
@@ -64,10 +70,10 @@ export async function captureSelectionScreenshot(
 ): Promise<string | null> {
   const area = screenshotArea(
     {
-      top: anchor.top,
+      top: Math.min(anchor.startTop ?? anchor.top, anchor.top),
       bottom: anchor.bottom,
-      left: anchor.endX,
-      right: anchor.endX,
+      left: Math.min(anchor.startX ?? anchor.endX, anchor.endX),
+      right: Math.max(anchor.startX ?? anchor.endX, anchor.endX),
     },
     { width: window.innerWidth, height: window.innerHeight },
   );

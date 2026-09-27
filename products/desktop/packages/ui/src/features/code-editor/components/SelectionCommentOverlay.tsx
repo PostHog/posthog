@@ -13,7 +13,10 @@ import { computeCommentActionPlacement } from "@posthog/ui/features/sessions/com
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { captureSelectionScreenshot } from "./selectionScreenshot";
+import {
+  captureSelectionScreenshot,
+  type SelectionAnchor,
+} from "./selectionScreenshot";
 
 /** Selection state for the "select lines → add to chat" overlay. */
 export function useSelectionComposer() {
@@ -111,7 +114,7 @@ function SelectionComposerCard({
   captureScreenshot,
   submitLabel,
 }: {
-  anchor: { top: number; endX: number; bottom: number };
+  anchor: SelectionAnchor;
   fromLine: number;
   toLine: number;
   filePath: string;
@@ -135,7 +138,8 @@ function SelectionComposerCard({
     SCREEN_CAPTURE_SERVICE,
   );
   const shouldCapture = !!onSendToAgent && captureScreenshot && !!screenCapture;
-  const [capturing, setCapturing] = useState(shouldCapture);
+  const [captureDone, setCaptureDone] = useState(false);
+  const capturing = shouldCapture && !captureDone;
   const screenshotRef = useRef<string | null>(null);
   const anchorRef = useRef(anchor);
   const [userExpanded, setUserExpanded] = useState(false);
@@ -161,7 +165,7 @@ function SelectionComposerCard({
           (screenshot) => {
             if (cancelled) return;
             screenshotRef.current = screenshot;
-            setCapturing(false);
+            setCaptureDone(true);
           },
         );
       }),

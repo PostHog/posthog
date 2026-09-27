@@ -13,7 +13,6 @@ export const BROWSER_RUNNER_ARG = "--posthog-browser-runner";
 export const BROWSER_RUNNER_CALL_CHANNEL = "posthog-browser-runner-call";
 export const BROWSER_RUNNER_RUN_CHANNEL = "posthog-browser-runner-run";
 export const BROWSER_RUNNER_DONE_CHANNEL = "posthog-browser-runner-done";
-export const TASK_PREVIEW_TOKEN_PARAM = "_modal_connect_token";
 export const TASK_PREVIEW_ARG = "--posthog-task-preview";
 export const TASK_PREVIEW_TO_HOST_CHANNEL = "posthog-task-preview-message";
 export const HOST_TO_TASK_PREVIEW_CHANNEL = "posthog-task-preview-host-message";

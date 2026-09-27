@@ -22,7 +22,7 @@ import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CommentableFrame } from "./CommentableFrame";
 import { PreviewAddressBar } from "./PreviewAddressBar";
 import { previewCommentTarget } from "./previewCommentTarget";
@@ -146,7 +146,9 @@ export function TaskPreviewPanel({
     requestNavigation(target);
   };
   const navigateRef = useRef(navigate);
-  navigateRef.current = navigate;
+  useLayoutEffect(() => {
+    navigateRef.current = navigate;
+  });
   const surface = useMemo(
     () => ({
       kind: "preview" as const,

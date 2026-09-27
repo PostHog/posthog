@@ -19,7 +19,7 @@ import { ChromeBar } from "@posthog/ui/primitives/ChromeBar";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   browserTabLabel,
   originOf,
@@ -110,9 +110,13 @@ export function TaskBrowserPanel({
   };
 
   const navigateRef = useRef(navigate);
-  navigateRef.current = navigate;
+  useLayoutEffect(() => {
+    navigateRef.current = navigate;
+  });
   const openUrlRef = useRef(openUrl);
-  openUrlRef.current = openUrl;
+  useLayoutEffect(() => {
+    openUrlRef.current = openUrl;
+  });
   const pageRequest = useBrowserNavigationStore(
     (state) => state.requests[browserId],
   );
