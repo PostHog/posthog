@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 ParentResource = Literal["organisation", "project", "environment", "identity", "environment_feature"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class FlagsmithEndpointConfig:
     name: str
     # Path under ``/api/v1``. A ``{parent}`` placeholder marks a fan-out endpoint queried

@@ -140,7 +140,7 @@ def _error_snippet(response: requests.Response) -> str:
         return ""
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FlagsmithResumeConfig:
     # Full URL of the next page to fetch ("" once a resource is exhausted).
     next_url: str = ""
