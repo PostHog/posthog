@@ -161,17 +161,17 @@ describe("DashboardsService.listState", () => {
     expect(entries.map((row) => row.key)).toEqual(["a", "b"]);
   });
 
-  it("falls back to next_offset when the server returns no cursor", async () => {
+  it("reads the whole state in one request when the server returns no cursor", async () => {
     const { api, calls } = fakeApi({
-      "canvases/c1/state/?limit=100&offset=100": {
-        entries: [entry("b"), entry("c")],
-        next_offset: null,
-        complete: true,
-      },
       "canvases/c1/state/?limit=100": {
-        entries: [entry("a"), entry("b")],
+        entries: [entry("a")],
         next_offset: 100,
         complete: false,
+      },
+      "canvases/c1/state/": {
+        entries: [entry("a"), entry("b")],
+        next_offset: null,
+        complete: true,
       },
     });
 
@@ -179,8 +179,8 @@ describe("DashboardsService.listState", () => {
 
     expect(calls.map((call) => call.path)).toEqual([
       "canvases/c1/state/?limit=100",
-      "canvases/c1/state/?limit=100&offset=100",
+      "canvases/c1/state/",
     ]);
-    expect(entries.map((row) => row.key)).toEqual(["a", "b", "c"]);
+    expect(entries.map((row) => row.key)).toEqual(["a", "b"]);
   });
 });

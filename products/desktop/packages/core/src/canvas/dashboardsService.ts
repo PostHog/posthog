@@ -42,6 +42,27 @@ import {
 // The state endpoint's largest page.
 const CANVAS_STATE_PAGE_SIZE = 100;
 
+// One page of the canvas state endpoint. A server without cursors omits next_cursor.
+interface CanvasStatePage {
+  entries: Array<{
+    scope: CanvasStateScope;
+    key: string;
+    value: unknown;
+    updated_at: string;
+  }>;
+  next_cursor?: string | null;
+  complete: boolean;
+}
+
+function toStateEntries(rows: CanvasStatePage["entries"]): CanvasStateEntry[] {
+  return rows.map((entry) => ({
+    scope: entry.scope,
+    key: entry.key,
+    value: entry.value,
+    updatedAt: entry.updated_at,
+  }));
+}
+
 // A canvas as the PostHog canvases API returns it.
 interface ApiCanvas {
   id: string;
@@ -436,53 +457,44 @@ export class DashboardsService {
   }
 
   // The canvas's readable ph.state entries: shared ones plus the caller's own
-  // user-scoped ones. Optionally narrowed to one scope. Reads page by page and
-  // resumes each page from the server's cursor, so writes between pages cannot
-  // skip or repeat an entry. A server without cursors returns only next_offset;
-  // entries are keyed by scope and key so that fallback never repeats one.
+  // user-scoped ones. Optionally narrowed to one scope. Reads page by page from
+  // the server's cursor, so an entry that exists for the whole read comes back
+  // exactly once. A server without cursors cannot page safely (an offset skips
+  // entries after a delete), so the read falls back to one unpaged request.
   async listState(input: {
     id: string;
     scope?: CanvasStateScope;
   }): Promise<CanvasStateEntry[]> {
-    const entries = new Map<string, CanvasStateEntry>();
-    let next: { cursor: string } | { offset: number } | null = null;
+    const entries: CanvasStateEntry[] = [];
+    let cursor: string | null = null;
     for (;;) {
       const params = new URLSearchParams({
         limit: String(CANVAS_STATE_PAGE_SIZE),
       });
       if (input.scope) params.set("scope", input.scope);
-      if (next && "cursor" in next) params.set("cursor", next.cursor);
-      if (next && "offset" in next) params.set("offset", String(next.offset));
-      const body = await this.api.json<{
-        entries: Array<{
-          scope: CanvasStateScope;
-          key: string;
-          value: unknown;
-          updated_at: string;
-        }>;
-        next_cursor?: string | null;
-        next_offset: number | null;
-        complete: boolean;
-      }>(
-        `canvases/${encodeURIComponent(input.id)}/state/?${params}`,
-        "read canvas state",
-      );
-      for (const entry of body.entries) {
-        entries.set(`${entry.scope}\u0000${entry.key}`, {
-          scope: entry.scope,
-          key: entry.key,
-          value: entry.value,
-          updatedAt: entry.updated_at,
-        });
+      if (cursor) params.set("cursor", cursor);
+      const body = await this.readStatePage(input.id, params);
+      if (!("next_cursor" in body) && !body.complete) {
+        params.delete("limit");
+        return toStateEntries(
+          (await this.readStatePage(input.id, params)).entries,
+        );
       }
-      if (body.next_cursor) {
-        next = { cursor: body.next_cursor };
-      } else if (!body.complete && body.next_offset !== null) {
-        next = { offset: body.next_offset };
-      } else {
-        return [...entries.values()];
-      }
+      entries.push(...toStateEntries(body.entries));
+      if (!body.next_cursor) return entries;
+      cursor = body.next_cursor;
     }
+  }
+
+  private readStatePage(
+    id: string,
+    params: URLSearchParams,
+  ): Promise<CanvasStatePage> {
+    const query = params.toString();
+    return this.api.json<CanvasStatePage>(
+      `canvases/${encodeURIComponent(id)}/state/${query ? `?${query}` : ""}`,
+      "read canvas state",
+    );
   }
 
   // Write one ph.state key; a null value deletes it (the 204 path).
