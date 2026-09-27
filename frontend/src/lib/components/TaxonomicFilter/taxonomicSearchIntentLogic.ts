@@ -215,7 +215,6 @@ export const taxonomicSearchIntentLogic = kea<taxonomicSearchIntentLogicType>([
             }
             // Only the All tab reads the promoted group order, so a promotion from another tab changes nothing.
             const canPromote =
-                intent.method === 'model' &&
                 intent.is_confident &&
                 !!intent.group_type &&
                 intent.activeTab === TaxonomicFilterGroupType.SuggestedFilters

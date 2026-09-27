@@ -164,22 +164,27 @@ describe('taxonomicSearchIntentLogic', () => {
     })
 
     it.each([
-        ['on the All tab before the results reveal', TaxonomicFilterGroupType.PersonProperties, false, false],
-        ['on the All tab after the results reveal', TaxonomicFilterGroupType.EventProperties, true, false],
-        ['on a specific tab', TaxonomicFilterGroupType.EventProperties, false, true],
-    ])('in the promote arm, an answer that lands %s puts %s first', async (_, first, revealed, onSpecificTab) => {
-        enroll('promote')
-        if (onSpecificTab) {
-            filterLogic.actions.setActiveTab(TaxonomicFilterGroupType.EventProperties)
-        }
-        filterLogic.actions.setSearchQuery('email')
-        if (revealed) {
-            filterLogic.actions.openRevealBarrier()
-        }
-        await expectLogic(logic).toFinishAllListeners()
+        ['on the All tab before the results reveal', TaxonomicFilterGroupType.PersonProperties, false, false, 'model'],
+        ['on the All tab from a rule match', TaxonomicFilterGroupType.PersonProperties, false, false, 'rule'],
+        ['on the All tab after the results reveal', TaxonomicFilterGroupType.EventProperties, true, false, 'model'],
+        ['on a specific tab', TaxonomicFilterGroupType.EventProperties, false, true, 'model'],
+    ])(
+        'in the promote arm, an answer that lands %s puts %s first',
+        async (_, first, revealed, onSpecificTab, method) => {
+            enroll('promote')
+            answer = { ...PERSON_PROPERTIES_ANSWER, method }
+            if (onSpecificTab) {
+                filterLogic.actions.setActiveTab(TaxonomicFilterGroupType.EventProperties)
+            }
+            filterLogic.actions.setSearchQuery('email')
+            if (revealed) {
+                filterLogic.actions.openRevealBarrier()
+            }
+            await expectLogic(logic).toFinishAllListeners()
 
-        expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(first)
-    })
+            expect(filterLogic.values.suggestedFilterGroupOrder[0]).toEqual(first)
+        }
+    )
 
     it('stops asking after the project turns out not to be enrolled', async () => {
         enroll('banner')
