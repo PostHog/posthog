@@ -56,7 +56,7 @@ interface ProjectTreeBaseProps {
     showShortcutHelp?: boolean
     logicKey?: string // key override?
     root?: string
-    shortcutScope?: 'apps' | 'files'
+    shortcutScope?: 'products' | 'files'
     showRecents?: boolean // whether to show recents in the tree
     searchPlaceholder?: string
     treeSize?: LemonTreeSize
