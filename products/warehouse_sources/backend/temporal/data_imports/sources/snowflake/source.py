@@ -278,7 +278,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig], ResumableSource[Snowflak
             # so Snowflake refuses to resume the warehouse. Retrying can never succeed until the customer
             # raises the quota or the monitor resets. The query id, warehouse, and monitor names are
             # volatile, so we match the stable phrase.
-            "has exceeded its quota": "Snowflake can't resume your warehouse because its resource monitor has used up its credit quota. Raise the resource monitor's credit quota in Snowflake, or wait for the quota to reset, then resync.",
+            "has exceeded its quota": "Snowflake can't resume your warehouse because its resource monitor has used up its credit quota. Raise the resource monitor's credit quota in Snowflake, then resync. If the resource monitor has a reset schedule, you can also wait for the quota to reset, then resync.",
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
