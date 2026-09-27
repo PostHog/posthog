@@ -116,6 +116,15 @@ def recall_ai_source(
                 "location": "header",
             },
             "headers": {"Accept": "application/json"},
+            # Pin next-page and resume URLs to the region origin: a forged/off-host `next`
+            # link would otherwise carry the Authorization header to an attacker-controlled
+            # or internal destination. Pair host-pinning with rejecting redirects outright.
+            "allowed_hosts": [],
+            "allow_redirects": False,
+            # Calendar rows carry OAuth client secrets/refresh tokens (scrubbed below before
+            # they reach the warehouse), which aren't covered by the generic sample denylist —
+            # disable diagnostic HTTP capture for this endpoint so raw responses are never stored.
+            **({"capture": False} if endpoint_config.scrub_fields else {}),
         },
         "resources": [get_resource(endpoint, should_use_incremental_field, db_incremental_field_last_value)],
     }

@@ -22,7 +22,7 @@ class TestRecallAIValidateCredentials:
         ],
     )
     def test_rejects_unknown_region_without_calling_the_api(self, region: str) -> None:
-        config = RecallAISourceConfig(api_key="key", region=region)
+        config = RecallAISourceConfig(api_key="key", region=region)  # type: ignore[arg-type]
         with patch(_VALIDATE) as mock_validate:
             is_valid, message = RecallAISource().validate_credentials(config, team_id=1)
         assert is_valid is False

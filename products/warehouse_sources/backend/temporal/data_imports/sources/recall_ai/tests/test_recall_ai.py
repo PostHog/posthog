@@ -1,6 +1,7 @@
 import json
+from collections.abc import Iterable
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -67,7 +68,7 @@ def _drive(
             db_incremental_field_last_value=db_incremental_field_last_value,
             should_use_incremental_field=should_use_incremental_field,
         )
-        rows = [row for page in source_response.items() for row in page]
+        rows = [row for page in cast("Iterable[Any]", source_response.items()) for row in page]
         return sent_urls, sent_params, rows
 
 
