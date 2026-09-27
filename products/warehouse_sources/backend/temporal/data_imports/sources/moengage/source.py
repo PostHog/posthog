@@ -114,7 +114,7 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
             try:
                 parse_iso_date(config.start_date)
             except ValueError:
-                return False, "Enter the report start date as YYYY-MM-DD, or leave it empty."
+                return False, "Enter the daily report start date as YYYY-MM-DD, or leave it empty."
             error = start_date_error(config.start_date)
             if error is not None:
                 return False, error
@@ -157,7 +157,7 @@ class MoEngageSource(ResumableSource[MoEngageSourceConfig, MoEngageResumeConfig]
 
 Find your Workspace ID and the **Campaign report** API key in your MoEngage dashboard under **Settings** > **Account** > **APIs**. Pick the data center your dashboard URL shows (for example, `dashboard-01.moengage.com` is DC-01).
 
-The report tables backfill the last 90 days by default. Set a report start date to backfill further.""",
+The `daily_campaign_report` table backfills the last 90 days by default. Set a daily report start date to backfill further. The `campaign_report` table always covers the last 30 days.""",
             docsUrl="https://posthog.com/docs/cdp/sources/moengage",
             iconPath="/static/services/moengage.png",
             keywords=["push notifications", "customer engagement", "marketing automation", "moengage"],
@@ -192,7 +192,7 @@ The report tables backfill the last 90 days by default. Set a report start date 
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
-                        label="Report start date (optional)",
+                        label="Daily report start date (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="2025-01-01",
