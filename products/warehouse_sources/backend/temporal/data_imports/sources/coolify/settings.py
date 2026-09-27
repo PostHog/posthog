@@ -50,11 +50,30 @@ class CoolifyEndpointConfig:
     default_incremental_field: Optional[str] = None
 
 
+# Server settings a `read:sensitive`/`root` token can see but a read-only token cannot (Coolify's
+# own model `$hidden` list, plus the log-drain destinations): the Sentinel APM token and its
+# custom collector URL, the raw log-drain forwarder config (which can embed its own credentials
+# for Axiom/New Relic/a custom endpoint), and the log-drain parser script. `servers` returns
+# these directly; `applications` embeds the same server settings object under its destination, so
+# both endpoints strip this set.
+SERVER_SENSITIVE_FIELDS: frozenset[str] = frozenset(
+    {
+        "logdrain_axiom_api_key",
+        "logdrain_newrelic_license_key",
+        "sentinel_token",
+        "sentinel_custom_url",
+        "logdrain_custom_config",
+        "logdrain_custom_config_parser",
+    }
+)
+
 COOLIFY_ENDPOINTS: dict[str, CoolifyEndpointConfig] = {
     "applications": CoolifyEndpointConfig(
         name="applications",
         path="/applications",
         partition_key="created_at",
+        # Applications embed their destination server's settings object, so this set also carries
+        # every key in SERVER_SENSITIVE_FIELDS (see `servers` below).
         sensitive_fields=frozenset(
             {
                 "http_basic_auth_password",
@@ -69,6 +88,7 @@ COOLIFY_ENDPOINTS: dict[str, CoolifyEndpointConfig] = {
                 "domain_dns_statuses",
                 "domain_port_overrides",
             }
+            | SERVER_SENSITIVE_FIELDS
         ),
     ),
     # One listing across every standalone database type (PostgreSQL, MySQL, MariaDB, MongoDB,
@@ -125,7 +145,7 @@ COOLIFY_ENDPOINTS: dict[str, CoolifyEndpointConfig] = {
     "servers": CoolifyEndpointConfig(
         name="servers",
         path="/servers",
-        sensitive_fields=frozenset({"logdrain_axiom_api_key", "logdrain_newrelic_license_key"}),
+        sensitive_fields=SERVER_SENSITIVE_FIELDS,
     ),
     "services": CoolifyEndpointConfig(
         name="services",

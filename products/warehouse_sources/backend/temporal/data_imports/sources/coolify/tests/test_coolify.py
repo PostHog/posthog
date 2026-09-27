@@ -9,6 +9,7 @@ from requests.exceptions import ConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify import (
     CoolifyHostNotAllowedError,
+    DeploymentsPaginationTruncatedError,
     _client_config,
     api_base_url,
     coolify_source,
@@ -157,6 +158,45 @@ class TestCoolifySensitiveFields:
 
         assert resource._apply_transforms([dict(record)]) == [record]
 
+    def test_servers_strip_sentinel_and_logdrain_credentials(self) -> None:
+        # A `read:sensitive`/`root` token also gets back the Sentinel APM token, its custom
+        # collector URL, and the raw log-drain forwarder config/parser (which can itself embed
+        # Axiom/New Relic/a custom endpoint's credentials); none of that may reach storage.
+        record = {
+            "uuid": "srv-1",
+            "name": "hetzner-1",
+            "logdrain_axiom_api_key": "leak-me",
+            "logdrain_newrelic_license_key": "leak-me",
+            "sentinel_token": "leak-me",
+            "sentinel_custom_url": "https://sentinel.internal/leak-me",
+            "logdrain_custom_config": "leak-me",
+            "logdrain_custom_config_parser": "leak-me",
+        }
+        resource = coolify_source(BASE_URL, "coolify-token", "servers", team_id=1, job_id="job-1")
+
+        assert resource._apply_transforms([record]) == [{"uuid": "srv-1", "name": "hetzner-1"}]
+
+    def test_applications_strip_the_embedded_destination_servers_credentials(self) -> None:
+        # Applications nest their destination server's settings object; the recursive strip must
+        # reach it too, or a privileged token's Sentinel token/log-drain config leaks through the
+        # applications table even though the servers table strips it.
+        record = {
+            "uuid": "app-1",
+            "name": "web",
+            "destination": {
+                "server": {
+                    "uuid": "srv-1",
+                    "sentinel_token": "leak-me",
+                    "logdrain_custom_config": "leak-me",
+                }
+            },
+        }
+        resource = coolify_source(BASE_URL, "coolify-token", "applications", team_id=1, job_id="job-1")
+
+        assert resource._apply_transforms([record]) == [
+            {"uuid": "app-1", "name": "web", "destination": {"server": {"uuid": "srv-1"}}}
+        ]
+
 
 class TestCoolifyFlatEndpoints:
     def test_reads_the_bare_array_from_the_versioned_path(self, requests_mock: Any) -> None:
@@ -220,6 +260,26 @@ class TestCoolifyDeploymentsFanout:
         )
 
         assert [row["deployment_uuid"] for row in _rows("deployments")] == ["dep-1"]
+
+    def test_a_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self, requests_mock: Any) -> None:
+        # The deployments table replaces on every sync (`write_disposition: "replace"`). Stopping
+        # at the safety cap while `count` still claims more rows exist would silently swap a
+        # complete table for an incomplete one; it must raise instead.
+        self._mock_applications(requests_mock, [APP_UUID])
+        page = [{"deployment_uuid": f"dep-{i}"} for i in range(DEPLOYMENTS_PAGE_SIZE)]
+        requests_mock.get(
+            f"{API_BASE}/deployments/applications/{APP_UUID}",
+            json={"count": DEPLOYMENTS_PAGE_SIZE + 1, "deployments": page},
+        )
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_DEPLOYMENTS_OFFSET",
+                DEPLOYMENTS_PAGE_SIZE,
+            ),
+            pytest.raises(DeploymentsPaginationTruncatedError),
+        ):
+            _rows("deployments")
 
 
 class TestCoolifyValidateCredentials:

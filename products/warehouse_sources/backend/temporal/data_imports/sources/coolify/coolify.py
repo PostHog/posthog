@@ -4,6 +4,7 @@ from typing import Any, Optional, cast
 from urllib.parse import urlparse
 
 import requests
+from requests import Response
 
 from posthog.cloud_utils import is_cloud
 
@@ -15,6 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     build_dependent_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
+    find_values,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
@@ -103,12 +107,49 @@ def _check_host(base_url: str, team_id: int) -> None:
         raise CoolifyHostNotAllowedError(host_err or HOST_NOT_ALLOWED_ERROR)
 
 
+class DeploymentsPaginationTruncatedError(Exception):
+    """Raised when Coolify reports more deployments than MAX_DEPLOYMENTS_OFFSET permits walking.
+
+    The safety cap exists to bound a host that misreports `count` or ignores `skip`, not to
+    silently truncate a real, very long deploy history. The deployments table syncs with
+    `write_disposition: "replace"`, so stopping at the cap without raising would replace a
+    complete table with an incomplete one and report success. Fail the sync instead.
+    """
+
+
+class _DeploymentsPaginator(OffsetPaginator):
+    """`OffsetPaginator` that fails the sync when `count` exceeds the safety cap.
+
+    The base implementation stops silently once `offset` reaches `maximum_offset`, regardless of
+    whether the response's `count` says there is more to walk. That is fine for a cap that only
+    ever guards against a misbehaving host, but wrong for one meant to protect a real, bounded
+    walk: reaching it while `count` still exceeds the offset means rows were left unfetched.
+    """
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        if self._has_next_page or self.maximum_offset is None or self.offset < self.maximum_offset:
+            return
+        try:
+            values = find_values("count", response.json())
+        except Exception:
+            values = []
+        total = values[0] if values else None
+        if isinstance(total, int) and total > self.offset:
+            raise DeploymentsPaginationTruncatedError(
+                f"Coolify reports {total} deployments for this application, past the "
+                f"{self.maximum_offset}-row safety cap ({self.offset} fetched). Refusing to "
+                "replace the table with a truncated sync."
+            )
+
+
 def _deployments_paginator() -> BasePaginator:
     # `/deployments/applications/{uuid}` pages with `skip`/`take` and reports the grand total
     # under `count` (verified against the controller: rows come newest-first, `take` defaults
     # to 10 server-side). `maximum_offset` bounds the walk against a host that misreports
-    # `count` or ignores `skip` (see MAX_DEPLOYMENTS_OFFSET).
-    return OffsetPaginator(
+    # `count` or ignores `skip` (see MAX_DEPLOYMENTS_OFFSET); `_DeploymentsPaginator` turns a
+    # genuine breach of that cap into a hard failure instead of a silent truncation.
+    return _DeploymentsPaginator(
         limit=DEPLOYMENTS_PAGE_SIZE,
         offset_param="skip",
         limit_param="take",
