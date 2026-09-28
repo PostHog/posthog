@@ -196,6 +196,11 @@ _RASTERIZER_INFRA_TRANSIENT_TYPES = frozenset(
     {"BLOCK_LISTING_FAILED", "DATA_LOAD_FAILED", "S3_UPLOAD_FAILED", "S3_UPLOAD_UNDECODABLE_RESPONSE"}
 )
 
+# The rasterizer raises a retryable TIMEOUT when the player page does not load, or loads but reports no loading
+# progress before the stale window ends. The render pod stalled, so the recording is not at fault and a retry
+# usually succeeds. Its message carries the session id, so a copied message mints one error-tracking issue per session.
+_RASTERIZER_START_STALL_TYPE = "TIMEOUT"
+
 
 def _activity_timeout_kind(e: BaseException) -> str | None:
     """Map an activity start-to-close/heartbeat timeout onto whichever side ran out of time."""
@@ -243,6 +248,8 @@ def _normalized_rasterizer_infra_message(code: str) -> str:
     occurrence, so copying it verbatim mints a fresh error-tracking issue for one root cause. Keying
     the message on the code collapses those variants back into a single issue.
     """
+    if code == _RASTERIZER_START_STALL_TYPE:
+        return f"rasterizer player did not start in time ({code})"
     return f"rasterizer could not reach a PostHog dependency ({code})"
 
 
@@ -532,7 +539,10 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             # but a permanent 4xx or a malformed listing as non-retryable. Only the retryable ones are the
             # "dependency was slow" story; a non-retryable leaf keeps the RASTERIZATION_FAILED path below, so
             # it gets neither a false retry prompt nor a message that merges it into the transient-outage issue.
-            if rasterizer_type in _RASTERIZER_INFRA_TRANSIENT_TYPES and not _failure_non_retryable(e):
+            is_transient_type = (
+                rasterizer_type in _RASTERIZER_INFRA_TRANSIENT_TYPES or rasterizer_type == _RASTERIZER_START_STALL_TYPE
+            )
+            if is_transient_type and not _failure_non_retryable(e):
                 # A PostHog dependency blip, not a broken recording. Classify transient so the observation
                 # stays retryable, and keep the raw errno and pod address in the worker log only: `from None`
                 # drops the volatile cause so error tracking groups the outage by the stable message alone

@@ -2785,13 +2785,14 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "leaf_message,non_retryable,expected_kind,expected_reason",
+    "leaf_type,leaf_message,non_retryable,expected_kind,expected_reason",
     [
         # A genuine transport blip (5xx, timeout, dropped connection) reaches the parent as a retryable
         # BLOCK_LISTING_FAILED whose message carries the errno and pod address. It must land as retryable
         # infra_transient with the errno and address dropped, so one outage can't mint a fresh error-tracking
         # issue per variant.
         (
+            "BLOCK_LISTING_FAILED",
             "Failed to fetch block listing: connect ECONNREFUSED 10.0.0.5:6738",
             False,
             FailureKind.INFRA_TRANSIENT,
@@ -2801,18 +2802,28 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
         # BLOCK_LISTING_FAILED. Retrying can't heal it, so it must keep the recording-level rasterization_failed
         # label with its own message, not a false retry prompt that merges into the transient-outage issue.
         (
+            "BLOCK_LISTING_FAILED",
             "Failed to fetch block listing: 401 - unauthorized",
             True,
             FailureKind.RASTERIZATION_FAILED,
             "rasterization_failed:Failed to fetch block listing: 401 - unauthorized",
         ),
+        # The player page never reported loading progress. The render pod stalled, not the recording, so it must
+        # land as retryable infra_transient, and the session id in the leaf message must not reach error tracking.
+        (
+            "TIMEOUT",
+            "Recording did not start for session sess-blocklist (no progress for 15s)",
+            False,
+            FailureKind.INFRA_TRANSIENT,
+            "infra_transient:rasterizer player did not start in time (TIMEOUT)",
+        ),
     ],
 )
 async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_by_retryability(
-    leaf_message: str, non_retryable: bool, expected_kind: FailureKind, expected_reason: str
+    leaf_type: str, leaf_message: str, non_retryable: bool, expected_kind: FailureKind, expected_reason: str
 ) -> None:
     new_observation_id = uuid.uuid4()
-    leaf = ApplicationError(leaf_message, type="BLOCK_LISTING_FAILED", non_retryable=non_retryable)
+    leaf = ApplicationError(leaf_message, type=leaf_type, non_retryable=non_retryable)
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -2843,6 +2854,7 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
         captured = " ".join(str(item.get("value")) for item in serialized)
         assert "ECONNREFUSED" not in captured
         assert "10.0.0.5" not in captured
+        assert "sess-blocklist" not in captured
 
 
 @pytest.mark.asyncio
