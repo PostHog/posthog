@@ -57,12 +57,15 @@ export const UnsubscribeSurveyModal = ({
         triggerMoreHedgehogs,
     } = useActions(billingProductLogic({ product }))
     const { deactivateProduct, resetUnsubscribeError } = useActions(billingLogic)
-    const { unsubscribeError, billingLoading, billing } = useValues(billingLogic)
+    const { unsubscribeError, billingLoading, billing, isExternallyBilled } = useValues(billingLogic)
     const { openSupportForm } = useActions(supportLogic)
     const [randomizedReasons] = useState(() =>
         inStorybook() || inStorybookTestRunner() ? UNSUBSCRIBE_REASONS : randomizeReasons(UNSUBSCRIBE_REASONS)
     )
 
+    const invoicesUrl = isExternallyBilled
+        ? billing?.external_billing_provider_invoices_url
+        : billing?.stripe_portal_url
     const textAreaNotEmpty = surveyResponse[SurveyEventProperties.SURVEY_RESPONSE]?.length > 0
     const isOnDiscountedPrice = isAddonProduct && (product as BillingProductV2AddonType).default_unit_amount_usd != null
 
@@ -201,12 +204,11 @@ export const UnsubscribeSurveyModal = ({
                                 We're sorry to see you go! Please note, you'll lose access to platform features and
                                 usage limits will apply immediately. And if you have any outstanding invoices, they will
                                 be billed immediately.{' '}
-                                <Link
-                                    to={billing?.external_billing_provider_invoices_url || billing?.stripe_portal_url}
-                                    target="_blank"
-                                >
-                                    View invoices
-                                </Link>
+                                {invoicesUrl && (
+                                    <Link to={invoicesUrl} target="_blank">
+                                        View invoices
+                                    </Link>
+                                )}
                             </p>
                         )}
 

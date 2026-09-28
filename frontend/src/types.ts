@@ -2436,6 +2436,7 @@ export interface BillingProductV2AddonType {
     legacy_product?: boolean | null
 }
 export enum BillingProvider {
+    PostHog = 'posthog',
     Vercel = 'vercel',
 }
 export interface BillingType {

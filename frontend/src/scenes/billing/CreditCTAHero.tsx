@@ -21,9 +21,13 @@ export const CreditCTAHero = (): JSX.Element | null => {
         isCreditCTAHeroDismissed,
         computedDiscount,
         showCreditCTAHero,
+        isExternallyBilled,
     } = useValues(billingLogic)
     const { showPurchaseCreditsModal, toggleCreditCTAHeroDismissed } = useActions(billingLogic)
     const { estimatedMonthlyCreditAmountUsd } = useValues(billingLogic)
+    const creditInvoiceUrl = isExternallyBilled
+        ? billing?.external_billing_provider_invoices_url
+        : creditOverview.invoice_url
 
     if (!showCreditCTAHero) {
         return null
@@ -130,19 +134,13 @@ export const CreditCTAHero = (): JSX.Element | null => {
                     </div>
                     <div className="flex flex-col justify-center items-end w-30">
                         <HedgehogBurningMoney className="w-full h-auto" />
-                        {creditOverview.status === 'pending' && creditOverview.invoice_url && (
+                        {creditOverview.status === 'pending' && creditOverview.invoice_url && creditInvoiceUrl && (
                             <LemonButton
                                 type="primary"
-                                onClick={() =>
-                                    creditOverview.invoice_url &&
-                                    window.open(
-                                        billing?.external_billing_provider_invoices_url || creditOverview.invoice_url,
-                                        '_blank'
-                                    )
-                                }
+                                onClick={() => window.open(creditInvoiceUrl, '_blank')}
                                 className="w-30 mt-4"
                             >
-                                View invoice
+                                {isExternallyBilled ? 'View invoices' : 'View invoice'}
                             </LemonButton>
                         )}
                         {creditOverview.status === 'none' && (
