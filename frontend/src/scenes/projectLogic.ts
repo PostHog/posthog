@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -246,13 +245,11 @@ export const projectLogic = kea<projectLogicType>([
                     actions.loadCurrentOrganization()
                     actions.loadUser()
 
-                    Object.keys(payload).map((property) => {
-                        if (eventUsageLogic.findMounted()) {
-                            posthog.capture(`${property} project setting updated`, {
-                                setting: property,
-                                value: payload[property],
-                            })
-                        }
+                    Object.keys(payload).forEach((property) => {
+                        posthog.capture(`${property} project setting updated`, {
+                            setting: property,
+                            value: payload[property],
+                        })
                     })
 
                     if (!window.location.pathname.match(/\/(onboarding|products)/)) {
