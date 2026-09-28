@@ -359,6 +359,7 @@ the row lists both.
 | heroku                           | HTTP                        | requests                                                        | ✅                          |
 | hetzner                          | HTTP                        | requests                                                        | ✅                          |
 | hex                              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| heyreach                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hibob                            | HTTP                        | requests                                                        | ✅                          |
 | hightouch                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | hitpay                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1119,7 +1120,6 @@ doesn't conflict with concurrent PRs.
 - heap
 - hetzner
 - heygen
-- heyreach
 - hibob
 - high_level
 - hivebrite
