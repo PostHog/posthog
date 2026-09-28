@@ -3034,7 +3034,7 @@ Note: Coverage is service configuration objects plus the account/billing family;
 
 ## Featurebase — **thin**
 
-Today (14): `admins`, `boards`, `changelogs`, `comments`, `companies`, `contacts`, `conversation_tags`, `conversations`, `custom_fields`, `post_statuses`, `post_voters`, `posts`, `ticket_statuses`, `tickets`
+Today (17): `admins`, `boards`, `changelogs`, `comments`, `companies`, `contacts`, `conversation_tags`, `conversations`, `custom_fields`, `post_statuses`, `post_voters`, `posts`, `survey_responses`, `surveys`, `ticket_categories`, `ticket_statuses`, `tickets`
 
 Diffed against: <https://developers.featurebase.app/llms.txt>
 
@@ -3043,13 +3043,13 @@ Diffed against: <https://developers.featurebase.app/llms.txt>
 - [x] `support/tickets (list)` — ticket workload and lifecycle, the other half of the support product (high)
 - [x] `support/tickets/statuses` — lookup table resolving the status id on every ticket (high)
 - [x] `support/conversation_tags (list)` — lookup table for tags applied to conversations - the main support breakdown dimension (high)
-- [ ] `surveys and surveys/list_responses` — survey responses are raw analytical rows (NPS/CSAT style) with no equivalent in the synced tables (high)
-- [ ] `support/tickets/categories` — lookup resolving ticket category ids (medium)
+- [x] `surveys and surveys/list_responses` — survey responses are raw analytical rows (NPS/CSAT style) with no equivalent in the synced tables (high)
+- [x] `support/tickets/categories` — lookup resolving ticket category ids (medium)
 - [ ] `help_center/articles (list)` — article inventory for content and deflection analysis (medium)
 - [ ] `organization/teams` — lookup resolving the team an admin or conversation is assigned to (medium)
 - [ ] `audit_logs (list)` — workspace change history (medium)
 - [ ] `users/companies/{id}/contacts` — company-to-contact membership table joining the companies and contacts we already sync (medium)
-- [ ] `support/conversations/{id}/participants` — participant membership per conversation (medium)
+- [ ] `support/conversations/{id}/participants` — participant membership per conversation. No read endpoint exists: the participants subresource only exposes add and remove, and the conversation row already carries its participants (medium)
 - [ ] `help_center/collections` — lookup grouping articles into collections (low)
 
 Note: Featurebase has grown well past the feedback board: the reference now spans Support (conversations + tickets), Help Center, Surveys, Reports and Audit Logs. PostHog's 10 tables cover the Feedback pillar plus admins/companies/contacts only. Reports is a query API (list_datasets/query/drill_in) rather than a fixed collection, so it is not listed as a table gap. llms.txt at developers.featurebase.app gives the complete language-neutral resource tree.
