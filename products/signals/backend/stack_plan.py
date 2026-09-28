@@ -94,11 +94,16 @@ def create_layer_reports(
     Call inside the transaction that makes the plan ready, so the plan and its layers land together
     or not at all. A plan that already has layers keeps them: a re-research can rewrite the plan's
     summary, but replacing layers that may already carry pull requests is a separate decision.
+    A report that already has its own pull request stays on that one pull request, so the layers
+    do not repeat its work beside it.
     """
     if not layers:
         return []
     team_id = parent.team_id
     if incoming_links(team_id=team_id, report_id=parent.id, kinds=(ReportLinkKind.PART_OF,)):
+        return []
+    if has_open_or_merged_pull_request(team_id=team_id, report_ids=[str(parent.id)]):
+        logger.info("signals.stack_plan.layers_skipped_for_own_pull_request", report_id=str(parent.id), team_id=team_id)
         return []
     judgments = _inherited_judgments(parent)
     # A layer does the plan's work, so it keeps the plan's exemption. The scout policy matches only

@@ -229,6 +229,21 @@ class TestStackPlan(BaseTest):
             expected
         }
 
+    @parameterized.expand(
+        [
+            ("open_pull_request_keeps_the_single_pr_path", SignalReportPullRequest.State.OPEN, 0),
+            ("merged_pull_request_keeps_the_single_pr_path", SignalReportPullRequest.State.MERGED, 0),
+            ("closed_pull_request_allows_layers", SignalReportPullRequest.State.CLOSED, 3),
+        ]
+    )
+    def test_a_report_with_its_own_pull_request_gets_no_layers(self, _name: str, state: str, expected: int):
+        self._attach_pull_request(str(self.parent.id), 1, state)
+
+        child_ids = self._create_layers()
+
+        assert len(child_ids) == expected
+        assert SignalReport.objects.filter(team=self.team).count() == 1 + expected
+
     def test_a_plan_that_already_has_layers_keeps_them(self):
         first = self._create_layers()
         second = self._create_layers()
