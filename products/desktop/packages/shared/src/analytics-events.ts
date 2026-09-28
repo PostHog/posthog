@@ -453,6 +453,8 @@ export interface TaskCreationFailedProperties {
 export interface AgentSessionErrorProperties {
   task_id: string;
   error_type: string;
+  failure_reason?: "startup_timeout" | "startup_failed" | "other";
+  startup_step?: string;
 }
 
 export interface CloudStreamDisconnectedProperties {
