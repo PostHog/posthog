@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 
 import { IconCollapse, IconDay, IconExpand, IconInfo, IconLaptop, IconLock, IconNight } from '@posthog/icons'
@@ -20,7 +19,6 @@ import { TEMPLATE_LINK_HEADING, TEMPLATE_LINK_PII_WARNING } from 'lib/components
 import { TemplateLinkSection } from 'lib/components/Sharing/TemplateLinkSection'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -28,7 +26,6 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -43,6 +40,7 @@ import { InsightType } from '~/types'
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { SharePasswordsTable } from './SharePasswordsTable'
+import { SharingLinkField } from './SharingLinkField'
 import { sharingLogic } from './sharingLogic'
 
 function getResourceType(
@@ -125,6 +123,7 @@ export function SharingModalContent({
         iframeProperties,
         shareLink,
         sharingAllowed,
+        teamLink,
     } = useValues(sharingLogic(logicProps))
     const { setIsEnabled, setPasswordRequired, togglePreview, setSharingSettingsValue } = useActions(
         sharingLogic(logicProps)
@@ -203,58 +202,74 @@ export function SharingModalContent({
 
     return (
         <div className="deprecated-space-y-4">
-            {dashboardId ? (
-                <>
-                    <AccessControlPopoutCTA
-                        resourceType={AccessControlResourceType.Dashboard}
-                        callback={() => {
-                            push(urls.dashboard(dashboardId))
-                        }}
-                    />
-                    <LemonDivider />
-                </>
-            ) : undefined}
-
-            {insightShortId ? (
-                <>
-                    <AccessControlPopoutCTA
-                        resourceType={AccessControlResourceType.Insight}
-                        callback={() => {
-                            push(urls.insightView(insightShortId))
-                        }}
-                    />
-                    <LemonDivider />
-                </>
-            ) : undefined}
-
             <div className="flex flex-col gap-4">
+                {teamLink ? (
+                    <>
+                        <section>
+                            <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-secondary">
+                                Team link
+                            </h4>
+                            <p className="mb-2 text-sm text-secondary">
+                                Only people who can already open this {resource} in PostHog can use this link. Copying
+                                it does not change who has access.
+                            </p>
+                            <SharingLinkField
+                                link={teamLink}
+                                copyLabel="Copy team link"
+                                copyDescription="team link"
+                                data-attr="sharing-team-link-button"
+                            />
+                        </section>
+                        <LemonDivider className="my-0" />
+                    </>
+                ) : null}
                 {!sharingConfiguration && sharingConfigurationLoading ? (
                     <LemonSkeleton.Row repeat={3} />
                 ) : !sharingConfiguration ? (
-                    <p>Something went wrong...</p>
+                    <LemonBanner type="error">
+                        Couldn't load the public link settings. Close this dialog and try again.
+                    </LemonBanner>
                 ) : (
-                    <div>
-                        <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-secondary">
-                            Public sharing
+                    <section>
+                        <h4 className="mb-1 text-xs font-semibold uppercase tracking-wide text-secondary">
+                            Public link
                         </h4>
                         {!sharingAllowed ? (
-                            <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
+                            <LemonBanner type="warning">
+                                Public sharing is turned off for this organization. An organization admin can turn it on
+                                in the organization security settings.
+                            </LemonBanner>
                         ) : (
-                            <LemonSwitch
-                                id="sharing-switch"
-                                label={`Share ${resource} publicly`}
-                                checked={sharingConfiguration.enabled}
-                                data-attr="sharing-switch"
-                                onChange={(active) => setIsEnabled(active)}
-                                bordered
-                                fullWidth
-                                loading={sharingConfigurationLoading}
-                                disabledReason={sharingManageDisabledReason}
-                            />
+                            <>
+                                <p className="mb-2 text-sm text-secondary">
+                                    Anyone with this link can view the {resource} without logging in to PostHog.
+                                </p>
+                                <LemonSwitch
+                                    id="sharing-switch"
+                                    label={`Share ${resource} publicly`}
+                                    checked={sharingConfiguration.enabled}
+                                    data-attr="sharing-switch"
+                                    onChange={(active) => setIsEnabled(active)}
+                                    bordered
+                                    fullWidth
+                                    loading={sharingConfigurationLoading}
+                                    disabledReason={sharingManageDisabledReason}
+                                />
+                                {sharingManageDisabledReason ? (
+                                    <p className="mt-1 mb-0 text-xs text-secondary">{sharingManageDisabledReason}</p>
+                                ) : null}
+                            </>
                         )}
 
                         {sharingAllowed && sharingConfiguration.enabled && sharingConfiguration.access_token ? (
                             <div className="mt-2 flex flex-col gap-2">
+                                <SharingLinkField
+                                    link={shareLink}
+                                    copyLabel="Copy public link"
+                                    copyDescription="public link"
+                                    data-attr="sharing-link-button"
+                                />
+                                {recordingLinkTimeForm}
                                 {passwordProtectedSharesEnabled && (
                                     <div className="LemonSwitch LemonSwitch--medium LemonSwitch--bordered LemonSwitch--full-width flex-col py-1.5">
                                         <LemonSwitch
@@ -295,28 +310,9 @@ export function SharingModalContent({
                                         )}
                                     </div>
                                 )}
-                                <LemonButton
-                                    data-attr="sharing-link-button"
-                                    type="primary"
-                                    onClick={() => {
-                                        // TRICKY: there's a chance this was sending useless errors to error tracking
-                                        // even when it succeeded, so we're explicitly ignoring the promise success
-                                        // and naming the error when reported to error tracking - @pauldambra
-                                        copyToClipboard(shareLink, shareLink).catch((e) =>
-                                            posthog.captureException(
-                                                new Error('unexpected sharing modal clipboard error: ' + e.message)
-                                            )
-                                        )
-                                    }}
-                                    icon={<IconLink />}
-                                    className="ml-auto"
-                                >
-                                    Copy public link
-                                </LemonButton>
-                                {recordingLinkTimeForm}
                             </div>
                         ) : null}
-                    </div>
+                    </section>
                 )}
                 {sharingAllowed &&
                 sharingConfiguration?.enabled &&
@@ -525,6 +521,28 @@ export function SharingModalContent({
                     )}
                 </>
             )}
+            {dashboardId ? (
+                <>
+                    <LemonDivider />
+                    <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Dashboard}
+                        callback={() => {
+                            push(urls.dashboard(dashboardId))
+                        }}
+                    />
+                </>
+            ) : undefined}
+            {insightShortId ? (
+                <>
+                    <LemonDivider />
+                    <AccessControlPopoutCTA
+                        resourceType={AccessControlResourceType.Insight}
+                        callback={() => {
+                            push(urls.insightView(insightShortId))
+                        }}
+                    />
+                </>
+            ) : undefined}
         </div>
     )
 }
