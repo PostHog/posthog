@@ -1732,6 +1732,10 @@ def _normalize_primary_key(primary_key: str | list[str]) -> list[str]:
     return [primary_key] if isinstance(primary_key, str) else list(primary_key)
 
 
+# Lifecycle order of the status field on workflow runs, workflow jobs and check runs.
+_STATUS_STAGE = {"requested": 1, "waiting": 1, "pending": 1, "queued": 1, "in_progress": 2, "completed": 3}
+
+
 def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) -> Callable[[pa.Table], pa.Table]:
     """Collapse a webhook batch to one row per ``primary_key`` — the one ranking newest by
     ``version_keys`` (newest first, NULLs last). GitHub emits a single run/job as separate
@@ -1746,23 +1750,29 @@ def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) 
 
         ids = table.column(primary_key).to_pylist()
         version_columns = [table.column(key).to_pylist() for key in present_version_keys]
+        statuses = table.column("status").to_pylist() if "status" in table.column_names else None
 
         def rank(row_index: int) -> tuple[tuple[int, Any], ...]:
             # A present value beats NULL (NULLS LAST); among present values a larger one is newer
             # (ISO-8601 timestamps compare correctly as strings). The leading flag keeps NULLs from
             # ever being order-compared against a real value.
-            return tuple(
+            version = tuple(
                 (1, column[row_index]) if column[row_index] is not None else (0, "") for column in version_columns
             )
+            if statuses is None:
+                return version
+            # GitHub timestamps are second-coarse, so a run that GitHub skips at once sends its
+            # in_progress and completed events with the same updated_at. GitHub does not deliver
+            # webhooks in order, so the stale in_progress event can arrive last. On a timestamp tie,
+            # the further lifecycle stage wins. Otherwise the row stays in_progress forever.
+            return (*version, (_STATUS_STAGE.get(statuses[row_index] or "", 0), ""))
 
         best_index_by_id: dict[Any, int] = {}
         for index, object_id in enumerate(ids):
             if object_id is None:
                 continue
             best = best_index_by_id.get(object_id)
-            # On a tie (>=, not >) the later-arriving row wins. GitHub timestamps are second-coarse,
-            # so a fast in_progress -> completed transition can share an updated_at; rows arrive in
-            # chronological order (files read oldest-first), so the later index is the newer event.
+            # On a full tie (>=, not >) the later-arriving row wins, because files are read oldest-first.
             if best is None or rank(index) >= rank(best):
                 best_index_by_id[object_id] = index
 
