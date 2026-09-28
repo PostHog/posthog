@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonSwitch } from '@posthog/lemon-ui'
 
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { ExcludedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { IconTuning } from 'lib/lemon-ui/icons'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { surveyResponseColumnId } from 'scenes/surveys/utils'
+import { surveyResponseColumnId, surveyResponseColumnLabel } from 'scenes/surveys/utils'
+
+import { SurveyEventName } from '~/types'
 
 const PROPERTY_GROUP_TYPES = [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]
 
@@ -19,6 +20,12 @@ export function SurveyResponseColumnsMenu(): JSX.Element {
     const [picking, setPicking] = useState(false)
 
     const personIdShown = responseColumns.some((column) => column.type === 'person_id')
+    const addedPropertyKeys: ExcludedProperties = Object.fromEntries(
+        PROPERTY_GROUP_TYPES.map((groupType) => [
+            groupType,
+            responseColumns.flatMap((column) => (column.type === groupType ? [column.key] : [])),
+        ])
+    )
 
     return (
         <LemonDropdown
@@ -29,6 +36,9 @@ export function SurveyResponseColumnsMenu(): JSX.Element {
                 picking ? (
                     <TaxonomicFilter
                         taxonomicGroupTypes={PROPERTY_GROUP_TYPES}
+                        eventNames={[SurveyEventName.SENT]}
+                        excludedProperties={addedPropertyKeys}
+                        onClose={() => setPicking(false)}
                         onChange={(group, value) => {
                             if (
                                 group.type === TaxonomicFilterGroupType.EventProperties ||
@@ -55,9 +65,7 @@ export function SurveyResponseColumnsMenu(): JSX.Element {
                         {responseColumns.map((column) =>
                             column.type === 'person_id' ? null : (
                                 <div key={surveyResponseColumnId(column)} className="flex items-center gap-2">
-                                    <div className="flex-1 min-w-0 truncate">
-                                        <PropertyKeyInfo value={column.key} type={column.type} />
-                                    </div>
+                                    <span className="flex-1 min-w-0 truncate">{surveyResponseColumnLabel(column)}</span>
                                     <LemonButton
                                         size="xsmall"
                                         icon={<IconX />}

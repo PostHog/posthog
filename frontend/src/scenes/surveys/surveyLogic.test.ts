@@ -1460,59 +1460,64 @@ describe('survey filters', () => {
     it.each([
         {
             column: { type: TaxonomicFilterGroupType.EventProperties, key: '$current_url' } as const,
-            read: 'properties.$current_url AS column_0',
-            select: 'column_0 AS "properties.$current_url"',
-            exportLabel: 'Current URL',
+            tableSelect: 'column_0 AS "properties.$current_url"',
+            tableRead: 'properties.$current_url AS column_0',
+            exportAlias: '"Current URL"',
         },
         {
             column: { type: TaxonomicFilterGroupType.PersonProperties, key: 'plan tier' } as const,
-            read: 'person.properties."plan tier" AS column_0',
-            select: 'column_0 AS "person.properties.plan tier"',
-            exportLabel: 'plan tier',
+            tableSelect: 'column_0 AS "person.properties.plan tier"',
+            tableRead: 'person.properties."plan tier" AS column_0',
+            exportAlias: '"Person: plan tier"',
         },
         {
-            column: { type: TaxonomicFilterGroupType.PersonProperties, key: 'Status' } as const,
-            read: 'person.properties.Status AS column_0',
-            select: 'column_0 AS "person.properties.Status"',
-            exportLabel: 'Status (2)',
+            column: { type: TaxonomicFilterGroupType.EventProperties, key: 'Status' } as const,
+            tableSelect: 'column_0 AS "properties.Status"',
+            tableRead: 'properties.Status AS column_0',
+            exportAlias: '"Status (2)"',
+        },
+        {
+            column: { type: TaxonomicFilterGroupType.EventProperties, key: '`a`, 1 AS `b`' } as const,
+            tableSelect: 'column_0 AS "properties.`a`, 1 AS `b`"',
+            tableRead: 'properties."`a`, 1 AS `b`" AS column_0',
+            exportAlias: '"`a`, 1 AS `b`"',
         },
         {
             column: { type: 'person_id' } as const,
-            read: null,
-            select: 'person_id AS person_id',
-            exportLabel: 'Person ID',
+            tableSelect: 'person_id AS person_id',
+            tableRead: 'argMax(person_id, tuple(timestamp, event_uuid)) AS person_id',
+            exportAlias: '"Person ID"',
         },
     ])(
-        'adds a chosen $column.type column to the responses table and the export',
-        async ({ column, read, select, exportLabel }) => {
+        'adds the column selected as $tableSelect to the responses table and the export',
+        async ({ column, tableSelect, tableRead, exportAlias }) => {
             const tableQuery = (): string => (logic.values.dataTableQuery?.source as { query: string }).query
+            const exportQuery = (): string => (logic.values.responsesExportQuery?.source as { query: string }).query
 
             await expectLogic(logic, () => {
                 logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
             }).toDispatchActions(['loadSurveySuccess'])
 
-            expect(tableQuery()).not.toContain(select)
-            expect(logic.values.responsesExportQuery?.columns).not.toContain(exportLabel)
+            expect(tableQuery()).not.toContain(tableSelect)
+            expect(exportQuery()).not.toContain(`AS ${exportAlias}`)
 
             await expectLogic(logic, () => {
                 logic.actions.addResponseColumn(column)
                 logic.actions.addResponseColumn(column)
             }).toDispatchActions(['addResponseColumn', 'addResponseColumn'])
 
-            if (read) {
-                expect(tableQuery()).toContain(read)
-            }
+            expect(tableQuery()).toContain(tableRead)
             // Row actions render in the rightmost column, so chosen columns come before them.
-            expect(tableQuery()).toContain(`${select},\nuuid AS actions`)
-            expect(tableQuery().split(select)).toHaveLength(2)
-            expect(logic.values.responsesExportQuery?.columns).toContain(exportLabel)
+            expect(tableQuery()).toContain(`${tableSelect},\nuuid AS actions`)
+            expect(tableQuery().split(tableSelect)).toHaveLength(2)
+            expect(exportQuery()).toContain(`AS ${exportAlias}`)
 
             await expectLogic(logic, () => {
                 logic.actions.removeResponseColumn(column)
             }).toDispatchActions(['removeResponseColumn'])
 
-            expect(tableQuery()).not.toContain(select)
-            expect(logic.values.responsesExportQuery?.columns).not.toContain(exportLabel)
+            expect(tableQuery()).not.toContain(tableSelect)
+            expect(exportQuery()).not.toContain(`AS ${exportAlias}`)
         }
     )
 

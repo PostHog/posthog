@@ -2026,6 +2026,12 @@ export const surveyLogic = kea<surveyLogicType>([
         }
 
         return {
+            addResponseColumn: ({ column }) => {
+                posthog.capture('survey response column added', { column_type: column.type })
+            },
+            removeResponseColumn: ({ column }) => {
+                posthog.capture('survey response column removed', { column_type: column.type })
+            },
             createSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} created</>)
                 actions.loadSurveys()

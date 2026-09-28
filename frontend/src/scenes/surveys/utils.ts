@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 
 import type { DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { DataTableNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import {
     BasicSurveyQuestion,
@@ -927,7 +927,14 @@ export function surveyResponseColumnId(column: SurveyResponseColumn): string {
 }
 
 export function surveyResponseColumnLabel(column: SurveyResponseColumn): string {
-    return column.type === 'person_id' ? 'Person ID' : getFilterLabel(column.key, column.type)
+    switch (column.type) {
+        case 'person_id':
+            return 'Person ID'
+        case TaxonomicFilterGroupType.EventProperties:
+            return getFilterLabel(column.key, column.type)
+        case TaxonomicFilterGroupType.PersonProperties:
+            return `Person: ${getFilterLabel(column.key, column.type)}`
+    }
 }
 
 interface PropertyRead {
@@ -938,22 +945,22 @@ interface PropertyRead {
 interface ChosenColumn {
     column: SurveyResponseColumn
     source: string
-    read: PropertyRead | null
 }
 
-function chooseColumns(columns: SurveyResponseColumn[]): ChosenColumn[] {
-    return columns.map((column, index) => {
+function chooseColumns(columns: SurveyResponseColumn[]): { chosen: ChosenColumn[]; propertyReads: PropertyRead[] } {
+    const chosen: ChosenColumn[] = []
+    const propertyReads: PropertyRead[] = []
+    columns.forEach((column, index) => {
         if (column.type === 'person_id') {
-            return { column, source: 'person_id', read: null }
+            chosen.push({ column, source: 'person_id' })
+            return
         }
         const alias = `column_${index}`
         const object = column.type === TaxonomicFilterGroupType.PersonProperties ? 'person.properties' : 'properties'
-        return {
-            column,
-            source: alias,
-            read: { alias, expression: `${object}.${escapeRawPropertyAsHogQLIdentifier(column.key)}` },
-        }
+        chosen.push({ column, source: alias })
+        propertyReads.push({ alias, expression: `${object}.${escapeRawPropertyAsHogQLIdentifier(column.key)}` })
     })
+    return { chosen, propertyReads }
 }
 
 /** A property can share its label with a fixed export column, and HogQL rejects a repeated alias. */
@@ -965,20 +972,16 @@ function uniqueColumnName(name: string, taken: string[]): string {
     return unique
 }
 
-function propertyReadsFor(chosen: ChosenColumn[]): PropertyRead[] {
-    return chosen.flatMap(({ read }) => (read ? [read] : []))
-}
-
 export function buildSurveyResponsesQuery(
     survey: Survey,
     filters: SurveyQueryFilters,
     responseColumns: SurveyResponseColumn[] = []
 ): string {
     const questions = getAnswerableQuestions(survey)
-    const chosen = chooseColumns(responseColumns)
+    const { chosen, propertyReads } = chooseColumns(responseColumns)
     const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
         includeRespondentMetadata: true,
-        propertyReads: propertyReadsFor(chosen),
+        propertyReads,
     })
     const answers = survey.questions.map((question, index) =>
         question.type !== SurveyQuestionType.Link ? mergedAnswerAlias(index) : 'NULL'
@@ -993,7 +996,7 @@ export function buildSurveyResponsesQuery(
         'submitted_at AS timestamp',
         'distinct_id AS respondent',
         ...chosen.map(
-            ({ column, source }) => `${source} AS ${escapePropertyAsHogQLIdentifier(surveyResponseColumnId(column))}`
+            ({ column, source }) => `${source} AS ${escapeRawPropertyAsHogQLIdentifier(surveyResponseColumnId(column))}`
         ),
         // Last, so the row actions stay in the rightmost column.
         'uuid AS actions',
@@ -1007,10 +1010,10 @@ export function buildSurveyResponsesExportQuery(
     responseColumns: SurveyResponseColumn[] = []
 ): DataTableNode & { source: HogQLQuery } {
     const questions = getAnswerableQuestions(survey)
-    const chosen = chooseColumns(responseColumns)
+    const { chosen, propertyReads } = chooseColumns(responseColumns)
     const merged = buildMergedSubmissionsSubquery(survey, filters, questions, {
         includeRespondentMetadata: true,
-        propertyReads: propertyReadsFor(chosen),
+        propertyReads,
     })
     const columns = ['Respondent ID', 'Email', 'Submitted at (UTC)', 'Status']
     const expressions = [
@@ -1043,7 +1046,7 @@ export function buildSurveyResponsesExportQuery(
         columns,
         source: {
             kind: NodeKind.HogQLQuery,
-            query: `SELECT ${expressions.map((expression, index) => `${expression} AS ${escapePropertyAsHogQLIdentifier(columns[index])}`).join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`,
+            query: `SELECT ${expressions.map((expression, index) => `${expression} AS ${escapeRawPropertyAsHogQLIdentifier(columns[index])}`).join(',\n')} FROM (${merged}) ORDER BY submitted_at DESC`,
         },
     }
 }

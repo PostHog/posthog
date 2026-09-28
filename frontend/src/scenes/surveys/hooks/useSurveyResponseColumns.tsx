@@ -4,7 +4,6 @@ import { useMemo } from 'react'
 import { IconLlmAnalytics, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import {
     getSurveyResponseStatus,
@@ -68,9 +67,7 @@ export function useSurveyResponseColumns(): Record<string, QueryContextColumn> {
             ...Object.fromEntries(
                 responseColumns.map((column): [string, QueryContextColumn] => [
                     surveyResponseColumnId(column),
-                    column.type === 'person_id'
-                        ? { title: surveyResponseColumnLabel(column) }
-                        : { renderTitle: () => <PropertyKeyInfo value={column.key} type={column.type} disableIcon /> },
+                    { title: surveyResponseColumnLabel(column) },
                 ])
             ),
             actions: {
