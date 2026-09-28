@@ -12,6 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { destinationPickerFilter } from './destinationPickerFilter'
 // Side-effect imports: register product-specific trigger and action nodes
 import '../registry'
 
@@ -258,19 +259,7 @@ function HogFlowEditorToolbarSection({ title, children }: { title: string; child
     )
 }
 
-// Destinations with secret inputs are allowed, because the hog flow API moves those inputs to
-// encrypted_inputs on save. Destinations that are not released yet stay hidden.
-const customFilterFunction = (template: HogFunctionTemplateType): boolean => {
-    if (template.type !== 'destination' || TEMPLATE_IDS_AT_TOP_LEVEL.includes(template.id)) {
-        return false
-    }
-
-    if (['hidden', 'coming_soon'].includes(template.status)) {
-        return false
-    }
-
-    return true
-}
+const customFilterFunction = destinationPickerFilter(TEMPLATE_IDS_AT_TOP_LEVEL)
 
 function HogFunctionTemplatesChooser({
     onActionSelect,
