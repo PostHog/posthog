@@ -419,8 +419,18 @@ def _candidate_conventional_tests(path: str) -> list[str]:
     return [str(candidate) for candidate in candidates if (REPO_ROOT / candidate).is_file()]
 
 
-def _existing_test_files(paths: list[str] | set[str]) -> list[str]:
-    return sorted(path for path in paths if (REPO_ROOT / path).is_file())
+def _pytest_ignored_prefixes() -> tuple[str, ...]:
+    """The --ignore paths in pytest.ini. pytest skips them when it walks a directory, but it still collects a file
+    that it gets by name, so a selected file under one of them fails collection."""
+    config = REPO_ROOT / "pytest.ini"
+    if not config.is_file():
+        return ()
+    return tuple(f"{path.rstrip('/')}/" for path in re.findall(r"--ignore[= ](\S+)", config.read_text()))
+
+
+def _runnable_test_files(paths: list[str] | set[str]) -> list[str]:
+    ignored = _pytest_ignored_prefixes()
+    return sorted(path for path in paths if (REPO_ROOT / path).is_file() and not path.startswith(ignored))
 
 
 def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[str]) -> None:
@@ -435,7 +445,7 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     all_test_files = set(features_by_path.keys())
 
     # ── 1. Changed test files themselves ─────────────────────────────
-    changed_tests = _existing_test_files([path for path in changed_files if _is_test_file(path)])
+    changed_tests = _runnable_test_files([path for path in changed_files if _is_test_file(path)])
     _add_group(groups, "changed_tests", changed_tests)
 
     # ── 2. Conventional test neighbors (test_<name>.py next to <name>.py) ─
@@ -574,15 +584,6 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
     )
 
 
-def _pytest_ignored_prefixes() -> tuple[str, ...]:
-    """The --ignore paths in pytest.ini. pytest skips them when it walks a directory, but it still collects a file
-    that it gets by name, so a selected file under one of them fails collection."""
-    config = REPO_ROOT / "pytest.ini"
-    if not config.is_file():
-        return ()
-    return tuple(f"{path.rstrip('/')}/" for path in re.findall(r"--ignore[= ](\S+)", config.read_text()))
-
-
 def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
     changed_py_files = [path for path in changed_files if path.endswith(".py")]
     if not changed_py_files:
@@ -594,14 +595,9 @@ def snob_select_tests(changed_files: list[str]) -> dict[str, Any]:
         return {"status": "error", "error": f"could not import snob_lib: {exc}", "tests": [], "count": 0}
 
     try:
-        selected = _existing_test_files(
-            {normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)}
-        )
+        tests = _runnable_test_files({normalize_repo_path(str(test)) for test in snob_lib.get_tests(changed_py_files)})
     except Exception as exc:
         return {"status": "error", "error": f"snob_lib.get_tests failed: {exc}", "tests": [], "count": 0}
-
-    ignored = _pytest_ignored_prefixes()
-    tests = [test for test in selected if not test.startswith(ignored)]
 
     return {"status": "ok", "tests": tests, "count": len(tests)}
 
@@ -706,7 +702,7 @@ def build_result(base_ref: str) -> dict[str, Any]:
     snob_selection = snob_select_tests(changed_files)
 
     snob_tests = [str(test) for test in snob_selection.get("tests", [])]
-    combined_tests = _existing_test_files(set(snob_tests) | set(ast_selection.tests))
+    combined_tests = _runnable_test_files(set(snob_tests) | set(ast_selection.tests))
 
     durations = load_durations()
     selected_seconds = estimate_duration(combined_tests, durations)
