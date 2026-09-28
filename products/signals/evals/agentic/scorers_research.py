@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
+from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall, is_schema_discovery_call
 from products.signals.evals.agentic.datasets import EvalCase, ResearchCase
 from products.signals.evals.agentic.scoring import DeterministicScorer, Score
 
 if TYPE_CHECKING:
     from products.signals.backend.report_generation.research import ReportResearchOutput
+    from products.signals.evals.agentic.runners import ResearchOutput
 
 
 def _expectation(case: EvalCase):
@@ -88,10 +91,34 @@ class FindingsVerifiedScorer(DeterministicScorer):
         ]
 
 
+def _is_data_query(call: ToolCall) -> bool:
+    return (
+        call.is_exec_unwrapped
+        and not call.is_error
+        and not call.name.startswith(INFO_SYNTHETIC_PREFIX)
+        and call.name != "read-data-schema"
+        and not is_schema_discovery_call(call)
+    )
+
+
+class DataEvidenceScorer(DeterministicScorer):
+    def __init__(self) -> None:
+        super().__init__("data_evidence_queried")
+
+    def grade(self, case: EvalCase, output: ResearchOutput) -> list[Score]:
+        if not _expectation(case).expect_data_evidence:
+            return []
+        queries = sorted(
+            {call.name for call in LogParser.cached(output.raw_log).get_tool_calls() if _is_data_query(call)}
+        )
+        return [Score.boolean(self.name, bool(queries), reasoning=f"data_queries={queries}")]
+
+
 def default_research_scorers() -> tuple[Any, ...]:
     return (
         ActionabilityScorer(),
         PriorityScorer(),
         AlreadyAddressedScorer(),
         FindingsVerifiedScorer(),
+        DataEvidenceScorer(),
     )

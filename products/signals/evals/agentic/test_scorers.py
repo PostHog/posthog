@@ -14,6 +14,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.evals.agentic.braintrust import decode_research
 from products.signals.evals.agentic.datasets import (
     RepoSelectionCase,
     RepoSelectionExpectation,
@@ -127,6 +128,23 @@ def test_priority_scorer_handles_missing_priority(_name: str, acceptable: tuple,
     output = _good_research_output()
     output.new_artefacts = [a for a in output.new_artefacts if not isinstance(a, PriorityAssessment)]
     assert _score(default_research_scorers(), case, output)["priority_correct"] is expected
+
+
+@parameterized.expand(
+    [
+        ("sql_query", 'call execute-sql {"query":"SELECT count() FROM events"}', True),
+        ("insight_query", 'call query-trends {"series":[]}', True),
+        ("command_schema", "info query-trends", False),
+        ("event_schema", 'call read-data-schema {"query":{"kind":"events"}}', False),
+        ("catalog_sql", 'call execute-sql {"query":"SELECT name FROM system.information_schema.tables"}', False),
+    ]
+)
+def test_data_evidence_scorer_requires_a_data_query(_name: str, command: str, expected: bool):
+    case = ResearchCase(case_id="rc_data", step="research", expected=ResearchExpectation(expect_data_evidence=True))
+    output = decode_research(
+        {**_good_research_output().model_dump(mode="json"), "raw_log": _repository_cache_log(command, "42")}
+    )
+    assert _score(default_research_scorers(), case, output) == {"data_evidence_queried": expected}
 
 
 def test_repo_selection_scorer_discriminates():
