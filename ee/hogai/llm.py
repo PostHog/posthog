@@ -441,6 +441,8 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         }
         if conversation_id:
             labels["conversation_id"] = conversation_id
+        # Stands in for $ai_span_name, which evaluations and analyses use to select PostHog AI generations.
+        labels["ai_span_name"] = kwargs.get("run_name") or self.get_name()
         # Support-trace filters read this property, which the SDK handler sets only on its own events.
         if configurable.get("is_impersonated"):
             labels["ai_support_impersonated"] = "true"
