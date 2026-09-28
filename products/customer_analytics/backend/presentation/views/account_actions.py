@@ -24,6 +24,7 @@ from products.customer_analytics.backend.facade import (
 from products.customer_analytics.backend.presentation.views.ownership_serializers import (
     ExternalAccountOwnershipSerializer,
 )
+from products.customer_analytics.backend.presentation.views.serializers import AccountPropertiesField
 
 ACCOUNT_ACTION_AUTH_COUNTER = Counter(
     "posthog_customer_analytics_account_action_auth_total",
@@ -169,6 +170,16 @@ class ExternalAccountCreateSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Name for a new account. Ignored when the account already exists. Blank means no name.",
     )
+    properties = AccountPropertiesField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, "
+            "hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, "
+            "metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account "
+            "already exists."
+        ),
+    )
 
 
 @extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}, {"type": "null"}]})
@@ -255,8 +266,11 @@ def handle_account_create(request: Request, team: Team) -> Response:
             team,
             external_id=external_id,
             name=data.get("name") or None,
+            properties=data.get("properties"),
             workflow_id=_workflow_id_from_request(request),
         )
+    except facade.AccountPropertiesValidationError as exc:
+        return Response({"error": f"Invalid account properties: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
     except facade.AccountConflictError:
         # Lost a concurrent-create race; the account exists now, so honor no-op semantics.
         existing = facade.get_external_account(team.id, external_id)

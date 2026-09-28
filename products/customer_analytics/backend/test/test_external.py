@@ -580,11 +580,47 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(response.json()["name"], "new-1")
 
     def test_post_existing_account_is_a_noop(self):
-        response = self._post({"external_id": "acme-1", "name": "Renamed"})
+        response = self._post(
+            {"external_id": "acme-1", "name": "Renamed", "properties": {"stripe_customer_id": "cus_new"}}
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Acme Corp")
         self.account.refresh_from_db()
         self.assertEqual(self.account.name, "Acme Corp")
+        self.assertIsNone(self.account.properties.stripe_customer_id)
+
+    def test_post_stores_supplied_properties(self):
+        response = self._post(
+            {
+                "external_id": "new-1",
+                "properties": {
+                    "website_domain": "https://www.example.com/pricing",
+                    "stripe_customer_id": "cus_123",
+                    "sfdc_id": "001ABC",
+                    "slack_channel_id": "C0123",
+                },
+            }
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        properties = Account.objects.for_team(self.team.id).get(external_id="new-1").properties
+        self.assertEqual(properties.website_domain, "example.com")
+        self.assertEqual(properties.stripe_customer_id, "cus_123")
+        self.assertEqual(properties.sfdc_id, "001ABC")
+        self.assertEqual(properties.slack_channel_id, "C0123")
+
+    @parameterized.expand(
+        [
+            ("unknown_key", {"favorite_color": "blue"}),
+            ("wrong_type", {"email_domains": "example.com"}),
+            ("not_an_object", ["cus_123"]),
+        ]
+    )
+    def test_post_rejects_invalid_properties(self, _name, properties):
+        response = self._post({"external_id": "new-1", "properties": properties})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="new-1").exists())
 
     @parameterized.expand([("missing", {}), ("blank", {"external_id": "   "})])
     def test_post_requires_external_id(self, _name, payload):

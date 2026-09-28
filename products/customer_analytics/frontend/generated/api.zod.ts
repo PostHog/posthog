@@ -29,6 +29,35 @@ export const CustomerAnalyticsExternalAccountCreateBody = /* @__PURE__ */ zod.ob
         .max(customerAnalyticsExternalAccountCreateBodyNameMax)
         .nullish()
         .describe('Name for a new account. Ignored when the account already exists. Blank means no name.'),
+    properties: zod
+        .object({
+            website_domain: zod
+                .string()
+                .nullish()
+                .describe('Primary company website hostname used for account identity and logo lookup.'),
+            email_domains: zod
+                .array(zod.string())
+                .optional()
+                .describe(
+                    "Email domains owned by this account's company, used to match inbound touchpoints to the account."
+                ),
+            known_emails: zod
+                .array(zod.string())
+                .optional()
+                .describe('Individual email addresses pinned to this account, matched before the domain fallback.'),
+            stripe_customer_id: zod.string().nullish(),
+            hubspot_deal_id: zod.string().nullish(),
+            billing_id: zod.string().nullish(),
+            sfdc_id: zod.string().nullish(),
+            zendesk_id: zod.string().nullish(),
+            slack_channel_id: zod.string().nullish(),
+            usage_dashboard_link: zod.string().nullish(),
+            metabase_link: zod.string().nullish(),
+        })
+        .nullish()
+        .describe(
+            'Typed properties for a new account: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), email_domains and known_emails. Unknown keys are rejected. Ignored when the account already exists.'
+        ),
 })
 
 export const accountRelationshipDefinitionsCreateBodyNameMax = 400
