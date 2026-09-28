@@ -262,6 +262,7 @@ export function BroadcastSummary(): JSX.Element {
         scheduleSummary,
         batchJobs,
         batchJobsLoading,
+        hasLoadedBatchJobs,
         canMoveToDraft,
         movingToDraft,
         canEditContent,
@@ -331,7 +332,7 @@ export function BroadcastSummary(): JSX.Element {
                   label: 'Archive',
                   status: 'danger' as const,
                   onClick: archiveBroadcast,
-                  disabledReason: archiveDisabledReason(batchJobs.map((job) => job.status)),
+                  disabledReason: archiveDisabledReason(hasLoadedBatchJobs ? batchJobs.map((job) => job.status) : null),
                   'data-attr': 'broadcast-archive',
               },
         isArchived

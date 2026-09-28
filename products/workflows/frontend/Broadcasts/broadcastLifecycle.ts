@@ -9,8 +9,14 @@ export interface ManagedBroadcast {
 
 const RUNNING_BATCH_JOB_STATUSES = ['waiting', 'queued', 'active']
 
-/** Archiving only cancels a running send's people as they come up, so a send in flight is stopped first. */
-export function archiveDisabledReason(batchJobStatuses: (string | null | undefined)[]): string | undefined {
+/**
+ * Archiving only cancels a running send's people as they come up, so a send in flight is stopped first.
+ * Null means the runs haven't loaded, and a send could be running.
+ */
+export function archiveDisabledReason(batchJobStatuses: (string | null | undefined)[] | null): string | undefined {
+    if (batchJobStatuses === null) {
+        return 'Checking whether a send is running'
+    }
     return batchJobStatuses.some((status) => RUNNING_BATCH_JOB_STATUSES.includes(status ?? ''))
         ? 'This broadcast is sending. Wait for it to finish before archiving it.'
         : undefined

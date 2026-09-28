@@ -125,9 +125,9 @@ export function BroadcastsTable(): JSX.Element {
                                         fullWidth
                                         status="danger"
                                         onClick={() => archiveBroadcast(item)}
-                                        disabledReason={archiveDisabledReason([
-                                            rowDetailsById[item.id]?.latestBatchJob?.status,
-                                        ])}
+                                        disabledReason={archiveDisabledReason(
+                                            rowDetailsById[item.id]?.batchJobStatuses ?? null
+                                        )}
                                         data-attr="broadcast-row-archive"
                                     >
                                         Archive

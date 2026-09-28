@@ -37,6 +37,8 @@ export interface BroadcastRowDetails {
     totals: Record<string, number> | null
     /** Whether an active schedule has sends still to come. Unset when the schedules couldn't load. */
     hasPendingSchedule?: boolean
+    /** Every run's status, newest first. An older run can still be sending after a newer one finished. */
+    batchJobStatuses?: (string | null | undefined)[]
 }
 
 /** Rows per page. Each row loads its latest run and metrics, so a page stays small enough to enrich. */
@@ -400,6 +402,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             for (const broadcast of broadcasts.results ?? []) {
                 void (async () => {
                     let latestBatchJob: HogFlowBatchJobApi | null
+                    let batchJobStatuses: (string | null | undefined)[]
                     let hasPendingSchedule: boolean | undefined
                     try {
                         // The list rows carry no schedules, and a recurring broadcast between runs needs them
@@ -412,6 +415,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                                       hogFlowsSchedulesList(String(projectId), broadcast.id).catch(() => undefined),
                                   ])
                         latestBatchJob = batchJobs[0] ?? null
+                        batchJobStatuses = batchJobs.map((job) => job.status)
                         hasPendingSchedule = schedules?.some((schedule) => schedule.status === 'active')
                     } catch {
                         if (isCurrent()) {
@@ -426,6 +430,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         latestBatchJob,
                         totals: latestBatchJob ? null : {},
                         hasPendingSchedule,
+                        batchJobStatuses,
                     })
                     if (!latestBatchJob) {
                         return
@@ -433,7 +438,12 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                     try {
                         const totals = await loadRunMetricTotals(latestBatchJob, values.currentTeam?.timezone ?? 'UTC')
                         if (isCurrent()) {
-                            actions.setRowDetails(broadcast.id, { latestBatchJob, totals, hasPendingSchedule })
+                            actions.setRowDetails(broadcast.id, {
+                                latestBatchJob,
+                                totals,
+                                hasPendingSchedule,
+                                batchJobStatuses,
+                            })
                         }
                     } catch {
                         // The counts stay unknown; the status already rendered from the run.
