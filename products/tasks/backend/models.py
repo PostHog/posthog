@@ -1083,6 +1083,7 @@ class Task(DeletedMetaFields, models.Model):
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
         self_driving_head_branch: str | None = None,
+        stack_base_branch: str | None = None,
         pending_user_message: str | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
@@ -1345,6 +1346,12 @@ class Task(DeletedMetaFields, models.Model):
         if self_driving_head_branch:
             extra_state["self_driving_head_branch"] = self_driving_head_branch
 
+        # A stacked run checks out the head branch of the pull request it builds on. That branch
+        # heads an open PR, so without this marker the launch would protect that PR's base instead
+        # and let the run push into the lower layer.
+        if stack_base_branch:
+            extra_state["stack_base_branch"] = stack_base_branch
+
         # The first message handed to the agent once its server is ready (forward_pending_user_message
         # reads it from run state). Without it a background run boots the agent idle — it never gets a
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
@@ -1459,6 +1466,7 @@ class Task(DeletedMetaFields, models.Model):
         wizard_config: dict | None = None,
         wizard_head_branch: str | None = None,
         self_driving_head_branch: str | None = None,
+        stack_base_branch: str | None = None,
         pending_user_message: str | None = None,
         workflow_id_prefix: str | None = None,
         scheduled_at: datetime | None = None,
@@ -1520,6 +1528,7 @@ class Task(DeletedMetaFields, models.Model):
             wizard_config=wizard_config,
             wizard_head_branch=wizard_head_branch,
             self_driving_head_branch=self_driving_head_branch,
+            stack_base_branch=stack_base_branch,
             pending_user_message=pending_user_message,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,

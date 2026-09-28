@@ -2526,6 +2526,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
     {
         "run_source",
         "pr_base_branch",
+        "stack_base_branch",
         "github_credential_source",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",

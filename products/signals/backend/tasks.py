@@ -647,6 +647,25 @@ def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: 
 
 
 @shared_task(
+    name="products.signals.backend.tasks.start_dependent_stack_layers",
+    ignore_result=True,
+    max_retries=0,
+    soft_time_limit=210,
+    time_limit=240,
+)
+@with_team_scope()
+def start_dependent_stack_layers(team_id: int, report_id: str) -> None:
+    """Start the stack layers that wait on this report, now that it has a pull request.
+
+    Runs on a worker because auto-start creates tasks and must not hold up the pull request sync
+    that queued it. This never retries: the next pull request event on the report queues it again.
+    """
+    from products.signals.backend.stack_plan import start_dependent_layers  # noqa: PLC0415
+
+    start_dependent_layers(team_id=team_id, report_id=report_id)
+
+
+@shared_task(
     name="products.signals.backend.tasks.open_implementation_pr_for_review",
     ignore_result=True,
     max_retries=0,
