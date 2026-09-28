@@ -38,6 +38,8 @@ interface SetupWidgetCardProps {
     tone: WidgetTone
     size: WidgetSize
     loading?: boolean
+    /** Blocks clicks, e.g. while a request that `onClick` would repeat is in flight. */
+    disabled?: boolean
     /** One-line context, shown on `lg` cards only. */
     description?: string
     onClick?: () => void
@@ -91,10 +93,10 @@ const CARD_PADDING_CLASS: Record<WidgetSize, string> = {
 }
 
 function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
-    const { icon, title, status, tone, size, loading, description, onClick, to, children } = props
+    const { icon, title, status, tone, size, loading, disabled, description, onClick, to, children } = props
 
     const cardClassName = cn(
-        'group flex rounded border border-primary bg-surface-primary text-left no-underline cursor-pointer transition-colors hover:border-secondary',
+        'group flex rounded border border-primary bg-surface-primary text-left no-underline cursor-pointer transition-colors hover:border-secondary disabled:cursor-default disabled:hover:border-primary',
         size === 'sm' ? 'items-center justify-between gap-2' : 'flex-col',
         CARD_PADDING_CLASS[size]
     )
@@ -159,7 +161,7 @@ function SetupWidgetCard(props: SetupWidgetCardProps): JSX.Element {
         )
     }
     return (
-        <button type="button" onClick={onClick} className={cardClassName}>
+        <button type="button" onClick={onClick} disabled={disabled} className={cardClassName}>
             {content}
         </button>
     )
@@ -208,6 +210,8 @@ function CodeAccessWidget(): JSX.Element {
     const hasGithub = getIntegrationsByKind(['github']).length > 0
     // The loader keeps its last list on failure, so a null list after loading means the first fetch failed.
     const loadFailed = integrations === null && !integrationsLoading
+    // Background polls keep the last known status on screen; only a load with no list yet shows the skeleton.
+    const firstLoadInFlight = integrations === null && integrationsLoading
 
     // The GitHub App install finishes on github.com and returns to a settings page, often in another tab.
     // Refetch on an interval and on window focus until GitHub shows up, so the card does not stay stale.
@@ -225,7 +229,8 @@ function CodeAccessWidget(): JSX.Element {
             title="Code access"
             size="md"
             tone={hasGithub ? 'done' : loadFailed ? 'neutral' : 'todo'}
-            loading={integrationsLoading && !hasGithub}
+            loading={firstLoadInFlight}
+            disabled={firstLoadInFlight}
             status={
                 hasGithub
                     ? 'GitHub connected'
