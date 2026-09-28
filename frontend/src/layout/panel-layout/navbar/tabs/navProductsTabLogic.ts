@@ -506,11 +506,18 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                     },
                     {
                         path: 'Activity',
-                        displayLabel: 'Activity and people',
                         category: PINNED_CATEGORY,
                         iconType: 'activity',
                         href: urls.activity(ActivityTab.ExploreEvents),
                         visualOrder: 2,
+                    },
+                    {
+                        path: 'Persons',
+                        displayLabel: 'People and groups',
+                        category: PINNED_CATEGORY,
+                        iconType: 'persons',
+                        href: urls.persons(),
+                        visualOrder: 3,
                     },
                     ...getDefaultTreeProducts().map(
                         (item): FileSystemImport =>
@@ -524,7 +531,6 @@ export const navProductsTabLogic = kea<navProductsTabLogicType>([
                                   }
                                 : item
                     ),
-                    // Persons, cohorts and groups are tabs of the Activity and people scene, so they are not listed here.
                     ...getDefaultTreeData(),
                 ]
                 const destinations = new Map<string, FileSystemImport>()
