@@ -67,6 +67,7 @@ from products.signals.backend.signal_metadata import (
     fetch_source_products_for_reports,
     fetch_source_references_for_report,
 )
+from products.signals.backend.stack_plan import dependency_head_branch
 from products.signals.backend.supersession import (
     TargetVerificationUnavailable,
     decision_is_current,
@@ -309,6 +310,17 @@ def _head_branch_instruction(head_branch: str) -> str:
         "PR from it. This name was pre-generated for this run: PostHog uses it to link the opened PR "
         "back to the run for automated review, and a PR from any other branch name will not be "
         "recognized. Do NOT choose a different branch name."
+    )
+
+
+def _stack_base_instruction(stack_base_branch: str | None) -> str:
+    if not stack_base_branch:
+        return ""
+    return (
+        f"\n\nThis report is one layer of a stack of dependent pull requests. The run starts on "
+        f"`{stack_base_branch}`, the head branch of the pull request this layer builds on. Open your PR "
+        f"with `{stack_base_branch}` as its base, and do not push to that branch. Change only what this "
+        "layer's summary asks for, because the layer below already carries the rest."
     )
 
 
@@ -692,6 +704,7 @@ def _create_implementation_task_if_absent(
     user_id: int,
     repository: str,
     base_branch: str | None,
+    stack_base_branch: str | None = None,
     billing_exempt_reason: str | None = None,
     steering: ReportSteering = NO_STEERING,
     free_trial_enabled: bool | None = None,
@@ -844,6 +857,7 @@ def _create_implementation_task_if_absent(
             # The pre-generated branch the description instructs the agent to push to; stamped
             # into protected run state so the review carve-out can verify the PR is this run's.
             self_driving_head_branch=head_branch,
+            stack_base_branch=stack_base_branch,
             # Internal so the run stays out of the default task list; the report surfaces it by id.
             internal=True,
             runtime_adapter=agent_runtime.runtime_adapter,
@@ -1488,6 +1502,11 @@ async def maybe_autostart_implementation_task(
         return AutostartOutcome(status="blocked", reason="Organization is on a free trial")
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
+    stack_base_branch = await database_sync_to_async(dependency_head_branch, thread_sensitive=False)(
+        team_id=team_id, report_id=report_id, repository=repository
+    )
+    if stack_base_branch:
+        base_branch = stack_base_branch
 
     source_references = await database_sync_to_async(_fetch_source_references, thread_sensitive=False)(
         team_id, report_id
@@ -1511,10 +1530,12 @@ async def maybe_autostart_implementation_task(
                 source_references=source_references,
                 steering=steering,
                 supersede=supersede,
-            ),
+            )
+            + _stack_base_instruction(stack_base_branch),
             user_id=task_user.id,
             repository=repository,
             base_branch=base_branch,
+            stack_base_branch=stack_base_branch,
             billing_exempt_reason=billing_exempt_reason,
             steering=steering,
             # The verdict resolved above, so the create-time gate re-reads no flag while it holds the
