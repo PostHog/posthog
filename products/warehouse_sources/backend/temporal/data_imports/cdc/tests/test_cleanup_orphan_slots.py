@@ -3,7 +3,7 @@ import datetime as dt
 from contextlib import contextmanager
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -154,20 +154,26 @@ def test_deleted_source_purges_shadow_buffer_prefixes(team):
     assert [call.args[1] for call in mock_purge.call_args_list] == [str(schema.id)]
 
 
-def test_critical_lag_posthog_auto_drop_marks_broken_and_pauses(team):
+@pytest.mark.parametrize("slot_survives_drop, stopped", [(False, True), (True, False)])
+def test_critical_lag_posthog_auto_drop_stops_capture_once_the_slot_is_gone(team, slot_survives_drop, stopped):
     source = _create_source(team, job_inputs=_cdc_job_inputs(auto_drop_slot=True))
     schema = _create_cdc_schema(team, source)
-    adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)  # 5000 MB > 2048 MB critical default
+    adapter = _mock_adapter(
+        lag_bytes=5000 * 1024 * 1024,  # 5000 MB > 2048 MB critical default
+        slot_survives_drop=slot_survives_drop,
+    )
 
     _, _, mock_pause = _run(adapter)
 
     adapter.drop_resources.assert_called_once()
     source.refresh_from_db()
-    assert source.status == ExternalDataSource.Status.ERROR
+    assert (source.status == ExternalDataSource.Status.ERROR) is stopped
     schema.refresh_from_db()
-    assert schema.status == ExternalDataSchema.Status.FAILED
-    assert schema.sync_type_config["cdc_broken"]["reason"] == "auto_dropped_critical_lag"
-    mock_pause.assert_called_once_with(str(source.id))
+    assert (schema.status == ExternalDataSchema.Status.FAILED) is stopped
+    assert schema.sync_type_config.get("cdc_broken", {}).get("reason") == (
+        "auto_dropped_critical_lag" if stopped else None
+    )
+    assert mock_pause.call_args_list == ([call(str(source.id))] if stopped else [])
 
 
 @pytest.mark.parametrize(
@@ -301,7 +307,7 @@ def test_a_slot_that_survives_the_drop_keeps_billing_capture_running(team):
     with patch(f"{_BILLING_EXPIRY}.is_team_limited", return_value=True):
         _, _, mock_pause = _run(adapter)
 
-    adapter.drop_resources.assert_called_once()
+    adapter.drop_resources.assert_called()
     mock_pause.assert_not_called()
     adapter.get_lag_bytes.assert_called_once()
     source.refresh_from_db()

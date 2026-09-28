@@ -2833,6 +2833,7 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_adapter.parse_cdc_config.return_value = cdc_config
         mock_adapter.get_lag_bytes.return_value = lag_mb * 1024 * 1024
         mock_adapter.get_retention_cap_mb.return_value = cap_mb
+        mock_adapter.slot_exists.return_value = False
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 

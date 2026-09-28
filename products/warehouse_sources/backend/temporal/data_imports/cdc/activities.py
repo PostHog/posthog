@@ -2311,7 +2311,6 @@ def cleanup_orphan_slots_activity() -> None:
                 metrics.get_sweeper_source_errors_metric().add(1)
                 sources_errored += 1
                 past_billing_retention = False
-            billing_stop_failed = False
             if past_billing_retention:
                 source_log.warning("cdc_stopping_past_billing_retention")
                 try:
@@ -2319,13 +2318,10 @@ def cleanup_orphan_slots_activity() -> None:
                         slots_dropped += 1
                     continue
                 except Exception:
-                    # The source keeps running, so the lag check below still observes it until a later sweep
-                    # stops it. Its auto-drop is skipped: the slot may have just survived a drop, and that path
-                    # pauses capture without confirming the slot is gone.
+                    # The source keeps running, so the lag check below still covers it until a later sweep stops it.
                     source_log.exception("failed_to_stop_cdc_past_billing_retention")
                     metrics.get_sweeper_source_errors_metric().add(1)
                     sources_errored += 1
-                    billing_stop_failed = True
 
             # 3. Active sources — check WAL lag
             source_started = dt.datetime.now(tz=dt.UTC)
@@ -2358,11 +2354,18 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb=retention_cap_mb,
                 )
 
-                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot and not billing_stop_failed:
+                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
                     source_log.warning("auto_dropping_slot_critical_lag")
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:
                             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                            # drop_resources is best-effort, so it logs a refused drop (an active slot, a missing
+                            # grant) instead of raising. Pausing capture then would leave nothing to advance the
+                            # slot, so the source keeps running and the next sweep retries the drop.
+                            if adapter.slot_exists(conn, cdc_config.slot_name):
+                                raise RuntimeError(
+                                    f"Replication slot {cdc_config.slot_name} still exists after the drop"
+                                )
 
                         slots_dropped += 1
                         metrics.get_auto_drop_metric(source.team_id, str(source.id)).add(1)
