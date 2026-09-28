@@ -3412,10 +3412,15 @@ export const TasksRunsSetOutputPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Replace the running summary for a task run.
+ * Replace the running summary for a task run, and optionally its slug tags.
  * @summary Set task run summary
  */
 export const tasksRunsSetSummaryPartialUpdateBodySummaryMax = 1500
+
+export const tasksRunsSetSummaryPartialUpdateBodyTagsItemMax = 50
+
+export const tasksRunsSetSummaryPartialUpdateBodyTagsItemRegExp = new RegExp('^[a-z0-9]+(?:-[a-z0-9]+)\*$(?!\\n)')
+export const tasksRunsSetSummaryPartialUpdateBodyTagsMax = 10
 
 export const TasksRunsSetSummaryPartialUpdateBody = /* @__PURE__ */ zod.object({
     summary: zod
@@ -3423,6 +3428,19 @@ export const TasksRunsSetSummaryPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(tasksRunsSetSummaryPartialUpdateBodySummaryMax)
         .optional()
         .describe('Complete running summary that replaces the prior summary.'),
+    tags: zod
+        .array(
+            zod
+                .string()
+                .max(tasksRunsSetSummaryPartialUpdateBodyTagsItemMax)
+                .regex(tasksRunsSetSummaryPartialUpdateBodyTagsItemRegExp)
+                .describe('A lowercase kebab-case slug, for example `feature-flags` or `bug-fix`.')
+        )
+        .max(tasksRunsSetSummaryPartialUpdateBodyTagsMax)
+        .optional()
+        .describe(
+            'Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.'
+        ),
 })
 
 /**
