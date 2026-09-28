@@ -83,6 +83,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _session_init_probe_hosts,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     AgentServerResult,
     ExecutionResult,
@@ -1024,7 +1025,7 @@ class TestModalSandboxAgentServer:
     @pytest.mark.parametrize(
         "marker, message",
         [
-            ("claude_credential_unavailable", "The Claude token did not arrive"),
+            ("claude_credential_unavailable", CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE),
             ("codex_credential_unavailable", CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE),
         ],
     )

@@ -39,6 +39,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.sandbox import (
+    CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
     CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
     SandboxBase,
@@ -542,7 +543,7 @@ class AgentServerLaunchMixin(SandboxBase):
             )
         if result.exit_code == AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE:
             raise ProcessTaskFatalError(
-                "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+                CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
                 {"sandbox_id": self.id},
                 RuntimeError("Claude token unavailable"),
                 capture=False,
@@ -802,7 +803,7 @@ class AgentServerLaunchMixin(SandboxBase):
         marker = _credential_marker(*sources)
         if marker == CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER:
             return ProcessTaskFatalError(
-                "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+                CLAUDE_CREDENTIAL_UNAVAILABLE_MESSAGE,
                 context,
                 RuntimeError("Claude token unavailable"),
                 capture=False,
