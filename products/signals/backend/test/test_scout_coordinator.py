@@ -48,6 +48,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _resolve_dispatch_smear_seconds,
     _resolve_enrolled,
     _resolve_github_read_access,
+    _resolve_global_max_operational_runs_per_tick,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_slot_aligned_dispatch,
@@ -467,6 +468,21 @@ def test_resolve_enrolled_wildcard(wildcard, in_explicit, in_skip, expected):
 )
 def test_resolve_global_max_runs_per_tick(payload, expected):
     assert _resolve_global_max_runs_per_tick(payload, MAX_RUNS_PER_TICK) == expected
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        (None, 200),
+        ({"max_operational_runs_per_tick_global": 50}, 50),
+        ({"max_operational_runs_per_tick_global": 0}, 200),
+        ({"max_operational_runs_per_tick_global": True}, 200),
+        # The product ceiling is a separate key, so raising it does not widen the operational one.
+        ({"max_runs_per_tick_global": 5000}, 200),
+    ],
+)
+def test_resolve_global_max_operational_runs_per_tick(payload, expected):
+    assert _resolve_global_max_operational_runs_per_tick(payload, 200) == expected
 
 
 # `dispatch_smear_seconds: 0` is the no-deploy kill switch for paced fan-out, so a key that
@@ -1169,6 +1185,37 @@ async def test_global_cap_is_split_fairly_across_teams(ateam, aother_team):
         (ateam.id, "signals-scout-a2"),
         (aother_team.id, "signals-scout-b1"),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_operational_scouts_have_their_own_tick_budget(ateam, aother_team):
+    # Never-run operational lanes are maximally overdue. In a shared budget they would take every
+    # slot from the product scouts, so each pool is capped on its own.
+    now = timezone.now()
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-product")
+    await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-product", enabled=True, run_interval_minutes=60, last_run_at=now - timedelta(hours=5)
+    )
+    await database_sync_to_async(_create_skill)(ateam, _OPERATIONAL_SCOUT)
+    await database_sync_to_async(_create_config)(ateam, _OPERATIONAL_SCOUT, enabled=True, auto_pause_exempt=True)
+
+    def _seed_other():
+        with team_scope(aother_team.id, canonical=True):
+            _create_skill(aother_team, _OPERATIONAL_SCOUT)
+            _create_config(aother_team, _OPERATIONAL_SCOUT, enabled=True, auto_pause_exempt=True)
+
+    await database_sync_to_async(_seed_other)()
+
+    with (
+        patch("products.signals.backend.temporal.agentic.scout_coordinator.MAX_RUNS_PER_TICK", 1),
+        patch("products.signals.backend.temporal.agentic.scout_coordinator.MAX_OPERATIONAL_RUNS_PER_TICK", 1),
+    ):
+        planned = await _run_activity()
+
+    assert sorted((p.team_id, p.skill_name) for p in planned) == sorted(
+        [(ateam.id, "signals-scout-product"), (min(ateam.id, aother_team.id), _OPERATIONAL_SCOUT)]
+    )
 
 
 # ── Per-team config overrides via the flag payload (optional, opt-in per team) ───

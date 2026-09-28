@@ -371,6 +371,23 @@ def _resolve_global_max_runs_per_tick(payload: dict | None, default: int) -> int
     return default
 
 
+# Flag payload key overriding the separate per-tick ceiling for operational scouts (the
+# coordinator's `MAX_OPERATIONAL_RUNS_PER_TICK`). Operational runs draw from this budget and not
+# from `max_runs_per_tick_global`, so a wave of them cannot defer the scouts that watch a team's
+# product. Absent / malformed / non-positive → the code default the coordinator passes in.
+GLOBAL_MAX_OPERATIONAL_RUNS_PER_TICK_KEY = "max_operational_runs_per_tick_global"
+
+
+def _resolve_global_max_operational_runs_per_tick(payload: dict | None, default: int) -> int:
+    """Effective per-tick dispatch ceiling for operational scouts: the flag override if valid, else `default`."""
+    if payload is None:
+        return default
+    override = payload.get(GLOBAL_MAX_OPERATIONAL_RUNS_PER_TICK_KEY)
+    if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+        return override
+    return default
+
+
 DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
 
 

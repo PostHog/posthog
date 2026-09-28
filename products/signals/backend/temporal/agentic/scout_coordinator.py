@@ -30,7 +30,7 @@ from products.signals.backend.scout_harness.config_registry import (
     reconcile_operational_configs,
     register_missing_configs,
 )
-from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import is_operational_scout, sync_canonical_skills
 from products.signals.backend.scout_harness.limits import (
     AUTO_PAUSE_PROBE_INTERVAL_S,
     COORDINATOR_INTERVAL_MINUTES,
@@ -51,6 +51,7 @@ from products.signals.backend.scout_harness.team_limits import (
     _parse_enrollment,
     _read_flag_payload,
     _resolve_dispatch_smear_seconds,
+    _resolve_global_max_operational_runs_per_tick,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
     _resolve_max_runs_per_tick,
@@ -75,6 +76,13 @@ logger = structlog.get_logger(__name__)
 # Set generously for now while scouts roll out to more teams — the per-team tick cap and
 # round-robin allocation do the day-to-day fairness work; this is the global ceiling.
 MAX_RUNS_PER_TICK = 1000
+
+# Separate per-tick ceiling for operational scouts (`scout-role: operational`). They run on every
+# enrolled team, so one fleet-wide change to their posture can make thousands of them due in the
+# same tick. A never-run lane is maximally overdue, so in a shared budget they would take the
+# slots of the product scouts. Their own budget keeps `MAX_RUNS_PER_TICK` for product scouts and
+# bounds what a wave of operational runs costs.
+MAX_OPERATIONAL_RUNS_PER_TICK = 200
 
 # The tick grid itself (`COORDINATOR_INTERVAL_MINUTES`, `DUE_GRACE_SECONDS`,
 # `dispatch_ticks_per_interval`) lives in `scout_harness/limits.py` so the failure breaker can
@@ -174,7 +182,8 @@ async def fetch_enabled_signals_scout_runs_activity(
 
     Scans dogfood teams (gated by the `signals-scout` flag), auto-registers a config row
     for any `signals-scout-*` skill missing one, and dispatches each enabled scout whose
-    schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK.
+    schedule is due — most-overdue first, capped at MAX_RUNS_PER_TICK (MAX_OPERATIONAL_RUNS_PER_TICK
+    for operational scouts).
     """
     async with Heartbeater():
         # Read the flag payload once, off the DB thread pool — the SDK call can block on a cold
@@ -189,9 +198,16 @@ async def fetch_enabled_signals_scout_runs_activity(
         # snapshot, falling back to the code constant. `MAX_RUNS_PER_TICK` is read at call time so
         # tests patching the module global still take effect.
         global_max_runs_per_tick = _resolve_global_max_runs_per_tick(payload, MAX_RUNS_PER_TICK)
+        global_max_operational_runs_per_tick = _resolve_global_max_operational_runs_per_tick(
+            payload, MAX_OPERATIONAL_RUNS_PER_TICK
+        )
         smear_seconds = _resolve_dispatch_smear_seconds(payload, DISPATCH_SMEAR_SECONDS)
         planned = await database_sync_to_async(_collect_planned_runs, thread_sensitive=False)(
-            enrollment, team_configs, default_team_config, global_max_runs_per_tick
+            enrollment,
+            team_configs,
+            default_team_config,
+            global_max_runs_per_tick,
+            global_max_operational_runs_per_tick,
         )
     logger.info("signals_scout coordinator: planned runs", count=len(planned))
     increment_coordinator_tick(len(planned))
@@ -336,12 +352,13 @@ def _collect_planned_runs(
     team_configs: dict[int, dict] | None = None,
     default_team_config: dict | None = None,
     max_runs_per_tick: int | None = None,
+    max_operational_runs_per_tick: int | None = None,
 ) -> list[PlannedRun]:
     """Sync DB scan. Runs in a worker thread via Django's per-thread connection mgmt.
 
     Takes the parsed enrollment (explicit allowlist + the `"*"` wildcard), the optional per-team
-    config overrides, the fleet-wide default config, and the resolved global per-tick ceiling — so
-    the flag reads all stay off this DB pool.
+    config overrides, the fleet-wide default config, and the resolved global per-tick ceilings for
+    product and operational scouts — so the flag reads all stay off this DB pool.
     """
     now = timezone.now()
     team_configs = _canonicalize_team_config_keys(team_configs or {})
@@ -418,7 +435,17 @@ def _collect_planned_runs(
         d.team_id for d in due if _resolve_max_runs_per_day(d.team_id, team_configs, default_team_config) is not None
     }
     runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
-    selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today, max_runs_per_tick)
+    # Operational scouts draw from their own budget, so they never defer a product scout.
+    product_due = [d for d in due if not is_operational_scout(d.skill_name)]
+    operational_due = [d for d in due if is_operational_scout(d.skill_name)]
+    selected = _allocate_tick_budget(product_due, team_configs, default_team_config, runs_today, max_runs_per_tick)
+    selected += _allocate_tick_budget(
+        operational_due,
+        team_configs,
+        default_team_config,
+        runs_today,
+        max_operational_runs_per_tick if max_operational_runs_per_tick is not None else MAX_OPERATIONAL_RUNS_PER_TICK,
+    )
     planned = [PlannedRun(team_id=d.team_id, skill_name=d.skill_name) for d in selected]
     # Stable order for predictable child-workflow ids within the tick.
     planned.sort(key=lambda p: (p.team_id, p.skill_name))
