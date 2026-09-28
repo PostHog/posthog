@@ -2584,7 +2584,7 @@ export interface TaskArtifactsResponseApi {
 export interface TaskCommentTargetApi {
     /** Stable target id. */
     id: string
-    /** Target type: task, artifact, or canvas. */
+    /** Target type: task, artifact, canvas, preview, or browser. */
     type: string
     /** Display name of the comment target. */
     name: string
@@ -2593,7 +2593,7 @@ export interface TaskCommentTargetApi {
 export interface TaskCommentSummaryApi {
     /** Root comment id. */
     id: string
-    /** Task, artifact, or canvas receiving the comment. */
+    /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
     target: TaskCommentTargetApi
     /** Bounded excerpt of the root comment body. */
     content: string
@@ -2698,7 +2698,7 @@ export interface TaskCommentEntryApi {
 export interface TaskCommentDetailApi {
     /** Root comment id. */
     id: string
-    /** Task, artifact, or canvas receiving the comment. */
+    /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
     target: TaskCommentTargetApi
     /** Whether the comment is resolved. */
     resolved: boolean
