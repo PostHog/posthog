@@ -95,6 +95,27 @@ describe("buildThreadGroups MCP detection", () => {
     expect(grouping.keepMounted).toEqual([0]);
   });
 
+  it("uses the nested PostHog action in a live group label", () => {
+    const item = toolCallItem("mcp-exec", undefined, {
+      title: "Execute PostHog command",
+      status: "in_progress",
+      details: {
+        kind: "tool",
+        name: "mcp_posthog_exec",
+        args: '{"command":"call feature-flag-get-all"}',
+      },
+    });
+    if (item.type === "session_update") {
+      item.turnContext.turnComplete = false;
+    }
+
+    const grouping = buildThreadGroups([item], {});
+    const row = grouping.rows[0];
+    expect(row.kind).toBe("tool_group");
+    if (row.kind !== "tool_group") return;
+    expect(row.summary.liveLabel).toBe("posthog - Get feature flags");
+  });
+
   it("folds non-MCP tool calls into a collapsed group", () => {
     const plain = toolCallItem("t1", {
       posthog: { toolName: "Bash" },

@@ -1,9 +1,9 @@
 import type { HookInput } from "@anthropic-ai/claude-agent-sdk";
+import type { FileEnrichmentDeps } from "@posthog/harness/extensions/enrichment";
 import { describe, expect, test, vi } from "vitest";
-import type { FileEnrichmentDeps } from "../../enrichment/file-enricher";
 
 const enrichFileMock = vi.hoisted(() => vi.fn());
-vi.mock("../../enrichment/file-enricher", () => ({
+vi.mock("@posthog/harness/extensions/enrichment", () => ({
   enrichFileForAgent: enrichFileMock,
 }));
 

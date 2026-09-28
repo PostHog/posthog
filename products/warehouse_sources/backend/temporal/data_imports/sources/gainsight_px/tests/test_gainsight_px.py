@@ -226,6 +226,32 @@ class TestPageNumberPagination:
         assert params[0]["pageNumber"] == 4
 
 
+# Maxima published in the vendor's OpenAPI spec (https://px-apidocs.gainsight.com/source.json). A
+# pageSize above an endpoint's maximum is rejected with a 400 and fails the whole table.
+VENDOR_PAGE_SIZE_MAXIMA: dict[str, int] = {
+    "accounts": 1000,
+    "articles": 500,
+    "engagements": 500,
+    "features": 200,
+    "kc_bots": 500,
+    "segments": 200,
+    "users": 1000,
+}
+
+
+class TestPageSizeCaps:
+    @parameterized.expand(sorted(VENDOR_PAGE_SIZE_MAXIMA.items()))
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_requested_page_size_is_within_vendor_cap(self, endpoint: str, maximum: int, MockSession) -> None:
+        session = MockSession.return_value
+        data_key = GAINSIGHT_PX_ENDPOINTS[endpoint].data_key
+        params = _wire(session, [_response(data_key, [{"id": "1"}], isLastPage=True, scrollId=None)])
+
+        _rows(_source(endpoint, _make_manager()))
+
+        assert params[0]["pageSize"] <= maximum
+
+
 class TestRowNormalization:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_epoch_millis_fields_are_converted_during_iteration(self, MockSession, monkeypatch) -> None:

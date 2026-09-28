@@ -26,6 +26,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from .attribution_base import PERSON_ARRAYS_CTE, PERSON_CONVERSION_COUNT, AttributionQueryRunnerBase
+from .attribution_sessions_read import session_ctes
 from .constants import MARKETING_SPILL_AFTER_BYTES, PAGINATION_EXTRA
 
 # Paths longer than this are grouped on their most recent steps — the same truncation direction as
@@ -262,11 +263,11 @@ class MarketingAnalyticsAttributionPathsQueryRunner(
     def to_query(self) -> ast.SelectQuery:
         date_range = self.query_date_range
 
-        ctes: dict[str, ast.CTE] = {}
+        ctes: dict[str, ast.CTE] = session_ctes(self, date_range)
         with self.timings.measure("attribution_paths_person_arrays_cte"):
             ctes[PERSON_ARRAYS_CTE] = ast.CTE(
                 name=PERSON_ARRAYS_CTE,
-                expr=self._build_person_arrays_select(date_range),
+                expr=self._person_arrays_select(date_range),
                 cte_type="subquery",
             )
         # Materialized because two CTEs read it, and ClickHouse otherwise re-evaluates a CTE at each

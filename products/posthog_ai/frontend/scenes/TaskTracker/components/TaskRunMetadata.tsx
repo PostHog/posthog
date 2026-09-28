@@ -31,7 +31,8 @@ export function TaskRunMetadata({ selectedRun }: { selectedRun: TaskRunDetailDTO
                     </dd>
                 </dl>
             )}
-            {selectedRun.completed_at && selectedRun.created_at && (
+            {/* An import run holds a chat copied from the legacy runtime and never executed, so it has no duration. */}
+            {selectedRun.completed_at && selectedRun.created_at && !selectedRun.state?.imported_from && (
                 <dl className="inline-flex gap-1 items-center">
                     <dt className="m-0">Duration:</dt>
                     <dd className="m-0 inline-flex items-center">

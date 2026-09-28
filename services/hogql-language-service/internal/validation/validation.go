@@ -34,6 +34,7 @@ type Diagnostic struct {
 type Result struct {
 	Valid          bool         `json:"valid"`
 	Diagnostics    []Diagnostic `json:"diagnostics"`
+	Notices        []Notice     `json:"notices"`
 	TableNames     []string     `json:"tableNames"`
 	DurationMicros int64        `json:"durationMicros"`
 }
@@ -46,7 +47,7 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 		if errors.Is(err, querylimits.ErrQueryTooLarge) || errors.Is(err, querylimits.ErrQueryTooDeep) {
 			code = "query_limit"
 		}
-		return result([]Diagnostic{{Code: code, Message: err.Error(), Start: 0, End: len(query)}}, nil, started)
+		return result([]Diagnostic{{Code: code, Message: err.Error(), Start: 0, End: len(query)}}, nil, nil, started)
 	}
 
 	var diagnostics []Diagnostic
@@ -54,43 +55,29 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 	seenTableNames := map[string]bool{}
 	for statement := range document.Statements() {
 		for table := range statement.Tables() {
-			lowerName := strings.ToLower(table.Name)
-			if !seenTableNames[lowerName] {
+			if !seenTableNames[table.Name] {
 				referencedTableNames = append(referencedTableNames, table.Name)
-				seenTableNames[lowerName] = true
+				seenTableNames[table.Name] = true
 			}
 			if !table.Known && len(diagnostics) < querylimits.MaxDiagnostics {
 				diagnostics = append(diagnostics, Diagnostic{
 					Code: "unknown_table", Message: fmt.Sprintf("Unknown table %q", table.Name), Start: table.Start, End: table.End,
-					Suggestions: closest(table.Name, slices.Values(schema.Tables().Entries()), 5),
+					Suggestions: closestTables(table.Name, schema, 5),
 				})
 			}
 		}
-		ignoredIdents := map[*clickhouse.Ident]bool{}
-		statement.Walk(func(node clickhouse.Expr) bool {
-			switch typed := node.(type) {
-			case *clickhouse.TableIdentifier:
-				ignoredIdents[typed.Database] = true
-				ignoredIdents[typed.Table] = true
-			case *clickhouse.CTEStmt:
-				if ident, ok := typed.Expr.(*clickhouse.Ident); ok {
-					ignoredIdents[ident] = true
-				}
-			case *clickhouse.FunctionExpr:
-				ignoredIdents[typed.Name] = true
-			case *clickhouse.IntervalExpr:
-				ignoredIdents[typed.Unit] = true
-			case *clickhouse.IntervalFrom:
-				ignoredIdents[typed.Interval] = true
-			case *clickhouse.SelectItem:
-				ignoredIdents[typed.Alias] = true
-			case *clickhouse.AliasExpr:
-				if alias, ok := typed.Alias.(*clickhouse.Ident); ok {
-					ignoredIdents[alias] = true
-				}
+		for source := range statement.DuplicateSources() {
+			if len(diagnostics) >= querylimits.MaxDiagnostics {
+				break
 			}
-			return true
-		})
+			diagnostics = append(diagnostics, Diagnostic{
+				Code:    "duplicate_table",
+				Message: fmt.Sprintf("Table name %q is used more than once. Use a distinct alias for each table.", source.Qualifier()),
+				Start:   source.Start(),
+				End:     source.End(),
+			})
+		}
+		ignoredIdents := ignoredIdentifierNodes(statement)
 		seen := map[string]bool{}
 		statement.Walk(func(node clickhouse.Expr) bool {
 			switch typed := node.(type) {
@@ -118,6 +105,25 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 				for index, field := range typed.Fields {
 					parts[index] = field.Name
 				}
+				target := bindings.Traversal(parts[:len(parts)-1])
+				if target.Explicit {
+					for _, field := range typed.Fields {
+						ignoredIdents[field] = true
+					}
+					if target.Failed {
+						failedAt := min(target.FailureAt, len(typed.Fields)-1)
+						validateUnknownIndexedField(&diagnostics, seen, target.Fields, typed.Fields[failedAt], document)
+					} else if target.Valid && target.PropertyNamespace != "" {
+						propertyAt := len(typed.Fields) - 1
+						if target.HasProperty {
+							propertyAt = target.PropertyAt
+						}
+						validateProperty(&diagnostics, seen, schema.Properties(target.PropertyNamespace), typed.Fields[propertyAt])
+					} else if target.Valid && target.Fields != nil {
+						validateIndexedField(&diagnostics, seen, target.Fields, typed.Fields[len(typed.Fields)-1], document)
+					}
+					return true
+				}
 				if namespace, ok := bindings.PropertyNamespace(parts); ok {
 					for _, field := range typed.Fields {
 						ignoredIdents[field] = true
@@ -136,7 +142,7 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 					}
 				}
 			case *clickhouse.Ident:
-				if ignoredIdents[typed] || typed.Name == "*" {
+				if ignoredIdents[typed] || typed.Name == "*" || analysis.IsBooleanLiteral(typed) {
 					return true
 				}
 				bindings := statement.BindingsAt(int(node.Pos()), int(node.End()))
@@ -155,7 +161,7 @@ func Validate(schema *catalog.PreparedCatalog, query string) Result {
 			Code: "query_limit", Message: err.Error(), Start: 0, End: len(query),
 		})
 	}
-	return result(diagnostics, referencedTableNames, started)
+	return result(diagnostics, collectNotices(schema, document, query), referencedTableNames, started)
 }
 
 func ValidateWithEncoding(schema *catalog.PreparedCatalog, query string, encoding textposition.Encoding) (Result, error) {
@@ -175,7 +181,48 @@ func ValidateWithEncoding(schema *catalog.PreparedCatalog, query string, encodin
 		result.Diagnostics[index].Start = start
 		result.Diagnostics[index].End = end
 	}
+	for index := range result.Notices {
+		start, err := textposition.FromByteOffset(query, result.Notices[index].Start, encoding)
+		if err != nil {
+			return Result{}, err
+		}
+		end, err := textposition.FromByteOffset(query, result.Notices[index].End, encoding)
+		if err != nil {
+			return Result{}, err
+		}
+		result.Notices[index].Start = start
+		result.Notices[index].End = end
+	}
 	return result, nil
+}
+
+func ignoredIdentifierNodes(statement *analysis.Statement) map[*clickhouse.Ident]bool {
+	ignoredIdents := map[*clickhouse.Ident]bool{}
+	statement.Walk(func(node clickhouse.Expr) bool {
+		switch typed := node.(type) {
+		case *clickhouse.TableIdentifier:
+			ignoredIdents[typed.Database] = true
+			ignoredIdents[typed.Table] = true
+		case *clickhouse.CTEStmt:
+			if ident, ok := typed.Expr.(*clickhouse.Ident); ok {
+				ignoredIdents[ident] = true
+			}
+		case *clickhouse.FunctionExpr:
+			ignoredIdents[typed.Name] = true
+		case *clickhouse.IntervalExpr:
+			ignoredIdents[typed.Unit] = true
+		case *clickhouse.IntervalFrom:
+			ignoredIdents[typed.Interval] = true
+		case *clickhouse.SelectItem:
+			ignoredIdents[typed.Alias] = true
+		case *clickhouse.AliasExpr:
+			if alias, ok := typed.Alias.(*clickhouse.Ident); ok {
+				ignoredIdents[alias] = true
+			}
+		}
+		return true
+	})
+	return ignoredIdents
 }
 
 func validateProperty(diagnostics *[]Diagnostic, seen map[string]bool, properties *catalog.Index, ident *clickhouse.Ident) {
@@ -217,6 +264,32 @@ func validateField(diagnostics *[]Diagnostic, seen map[string]bool, binding anal
 	})
 }
 
+func validateIndexedField(diagnostics *[]Diagnostic, seen map[string]bool, fields *catalog.PreparedFields, ident *clickhouse.Ident, document *analysis.Document) {
+	if _, ok := fields.Exact(ident.Name); ok {
+		return
+	}
+	validateUnknownIndexedField(diagnostics, seen, fields, ident, document)
+}
+
+func validateUnknownIndexedField(diagnostics *[]Diagnostic, seen map[string]bool, fields *catalog.PreparedFields, ident *clickhouse.Ident, document *analysis.Document) {
+	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
+		return
+	}
+	key := fmt.Sprintf("%d:%d", ident.Pos(), ident.End())
+	if seen[key] {
+		return
+	}
+	seen[key] = true
+	var entries []catalog.Entry
+	if fields != nil {
+		entries = fields.Entries()
+	}
+	*diagnostics = append(*diagnostics, Diagnostic{
+		Code: "unknown_field", Message: fmt.Sprintf("Unknown field %q", ident.Name), Start: int(ident.Pos()), End: int(ident.End()),
+		Suggestions: closest(ident.Name, slices.Values(entries), 5),
+	})
+}
+
 func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, bindings analysis.Bindings, ident *clickhouse.Ident, document *analysis.Document) {
 	if len(*diagnostics) >= querylimits.MaxDiagnostics || document.LimitError() != nil {
 		return
@@ -253,6 +326,17 @@ func validateUnqualifiedField(diagnostics *[]Diagnostic, seen map[string]bool, b
 }
 
 func closest(input string, candidates iter.Seq[catalog.Entry], limit int) []Suggestion {
+	return closestBy(input, candidates, limit, func(entry catalog.Entry) string { return strings.ToLower(entry.Name) })
+}
+
+func closestTables(input string, schema *catalog.PreparedCatalog, limit int) []Suggestion {
+	return closestBy(input, slices.Values(schema.TableSpellings().Entries()), limit, func(entry catalog.Entry) string {
+		canonical, _ := schema.CanonicalTableName(entry.Name)
+		return canonical
+	})
+}
+
+func closestBy(input string, candidates iter.Seq[catalog.Entry], limit int, identity func(catalog.Entry) string) []Suggestion {
 	if len(input) > querylimits.MaxSuggestionInputBytes {
 		return nil
 	}
@@ -280,14 +364,20 @@ func closest(input string, candidates iter.Seq[catalog.Entry], limit int) []Sugg
 			continue
 		}
 		suggestion := Suggestion{Label: candidate.Name, Distance: distance}
-		duplicate := false
-		for _, existing := range best {
-			if strings.EqualFold(existing.Label, suggestion.Label) {
-				duplicate = true
+		duplicate := -1
+		candidateIdentity := identity(candidate)
+		for index, existing := range best {
+			existingIdentity := identity(catalog.Entry{Name: existing.Label})
+			if existingIdentity == candidateIdentity {
+				duplicate = index
 				break
 			}
 		}
-		if duplicate {
+		if duplicate >= 0 {
+			if suggestionLess(suggestion, best[duplicate]) {
+				best[duplicate] = suggestion
+				sortSuggestions(best)
+			}
 			continue
 		}
 		if len(best) < limit {
@@ -411,15 +501,18 @@ func isASCII(value string) bool {
 	return true
 }
 
-func result(diagnostics []Diagnostic, tableNames []string, started time.Time) Result {
+func result(diagnostics []Diagnostic, notices []Notice, tableNames []string, started time.Time) Result {
 	if diagnostics == nil {
 		diagnostics = []Diagnostic{}
 	}
 	if tableNames == nil {
 		tableNames = []string{}
 	}
+	if notices == nil {
+		notices = []Notice{}
+	}
 	return Result{
-		Valid: len(diagnostics) == 0, Diagnostics: diagnostics, TableNames: tableNames,
+		Valid: len(diagnostics) == 0, Diagnostics: diagnostics, Notices: notices, TableNames: tableNames,
 		DurationMicros: time.Since(started).Microseconds(),
 	}
 }

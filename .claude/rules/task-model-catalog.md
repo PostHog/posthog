@@ -17,5 +17,7 @@ A test re-renders both and compares them byte for byte, so an edit that the gene
 
 Adding a model means one row in `MODELS`. Two things do not follow from that row and are worth checking:
 
-- A model gated behind a feature flag also needs an entry in `MODEL_ACCESS_FLAGS` (`products/tasks/backend/constants.py`), which is where the server re-checks entitlement. A picker hiding a model is a convenience, not a gate.
+- A model gated behind a feature flag carries the flag in its `access_flag`, which every picker and the server's entitlement check read.
+  The LLM gateway keeps its own copy in `MODEL_ACCESS_FLAGS` (`services/llm-gateway/src/llm_gateway/products/config.py`), because it also serves callers outside this repo.
+  Clear both when the rollout reaches everyone: each gate fails closed, so a flag left behind hides the model from anyone the flag service cannot answer for.
 - The catalog names the harness that drives a model. The LLM gateway reports `owned_by`, which names whoever serves it — `cloudflare` and `baseten` for the vendor-served models — so routing a model by its owner puts it on the wrong adapter or drops it entirely.

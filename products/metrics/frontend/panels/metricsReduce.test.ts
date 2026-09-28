@@ -127,4 +127,45 @@ describe('metricsReduce', () => {
             expect(capReducers(['max', 'last'])).toEqual(['max', 'last'])
         })
     })
+
+    describe('seriesUnit', () => {
+        const oneSeries = (unit?: string): MetricsQuerySeries => ({ labels: {}, points: points([1]), unit })
+
+        it('prefers the display override over any series unit', () => {
+            expect(seriesUnit([oneSeries('ms')], 's')).toBe('s')
+        })
+
+        it('returns the shared unit when every series agrees', () => {
+            expect(seriesUnit([oneSeries('ms'), oneSeries('ms')], undefined)).toBe('ms')
+        })
+
+        it('returns undefined when series disagree, rather than picking the first', () => {
+            expect(seriesUnit([oneSeries('ms'), oneSeries('s')], undefined)).toBeUndefined()
+        })
+
+        it('ignores series without a unit when the rest agree', () => {
+            expect(seriesUnit([oneSeries('ms'), oneSeries(undefined)], undefined)).toBe('ms')
+        })
+
+        it('returns undefined when no series carries a unit', () => {
+            expect(seriesUnit([oneSeries(undefined)], undefined)).toBeUndefined()
+        })
+    })
+
+    describe('capReducers', () => {
+        it('deduplicates and caps the reducer list', () => {
+            expect(capReducers(['last', 'last', 'mean', 'min', 'max', 'sum', 'delta', 'mean'])).toEqual([
+                'last',
+                'mean',
+                'min',
+                'max',
+                'sum',
+                'delta',
+            ])
+        })
+
+        it('keeps a short list untouched', () => {
+            expect(capReducers(['max', 'last'])).toEqual(['max', 'last'])
+        })
+    })
 })

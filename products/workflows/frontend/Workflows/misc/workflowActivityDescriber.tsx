@@ -1,9 +1,12 @@
 import {
+    ActivityChange,
     ActivityLogItem,
     ActivityLogUserName,
     HumanizedChange,
+    activityLogSummary,
     defaultDescriber,
 } from 'lib/components/ActivityLog/humanizeActivity'
+import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -77,6 +80,91 @@ function processArrayChanges<T extends ArrayChangeItem>(
     return changes
 }
 
+function describeWorkflowItems(change: ActivityChange, itemType: 'action' | 'variable'): JSX.Element[] {
+    const before = asItemArray(change.before)
+    const after = asItemArray(change.after)
+    if (!before || !after) {
+        return [<>updated {change.field}</>]
+    }
+    return itemType === 'action'
+        ? processArrayChanges(
+              before,
+              after,
+              (item) => item.id || '',
+              (item) => item.name || item.id || 'unnamed',
+              itemType
+          )
+        : processArrayChanges(
+              before,
+              after,
+              (item) => item.key || '',
+              (item) => item.key || item.label || 'unnamed',
+              itemType
+          )
+}
+
+function describeWorkflowField(change: ActivityChange): JSX.Element[] {
+    switch (change.field) {
+        case 'name':
+            return [
+                <>
+                    renamed from <strong>{String(change.before)}</strong> to <strong>{String(change.after)}</strong>
+                </>,
+            ]
+        case 'description':
+            return [<>updated description</>]
+        case 'status':
+            return [<>{`${change.after === 'active' ? 'enabled' : 'disabled'} the workflow`}</>]
+        case 'actions':
+            return describeWorkflowItems(change, 'action')
+        case 'variables':
+            return describeWorkflowItems(change, 'variable')
+        default:
+            return [<>updated {change.field}</>]
+    }
+}
+
+function describeWorkflowUpdate(logItem: ActivityLogItem): HumanizedChange {
+    const objectNoun = 'workflow'
+    const verb = logItem.activity == 'published' ? 'published' : 'updated'
+    const changes: JSX.Element[] = []
+    let preview: string | undefined
+    for (const change of logItem.detail.changes ?? []) {
+        if (change.field === 'description') {
+            preview = typeof change.after === 'string' ? change.after : undefined
+        }
+        changes.push(...describeWorkflowField(change))
+    }
+    const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
+
+    return {
+        summary: activityLogSummary(
+            logItem,
+            <SentenceList
+                listParts={
+                    logItem.activity === 'published'
+                        ? [`Published the ${objectNoun}`, ...changes]
+                        : changes.length
+                          ? changes
+                          : [`Updated the ${objectNoun}`]
+                }
+            />,
+            workflowName,
+            preview
+        ),
+        description: (
+            <div>
+                <ActivityLogUserName logItem={logItem} /> {verb} the {objectNoun}: {workflowName}
+                <ul className="ml-5 list-disc">
+                    {changes.map((c, i) => (
+                        <li key={i}>{c}</li>
+                    ))}
+                </ul>
+            </div>
+        ),
+    }
+}
+
 export function workflowActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope != 'HogFlow') {
         console.error('Workflow describer received a non-HogFlow activity')
@@ -87,6 +175,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'created') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Created the workflow',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> created the {objectNoun}:{' '}
@@ -98,6 +191,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'deleted') {
         return {
+            summary: activityLogSummary(logItem, 'Deleted the workflow', logItem.detail.name || 'Workflow'),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> deleted the {objectNoun}: {logItem.detail.name}
@@ -108,6 +202,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'revision_restored') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Staged an earlier version for review',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> restored a past version into the staged draft of the{' '}
@@ -119,6 +218,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'draft_discarded') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Discarded the staged draft',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> discarded the staged draft of the {objectNoun}:{' '}
@@ -130,6 +234,11 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
 
     if (logItem.activity == 'email_sending_resumed') {
         return {
+            summary: activityLogSummary(
+                logItem,
+                'Resumed email sending',
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
             description: (
                 <>
                     <ActivityLogUserName logItem={logItem} /> resumed email sending for the {objectNoun}:{' '}
@@ -140,87 +249,7 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
     }
 
     if (logItem.activity == 'updated' || logItem.activity == 'published') {
-        const verb = logItem.activity == 'published' ? 'published' : 'updated'
-        const changes: JSX.Element[] = []
-        for (const change of logItem.detail.changes ?? []) {
-            switch (change.field) {
-                case 'name': {
-                    changes.push(
-                        <>
-                            renamed from <strong>{String(change.before)}</strong> to{' '}
-                            <strong>{String(change.after)}</strong>
-                        </>
-                    )
-                    break
-                }
-                case 'description': {
-                    changes.push(<>updated description</>)
-                    break
-                }
-                case 'status': {
-                    const statusChange = change.after === 'active' ? 'enabled' : 'disabled'
-                    changes.push(<>{`${statusChange} the ${objectNoun}`}</>)
-                    break
-                }
-                case 'actions': {
-                    const actionsBefore = asItemArray(change.before)
-                    const actionsAfter = asItemArray(change.after)
-                    if (!actionsBefore || !actionsAfter) {
-                        changes.push(<>updated {change.field}</>)
-                        break
-                    }
-                    changes.push(
-                        ...processArrayChanges(
-                            actionsBefore,
-                            actionsAfter,
-                            (a) => a.id || '',
-                            (a) => a.name || a.id || 'unnamed',
-                            'action'
-                        )
-                    )
-                    break
-                }
-                case 'variables': {
-                    const variablesBefore = asItemArray(change.before)
-                    const variablesAfter = asItemArray(change.after)
-                    if (!variablesBefore || !variablesAfter) {
-                        changes.push(<>updated {change.field}</>)
-                        break
-                    }
-                    changes.push(
-                        ...processArrayChanges(
-                            variablesBefore,
-                            variablesAfter,
-                            (v) => v.key || '',
-                            (v) => v.key || v.label || 'unnamed',
-                            'variable'
-                        )
-                    )
-                    break
-                }
-                case 'trigger':
-                case 'edges': {
-                    changes.push(<>updated {change.field}</>)
-                    break
-                }
-                default:
-                    changes.push(<>updated {change.field}</>)
-            }
-        }
-        const workflowName = nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)
-
-        return {
-            description: (
-                <div>
-                    <ActivityLogUserName logItem={logItem} /> {verb} the {objectNoun}: {workflowName}
-                    <ul className="ml-5 list-disc">
-                        {changes.map((c, i) => (
-                            <li key={i}>{c}</li>
-                        ))}
-                    </ul>
-                </div>
-            ),
-        }
+        return describeWorkflowUpdate(logItem)
     }
     return defaultDescriber(logItem, asNotification, nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name))
 }

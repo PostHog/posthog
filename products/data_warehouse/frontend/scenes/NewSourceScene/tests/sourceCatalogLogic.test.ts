@@ -1,10 +1,14 @@
+import { PaginatedResponse } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { ExternalDataSource } from '~/types'
 
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../availableSourcesLogic'
 import { sourceCatalogLogic } from '../sourceCatalogLogic'
 
@@ -41,6 +45,13 @@ const AVAILABLE_SOURCES: Record<string, SourceConfigResponseApi> = {
     } as unknown as SourceConfigResponseApi,
 }
 
+const CONNECTED_SOURCES = {
+    results: [{ id: 'abc', source_type: 'Stripe' }],
+    count: 1,
+    next: null,
+    previous: null,
+} as unknown as PaginatedResponse<ExternalDataSource>
+
 describe('sourceCatalogLogic', () => {
     let unmountAvailableSources: () => void
     let unmountLogic: () => void
@@ -49,6 +60,7 @@ describe('sourceCatalogLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/external_data_sources/wizard/': AVAILABLE_SOURCES,
+                '/api/environments/:team_id/external_data_sources/': CONNECTED_SOURCES,
             },
         })
         initKeaTests()
@@ -123,6 +135,30 @@ describe('sourceCatalogLogic', () => {
         expect(names).toContain('aws')
     })
 
+    // Fuse matches the whole search term as one pattern, so one extra word buries a term that
+    // matches on its own: each of these returned nothing at all, which sent the user to "request
+    // a source" for connectors we already have.
+    it.each(['source files', 'parquet file storage', 'amazon s3 bucket'])(
+        'retries a multi-word search word by word for "%s"',
+        (search) => {
+            const logic = sourceCatalogLogic()
+            logic.actions.setSearch(search)
+
+            expect(logic.values.filteredItems.some((item) => item.selfManaged)).toBe(true)
+        }
+    )
+
+    it('ranks a multi-word retry by how many words each source matches', () => {
+        const logic = sourceCatalogLogic()
+        logic.actions.setSearch('amazon gcs gcp')
+
+        // `google-cloud` matches "gcs" and "gcp"; `aws` only "amazon". The closer match must lead,
+        // even though the first word found `aws` and word order alone would keep it first.
+        const names = logic.values.filteredItems.map((item) => item.name)
+        expect(names).toContain('aws')
+        expect(names.indexOf('google-cloud')).toBeLessThan(names.indexOf('aws'))
+    })
+
     it('flags a cross-category match when a filtered search only hits another category', () => {
         const logic = sourceCatalogLogic()
         logic.actions.setSelectedCategory('Sales')
@@ -163,5 +199,49 @@ describe('sourceCatalogLogic', () => {
 
         expect(logic.values.catalogItems).toBe(initialItems)
         expect(logic.values.catalogFuse).toBe(initialFuse)
+    })
+
+    it.each([
+        { previewEnabled: true, expectedMatches: 1 },
+        { previewEnabled: false, expectedMatches: 0 },
+    ])(
+        'shows the incoming webhook source in a "webhook" search when the preview is $previewEnabled',
+        ({ previewEnabled, expectedMatches }) => {
+            const logic = sourceCatalogLogic()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags(previewEnabled ? [FEATURE_FLAGS.CDP_HOG_SOURCES] : [], {
+                [FEATURE_FLAGS.CDP_HOG_SOURCES]: previewEnabled,
+            })
+
+            logic.actions.setSearch('webhook')
+
+            expect(logic.values.filteredItems.filter((item) => item.name === 'event-webhook')).toHaveLength(
+                expectedMatches
+            )
+        }
+    )
+
+    it('flags the source types the project already has', () => {
+        const logic = sourceCatalogLogic()
+        sourcesDataLogic.actions.loadSourcesSuccess(CONNECTED_SOURCES)
+
+        // Stripe is already connected, so its tile has to say so before the user works through
+        // the whole flow only to be told a table prefix is needed.
+        const byName = Object.fromEntries(logic.values.catalogItems.map((item) => [item.name, item]))
+        expect(byName.Stripe.existingSource).toBe(true)
+        expect(byName.Mango.existingSource).toBeUndefined()
+    })
+
+    it('leaves the incoming webhook source out of a catalog restricted to warehouse sources', () => {
+        const logic = sourceCatalogLogic({ allowedSources: ['Stripe'] })
+        const unmountRestricted = logic.mount()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.CDP_HOG_SOURCES], {
+            [FEATURE_FLAGS.CDP_HOG_SOURCES]: true,
+        })
+
+        expect(logic.values.catalogItems.some((item) => item.name === 'event-webhook')).toBe(false)
+
+        unmountRestricted()
     })
 })

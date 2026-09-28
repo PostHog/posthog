@@ -6,7 +6,6 @@ transitions that happen in Django so destinations subscribed to issue lifecycle
 events see the full picture.
 """
 
-import json
 import uuid
 import dataclasses
 from typing import Any, Optional
@@ -18,10 +17,11 @@ import structlog
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models.user import User
 
+from products.error_tracking.backend.logic.assignees import resolve_current_assignee
 from products.error_tracking.backend.models import (
     ErrorTrackingAlert,
+    ErrorTrackingAlertThread,
     ErrorTrackingIssue,
-    ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
 )
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
@@ -52,25 +52,6 @@ def status_label(status: str) -> str:
         return str(ErrorTrackingIssue.Status(status).label)
     except ValueError:
         return status
-
-
-def assignee_property(assignee: dict[str, Any]) -> str:
-    # Wire-compatible with cymbal's `Assignee` serialization on created/reopened events
-    # (compact serde JSON, adjacently tagged, numeric user ids and string role ids), so
-    # exact-match filters on the assignee property behave the same across all events.
-    assignee_id = int(assignee["id"]) if assignee["type"] == "user" else str(assignee["id"])
-    return json.dumps({"type": assignee["type"], "id": assignee_id}, separators=(",", ":"))
-
-
-def _current_assignee_property(issue: ErrorTrackingIssue) -> Optional[str]:
-    assignment = ErrorTrackingIssueAssignment.objects.filter(issue_id=issue.id).only("user_id", "role_id").first()
-    if assignment is None:
-        return None
-    if assignment.user_id:
-        return assignee_property({"type": "user", "id": assignment.user_id})
-    if assignment.role_id:
-        return assignee_property({"type": "role", "id": assignment.role_id})
-    return None
 
 
 def _issue_fingerprint_for_links(issue: ErrorTrackingIssue) -> Optional[str]:
@@ -109,6 +90,7 @@ def prepare_issue_lifecycle_event(
     user: Optional[User],
     status: Optional[str] = None,
     extra_properties: Optional[dict[str, Any]] = None,
+    opener_allowed: bool = True,
 ) -> PendingLifecycleEvent:
     # Snapshot everything now: the issue row may be mutated again (or deleted, for
     # merge sources) before the surrounding transaction commits.
@@ -117,7 +99,12 @@ def prepare_issue_lifecycle_event(
     # falls back to the issue's latest exception instead of an empty window around
     # the mutation.
     fingerprint = _issue_fingerprint_for_links(issue)
-    current_assignee = _current_assignee_property(issue)
+    current_assignee = resolve_current_assignee(issue.id)
+    assignee_properties: dict[str, str] = (
+        {"assignee": current_assignee.property_value, **current_assignee.display_properties()}
+        if current_assignee is not None
+        else {}
+    )
     issue_id = str(issue.id)
     # The notification id names both the internal event and the alert delivery
     # workflow, so redelivered starts and retries stay idempotent per transition.
@@ -133,7 +120,7 @@ def prepare_issue_lifecycle_event(
         "severity": issue.severity,
         "status": status_label(status if status is not None else issue.status),
         **({"fingerprint": fingerprint} if fingerprint is not None else {}),
-        **({"assignee": current_assignee} if current_assignee is not None else {}),
+        **assignee_properties,
         **(extra_properties or {}),
     }
     internal_event = InternalEventEvent(event=event, distinct_id=issue_id, properties=properties, uuid=notification_id)
@@ -173,7 +160,11 @@ def prepare_issue_lifecycle_event(
         status=status_property if isinstance(status_property, str) else None,
         assignee=assignee_property_value if isinstance(assignee_property_value, str) else None,
         actor_email=actor_email,
+        severity=properties.get("severity"),
+        fingerprint=fingerprint,
+        first_seen=properties.get("first_seen"),
         extra=delivery_extra or None,
+        opener_allowed=opener_allowed,
     )
     return PendingLifecycleEvent(
         team_id=team_id, internal_event=internal_event, person=person, alert_inputs=alert_inputs
@@ -206,14 +197,17 @@ def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]
         # queue nothing; the flag is evaluated once, inside the task.
         if not ErrorTrackingAlert.objects.for_team(team_id).filter(enabled=True).exists():
             return
+        to_dispatch = _with_reply_targets(team_id, events)
+        if not to_dispatch:
+            return
         # The task module imports the Temporal package aggregator, which loads every
         # worker-only workflow module; keep it off the web import path.
         from products.error_tracking.backend.tasks.tasks import (  # noqa: PLC0415
             dispatch_error_tracking_alert_deliveries,
         )
 
-        for start in range(0, len(events), ALERT_DISPATCH_BATCH_SIZE):
-            chunk = events[start : start + ALERT_DISPATCH_BATCH_SIZE]
+        for start in range(0, len(to_dispatch), ALERT_DISPATCH_BATCH_SIZE):
+            chunk = to_dispatch[start : start + ALERT_DISPATCH_BATCH_SIZE]
             try:
                 dispatch_error_tracking_alert_deliveries.delay(
                     team_id=team_id,
@@ -229,6 +223,31 @@ def produce_issue_lifecycle_events_on_commit(events: list[PendingLifecycleEvent]
 
     # robust: a failure here must not stop the mutation's other post-commit hooks.
     transaction.on_commit(_produce, robust=True)
+
+
+def _with_reply_targets(team_id: int, events: list[PendingLifecycleEvent]) -> list[PendingLifecycleEvent]:
+    """Drop reply-only transitions for issues no thread has been opened on.
+
+    Bulk actions cannot open threads, so their transitions only matter where a
+    thread already exists; one lookup here keeps a bulk action over hundreds of
+    issues from starting hundreds of workflows that would plan nothing.
+    """
+    reply_only_issue_ids = {
+        pending.alert_inputs.issue_id for pending in events if not pending.alert_inputs.opener_allowed
+    }
+    if not reply_only_issue_ids:
+        return events
+    threaded_issue_ids = {
+        str(issue_id)
+        for issue_id in ErrorTrackingAlertThread.objects.for_team(team_id)
+        .filter(issue_id__in=reply_only_issue_ids)
+        .values_list("issue_id", flat=True)
+    }
+    return [
+        pending
+        for pending in events
+        if pending.alert_inputs.opener_allowed or pending.alert_inputs.issue_id in threaded_issue_ids
+    ]
 
 
 def produce_issue_lifecycle_event_on_commit(

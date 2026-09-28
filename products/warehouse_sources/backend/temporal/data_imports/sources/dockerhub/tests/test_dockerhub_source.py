@@ -24,12 +24,26 @@ class TestDockerhubSource:
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_covers_all_endpoints_as_full_refresh(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-        assert all(s.supports_incremental is False for s in schemas)
-        assert all(s.supports_append is False for s in schemas)
-        assert all(s.incremental_fields == [] for s in schemas)
+    def test_only_the_audit_log_is_incremental(self) -> None:
+        # The audit log endpoint is the only one taking a server-side time filter (`from`). Marking
+        # any other endpoint incremental would make each sync request a window the API ignores, so
+        # every row outside the first page would silently stop arriving.
+        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
+        assert set(schemas) == set(ENDPOINTS)
+        assert [name for name, s in schemas.items() if s.supports_incremental] == ["audit_logs"]
+        assert [f["field"] for f in schemas["audit_logs"].incremental_fields] == ["timestamp"]
+        # Append would duplicate the boundary rows every incremental window re-reads.
+        assert all(s.supports_append is False for s in schemas.values())
+
+    def test_org_scoped_endpoints_report_why_they_are_unavailable(self) -> None:
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.source.check_endpoint_access",
+            return_value=dict.fromkeys(ENDPOINTS),
+        ) as probe:
+            self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
+
+        # A blank namespace means the user's own, so the probe must run against the username.
+        assert probe.call_args.args == ("tom", "dckr_pat_token", "tom", list(ENDPOINTS))
 
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["tags"])

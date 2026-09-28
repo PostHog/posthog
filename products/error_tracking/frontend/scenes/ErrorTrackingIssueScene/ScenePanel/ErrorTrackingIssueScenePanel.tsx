@@ -1,8 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconMessage } from '@posthog/icons'
-import { Link } from '@posthog/lemon-ui'
 
 import { SceneComment } from 'lib/components/Scenes/SceneComment'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
@@ -24,6 +23,7 @@ import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { ErrorTrackingRelationalIssue, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { ExternalReferences } from '../../../components/ExternalReferences'
+import { manageFingerprintsLogic } from '../../../components/FingerprintPreview/manageFingerprintsLogic'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
 import { IssueCohort } from './IssueCohort'
 
@@ -70,13 +70,12 @@ const IssueExternalReference = (): JSX.Element => {
 
 const IssueFingerprints = (): JSX.Element => {
     const { issue, issueFingerprints, issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { openManage } = useActions(manageFingerprintsLogic({ issueId: issue?.id ?? 'no-issue' }))
     return (
-        <Link to={issue ? urls.errorTrackingIssueFingerprints(issue.id) : undefined}>
-            <ButtonPrimitive fullWidth>
-                <IconFingerprint />
-                {`Manage ${issueFingerprintsLoading ? 'fingerprints' : pluralize(issueFingerprints.length, 'fingerprint')}`}
-            </ButtonPrimitive>
-        </Link>
+        <ButtonPrimitive fullWidth disabled={!issue} onClick={openManage} data-attr="issue-panel-fingerprints">
+            <IconFingerprint />
+            {`Manage ${issueFingerprintsLoading ? 'fingerprints' : pluralize(issueFingerprints.length, 'fingerprint')}`}
+        </ButtonPrimitive>
     )
 }
 

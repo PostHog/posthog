@@ -60,6 +60,7 @@ def dispatch_issue_spiking_alert_activity(inputs: IssueSpikingWorkflowInputs) ->
     dispatch_issue_lifecycle_alert(
         inputs,
         event="$error_tracking_issue_spiking",
+        exception_timestamp=inputs.detected_at,
         extra_properties={
             "computed_baseline": inputs.computed_baseline,
             "current_bucket_value": inputs.current_bucket_value,

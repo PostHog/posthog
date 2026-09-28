@@ -14,7 +14,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EntityTypes, FilterType } from '~/types'
 

@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popover } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, Popover } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -10,31 +10,26 @@ import { dateMapping } from 'lib/utils/dateFilters'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
-import {
-    MarketingAnalyticsAttributionBreakdown,
-    MarketingAnalyticsRetentionInterval,
-} from '~/queries/schema/schema-general'
+import { MarketingAnalyticsAttributionBreakdown } from '~/queries/schema/schema-general'
+
+import { RetentionResults } from 'products/marketing_analytics/frontend/retention/RetentionResults'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import {
     MARKETING_ANALYTICS_RETENTION_COLLECTION_ID,
-    RETENTION_INTERVAL_LABELS,
+    MAX_ACQUISITION_PERIOD_DAYS,
     marketingRetentionLogic,
 } from '../../logic/marketingRetentionLogic'
-import { RetentionCohortTable } from './RetentionCohortTable'
 
-const COLUMN_COUNT_OPTIONS = [4, 6, 8, 12, 16, 24]
 const RETENTION_DATE_OPTIONS = dateMapping.filter(({ values }) =>
     ['-7d', '-14d', '-30d', '-90d'].includes(values[0] ?? '')
 )
 
 export function RetentionTab(): JSX.Element {
     const {
-        dateFilter,
+        acquisitionPeriodTooLong,
         breakdownBy,
-        retentionInterval,
-        totalIntervals,
         excludeDirectTraffic,
         excludeUnattributed,
         onlyNewUsers,
@@ -43,17 +38,15 @@ export function RetentionTab(): JSX.Element {
         query,
     } = useValues(marketingRetentionLogic)
     const {
-        setDates,
         setBreakdownBy,
-        setRetentionInterval,
-        setTotalIntervals,
         setExcludeDirectTraffic,
         setExcludeUnattributed,
         setOnlyNewUsers,
         setOptionsOpen,
         setComparePreviousPeriod,
     } = useActions(marketingRetentionLogic)
-    const showCohorts = false
+    const { dateFilter } = useValues(marketingAnalyticsLogic)
+    const { setDates } = useActions(marketingAnalyticsLogic)
     const optionsContent = (
         <div className="flex w-80 max-w-[90vw] flex-col gap-4 p-3">
             <div>
@@ -70,31 +63,6 @@ export function RetentionTab(): JSX.Element {
                     People acquired in this period are followed for return visits.
                 </div>
             </div>
-            {showCohorts && (
-                <>
-                    <div>
-                        <div className="text-muted mb-2 text-xs font-semibold uppercase">Period length</div>
-                        <LemonSelect
-                            fullWidth
-                            value={retentionInterval}
-                            onChange={(value) => value && setRetentionInterval(value)}
-                            options={Object.values(MarketingAnalyticsRetentionInterval).map((value) => ({
-                                value,
-                                label: RETENTION_INTERVAL_LABELS[value],
-                            }))}
-                        />
-                    </div>
-                    <div>
-                        <div className="text-muted mb-2 text-xs font-semibold uppercase">Periods to follow</div>
-                        <LemonSelect
-                            fullWidth
-                            value={totalIntervals}
-                            onChange={(value) => value && setTotalIntervals(value)}
-                            options={COLUMN_COUNT_OPTIONS.map((count) => ({ value: count, label: `${count} periods` }))}
-                        />
-                    </div>
-                </>
-            )}
             <LemonDivider className="my-0" />
             <LemonSwitch
                 fullWidth
@@ -175,7 +143,20 @@ export function RetentionTab(): JSX.Element {
                     }
                 />
                 <div className="mt-4 flex flex-col gap-4 pb-8">
-                    <RetentionCohortTable query={query} attachTo={marketingAnalyticsLogic} />
+                    {acquisitionPeriodTooLong ? (
+                        <LemonBanner
+                            type="warning"
+                            action={{
+                                children: `Use the last ${MAX_ACQUISITION_PERIOD_DAYS} days`,
+                                onClick: () => setDates(`-${MAX_ACQUISITION_PERIOD_DAYS}d`, null),
+                            }}
+                        >
+                            Retention follows people acquired in a period of up to {MAX_ACQUISITION_PERIOD_DAYS} days.
+                            Pick a shorter date range to see the table.
+                        </LemonBanner>
+                    ) : (
+                        <RetentionResults query={query} attachTo={marketingAnalyticsLogic} />
+                    )}
                 </div>
             </div>
         </BindLogic>

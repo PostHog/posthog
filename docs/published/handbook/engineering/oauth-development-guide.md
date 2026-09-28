@@ -406,6 +406,7 @@ You only see tokens that belong to your own application, whichever method you us
 ```json
 {
   "active": true,
+  "is_impersonated": false,
   "scope": "openid experiment:read query:read",
   "client_id": "DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ",
   "scoped_teams": [1, 2],
@@ -413,6 +414,9 @@ You only see tokens that belong to your own application, whichever method you us
   "exp": 1704067200
 }
 ```
+
+`is_impersonated` is `true` when a staff member issued the access token during impersonation.
+This field describes the token, not the browser session.
 
 **Inactive/Invalid Token Response**:
 

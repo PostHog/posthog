@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'BusinessKnowledge',
@@ -28,15 +28,25 @@ export const manifest: ProductManifest = {
             projectBased: true,
             iconType: 'conversations',
         },
+        BusinessKnowledgeSource: {
+            name: 'Knowledge source',
+            import: () => import('./frontend/scenes/KnowledgeSourceScene'),
+            projectBased: true,
+            activityScope: 'KnowledgeSource',
+            iconType: 'conversations',
+        },
     },
     routes: {
         '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
+        // Static sibling must stay above :id so kea-router does not treat "settings" as an id.
         '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+        '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     },
     redirects: {},
     urls: {
         businessKnowledge: (): string => '/business-knowledge',
         businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+        businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
@@ -44,11 +54,14 @@ export const manifest: ProductManifest = {
         {
             path: 'Business knowledge',
             intents: [ProductKey.CONVERSATIONS],
-            category: ProductItemCategory.AI_ENGINEERING,
+            category: ProductItemCategory.DATA,
             href: urls.businessKnowledge(),
             tags: ['alpha'],
-            iconType: 'conversations',
-            iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+            iconType: 'business_knowledge',
+            iconColor: [
+                'var(--color-product-business-knowledge-light)',
+                'var(--color-product-business-knowledge-dark)',
+            ],
             flag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
             sceneKey: 'BusinessKnowledge',
         },

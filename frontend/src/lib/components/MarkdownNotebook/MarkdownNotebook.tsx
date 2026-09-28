@@ -22,10 +22,10 @@ import {
 } from 'react'
 
 import { IconCode, IconComment, IconDrag } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { downloadFile } from 'lib/utils/dom'
+import { downloadFile, isMac } from 'lib/utils/dom'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
 // Monaco is heavy, so the markdown source editor only loads when the source drawer opens.
@@ -237,12 +237,19 @@ import {
 } from './types'
 import { cloneNotebookNode, getInlineText, getNodeFingerprint, normalizeInlineNodes } from './utils'
 
+export type NotebookBtwContext = {
+    markdown: string
+    selectedMarkdown?: string
+}
+
 export type MarkdownNotebookProps = {
     value: string
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
+    onBtw?: (context: NotebookBtwContext) => void
     aiPromptAuthorName?: string
     isAskAIDisabled?: boolean
+    askAIDisabledReason?: string
     createAIConversationId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
@@ -305,6 +312,7 @@ export type MarkdownNotebookAskAIRequest = {
     markdownWithResponse: string
     selectedMarkdown?: string
     selectedRefId?: string
+    retainedQuestionMarkdown?: string
 }
 
 type CommitDocumentOptions = {
@@ -350,6 +358,9 @@ const POINTER_INERT_LINK_CONTAINER_SELECTOR =
     '.MarkdownNotebook__text-block[contenteditable="true"], .MarkdownNotebook__list-block[contenteditable="true"], .MarkdownNotebook__table-cell-content[contenteditable="true"]'
 
 const UNDO_TYPING_GROUP_MS = 1000
+
+/** How long the pointer rests on a link in an editable block before the open-link hint appears. */
+const LINK_HINT_DELAY_MS = 400
 
 /** How many recent local serializations to remember for save-echo detection. Must comfortably
  * cover the keystrokes that can land between a save being sent and its response echoing back. */
@@ -599,8 +610,10 @@ function MarkdownNotebookEditor({
     value,
     onChange,
     onAskAI,
+    onBtw,
     aiPromptAuthorName = 'You',
-    isAskAIDisabled: isAIPromptSubmitDisabled = false,
+    isAskAIDisabled = false,
+    askAIDisabledReason,
     createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
     registry,
@@ -629,6 +642,7 @@ function MarkdownNotebookEditor({
     onDebugOpenChange,
     'data-attr': dataAttr = 'markdown-notebook',
 }: MarkdownNotebookProps): JSX.Element {
+    const isAIPromptSubmitDisabled = isAskAIDisabled || !!askAIDisabledReason
     const mergedRegistry = useMemo(
         () => mergeMarkdownNotebookRegistries(getMarkdownNotebookDefaultRegistry(), registry),
         [registry]
@@ -637,6 +651,9 @@ function MarkdownNotebookEditor({
         ensureEditableNotebookDocument(parseMarkdownNotebook(value))
     )
     const [floatingToolbar, setFloatingToolbar] = useState<FloatingToolbarState | null>(null)
+    const [linkHintRect, setLinkHintRect] = useState<DOMRect | null>(null)
+    const hoveredLinkRef = useRef<Element | null>(null)
+    const linkHintTimeoutRef = useRef<number | null>(null)
     const [insertMenu, setInsertMenu] = useState<InsertMenuState | null>(null)
     const [insertMenuPosition, setInsertMenuPosition] = useState<InsertMenuPosition | null>(null)
     const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null)
@@ -2863,6 +2880,9 @@ function MarkdownNotebookEditor({
             nodeId: string,
             options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
         ): void => {
+            if (askAIDisabledReason) {
+                return
+            }
             onInteractionStateChange?.(true)
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
@@ -2913,7 +2933,7 @@ function MarkdownNotebookEditor({
                 selectedRefId: options?.selectedRefId,
             })
         },
-        [commitDocument, onInteractionStateChange]
+        [askAIDisabledReason, commitDocument, onInteractionStateChange]
     )
 
     const updateAIPromptQuery = (nodeId: string, query: string): void => {
@@ -2924,6 +2944,35 @@ function MarkdownNotebookEditor({
             return { ...currentMenu, query }
         })
     }
+
+    const openBtw = useCallback(
+        (selectedMarkdown?: string): void => {
+            if (!onBtw || askAIDisabledReason) {
+                return
+            }
+            onBtw({ markdown: serializeMarkdownNotebook(documentRef.current), selectedMarkdown })
+            setFloatingToolbar(null)
+        },
+        [onBtw, askAIDisabledReason]
+    )
+
+    const openBtwFromSlash = useCallback(
+        (nodeId: string): void => {
+            if (!onBtw || askAIDisabledReason) {
+                return
+            }
+            const currentDocument = documentRef.current
+            const nextDocument = {
+                ...currentDocument,
+                nodes: currentDocument.nodes.map((node) =>
+                    node.id === nodeId ? { ...makeEmptyParagraph('btw'), id: nodeId } : node
+                ),
+            }
+            commitDocument(nextDocument)
+            onBtw({ markdown: serializeMarkdownNotebook(nextDocument) })
+        },
+        [onBtw, askAIDisabledReason, commitDocument]
+    )
 
     const renderedNodes = getRenderedNodes()
     const aiWritingPlaceholderNodeIds = useMemo(() => getAIWritingPlaceholderNodeIds(document.nodes), [document.nodes])
@@ -2955,8 +3004,9 @@ function MarkdownNotebookEditor({
                         restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                     },
                     onAskAI ? openAIPrompt : undefined,
-                    false,
-                    extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
+                    !!askAIDisabledReason,
+                    extraInsertCommands ? extraInsertCommands(insertMenuApi) : [],
+                    onBtw ? openBtwFromSlash : undefined
                 ),
                 hiddenInsertCommandKeys
             ),
@@ -2965,6 +3015,9 @@ function MarkdownNotebookEditor({
             replaceNodeWithInsertedComponent,
             replaceNode,
             onAskAI,
+            onBtw,
+            openBtwFromSlash,
+            askAIDisabledReason,
             openAIPrompt,
             extraInsertCommands,
             hiddenInsertCommandKeys,
@@ -4082,6 +4135,47 @@ function MarkdownNotebookEditor({
         }
     }, [mode])
 
+    const clearLinkHint = useCallback((): void => {
+        if (linkHintTimeoutRef.current !== null) {
+            window.clearTimeout(linkHintTimeoutRef.current)
+            linkHintTimeoutRef.current = null
+        }
+        hoveredLinkRef.current = null
+        setLinkHintRect(null)
+    }, [])
+
+    useEffect(() => clearLinkHint, [clearLinkHint])
+
+    // The hint is positioned from the link's rect at hover time, so a scroll would strand it
+    useEffect(() => {
+        if (!linkHintRect) {
+            return
+        }
+        window.addEventListener('scroll', clearLinkHint, { capture: true, passive: true })
+        return () => window.removeEventListener('scroll', clearLinkHint, { capture: true })
+    }, [linkHintRect, clearLinkHint])
+
+    // Links in editable blocks only open on modifier-click, which nothing else on screen tells
+    // the reader. Leaving the link for any other part of the canvas lands here too and clears it.
+    const handleCanvasMouseOver = (event: ReactMouseEvent<HTMLDivElement>): void => {
+        const linkElement = mode === 'edit' && event.target instanceof Element ? event.target.closest('a[href]') : null
+        if (!linkElement || !linkElement.closest(POINTER_INERT_LINK_CONTAINER_SELECTOR)) {
+            if (hoveredLinkRef.current) {
+                clearLinkHint()
+            }
+            return
+        }
+        if (linkElement === hoveredLinkRef.current) {
+            return
+        }
+        clearLinkHint()
+        hoveredLinkRef.current = linkElement
+        linkHintTimeoutRef.current = window.setTimeout(() => {
+            linkHintTimeoutRef.current = null
+            setLinkHintRect(linkElement.getBoundingClientRect())
+        }, LINK_HINT_DELAY_MS)
+    }
+
     const handleCanvasClick = (event: ReactMouseEvent<HTMLDivElement>): void => {
         if (!(event.target instanceof Element)) {
             return
@@ -5039,6 +5133,7 @@ function MarkdownNotebookEditor({
     }
 
     const handleCanvasMouseLeave = (): void => {
+        clearLinkHint()
         setActiveRowIndex(null)
         setActiveBoundaryIndex(null)
     }
@@ -5533,6 +5628,7 @@ function MarkdownNotebookEditor({
         }
 
         let responseNodeIndex = -1
+        let retainedQuestionMarkdown: string | undefined
         const keepQuestion = currentPromptNode?.props.keepQuestion !== false
         const nodesWithResponse = nodes.flatMap((currentNode, index): NotebookBlockNode[] => {
             if (currentNode.id !== nodeId || !isPromptComponentNode(currentNode)) {
@@ -5552,6 +5648,7 @@ function MarkdownNotebookEditor({
             responseNodeIndex = index + 1
             const questionNode = makeRetainedAIQuestionNode(aiPromptAuthorName, query, `ai-question-${currentNode.id}`)
             questionNode.startsGroup = currentNode.startsGroup
+            retainedQuestionMarkdown = serializeMarkdownNotebook({ ...currentDocument, nodes: [questionNode] })
             return [questionNode, responseNode]
         })
         if (responseNodeIndex === -1) {
@@ -5583,6 +5680,7 @@ function MarkdownNotebookEditor({
             markdownWithResponse,
             selectedMarkdown,
             selectedRefId,
+            retainedQuestionMarkdown,
         })
         return true
     }
@@ -6056,6 +6154,10 @@ function MarkdownNotebookEditor({
                     },
                     updateNode,
                     replaceNodeWithNodes,
+                    onBtw: onBtw
+                        ? () => openBtw(serializeMarkdownNotebook({ ...documentRef.current, nodes: [node] }))
+                        : undefined,
+                    askAIDisabledReason,
                     deleteNode: () => deleteNodeWithRefCleanup(node.id),
                     deleteNodeAndFocusAdjacent: () => {
                         requestFocusAfterRemovingNode(node.id)
@@ -6213,6 +6315,7 @@ function MarkdownNotebookEditor({
                         aria-activedescendant={activeInsertMenuOptionDomId}
                         onInput={handleRootEditableInput}
                         onKeyDown={handleRootEditableKeyDown}
+                        onMouseOver={handleCanvasMouseOver}
                         onMouseLeave={handleCanvasMouseLeave}
                         onClick={handleCanvasClick}
                         onDragStartCapture={() => {
@@ -6307,6 +6410,23 @@ function MarkdownNotebookEditor({
                             containerRef={mainRef}
                         />
                     ) : null}
+                    {linkHintRect && mode === 'edit' && !floatingToolbar ? (
+                        // A link in the canvas is raw HTML, so no Tooltip can wrap it; this empty
+                        // box sits over the hovered link and anchors the tooltip instead. The
+                        // formatting toolbar has its own open-link button and would sit under it.
+                        <Tooltip visible title={`${isMac() ? '⌘' : 'Ctrl'} + click to open link`}>
+                            <span
+                                aria-hidden
+                                className="MarkdownNotebook__link-hint-anchor"
+                                style={{
+                                    top: linkHintRect.top,
+                                    left: linkHintRect.left,
+                                    width: linkHintRect.width,
+                                    height: linkHintRect.height,
+                                }}
+                            />
+                        </Tooltip>
+                    ) : null}
                     {floatingToolbar && mode === 'edit' ? (
                         <FormattingToolbar
                             selectedBlockStyle={getSelectedBlockStyle(
@@ -6333,7 +6453,8 @@ function MarkdownNotebookEditor({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
-                            isAskAIDisabled={false}
+                            btwAboutSelection={onBtw ? () => openBtw(floatingToolbar.selectedMarkdown) : undefined}
+                            askAIDisabledReason={askAIDisabledReason}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined
                             }

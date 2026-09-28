@@ -23,7 +23,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_list_costs
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_costs
 
 _LIMIT = 1000
 # Sparkline cap: enough to read a PR's CI history at a glance without bloating a 1000-row page.
@@ -113,7 +113,7 @@ def query_pr_push_history(
 ) -> dict[tuple[str, str, int], list[PushCISample]]:
     """Per-PR push rounds keyed by (repo_owner, repo_name, pr_number), oldest first, capped in
     ClickHouse to the most recent ``_PUSH_HISTORY_LIMIT`` per PR. Scoped to the visible PR numbers so
-    the scan tracks the page (same shape as ``query_pr_list_costs``)."""
+    the scan tracks the page (same shape as ``query_pr_costs``)."""
     if not pr_numbers:
         return {}
     sql = (
@@ -166,7 +166,7 @@ def query_pull_request_list(
     # Scope the cost and push-history rollups to exactly the PRs we're about to show (row[0] is
     # pr.number), so the scans track the page instead of the team's whole CI history.
     pr_numbers = sorted({int(row[0]) for row in visible})
-    cost_by_pr = query_pr_list_costs(curated=curated, pr_numbers=pr_numbers)
+    cost_by_pr = query_pr_costs(curated=curated, pr_numbers=pr_numbers)
     pushes_by_pr = query_pr_push_history(curated=curated, pr_numbers=pr_numbers)
     items = [_map_row(row, cost_by_pr, pushes_by_pr) for row in visible]
     return PullRequestList(items=items, truncated=truncated, limit=_LIMIT)

@@ -151,6 +151,12 @@ def _mark_explicit_date_boundaries(query: BaseModel) -> None:
         date_range.explicitDate = True
 
 
+def set_query_id_on_span(span: trace.Span, query_id: str) -> None:
+    # Client IDs are free text in the API, so only export opaque UUIDs to traces.
+    if re.fullmatch(r"[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}", query_id):
+        span.set_attribute("query.client_query_id", query_id)
+
+
 def _process_query_request(
     request_data: QueryRequest, team, client_query_id: str | None = None, user=None
 ) -> tuple[BaseModel, str, ExecutionMode]:
@@ -191,6 +197,7 @@ _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "ErrorTrackingReleasesQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
+    "MetricsHistogramQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
     "MCPMissingCapabilitiesQuery": ["query:read", "mcp_analytics:read"],
@@ -313,12 +320,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 limit_context = None
 
             reset_request_query_cost()
+            is_query_service = get_query_tag_value("access_method") == "personal_api_key"
+            if is_query_service:
+                tag_queries(api_queries_budgeted=True)
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
                 process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
-                process_span.set_attribute(
-                    "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"
-                )
+                process_span.set_attribute("query.is_query_service", is_query_service)
+                set_query_id_on_span(process_span, client_query_id)
                 if limit_context is not None:
                     process_span.set_attribute("query.limit_context", limit_context.value)
                 result = process_query_model(
@@ -327,7 +336,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     execution_mode=execution_mode,
                     query_id=client_query_id,
                     user=request.user,  # type: ignore[arg-type]
-                    is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
+                    is_query_service=is_query_service,
                     limit_context=limit_context,
                     analytics_props=analytics_props,
                 )
