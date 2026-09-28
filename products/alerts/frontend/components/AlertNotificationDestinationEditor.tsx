@@ -389,8 +389,8 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                                 data-attr="alert-notification-pagerduty-routing-key"
                             />
                             <p className="text-xs text-muted-alt m-0">
-                                Use the integration key of an Events API v2 integration on your PagerDuty service.
-                                PostHog stores it encrypted.
+                                The Events API v2 integration key from your PagerDuty service. PostHog stores it
+                                encrypted.
                             </p>
                         </fieldset>
                         <fieldset className="space-y-1">
