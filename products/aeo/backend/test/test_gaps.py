@@ -4,7 +4,10 @@ import datetime as dt
 import time_machine
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from products.aeo.backend.facade.api import list_citation_gaps
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
@@ -87,6 +90,23 @@ class TestListCitationGaps(BaseTest):
         assert [a.answer_text for a in result.latest_answers] == [
             "Rival is the best, though PostHog also records sessions."
         ]
+
+    @parameterized.expand(
+        [
+            ("registrable_name_under_a_multi_part_suffix", "Example Analytics records every session.", 1),
+            ("public_suffix_label_is_not_the_brand", "Rival Co records every session.", 0),
+        ]
+    )
+    def test_counts_brand_mentions_by_the_registrable_domain_name(
+        self, _name: str, answer_text: str, mentioned_checks: int
+    ) -> None:
+        prompt = self._prompt("best session replay tool")
+        self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/replay"], answer_text=answer_text)
+
+        with override_settings(AEO_TARGET_DOMAINS=["example.co.uk"]):
+            gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
+
+        assert gaps[0].mentioned_checks == mentioned_checks
 
     def test_ignores_checks_before_the_window(self) -> None:
         prompt = self._prompt("old gap")

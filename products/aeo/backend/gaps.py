@@ -8,12 +8,15 @@ from typing import Any
 from django.conf import settings
 from django.db.models import BooleanField, Case, Q, Value, When
 
+import tldextract
+
 from products.aeo.backend.engines import is_target_url, top_domains
 from products.aeo.backend.facade.contracts import CitationGap, EngineAnswer
 from products.aeo.backend.models import AEOCitationCheck
 
 MAX_GAP_URLS = 10
 MAX_GAP_QUERIES = 10
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
 
 def _ranked(counter: Counter[str], limit: int) -> tuple[str, ...]:
@@ -21,7 +24,7 @@ def _ranked(counter: Counter[str], limit: int) -> tuple[str, ...]:
 
 
 def _brand_regex(target_domains: list[str]) -> str | None:
-    names = {domain.lower().split(".")[-2] if "." in domain else domain.lower() for domain in target_domains if domain}
+    names = {(_DOMAIN_PARTS(domain).domain or domain).lower() for domain in target_domains if domain}
     if not names:
         return None
     return r"\m(" + "|".join(re.escape(name) for name in sorted(names)) + r")\M"
