@@ -281,7 +281,23 @@ def _score_series(
 _DETECTOR_DISPLAY_NAMES = {DetectorType.LLM.value: "AI"}
 
 
+def _threshold_breach(label: str, scored: _ScoredSeries) -> str:
+    metadata = (scored.detection.metadata if scored.detection is not None else None) or {}
+    value = float(metadata.get("value", scored.data[-1]))
+    upper, lower = metadata.get("upper_bound"), metadata.get("lower_bound")
+    if upper is not None and value > upper:
+        bound = f"above the upper bound of {float(upper):g}"
+    elif lower is not None and value < lower:
+        bound = f"below the lower bound of {float(lower):g}"
+    else:
+        bound = "outside the configured bounds"
+    return f"Threshold exceeded in {label}: value {value:.2f} is {bound}"
+
+
 def _anomaly_breach(label: str, scored: _ScoredSeries, detector_type_str: str) -> str:
+    # The threshold detector scores every breach 1.0, so a probability would always read 100%.
+    if detector_type_str == DetectorType.THRESHOLD.value:
+        return _threshold_breach(label, scored)
     current_value = float(scored.data[-1])
     score = scored.detection.score if scored.detection is not None else None
     # The model's number is its own stated confidence, not a calibrated probability, so

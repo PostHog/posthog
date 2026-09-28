@@ -146,6 +146,19 @@ class TestJudgePlumbing:
         assert _RecordingJudge.seen == []
 
 
+@pytest.mark.parametrize(
+    "bounds,expected",
+    [
+        ({"lower_bound": 50}, "Threshold exceeded in signed_up: value 12.00 is below the lower bound of 50"),
+        ({"upper_bound": 10}, "Threshold exceeded in signed_up: value 12.00 is above the upper bound of 10"),
+    ],
+)
+def test_a_threshold_breach_names_the_bound_not_a_probability(bounds: dict[str, float], expected: str) -> None:
+    result = _evaluate({"type": "threshold", **bounds})
+
+    assert result.breaches == [expected]
+
+
 class TestLLMVerdictReachesTheCheck:
     def test_rationale_is_in_the_breach_message_and_the_check_metadata(self) -> None:
         result = _evaluate({"type": "llm", "threshold": 0.7})
