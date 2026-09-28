@@ -379,23 +379,68 @@ class TestNextCalendarCheckTime:
             (
                 "weekly_spring_forward",
                 CalendarInterval.WEEKLY,
+                "America/New_York",
                 datetime(2026, 3, 6, 12, 0, tzinfo=UTC),
+                None,
                 datetime(2026, 3, 9, 7, 0, tzinfo=UTC),
             ),
             (
                 "monthly_fall_back",
                 CalendarInterval.MONTHLY,
+                "America/New_York",
                 datetime(2026, 10, 31, 12, 0, tzinfo=UTC),
+                None,
                 datetime(2026, 11, 1, 9, 0, tzinfo=UTC),
+            ),
+            (
+                "hourly_repeated_hour",
+                CalendarInterval.HOURLY,
+                "America/New_York",
+                datetime(2026, 11, 1, 5, 3, tzinfo=UTC),
+                datetime(2026, 11, 1, 5, 3, tzinfo=UTC),
+                datetime(2026, 11, 1, 6, 0, tzinfo=UTC),
+            ),
+            # Lord Howe moves its clocks by 30 minutes at 02:00. In October the 02:00 hour starts at 02:30
+            # (15:30 UTC), one hour after the 01:00 hour starts.
+            (
+                "hourly_half_hour_spring_forward",
+                CalendarInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 10, 3, 14, 33, tzinfo=UTC),
+                datetime(2026, 10, 3, 14, 33, tzinfo=UTC),
+                datetime(2026, 10, 3, 15, 30, tzinfo=UTC),
+            ),
+            # In April the 01:00 hour lasts 90 minutes, so the 02:00 hour starts at 15:30 UTC.
+            (
+                "hourly_half_hour_fall_back",
+                CalendarInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 4, 4, 14, 3, tzinfo=UTC),
+                datetime(2026, 4, 4, 14, 3, tzinfo=UTC),
+                datetime(2026, 4, 4, 15, 30, tzinfo=UTC),
+            ),
+            (
+                "hourly_half_hour_fall_back_late",
+                CalendarInterval.HOURLY,
+                "Australia/Lord_Howe",
+                datetime(2026, 4, 4, 14, 40, tzinfo=UTC),
+                datetime(2026, 4, 4, 13, 3, tzinfo=UTC),
+                datetime(2026, 4, 4, 15, 30, tzinfo=UTC),
             ),
         ]
     )
-    def test_calendar_anchors_keep_local_wall_time_across_dst(
-        self, _name: str, interval: CalendarInterval, now: datetime, expected: datetime
+    def test_checks_keep_local_wall_time_across_dst(
+        self,
+        _name: str,
+        interval: CalendarInterval,
+        tz_name: str,
+        now: datetime,
+        next_check_at: datetime | None,
+        interval_start: datetime,
     ) -> None:
         assert next_calendar_check_time(
-            interval, now=now, tz_name="America/New_York", next_check_at=None, alert_id=ALERT_ID
-        ) == expected + alert_check_offset(interval, ALERT_ID)
+            interval, now=now, tz_name=tz_name, next_check_at=next_check_at, alert_id=ALERT_ID
+        ) == interval_start + alert_check_offset(interval, ALERT_ID)
 
 
 class TestIsWeekend:

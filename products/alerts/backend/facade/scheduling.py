@@ -156,12 +156,12 @@ def is_weekend(now: datetime, tz_name: str) -> bool:
     return now_local.isoweekday() in [6, 7]
 
 
-def _localize_wall_time(team_timezone: BaseTzInfo, naive_local: datetime) -> datetime:
+def _localize_wall_time(team_timezone: BaseTzInfo, naive_local: datetime, *, repeated_is_dst: bool = True) -> datetime:
     localize = cast(Callable[[datetime, bool | None], datetime], team_timezone.localize)
     try:
         return localize(naive_local, None)
     except AmbiguousTimeError:
-        return localize(naive_local, True)
+        return localize(naive_local, repeated_is_dst)
     except NonExistentTimeError:
         return team_timezone.normalize(localize(naive_local, False))
 
@@ -177,15 +177,35 @@ def _calendar_anchor_utc(
     return _localize_wall_time(team_timezone, naive_local).astimezone(UTC)
 
 
-def _floor_to_local_period(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+def _local_period_start(timestamp: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
     """Start of the local-time period of `period_minutes` that contains `timestamp`.
 
-    The subtraction runs on the absolute instant, so a local hour that a DST change repeats
-    still resolves to the start of the hour that `timestamp` is in.
+    The start is found on the local wall clock. A 30-minute DST change (Australia/Lord_Howe) moves the
+    wall clock to the half hour, so subtracting the local minutes from the absolute instant would find
+    a start in the previous hour. A start that a DST change repeats resolves to the occurrence that
+    `timestamp` is in. A start that a DST change skips moves forward by the size of the change, which
+    is the instant of the change when the change happens on a period boundary.
     """
     local = timestamp.astimezone(team_timezone)
-    minutes_into_period = (local.hour * 60 + local.minute) % period_minutes
-    return timestamp - timedelta(minutes=minutes_into_period, seconds=local.second, microseconds=local.microsecond)
+    wall_start = local.replace(
+        tzinfo=None, minute=local.minute - local.minute % period_minutes, second=0, microsecond=0
+    )
+    return _localize_wall_time(team_timezone, wall_start, repeated_is_dst=bool(local.dst())).astimezone(UTC)
+
+
+def _next_local_period_start(after: datetime, team_timezone: BaseTzInfo, period_minutes: int) -> datetime:
+    """First start of a local-time period of `period_minutes` that is later than `after`.
+
+    A DST change can make a local period longer than `period_minutes`, so one step can land in the
+    same period again. The loop steps until it reaches a later period.
+    """
+    step = timedelta(minutes=period_minutes)
+    probe = after + step
+    start = _local_period_start(probe, team_timezone, period_minutes)
+    while start <= after:
+        probe += step
+        start = _local_period_start(probe, team_timezone, period_minutes)
+    return start
 
 
 def _next_check_at_for_schedule_start_time(
@@ -317,14 +337,11 @@ def next_calendar_check_time(
             return candidate
         case CalendarInterval.EVERY_15_MINUTES | CalendarInterval.HOURLY:
             cadence_minutes = EVERY_15_MINUTES_CADENCE_MINUTES if interval == CalendarInterval.EVERY_15_MINUTES else 60
-            interval_delta = timedelta(minutes=cadence_minutes)
-            # One cadence after the previous check lands in the next interval. The check runs at this
-            # alert's offset into that interval, which also moves an alert off the minute it was created on.
-            candidate = (
-                _floor_to_local_period((next_check_at or now) + interval_delta, team_timezone, cadence_minutes) + offset
-            )
+            # The check runs at this alert's offset into the first local interval after the previous check,
+            # which also moves an alert off the minute it was created on.
+            candidate = _next_local_period_start(next_check_at or now, team_timezone, cadence_minutes) + offset
             if candidate <= now:
-                candidate += interval_delta * (int((now - candidate) // interval_delta) + 1)
+                candidate = _next_local_period_start(now - offset, team_timezone, cadence_minutes) + offset
             return candidate
         case CalendarInterval.DAILY:
             return _calendar_anchor_utc(
