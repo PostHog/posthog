@@ -120,22 +120,30 @@ SUPPORTED_EVAL_REPORT_OUTPUT_TYPES = (*_DEFINITION_BUILDERS, "numeric", "categor
 
 def _categorical_definition(output_config: dict | None) -> EvaluationReportOutcomeDefinition:
     config = CategoricalOutputConfig.model_validate(output_config) if output_config else None
-    categories = "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
-    graded = "properties.$ai_evaluation_applicable = 'true'"
-    passed = failed = "false"
+    categories_expression = "JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)')"
+    applicable_predicate = "properties.$ai_evaluation_applicable = 'true'"
+    passed_predicate = "false"
+    failed_predicate = "false"
+
     if config is not None and config.passing_rule is not None:
-        condition = (
-            f"(notEmpty({categories}) AND hasAll({{passing_categories}}, {categories}))"
-            if config.passing_rule.categories
-            else f"empty({categories})"
-        )
-        passed = f"{condition} AND {graded}"
-        failed = f"NOT {condition} AND {graded}"
+        if config.passing_rule.categories:
+            passing_condition = (
+                f"(notEmpty({categories_expression}) AND hasAll({{passing_categories}}, {categories_expression}))"
+            )
+        else:
+            passing_condition = f"empty({categories_expression})"
+        passed_predicate = f"{passing_condition} AND {applicable_predicate}"
+        failed_predicate = f"NOT {passing_condition} AND {applicable_predicate}"
+
     return EvaluationReportOutcomeDefinition(
         outcomes=("pass", "fail", "na"),
-        outcome_predicates={"pass": passed, "fail": failed, "na": "properties.$ai_evaluation_applicable = 'false'"},
+        outcome_predicates={
+            "pass": passed_predicate,
+            "fail": failed_predicate,
+            "na": "properties.$ai_evaluation_applicable = 'false'",
+        },
         event_predicate=f"properties.$ai_evaluation_result_type = 'categorical' AND {_NOT_SKIPPED_PREDICATE}",
-        result_expression=categories,
+        result_expression=categories_expression,
         applicable_expression="properties.$ai_evaluation_applicable",
         score_expression="NULL",
         passing_result=None,
