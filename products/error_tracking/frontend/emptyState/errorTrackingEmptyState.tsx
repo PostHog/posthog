@@ -60,7 +60,7 @@ export const errorTrackingEmptyState: SceneProductEmptyState = {
             [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: {
                 text: {
                     'needs-setup': {
-                        hint: 'Run Wizard in your project to check the SDK integration and set up exception capture and source map upload if needed:',
+                        hint: 'Check your SDK integration and set up exception capture and source map upload if needed:',
                     },
                     'waiting-for-data': {
                         headline: 'Waiting for the first exception',

@@ -188,7 +188,7 @@ describe('ProductEmptyState', () => {
             if (expected) {
                 expect(await screen.findByLabelText(/Copy command/)).toBeTruthy()
                 expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
-                expect(screen.getByText(/Run Wizard in your project/)).toBeTruthy()
+                expect(screen.getByText(/Check your SDK integration/)).toBeTruthy()
             } else {
                 expect(screen.queryByLabelText(/Copy command/)).toBeNull()
                 if (flagOn) {
@@ -201,6 +201,21 @@ describe('ProductEmptyState', () => {
             }
         }
     )
+
+    it('offers manual setup without Wizard guidance on self-hosted instances', async () => {
+        useMocks({ get: { '/_preflight/': { cloud: false } } })
+        preflightLogic.actions.loadPreflight()
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true })
+
+        render(<ProductEmptyState config={errorTrackingEmptyState.config} mode="needs-setup" />)
+
+        expect(screen.queryByLabelText(/Copy command/)).toBeNull()
+        expect(screen.queryByText(/Run Wizard/)).toBeNull()
+        expect(screen.getByText(/Check your SDK integration/)).toBeTruthy()
+        expect(screen.getByText('Set up Error tracking')).toBeTruthy()
+    })
 
     // `beside` renders a pair and a container query hides one of them at any width. A lazy
     // image with no layout box has nothing to intersect, so the browser can leave it unfetched
