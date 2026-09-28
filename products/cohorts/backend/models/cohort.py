@@ -1298,6 +1298,65 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             )
             raise
 
+    def remove_users_by_uuids(self, user_uuids: list[str], *, team_id: int) -> int:
+        """
+        Remove many users from the static cohort by their UUIDs.
+
+        This operation is idempotent in the same way as ``remove_user_by_uuid``. UUIDs of persons
+        that do not exist in the team are skipped.
+
+        Returns:
+            The number of persons that exist in the team (removal attempted).
+        """
+        from products.cohorts.backend.models.util import (
+            delete_cohort_member,
+            get_static_cohort_size,
+            remove_persons_from_static_cohort,
+        )
+
+        try:
+            with personhog_caller_tag("cohorts/static-remove-bulk"):
+                persons = get_person_ids_and_uuids_by_uuids(team_id, user_uuids)
+            if not persons:
+                return 0
+
+            # Delete from PostgreSQL first (source of truth), then ClickHouse.
+            for person_id, _ in persons:
+                delete_cohort_member(team_id=team_id, cohort_id=self.id, person_id=person_id)
+
+            remove_persons_from_static_cohort(
+                [str(person_uuid) for _, person_uuid in persons], self.pk, team_id=team_id
+            )
+
+            try:
+                self.count = get_static_cohort_size(cohort_id=self.id, team_id=team_id, consistency="strong")
+                self.save(update_fields=["count"])
+            except Exception as count_err:
+                logger.exception(
+                    "Failed to update cohort count after bulk removal",
+                    cohort_id=self.id,
+                    team_id=team_id,
+                )
+                capture_exception(
+                    count_err,
+                    additional_properties={"cohort_id": self.id, "team_id": team_id},
+                )
+
+            return len(persons)
+
+        except Exception as err:
+            logger.exception(
+                "Failed to remove users from cohort",
+                cohort_id=self.id,
+                team_id=team_id,
+                user_count=len(user_uuids),
+            )
+            capture_exception(
+                err,
+                additional_properties={"cohort_id": self.id, "team_id": team_id},
+            )
+            raise
+
     def to_dict(self) -> dict:
         from posthog.models.activity_logging.activity_log import common_field_exclusions, field_exclusions
 

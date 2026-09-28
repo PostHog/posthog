@@ -513,6 +513,21 @@ class RemovePersonRequestSerializer(serializers.Serializer):
     person_id = serializers.UUIDField(required=True, help_text="Person UUID to remove from the cohort")
 
 
+class RemovePersonsFromStaticCohortRequestSerializer(serializers.Serializer):
+    person_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=True,
+        help_text=f"List of person UUIDs to remove from the cohort. At most {DEFAULT_COHORT_INSERT_BATCH_SIZE} per call.",
+    )
+
+
+class RemovePersonsFromStaticCohortResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="True when the request succeeds.")
+    removed_count = serializers.IntegerField(
+        help_text="Number of persons found in the project and removed from the cohort. Unknown UUIDs are skipped."
+    )
+
+
 COHORT_USED_IN_PAGE_SIZE = 100
 
 
@@ -2088,6 +2103,44 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             detail=Detail(changes=[Change(type="Cohort", action="changed")]),
         )
         return Response({"success": True}, status=200)
+
+    @extend_schema(
+        request=RemovePersonsFromStaticCohortRequestSerializer,
+        responses={200: RemovePersonsFromStaticCohortResponseSerializer},
+    )
+    @action(methods=["PATCH"], detail=True, required_scopes=["cohort:write"])
+    def remove_persons_from_static_cohort(self, request: request.Request, **kwargs):
+        cohort: Cohort = self.get_object()
+        if not cohort.is_static:
+            raise ValidationError("Can only remove users from static cohorts")
+        person_ids = request.data.get("person_ids", None)
+        if not isinstance(person_ids, list):
+            raise ValidationError("person_ids must be a list")
+        if len(person_ids) == 0:
+            raise ValidationError("person_ids cannot be empty")
+        if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
+            raise ValidationError("List size exceeds limit")
+        for person_id in person_ids:
+            try:
+                uuid.UUID(str(person_id))
+            except ValueError:
+                raise ValidationError("person_ids must contain valid UUIDs")
+
+        removed_count = cohort.remove_users_by_uuids([str(person_id) for person_id in person_ids], team_id=self.team_id)
+        if removed_count == 0:
+            raise NotFound("None of these UUIDs match a person in the cohort's team")
+
+        log_activity(
+            organization_id=cast(UUIDT, self.organization_id),
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            item_id=str(cohort.id),
+            scope="Cohort",
+            activity="persons_removed_manually",
+            detail=Detail(changes=[Change(type="Cohort", action="changed")]),
+        )
+        return Response({"success": True, "removed_count": removed_count}, status=200)
 
     @extend_schema(operation_id="cohorts_all_activity_retrieve")
     @action(

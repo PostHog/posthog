@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from typing import Any, Optional
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import (
@@ -5185,6 +5186,62 @@ email@example.org,
         # Removal succeeds - idempotent operation
         assert response.status_code == 200
         assert response.json()["success"] is True
+
+    def test_remove_persons_from_static_cohort(self):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        persons = [
+            _create_person(team_id=self.team.pk, distinct_ids=[f"bulk-person-{i}"], properties={"email": f"{i}@x.com"})
+            for i in range(3)
+        ]
+        flush_persons_and_events()
+        static_cohort.insert_users_by_list([f"bulk-person-{i}" for i in range(3)])
+
+        unknown_uuid = "12345678-1234-1234-1234-123456789abc"
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_persons_from_static_cohort",
+            {"person_ids": [str(persons[0].uuid), str(persons[1].uuid), unknown_uuid]},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"success": True, "removed_count": 2}
+
+        activity = self._get_cohort_activity(static_cohort.id)["results"]
+        assert [a["activity"] for a in activity] == ["persons_removed_manually"]
+
+        cohort_persons = self.client.get(f"/api/cohort/{static_cohort.id}/persons").json()["results"]
+        assert [p["uuid"] for p in cohort_persons] == [str(persons[2].uuid)]
+        static_cohort.refresh_from_db()
+        assert static_cohort.count == 1
+
+    @parameterized.expand(
+        [
+            ("missing", {}, 400, "person_ids must be a list"),
+            ("empty", {"person_ids": []}, 400, "person_ids cannot be empty"),
+            ("invalid_uuid", {"person_ids": ["a"]}, 400, "person_ids must contain valid UUIDs"),
+            ("too_many", {"person_ids": [str(uuid4()) for _ in range(1001)]}, 400, "List size exceeds limit"),
+            ("unknown_persons", {"person_ids": [str(uuid4())]}, 404, "None of these UUIDs match a person"),
+        ]
+    )
+    def test_remove_persons_from_static_cohort_validation(self, _name, payload, expected_status, expected_detail):
+        static_cohort = Cohort.objects.create(team=self.team, name="Test Static Cohort", is_static=True)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_persons_from_static_cohort",
+            payload,
+            format="json",
+        )
+        assert response.status_code == expected_status
+        assert expected_detail in response.json()["detail"]
+
+    def test_remove_persons_from_dynamic_cohort_fails(self):
+        dynamic_cohort = Cohort.objects.create(team=self.team, name="Test Dynamic Cohort", is_static=False)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{dynamic_cohort.id}/remove_persons_from_static_cohort",
+            {"person_ids": [str(uuid4())]},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "Can only remove users from static cohorts" in response.json()["detail"]
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.cohorts.backend.models.dependencies._on_cohort_changed")

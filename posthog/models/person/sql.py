@@ -206,7 +206,8 @@ def PERSONS_DISTINCT_ID_TABLE_SQL(on_cluster=True):
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
 #    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
-KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = lambda on_cluster=True: """
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = (
+    lambda on_cluster=True: """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     distinct_id VARCHAR,
@@ -216,9 +217,10 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     is_deleted Nullable(Int8)
 ) ENGINE = {engine}
 """.format(
-    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
-    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-    engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
+        table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
+        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+        engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
+    )
 )
 
 
@@ -543,6 +545,7 @@ INSERT_PERSON_STATIC_COHORT = (
 )
 
 DELETE_PERSON_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id = %(person_id)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
+DELETE_PERSONS_FROM_STATIC_COHORT = f"DELETE FROM {PERSON_STATIC_COHORT_TABLE} WHERE person_id IN %(person_ids)s AND cohort_id = %(cohort_id)s AND team_id = %(team_id)s"
 
 #
 # Copying demo data

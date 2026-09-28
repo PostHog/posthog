@@ -574,6 +574,18 @@ export interface PatchedRemovePersonRequestApi {
     person_id?: string
 }
 
+export interface PatchedRemovePersonsFromStaticCohortRequestApi {
+    /** List of person UUIDs to remove from the cohort. At most 1000 per call. */
+    person_ids?: string[]
+}
+
+export interface RemovePersonsFromStaticCohortResponseApi {
+    /** True when the request succeeds. */
+    success: boolean
+    /** Number of persons found in the project and removed from the cohort. Unknown UUIDs are skipped. */
+    removed_count: number
+}
+
 export interface CohortUsedInFlagApi {
     /** Feature flag database ID */
     id: number

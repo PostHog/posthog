@@ -1032,6 +1032,38 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('bulk removal from a static cohort', () => {
+        it('sends every selected person in one request and clears the selection on success', async () => {
+            let requestBody: Record<string, unknown> | undefined
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/cohorts/:id/remove_persons_from_static_cohort/': async ({ request }) => {
+                        requestBody = (await request.json()) as Record<string, unknown>
+                        return [200, { success: true, removed_count: 2 }]
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.togglePersonToRemoveFromCohort('person-1')
+                logic.actions.togglePersonToRemoveFromCohort('person-2')
+                logic.actions.togglePersonToRemoveFromCohort('person-3')
+                logic.actions.togglePersonToRemoveFromCohort('person-3')
+            }).toMatchValues({
+                personsToRemoveFromCohort: { 'person-1': true, 'person-2': true },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.removeSelectedPersonsFromCohort()
+            })
+                .toDispatchActions(['removeSelectedPersonsFromCohortDone', 'resetPersonsToRemoveFromCohort'])
+                .toMatchValues({ personsToRemoveFromCohort: {}, removingPersonsFromCohort: false })
+
+            expect(requestBody).toEqual({ person_ids: ['person-1', 'person-2'] })
+        })
+    })
+
     describe('mutate filters', () => {
         beforeEach(async () => {
             await initCohortLogic({ id: 1 })

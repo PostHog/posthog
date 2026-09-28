@@ -77190,6 +77190,11 @@ export namespace Schemas {
       person_id?: string;
     }
 
+    export interface PatchedRemovePersonsFromStaticCohortRequest {
+      /** List of person UUIDs to remove from the cohort. At most 1000 per call. */
+      person_ids?: string[];
+    }
+
     /**
      * A Replay Vision scanner: its type, targeting query, and AI configuration.
      */
@@ -86732,6 +86737,13 @@ export namespace Schemas {
       identifier: string;
       /** Optional message category key. If omitted, the recipient is opted back in to all marketing messages. */
       category_key?: string;
+    }
+
+    export interface RemovePersonsFromStaticCohortResponse {
+      /** True when the request succeeds. */
+      success: boolean;
+      /** Number of persons found in the project and removed from the cohort. Unknown UUIDs are skipped. */
+      removed_count: number;
     }
 
     export interface ReorderTilesRequest {

@@ -71,7 +71,11 @@ import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { CohortSceneMenuBar } from './CohortSceneMenuBar'
 import { createCohortDataNodeLogicKey, urlForCohortWorkflow } from './cohortUtils'
 import { PersonSelectList } from './PersonSelectList'
-import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
+import {
+    PersonDisplayNameType,
+    RemovePersonFromCohortButton,
+    RemoveSelectedPersonsFromCohortBar,
+} from './RemovePersonFromCohortButton'
 
 const RESOURCE_TYPE = 'cohort'
 
@@ -898,27 +902,32 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                     </p>
                                                 </div>
                                             ) : (
-                                                <Query
-                                                    query={effectiveQuery}
-                                                    setQuery={setQuery}
-                                                    context={{
-                                                        refresh: 'force_blocking',
-                                                        fileNameForExport: cohort.name,
-                                                        cohortId: cohortId,
-                                                        dataNodeLogicKey: dataNodeLogicKey,
-                                                        columns: canRemovePersonFromCohort
-                                                            ? {
-                                                                  'person.$delete': {
-                                                                      render: renderRemovePersonFromCohortButton,
-                                                                  },
-                                                              }
-                                                            : undefined,
-                                                        emptyStateHeading:
-                                                            'There are no matching persons for this cohort',
-                                                        emptyStateDetail:
-                                                            'Try adjusting your matching criteria or search to see more results.',
-                                                    }}
-                                                />
+                                                <>
+                                                    {canRemovePersonFromCohort && (
+                                                        <RemoveSelectedPersonsFromCohortBar />
+                                                    )}
+                                                    <Query
+                                                        query={effectiveQuery}
+                                                        setQuery={setQuery}
+                                                        context={{
+                                                            refresh: 'force_blocking',
+                                                            fileNameForExport: cohort.name,
+                                                            cohortId: cohortId,
+                                                            dataNodeLogicKey: dataNodeLogicKey,
+                                                            columns: canRemovePersonFromCohort
+                                                                ? {
+                                                                      'person.$delete': {
+                                                                          render: renderRemovePersonFromCohortButton,
+                                                                      },
+                                                                  }
+                                                                : undefined,
+                                                            emptyStateHeading:
+                                                                'There are no matching persons for this cohort',
+                                                            emptyStateDetail:
+                                                                'Try adjusting your matching criteria or search to see more results.',
+                                                        }}
+                                                    />
+                                                </>
                                             )}
                                         </div>
                                     </SceneSection>

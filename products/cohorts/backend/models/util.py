@@ -46,6 +46,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Filter, Team
 from posthog.models.person.sql import (
     DELETE_PERSON_FROM_STATIC_COHORT,
+    DELETE_PERSONS_FROM_STATIC_COHORT,
     INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
     INSERT_PERSON_STATIC_COHORT,
     PERSON_STATIC_COHORT_TABLE,
@@ -640,6 +641,20 @@ def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id:
     sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
 
 
+def _static_cohort_delete_settings() -> dict[str, str]:
+    # Use synchronous mutations in tests for deterministic behavior
+    if settings.TEST:
+        return {
+            "mutations_sync": "2",
+            "lightweight_deletes_sync": "2",
+        }
+    # Use async mutations in production to avoid replica sync issues
+    return {
+        "mutations_sync": "0",
+        "lightweight_deletes_sync": "0",
+    }
+
+
 def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
     """Remove a person from a static cohort in ClickHouse.
 
@@ -656,19 +671,6 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
         feature=Feature.COHORT,
     )
 
-    # Use synchronous mutations in tests for deterministic behavior
-    if settings.TEST:
-        ch_settings = {
-            "mutations_sync": "2",
-            "lightweight_deletes_sync": "2",
-        }
-    else:
-        # Use async mutations in production to avoid replica sync issues
-        ch_settings = {
-            "mutations_sync": "0",
-            "lightweight_deletes_sync": "0",
-        }
-
     sync_execute(
         DELETE_PERSON_FROM_STATIC_COHORT,
         {
@@ -676,7 +678,34 @@ def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, 
             "cohort_id": cohort_id,
             "team_id": team_id,
         },
-        settings=ch_settings,
+        settings=_static_cohort_delete_settings(),
+    )
+
+
+def remove_persons_from_static_cohort(person_uuids: Sequence[str], cohort_id: int, *, team_id: int) -> None:
+    """Remove many persons from a static cohort in ClickHouse with one lightweight delete.
+
+    Uses the same mutation settings as ``remove_person_from_static_cohort``.
+    """
+    if not person_uuids:
+        return
+
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="remove_persons_from_static_cohort",
+        feature=Feature.COHORT,
+    )
+
+    sync_execute(
+        DELETE_PERSONS_FROM_STATIC_COHORT,
+        {
+            "person_ids": [str(person_uuid) for person_uuid in person_uuids],
+            "cohort_id": cohort_id,
+            "team_id": team_id,
+        },
+        settings=_static_cohort_delete_settings(),
     )
 
 

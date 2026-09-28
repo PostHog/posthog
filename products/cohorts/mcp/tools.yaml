@@ -191,6 +191,9 @@ tools:
     cohorts-persons-retrieve:
         operation: cohorts_persons_retrieve
         enabled: false
+    cohorts-remove-persons-from-static-cohort-partial-update:
+        operation: cohorts_remove_persons_from_static_cohort_partial_update
+        enabled: false
     cohorts-retrieve:
         operation: cohorts_retrieve
         enabled: true
