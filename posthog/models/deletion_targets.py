@@ -63,6 +63,10 @@ class HogQLSchema(Enum):
 
     LEGACY = "legacy"
     NATIVE_JSON = "native_json"
+    FLAG_EVALUATIONS = "flag_evaluations"
+
+
+FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -93,9 +97,9 @@ class DeletionTarget:
     node_role: NodeRole = NodeRole.DATA
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
-    # Which events-schema variant compile_hogql_predicate emits for this table, None where no
-    # variant is known to run against its physical columns. Every predicate resolves against the
-    # events HogQL table, and the only choice is legacy versus native-JSON. A fragment names
+    # Which schema compile_hogql_predicate emits for this table, None where no variant is known to
+    # run against its physical columns. The events variants resolve against the events HogQL table,
+    # legacy or native-JSON; FLAG_EVALUATIONS resolves against its own HogQL table. A fragment names
     # physical columns (mat_*, the property-group maps, or JSON subcolumns), so it only runs
     # against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
@@ -148,6 +152,10 @@ class DeletionTarget:
     def uses_new_events_schema(self) -> bool:
         return self.hogql_schema is HogQLSchema.NATIVE_JSON
 
+    @property
+    def hogql_table_name(self) -> str:
+        return FLAG_EVALUATIONS_HOGQL_TABLE if self.hogql_schema is HogQLSchema.FLAG_EVALUATIONS else "events"
+
     def may_hold_any_of(self, events: Sequence[str]) -> bool:
         """Whether this table could hold rows for any of ``events``, empty meaning every event.
 
@@ -197,12 +205,13 @@ EVENTS_JSON = DeletionTarget(
 # queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
 # events-shaped table. Its producer stopped sending person_properties on 2026-09-05 (#95693); a row
 # the table stored before then is out of the property-removal gate's reach until its TTL passes. It
-# takes neither of the richer sweeps; both exclusions are explained in
-# docs/internal/clickhouse-deletion-coverage.md.
+# takes a HogQL predicate compiled against its own HogQL table, but not the property rewrite; both
+# are explained in docs/internal/clickhouse-deletion-coverage.md.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
     optional=True,
+    hogql_schema=HogQLSchema.FLAG_EVALUATIONS,
     stores_person_properties=False,
     accepts_person_id_rewrite=True,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),

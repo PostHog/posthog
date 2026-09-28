@@ -141,6 +141,15 @@ def _flag_evaluation_person_ids(team_id: int, client: Client) -> list[str]:
     return [row[0] for row in result]
 
 
+def _flag_evaluation_browsers(team_id: int, client: Client) -> list[str]:
+    result = client.execute(
+        "SELECT JSONExtractString(properties, '$browser') AS browser FROM flag_evaluations "
+        "WHERE team_id = %(team_id)s AND _row_exists = 1 ORDER BY browser",
+        {"team_id": team_id},
+    )
+    return [row[0] for row in result]
+
+
 def _truncate_flag_evaluations(client: Client) -> None:
     client.execute("TRUNCATE TABLE IF EXISTS sharded_flag_evaluations")
 
@@ -2440,34 +2449,49 @@ def test_get_property_removal_shards_narrows_person_properties_on_flag_evaluatio
 
 
 @pytest.mark.django_db
-def test_execute_event_deletion_refuses_hogql_predicate_when_flag_evaluations_holds_matching_rows(
-    cluster: ClickhouseCluster,
+@pytest.mark.parametrize(
+    "hogql_predicate,expected_surviving_browsers",
+    [
+        ("properties.$browser = 'Chrome'", ["Firefox"]),
+        # flag_evaluations stores no person properties, so this predicate cannot run there.
+        ("person.properties.email = 'someone@example.com'", None),
+    ],
+)
+def test_execute_event_deletion_applies_hogql_predicate_to_flag_evaluations(
+    cluster: ClickhouseCluster, hogql_predicate: str, expected_surviving_browsers: list[str] | None
 ) -> None:
-    # flag_evaluations has no HogQL table definition, so it cannot accept the compiled predicate
-    # and falls into the unsweepable branch of _event_removal_placements. A matching row there must
-    # refuse the request rather than let it complete while HogQL-matched rows survive.
+    from posthog.models.organization import Organization
+    from posthog.models.team import Team
+
+    org = Organization.objects.create(name="test-org-flag-evaluations-hogql")
+    team = Team.objects.create(organization=org, name="test-team-flag-evaluations-hogql")
     now = datetime.now()
-    start_time = now - timedelta(days=7)
-    end_time = now + timedelta(minutes=1)
 
     cluster.any_host(_truncate_flag_evaluations).result()
     cluster.any_host(
         partial(
             _insert_flag_evaluations_with_properties,
-            [(PROP_TEAM_ID, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now)],
+            [
+                (team.id, "someone", '{"$browser": "Chrome"}', str(uuid4()), now, now),
+                (team.id, "someone", '{"$browser": "Firefox"}', str(uuid4()), now, now),
+            ],
         )
     ).result()
 
     deletion_ctx = DeletionRequestContext(
         request_id=str(uuid4()),
-        team_id=PROP_TEAM_ID,
-        start_time=start_time,
-        end_time=end_time,
+        team_id=team.id,
+        start_time=now - timedelta(days=7),
+        end_time=now + timedelta(minutes=1),
         events=[FLAG_EVALUATIONS_SOURCE_EVENT],
-        hogql_predicate="properties.$browser = 'Chrome'",
+        hogql_predicate=hogql_predicate,
     )
-    with pytest.raises(dagster.Failure, match="cannot be deleted"):
+    if expected_surviving_browsers is None:
+        with pytest.raises(dagster.Failure, match="cannot be deleted"):
+            execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+    else:
         execute_event_deletion(build_op_context(), cluster, deletion_ctx)
+        assert cluster.any_host(partial(_flag_evaluation_browsers, team.id)).result() == expected_surviving_browsers
 
     cluster.any_host(_truncate_flag_evaluations).result()
 

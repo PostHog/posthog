@@ -23,6 +23,7 @@ def translate_hogql(
     events_table_alias: Optional[str] = None,
     events_table_use_new_schema: Optional[bool] = None,
     placeholders: Optional[dict[str, ast.Expr]] = None,
+    table_name: str = "events",
     forbid_joins: bool = False,
 ) -> str:
     """Translate a HogQL expression into a ClickHouse expression.
@@ -41,7 +42,7 @@ def translate_hogql(
         context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(actual_poe_mode)
         if events_table_use_new_schema is not None:
             context.use_new_events_schema = events_table_use_new_schema
-        # Create a fake query that selects from "events" to have fields to select from.
+        # Create a fake query that selects from the table to have fields to select from.
         if context.database is None:
             if context.team_id is None:
                 raise ValueError("Cannot translate HogQL for a filter with no team specified")
@@ -52,7 +53,9 @@ def translate_hogql(
             )
 
         node = parse_expr(query, placeholders=placeholders)
-        select_query = ast.SelectQuery(select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=["events"])))
+        select_query = ast.SelectQuery(
+            select=[node], select_from=ast.JoinExpr(table=ast.Field(chain=table_name.split(".")))
+        )
 
         if events_table_alias is not None and isinstance(select_query.select_from, ast.JoinExpr):
             select_query.select_from.alias = events_table_alias

@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
@@ -9,6 +10,9 @@ from django.db.models import F
 from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
+
+if TYPE_CHECKING:
+    from posthog.models.deletion_targets import DeletionTarget
 
 
 def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> str:
@@ -23,7 +27,7 @@ def jsonhas_expr(prop: str, param_prefix: str, column: str = "properties") -> st
     return f"JSONHas({column}, {args})"
 
 
-def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
+def compile_hogql_predicate(obj, use_new_events_schema: bool = False, table_name: str = "events") -> tuple[str, dict]:
     """Parse and compile ``obj.hogql_predicate`` into a ClickHouse SQL fragment.
 
     Returns ``(sql_fragment, extra_params)``. Both are empty when the predicate
@@ -43,6 +47,10 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
     (``events_json`` / ``sharded_events_json``) — JSON subcolumn reads instead of
     JSONExtract/materialized-column reads. Deletions target both physical events tables, so
     callers compile one fragment per table.
+
+    ``table_name`` resolves the predicate against another HogQL table, such as
+    ``posthog.flag_evaluations``. A predicate that names a field the table does not have raises
+    ValidationError.
     """
     predicate = (getattr(obj, "hogql_predicate", "") or "").strip()
     if not predicate:
@@ -53,10 +61,14 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
     from posthog.schema import PersonsOnEventsMode
 
     from posthog.hogql.context import HogQLContext
+    from posthog.hogql.database.database import Database
+    from posthog.hogql.database.models import TableNode
+    from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
     from posthog.hogql.hogql import ExpressionNeedsJoinError, translate_hogql
     from posthog.hogql.modifiers import create_default_modifiers_for_team
     from posthog.hogql.parser import parse_expr
 
+    from posthog.models.deletion_targets import FLAG_EVALUATIONS_HOGQL_TABLE
     from posthog.models.team import Team
 
     try:
@@ -94,9 +106,14 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
         raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
     modifiers = create_default_modifiers_for_team(team)
     modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
+    database = Database.create_for(team=team, modifiers=modifiers)
+    if table_name == FLAG_EVALUATIONS_HOGQL_TABLE and not database.has_table(table_name):
+        # The org flag hides the table from queries, but the rows it holds still have to be deletable.
+        database.get_table_node("posthog").add_child(TableNode(name="flag_evaluations", table=FlagEvaluationsTable()))
     context = HogQLContext(
         team_id=obj.team_id,
         team=team,
+        database=database,
         modifiers=modifiers,
         within_non_hogql_query=True,
         enable_select_queries=True,
@@ -110,6 +127,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
             context,
             dialect="clickhouse",
             events_table_use_new_schema=use_new_events_schema,
+            table_name=table_name,
             forbid_joins=True,
         )
     except ImportError:
@@ -212,7 +230,7 @@ def portable_event_removal_where(obj) -> tuple[str, dict]:
     return " ".join(p for p in parts if p), event_match_params(obj)
 
 
-def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, dict]:
+def event_removal_where(obj, use_new_events_schema: bool = False, table_name: str = "events") -> tuple[str, dict]:
     """Full WHERE predicate + params for event-removal queries.
 
     Combines the mandatory team/timestamp bounds, the events filter (skipped
@@ -220,15 +238,40 @@ def event_removal_where(obj, use_new_events_schema: bool = False) -> tuple[str, 
     compiled HogQL fragment uses unqualified column references, so the result
     is safe to splice into queries against either the Distributed ``events``
     proxy or the local ``sharded_events`` MergeTree. Pass ``use_new_events_schema``
-    when the query targets the native-JSON events tables.
+    when the query targets the native-JSON events tables, and ``table_name`` when it targets
+    another table.
     """
     predicate, params = portable_event_removal_where(obj)
     parts = [predicate]
-    hogql_sql, hogql_values = compile_hogql_predicate(obj, use_new_events_schema=use_new_events_schema)
+    hogql_sql, hogql_values = compile_hogql_predicate(
+        obj, use_new_events_schema=use_new_events_schema, table_name=table_name
+    )
     if hogql_sql:
         parts.append(f"AND ({hogql_sql})")
         params.update(hogql_values)
     return " ".join(p for p in parts if p), params
+
+
+def event_removal_where_for(obj, target: "DeletionTarget") -> tuple[str, dict] | None:
+    """``event_removal_where`` compiled for ``target``, or None where the request cannot run there.
+
+    None when the request carries a HogQL predicate and the target takes none, or the predicate
+    names a field the target's HogQL table lacks, such as ``person.properties`` on
+    flag_evaluations. On an events target that same error means the predicate is invalid, so it
+    raises.
+    """
+    if not (getattr(obj, "hogql_predicate", "") or "").strip():
+        return portable_event_removal_where(obj)
+    if not target.accepts_hogql_predicate:
+        return None
+    try:
+        return event_removal_where(
+            obj, use_new_events_schema=target.uses_new_events_schema, table_name=target.hogql_table_name
+        )
+    except ValidationError:
+        if target.hogql_table_name == "events":
+            raise
+        return None
 
 
 class RequestType(models.TextChoices):
@@ -827,7 +870,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
     Counts across every registered read table that could hold the named events. A request is only
     complete once its rows are gone from all of them.
 
-    A target that cannot take the compiled HogQL fragment is counted with the portable predicate
+    A target the HogQL predicate cannot run on is counted with the portable predicate
     instead, which matches a superset. That can only hold a request in QUEUED, never promote one
     early. It also means a non-zero count is not proof that rows were missed: for a HogQL request
     the superset can match rows the predicate itself never would.
@@ -850,10 +893,7 @@ def count_remaining_matching_events(request: "DataDeletionRequest") -> int:
         for target in resolve_read_targets_via_sync_execute():
             if not target.may_hold_any_of(events):
                 continue
-            if target.accepts_hogql_predicate:
-                predicate, params = event_removal_where(request, use_new_events_schema=target.uses_new_events_schema)
-            else:
-                predicate, params = portable_event_removal_where(request)
+            predicate, params = event_removal_where_for(request, target) or portable_event_removal_where(request)
             result = sync_execute(
                 surviving_rows_sql(target.read_table, predicate),
                 params,

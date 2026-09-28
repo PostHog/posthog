@@ -41,7 +41,7 @@ from posthog.models.data_deletion_request import (
     auto_approve_pending_requests,
     compile_hogql_predicate,
     event_match_sql_fragment,
-    event_removal_where,
+    event_removal_where_for,
     jsonhas_expr,
     portable_event_removal_where,
     verify_queued_request,
@@ -565,11 +565,10 @@ def execute_hogql_event_deletion(
 
 
 _HOGQL_UNSWEEPABLE_REASON = (
-    "the request carries a HogQL predicate, which only compiles against the events schema "
-    "(compile_hogql_predicate resolves every predicate against the events HogQL table, varying only "
-    "legacy vs native-JSON, and nothing checks the result against this table's columns). "
-    "To proceed, re-file the request without the predicate, or narrow its events to ones this "
-    f"table never stores. See {COVERAGE_DOC}."
+    "the request carries a HogQL predicate that does not compile against this table, because it "
+    "names a field the table does not store (for example person properties) or the table has no "
+    "HogQL schema. To proceed, re-file the request with a predicate this table can run, without the "
+    f"predicate, or with its events narrowed to ones this table never stores. See {COVERAGE_DOC}."
 )
 
 
@@ -651,13 +650,23 @@ def _event_removal_placements(
     if not deletion_request.hogql_predicate:
         return placements
 
-    unsweepable = [p.target for p in placements if not p.target.accepts_hogql_predicate]
+    unsweepable = [p.target for p in placements if event_removal_where_for(deletion_request, p.target) is None]
     if unsweepable:
         criteria = portable_event_removal_where(deletion_request)
         _refuse_unsweepable(
             cluster, unsweepable, deletion_request, lambda _target: criteria, reason=_HOGQL_UNSWEEPABLE_REASON
         )
-    return [p for p in placements if p.target.accepts_hogql_predicate]
+    return [p for p in placements if p.target not in unsweepable]
+
+
+def _sweep_where(deletion_request: DeletionRequestContext, target: DeletionTarget) -> tuple[str, dict]:
+    """The delete predicate for a target that _event_removal_placements kept."""
+    where = event_removal_where_for(deletion_request, target)
+    if where is None:
+        raise dagster.Failure(
+            description=f"Deletion request {deletion_request.request_id}: no predicate for {target.data_table}."
+        )
+    return where
 
 
 def _run_immediate_event_deletion(
@@ -675,9 +684,7 @@ def _run_immediate_event_deletion(
         target = placement.target
         # The HogQL fragment compiles differently per schema: materialized-column/JSONExtract
         # reads on the legacy table, JSON subcolumn reads on the native-JSON table.
-        predicate, parameters = event_removal_where(
-            deletion_request, use_new_events_schema=target.uses_new_events_schema
-        )
+        predicate, parameters = _sweep_where(deletion_request, target)
 
         # placement.cluster, not the job's handle: shard numbers are per cluster.
         shards = sorted(placement.cluster.shards)
@@ -705,11 +712,7 @@ def _run_immediate_event_deletion(
         cluster,
         targets,
         deletion_request,
-        lambda target: (
-            event_removal_where(deletion_request, use_new_events_schema=target.uses_new_events_schema)
-            if target.accepts_hogql_predicate
-            else portable_event_removal_where(deletion_request)
-        ),
+        lambda target: _sweep_where(deletion_request, target),
     )
 
     context.add_output_metadata(
@@ -746,22 +749,21 @@ def _queue_events_for_deferred_deletion(
     sources = [p.target for p in placements]
     db = django_settings.CLICKHOUSE_DATABASE
     shards = sorted(cluster.shards)
-    predicate, params = event_removal_where(deletion_request)
-    params["data_deletion_request_id"] = deletion_request.request_id
+    source_wheres = [(source, _sweep_where(deletion_request, source)) for source in sources]
 
     def run_on_shard(client: Client) -> int:
-        for source in sources:
+        for source, (predicate, params) in source_wheres:
             # nosemgrep: clickhouse-fstring-param-audit (all interpolated values are internal constants/settings)
             client.execute(
                 f"INSERT INTO {db}.{ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid, data_deletion_request_id) "
                 f"SELECT team_id, uuid, toUUID(%(data_deletion_request_id)s) "
                 f"FROM {db}.{source.data_table} WHERE {predicate}",
-                params,
+                {**params, "data_deletion_request_id": deletion_request.request_id},
                 settings={"max_execution_time": 1800},
             )
         row = client.execute(
             f"SELECT count() FROM {db}.{ADHOC_EVENTS_DELETION_TABLE} WHERE team_id = %(team_id)s AND is_deleted = 0",
-            {"team_id": params["team_id"]},
+            {"team_id": deletion_request.team_id},
         )
         return row[0][0] if row else 0
 
