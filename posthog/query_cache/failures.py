@@ -212,7 +212,11 @@ class WarmingQueryFailureCache(QueryFailureCache):
     Both paths share the same failure history. record_failure() saves the normal
     cooldown in open_until. retry_after() calculates a longer wait for warming from
     that history without saving it. Foreground retries keep the normal cooldown,
-    and a successful calculation clears the failure history for both paths.
+    so a user can retry before warming is allowed to try again. A successful
+    foreground calculation for the same cache key refreshes the result cache and
+    clears the failure history for both paths. The next warm can use that fresh
+    result or recalculate once it becomes stale, without the old failure cooldown.
+    Serving a cached result alone does not clear the failure history.
     """
 
     def retry_after(self, record: QueryFailureRecord) -> Optional[datetime]:
