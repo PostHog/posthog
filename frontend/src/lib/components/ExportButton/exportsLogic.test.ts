@@ -674,6 +674,91 @@ describe('exportsLogic', () => {
             }
         })
 
+        const deferredCreate = (): {
+            resolve: (value: ExportedAssetType) => void
+            reject: (error: Error) => void
+        } => {
+            let resolve!: (value: ExportedAssetType) => void
+            let reject!: (error: Error) => void
+            jest.spyOn(api.exports, 'create').mockReturnValue(
+                new Promise<ExportedAssetType>((res, rej) => {
+                    resolve = res
+                    reject = rej
+                })
+            )
+            return { resolve, reject }
+        }
+
+        it('joins a repeat click on the running export instead of sending another request', async () => {
+            const createCall = deferredCreate()
+            const csv = { export_format: ExporterFormat.CSV, export_context: { path: '/api/query', body: 'q' } }
+
+            logic.actions.createExport({ exportData: csv })
+            logic.actions.createExport({ exportData: csv })
+            logic.actions.createExport({ exportData: { ...csv, export_format: ExporterFormat.XLSX } })
+            await flush()
+
+            expect(api.exports.create).toHaveBeenCalledTimes(2)
+            expect(jest.mocked(lemonToast.promise).mock.calls).toHaveLength(2)
+            expect(Object.keys(logic.values.pendingExportRequests)).toHaveLength(2)
+
+            createCall.resolve(asset({ id: 71, has_content: true }))
+            await flush()
+
+            expect(logic.values.pendingExportRequests).toEqual({})
+            logic.actions.createExport({ exportData: csv })
+            expect(api.exports.create).toHaveBeenCalledTimes(3)
+        })
+
+        it.each([
+            {
+                label: 'finishes',
+                settle: (call: ReturnType<typeof deferredCreate>) => call.resolve(asset({ id: 72, has_content: true })),
+                lateToast: 'success' as const,
+                expected: ['Export complete!', 'Download'],
+            },
+            {
+                label: 'fails',
+                settle: (call: ReturnType<typeof deferredCreate>) => call.reject(new Error('network down')),
+                lateToast: 'error' as const,
+                expected: ['Export failed: network down', undefined],
+            },
+        ])(
+            'hands a slow export off to the exports panel and reports it when it $label',
+            async ({ settle, lateToast, expected }) => {
+                jest.useFakeTimers()
+                const original = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
+                Object.defineProperty(navigator, 'userActivation', { value: { isActive: false }, configurable: true })
+                try {
+                    const createCall = deferredCreate()
+                    logic.actions.createExport({ exportData: { export_format: ExporterFormat.CSV } })
+                    const toastId = jest.mocked(lemonToast.promise).mock.calls[0][2]!.toastId
+
+                    await jest.advanceTimersByTimeAsync(60000)
+
+                    expect(lemonToast.dismiss).toHaveBeenCalledWith(toastId)
+                    expect(jest.mocked(lemonToast.info).mock.calls[0][1]?.button?.label).toEqual('View exports')
+                    expect(lemonToast.success).not.toHaveBeenCalled()
+                    expect(lemonToast.error).not.toHaveBeenCalled()
+
+                    jest.mocked(lemonToast.isActive).mockReturnValue(false)
+                    settle(createCall)
+                    await jest.advanceTimersByTimeAsync(0)
+
+                    const lateCalls = jest.mocked(lemonToast[lateToast]).mock.calls
+                    expect(lateCalls.map(([message, options]) => [message, options?.button?.label])).toEqual([expected])
+                    expect(logic.values.pendingExportRequests).toEqual({})
+                } finally {
+                    jest.useRealTimers()
+                    if (original) {
+                        Object.defineProperty(navigator, 'userActivation', original)
+                    } else {
+                        delete (navigator as any).userActivation
+                    }
+                }
+            }
+        )
+
         it('replaces the failure toast with the upsell survey when the export limit is reached', async () => {
             jest.spyOn(api.exports, 'create').mockRejectedValue({
                 data: { attr: 'export_limit_exceeded', detail: 'You hit the cap' },

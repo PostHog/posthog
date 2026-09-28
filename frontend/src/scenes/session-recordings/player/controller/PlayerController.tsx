@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { isChristmas, isHalloween } from 'lib/holidays'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -21,7 +22,7 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { SessionPlayerState } from '~/types'
+import { ExporterFormat, SessionPlayerState } from '~/types'
 
 import { ClipRecording } from './ClipRecording'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
@@ -182,10 +183,20 @@ function SkipToNext(): JSX.Element | null {
 
 export function Screenshot({ className }: { className?: string }): JSX.Element {
     const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const { pendingExportRequests } = useValues(exportsLogic)
+    const isTakingScreenshot = Object.values(pendingExportRequests).some(
+        ({ export_format, export_context }) =>
+            export_format === ExporterFormat.PNG &&
+            !!export_context &&
+            'session_recording_id' in export_context &&
+            export_context.session_recording_id === sessionRecordingId
+    )
 
     return (
         <LemonButton
             size="xsmall"
+            loading={isTakingScreenshot}
             onClick={(e) => {
                 e.stopPropagation()
                 takeScreenshot()

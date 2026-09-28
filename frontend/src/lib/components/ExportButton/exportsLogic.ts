@@ -42,6 +42,15 @@ const POLL_DELAY_MS = 10000
 const LONG_RUNNING_POLL_DELAY_MS = 30000
 const EXPORT_PENDING_MESSAGE = 'Preparing export…'
 const EXPORT_COMPLETE_MESSAGE = 'Export complete!'
+// A synchronous export can hold its request open for up to 35 minutes. After this delay the spinner
+// hands off to the exports panel, where the row already exists while it renders.
+export const EXPORT_HANDOFF_DELAY_MS = 60000
+const EXPORT_HANDOFF_MESSAGE = 'This export is taking a while. It will appear in your exports when it is ready.'
+const EXPORT_ALREADY_RUNNING_MESSAGE = 'This export is still being prepared.'
+
+/** Identical requests share a key, so a repeat click joins the running export instead of starting another. */
+export const exportRequestKey = (exportData: TriggerExportProps): string =>
+    JSON.stringify([exportData.export_format, exportData.dashboard, exportData.insight, exportData.export_context])
 
 // An export is still rendering while it has neither produced content nor failed.
 const isRendering = (asset: ExportedAssetType): boolean => !asset.has_content && !asset.exception
@@ -91,6 +100,7 @@ export interface exportsLogicValues {
     exportsLoading: boolean
     freshUndownloadedExports: ExportedAssetType[]
     hasReachedExportFullVideoLimit: boolean
+    pendingExportRequests: Record<string, TriggerExportProps>
     pollingExports: ExportedAssetType[]
     pollingExportsLoading: boolean
 }
@@ -162,6 +172,13 @@ export interface exportsLogicActions {
     setHasReachedExportFullVideoLimit: (hasReached: boolean) => {
         hasReached: boolean
     }
+    setExportRequestPending: (
+        key: string,
+        exportData: TriggerExportProps | null
+    ) => {
+        exportData: TriggerExportProps | null
+        key: string
+    }
     startExport: (exportData: TriggerExportProps) => {
         exportData: TriggerExportProps
     }
@@ -227,6 +244,7 @@ export const exportsLogic = kea<exportsLogicType>([
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
         setAssetFormat: (format: ExporterFormat | null) => ({ format }),
         setHasReachedExportFullVideoLimit: (hasReached: boolean) => ({ hasReached }),
+        setExportRequestPending: (key: string, exportData: TriggerExportProps | null) => ({ key, exportData }),
         startReplayExport: (
             sessionRecordingId: string,
             format?: ExporterFormat,
@@ -269,6 +287,18 @@ export const exportsLogic = kea<exportsLogicType>([
             false,
             {
                 setHasReachedExportFullVideoLimit: (_, { hasReached }) => hasReached,
+            },
+        ],
+        pendingExportRequests: [
+            {} as Record<string, TriggerExportProps>,
+            {
+                setExportRequestPending: (state, { key, exportData }) => {
+                    if (exportData) {
+                        return { ...state, [key]: exportData }
+                    }
+                    const { [key]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
     }),
@@ -452,7 +482,23 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 createExport: ({ exportData }) => {
+                    const requestKey = exportRequestKey(exportData)
+                    cache.exportRequestToastIds ??= new Map<string, string>()
+                    const runningToastId: string | undefined = cache.exportRequestToastIds.get(requestKey)
+                    if (runningToastId) {
+                        if (!lemonToast.isActive(runningToastId)) {
+                            lemonToast.info(EXPORT_ALREADY_RUNNING_MESSAGE, {
+                                button: {
+                                    label: 'View exports',
+                                    action: () => actions.openSidePanel(SidePanelTab.Exports),
+                                },
+                            })
+                        }
+                        return values.pollingExports
+                    }
                     const exportToastId = 'export-' + uuid()
+                    cache.exportRequestToastIds.set(requestKey, exportToastId)
+                    actions.setExportRequestPending(requestKey, exportData)
                     // A video render lands in the exports panel minutes later, so its kickoff toast
                     // links there. A synchronous export has no row to link to while it runs.
                     const viewExportsButton: ToastButton | undefined = isLongRunningExportFormat(
@@ -534,6 +580,20 @@ export const exportsLogic = kea<exportsLogicType>([
                         return 'Export started'
                     }
 
+                    let handedOff = false
+                    const handoffTimer = setTimeout(() => {
+                        handedOff = true
+                        // A dismissed spinner ignores its late result. The paths below already raise
+                        // a fresh toast for a finished file.
+                        lemonToast.dismiss(exportToastId)
+                        lemonToast.info(EXPORT_HANDOFF_MESSAGE, {
+                            button: {
+                                label: 'View exports',
+                                action: () => actions.openSidePanel(SidePanelTab.Exports),
+                            },
+                        })
+                    }, EXPORT_HANDOFF_DELAY_MS)
+
                     void (async () => {
                         try {
                             // The success frame is read when the toast settles, so an offer followed
@@ -591,7 +651,13 @@ export const exportsLogic = kea<exportsLogicType>([
                                     apiError?.data?.detail ||
                                         'This recording is too long to export as one video. Export part of it instead.'
                                 )
+                            } else if (handedOff && apiError?.data?.attr !== 'export_limit_exceeded') {
+                                lemonToast.error(error instanceof Error ? error.message : 'Export failed')
                             }
+                        } finally {
+                            clearTimeout(handoffTimer)
+                            cache.exportRequestToastIds?.delete(requestKey)
+                            actions.setExportRequestPending(requestKey, null)
                         }
                     })()
 
