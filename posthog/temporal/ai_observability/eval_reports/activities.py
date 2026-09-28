@@ -1,6 +1,7 @@
 """Activities for evaluation reports workflow."""
 
 import time
+import hashlib
 import datetime as dt
 from collections import defaultdict
 from dataclasses import replace
@@ -21,6 +22,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.eval_reports.constants import (
+    COUNT_TRIGGER_CURSOR_SETTLE_LAG,
     COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS,
     COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE,
@@ -267,8 +269,7 @@ def _check_count_triggered_eval_reports_batch(
     }
 
     outputs: dict[str, CheckCountTriggeredEvalReportOutput] = {}
-    # team_id -> list of (report_id, report, since) for reports that passed the Postgres gate
-    survivors: dict[int, list[tuple[str, EvaluationReport, dt.datetime]]] = defaultdict(list)
+    survivors: dict[int, list[_CountCandidate]] = defaultdict(list)
 
     for report_id in report_ids:
         report = reports.get(report_id)
@@ -284,39 +285,102 @@ def _check_count_triggered_eval_reports_batch(
             )
             continue
         assert since is not None
-        survivors[report.team_id].append((report_id, report, since))
+        survivors[report.team_id].append(_CountCandidate.start(report_id, report, since))
 
     deadline = time.monotonic() + COUNT_TRIGGER_QUERY_TOTAL_BUDGET_SECONDS
-    for entries in survivors.values():
-        team = entries[0][1].team
-        # Sort by `since` before capping the per-query width, so entries sharing a chunk
+    settle_until = now - COUNT_TRIGGER_CURSOR_SETTLE_LAG
+    for candidates in survivors.values():
+        team = candidates[0].report.team
+        # Sort by cursor before capping the per-query width, so entries sharing a chunk
         # have a comparable window — one stale report no longer sets the scan's lower
         # bound for every other report queued alongside it.
-        entries.sort(key=lambda entry: entry[2])
-        for chunk in batched(entries, COUNT_TRIGGER_QUERY_WIDTH, strict=False):
-            counts = _count_eval_results_for_reports_with_split_retry(
+        candidates.sort(key=lambda candidate: candidate.cursor)
+        for chunk in batched(candidates, COUNT_TRIGGER_QUERY_WIDTH, strict=False):
+            result = _count_eval_results_for_reports_with_split_retry(
                 team,
                 [
                     _CountEntry(
-                        key=report_id,
-                        evaluation_id=str(report.evaluation_id),
-                        since=since,
-                        event_predicate=get_outcome_definition(report.evaluation.output_type).event_predicate,
-                        target_predicate=target_event_predicate(report.evaluation.target),
+                        key=candidate.report_id,
+                        evaluation_id=str(candidate.report.evaluation_id),
+                        since=candidate.cursor,
+                        event_predicate=candidate.event_predicate,
+                        target_predicate=candidate.target_predicate,
                     )
-                    for report_id, report, since in chunk
+                    for candidate in chunk
                 ],
                 until=now,
+                settle_until=settle_until,
                 deadline=deadline,
             )
-            for report_id, report, _since in chunk:
-                assert report.trigger_threshold is not None
-                outputs[report_id] = CheckCountTriggeredEvalReportOutput(
-                    report_id=report_id, due=counts.get(report_id, 0) >= report.trigger_threshold
+            for candidate in chunk:
+                count = result.counts.get(candidate.report_id, _EntryCount(total=0, settled=0))
+                _save_running_count(
+                    candidate,
+                    cursor=max(candidate.cursor, min(result.covered_before, settle_until)),
+                    counted_results=candidate.counted_results + count.settled,
+                )
+                assert candidate.report.trigger_threshold is not None
+                outputs[candidate.report_id] = CheckCountTriggeredEvalReportOutput(
+                    report_id=candidate.report_id,
+                    due=candidate.counted_results + count.total >= candidate.report.trigger_threshold,
                 )
 
     # Preserve input order so the workflow's aggregation and logging stay deterministic.
     return [outputs[report_id] for report_id in report_ids]
+
+
+class _CountCandidate(NamedTuple):
+    report_id: str
+    report: "EvaluationReport"
+    anchor: dt.datetime
+    event_predicate: str
+    target_predicate: str
+    predicates_hash: str
+    # The check counts from here; `counted_results` already covers anchor..cursor.
+    cursor: dt.datetime
+    counted_results: int
+
+    @classmethod
+    def start(cls, report_id: str, report: "EvaluationReport", anchor: dt.datetime) -> "_CountCandidate":
+        event_predicate = get_outcome_definition(report.evaluation.output_type).event_predicate
+        target_predicate = target_event_predicate(report.evaluation.target)
+        predicates_hash = hashlib.sha256(f"{event_predicate}\n{target_predicate}".encode()).hexdigest()
+        cursor, counted_results = anchor, 0
+        # A saved count only holds while the rows it counted still match the evaluation's predicates.
+        if (
+            report.count_anchor_at == anchor
+            and report.count_predicates_hash == predicates_hash
+            and report.count_cursor_at is not None
+            and report.counted_results is not None
+        ):
+            cursor, counted_results = report.count_cursor_at, report.counted_results
+        return cls(
+            report_id, report, anchor, event_predicate, target_predicate, predicates_hash, cursor, counted_results
+        )
+
+
+def _save_running_count(candidate: _CountCandidate, cursor: dt.datetime, counted_results: int) -> None:
+    from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
+
+    report = candidate.report
+    if (
+        report.count_anchor_at == candidate.anchor
+        and report.count_predicates_hash == candidate.predicates_hash
+        and report.count_cursor_at == cursor
+    ):
+        return
+    # Match the values this check read, so a concurrent check or a reset does not get overwritten.
+    EvaluationReport.objects.filter(
+        id=report.id,
+        count_anchor_at=report.count_anchor_at,
+        count_predicates_hash=report.count_predicates_hash,
+        count_cursor_at=report.count_cursor_at,
+    ).update(
+        count_anchor_at=candidate.anchor,
+        count_predicates_hash=candidate.predicates_hash,
+        count_cursor_at=cursor,
+        counted_results=counted_results,
+    )
 
 
 def _count_eval_results_for_report(report: "EvaluationReport", since: dt.datetime) -> int:
@@ -365,23 +429,36 @@ class _CountEntry(NamedTuple):
     target_predicate: str
 
 
+class _EntryCount(NamedTuple):
+    total: int
+    # The part of `total` with a timestamp before `settle_until`.
+    settled: int
+
+
+class _CountResult(NamedTuple):
+    counts: dict[str, _EntryCount]
+    # The counts cover the requested range from its start up to, but not including, this instant.
+    covered_before: dt.datetime
+
+
 def _count_eval_results_for_reports(
     team: "Team",
     entries: list[_CountEntry],
     since: dt.datetime,
     until: dt.datetime,
+    settle_until: dt.datetime,
     max_execution_time: int,
-) -> dict[str, int]:
+) -> dict[str, _EntryCount]:
     """Count `$ai_evaluation` events for many reports over one time range, in a single
     ClickHouse query.
 
-    We emit one `countIf` column per entry, each carrying the exact per-report predicate
+    We emit two `countIf` columns per entry, each carrying the exact per-report predicate
     (evaluation_id + output-type `event_predicate` + `target_predicate` + `timestamp >=
     entry.since`), so a call covering every entry's own window returns what the single-report
-    query would. The shared WHERE narrows the scan to `since`..`until` and to the entries'
-    evaluation ids. Callers that pass a range narrower than an entry's own window get that
-    range's share of the count, and must sum the shares to get the entry's total.
-    Returns {key: count}.
+    query would. The second column also requires `timestamp < settle_until`. The shared WHERE
+    narrows the scan to `since`..`until` and to the entries' evaluation ids. Callers that pass
+    a range narrower than an entry's own window get that range's share of the count, and must
+    sum the shares to get the entry's total.
     """
     from posthog.hogql.constants import HogQLGlobalSettings
     from posthog.hogql.parser import parse_expr, parse_select
@@ -401,13 +478,15 @@ def _count_eval_results_for_reports(
         # nosemgrep: hogql-fstring-audit (the predicates come from fixed internal definitions)
         parse_expr(
             f"countIf(properties.$ai_evaluation_id = {{evaluation_id}}"
-            f" AND {entry.event_predicate} AND {entry.target_predicate} AND timestamp >= {{since}})",
+            f" AND {entry.event_predicate} AND {entry.target_predicate} AND timestamp >= {{since}}{extra_predicate})",
             placeholders={
                 "evaluation_id": ast.Constant(value=entry.evaluation_id),
                 "since": ast.Constant(value=entry.since),
+                "settle_until": ast.Constant(value=settle_until),
             },
         )
         for entry in entries
+        for extra_predicate in ("", " AND timestamp < {settle_until}")
     ]
 
     unique_evaluation_ids = list(dict.fromkeys(entry.evaluation_id for entry in entries))
@@ -437,19 +516,23 @@ def _count_eval_results_for_reports(
 
     rows = result.results or []
     if not rows:
-        return {entry.key: 0 for entry in entries}
+        return {entry.key: _EntryCount(total=0, settled=0) for entry in entries}
     row = rows[0]
-    return {entries[index].key: int(row[index] or 0) for index in range(len(entries))}
+    return {
+        entry.key: _EntryCount(total=int(row[2 * index] or 0), settled=int(row[2 * index + 1] or 0))
+        for index, entry in enumerate(entries)
+    }
 
 
 def _count_eval_results_for_reports_with_split_retry(
     team: "Team",
     entries: list[_CountEntry],
     until: dt.datetime,
+    settle_until: dt.datetime,
     since: dt.datetime | None = None,
     deadline: float | None = None,
     max_execution_time: int = COUNT_TRIGGER_QUERY_MAX_EXECUTION_TIME_SECONDS,
-) -> dict[str, int]:
+) -> _CountResult:
     """Run the batched count query, halving the time range and retrying over each half if
     ClickHouse can't finish it inside its own execution-time budget.
 
@@ -466,6 +549,10 @@ def _count_eval_results_for_reports_with_split_retry(
     COUNT_TRIGGER_QUERY_OVERSHOOT_FACTOR. Once the remainder can't fund a meaningful query,
     the timeout surfaces and the activity fails cleanly instead of being killed mid-split by
     Temporal.
+
+    The halves run oldest first. When a later part cannot finish, the result keeps the counts
+    of the finished earlier part and `covered_before` marks where they stop, so the caller can
+    save that progress. The timeout surfaces only when no part of the range finished.
     """
     if since is None:
         since = min(entry.since for entry in entries)
@@ -475,33 +562,45 @@ def _count_eval_results_for_reports_with_split_retry(
     budget = min(max_execution_time, affordable_execution_time)
     if budget < COUNT_TRIGGER_QUERY_MIN_EXECUTION_TIME_SECONDS:
         raise ClickHouseQueryTimeOut("Count query budget exhausted before the split could finish.")
+    # The events table stores timestamps as DateTime64(6), so one microsecond past an instant
+    # is the next representable one and adjacent ranges cannot overlap.
     try:
-        return _count_eval_results_for_reports(team, entries, since=since, until=until, max_execution_time=budget)
+        counts = _count_eval_results_for_reports(
+            team, entries, since=since, until=until, settle_until=settle_until, max_execution_time=budget
+        )
+        return _CountResult(counts=counts, covered_before=until + dt.timedelta(microseconds=1))
     except ClickHouseQueryTimeOut:
         if (until - since) <= COUNT_TRIGGER_QUERY_MIN_SPLIT_RANGE:
             raise
         midpoint = since + (until - since) / 2
-        counts = _count_eval_results_for_reports_with_split_retry(
+        earlier_half = _count_eval_results_for_reports_with_split_retry(
             team,
             entries,
             since=since,
             until=midpoint,
+            settle_until=settle_until,
             deadline=deadline,
             max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
         )
-        # The events table stores timestamps as DateTime64(6), so one microsecond past the
-        # midpoint is the next representable instant and the halves cannot overlap.
-        later_half = _count_eval_results_for_reports_with_split_retry(
-            team,
-            entries,
-            since=midpoint + dt.timedelta(microseconds=1),
-            until=until,
-            deadline=deadline,
-            max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
-        )
-        for key, count in later_half.items():
-            counts[key] = counts.get(key, 0) + count
-        return counts
+        if earlier_half.covered_before <= midpoint:
+            return earlier_half
+        try:
+            later_half = _count_eval_results_for_reports_with_split_retry(
+                team,
+                entries,
+                since=midpoint + dt.timedelta(microseconds=1),
+                until=until,
+                settle_until=settle_until,
+                deadline=deadline,
+                max_execution_time=COUNT_TRIGGER_QUERY_RETRY_MAX_EXECUTION_TIME_SECONDS,
+            )
+        except ClickHouseQueryTimeOut:
+            return earlier_half
+        counts = dict(earlier_half.counts)
+        for key, count in later_half.counts.items():
+            earlier = counts.get(key, _EntryCount(total=0, settled=0))
+            counts[key] = _EntryCount(total=earlier.total + count.total, settled=earlier.settled + count.settled)
+        return _CountResult(counts=counts, covered_before=later_half.covered_before)
 
 
 def _find_nth_eval_timestamp(
