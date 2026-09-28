@@ -8,10 +8,10 @@ import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { reportOnboardingCompleted } from 'scenes/onboarding/onboardingUsage'
 import { resolveOnboardingFlowVariant } from 'scenes/onboarding/onboardingVariants'
 import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -739,7 +739,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             // changing dashboards. Secondary products are still recorded via
             // `recordProductIntentOnboardingComplete` and `has_completed_onboarding_for`,
             // but don't fire an additional `onboarding completed` analytics event.
-            eventUsageLogic.actions.reportOnboardingCompleted(primary)
+            reportOnboardingCompleted(primary)
             props.onCompleteOnboarding?.(primary)
             // Error Tracking has a side-effect tied to onboarding completion (set up in the
             // legacy view): turn on autocapture_exceptions_opt_in. Preserved here.

@@ -1,6 +1,11 @@
 import posthog from 'posthog-js'
 
 import { SELF_DRIVING_ONBOARDING_EVENT_PROPS } from 'scenes/onboarding/onboardingEventUsageLogic'
+import {
+    reportOnboardingCompleted,
+    reportOnboardingStarted,
+    type OnboardingEventProperties,
+} from 'scenes/onboarding/onboardingUsage'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
@@ -24,7 +29,6 @@ import {
 } from '~/types'
 
 import {
-    type OnboardingEventProperties,
     dashboardViewedProperties,
     eventUsageLogic,
     getEventPropertiesForMetric,
@@ -51,10 +55,10 @@ describe('eventUsageLogic', () => {
         ]
 
         it.each(cases)('stamps the %s entry point on every funnel event', (_, properties, entryPoint) => {
-            eventUsageLogic.actions.reportOnboardingStarted(properties)
+            reportOnboardingStarted(properties)
             eventUsageLogic.actions.reportOnboardingStepCompleted('install', undefined, properties)
             eventUsageLogic.actions.reportOnboardingStepSkipped('install', undefined, properties)
-            eventUsageLogic.actions.reportOnboardingCompleted('product_analytics', properties)
+            reportOnboardingCompleted('product_analytics', properties)
 
             for (const event of [
                 'onboarding started',

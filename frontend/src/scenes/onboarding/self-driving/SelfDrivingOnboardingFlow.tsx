@@ -16,6 +16,7 @@ import {
     SELF_DRIVING_ONBOARDING_EVENT_PROPS,
     type SelfDrivingOnboardingStepId,
 } from '../onboardingEventUsageLogic'
+import { reportOnboardingStarted } from '../onboardingUsage'
 import { resolveSetup } from '../shared/useCases'
 import type { OnboardingExtraStepId, OnboardingUseCaseKey } from '../shared/useCases'
 import { wizardSyncUiLogic } from '../shared/wizard-sync/wizardSyncUiLogic'
@@ -112,8 +113,7 @@ export function SelfDrivingOnboardingFlow(): JSX.Element {
     }, [])
     const { completeOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
-    const { reportOnboardingStarted, reportOnboardingStepCompleted, reportOnboardingStepSkipped } =
-        useActions(eventUsageLogic)
+    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { reportOnboardingStepViewed, reportOnboardingInstallVerified } = useActions(onboardingEventUsageLogic)
     // The step list depends on the declared use case (persisted, so a refresh keeps the
     // conditional steps in place).
