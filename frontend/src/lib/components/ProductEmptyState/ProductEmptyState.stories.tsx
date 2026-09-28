@@ -353,6 +353,17 @@ export const ErrorTrackingNeedsSetupNewWizard: ProductEmptyStateStory = {
     },
 }
 
+const errorTrackingWaitingForDataNewWizard = productEmptyStateStory(errorTrackingEmptyState, 'waiting-for-data', {
+    mocks: errorTrackingMocks,
+})
+export const ErrorTrackingWaitingForDataNewWizard: ProductEmptyStateStory = {
+    ...errorTrackingWaitingForDataNewWizard,
+    parameters: {
+        ...errorTrackingWaitingForDataNewWizard.parameters,
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD],
+    },
+}
+
 // Logs detection asks the has-logs API on mount - answer "none yet".
 export const LogsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(logsEmptyState, 'needs-setup', {
     // nosemgrep: no-environments-api-urls-frontend -- api.logs is env-scoped, so the msw mock must match /api/environments to intercept it
