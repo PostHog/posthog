@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 
 import { isApprovalRequiredError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -26,6 +27,8 @@ export interface FeatureFlagRulesV2Draft {
     key: string
     name: string
     config: FeatureFlagRulesV2DraftConfig
+    /** The row version the draft was loaded from, so a save never pairs old rules with a newer version. */
+    version: number | null
 }
 
 /** The first save error, keyed to the editor field its path names; `field` is null when no field owns it. */
@@ -45,6 +48,7 @@ export const NEW_RULES_V2_DRAFT: FeatureFlagRulesV2Draft = {
     key: '',
     name: '',
     config: { version: 2, return_type: 'boolean', default_value: false, rules: [] },
+    version: null,
 }
 
 export const NEW_TARGETED_RELEASE_RULE: FeatureFlagRulesV2DraftRule = {
@@ -108,16 +112,17 @@ export function rulesV2DraftFromFlag(flag: FeatureFlagType): FeatureFlagRulesV2D
         key: flag.key,
         name: flag.name ?? '',
         config: { ...flag.filters, rules: flag.filters.rules.map(toDraftRule) },
+        version: flag.version,
     }
 }
 
 /** A create carries no row version; an update replaces the whole document and must carry it. */
-export function rulesV2WriteBody(draft: FeatureFlagRulesV2Draft, version?: number | null): RulesV2WriteBody {
+export function rulesV2WriteBody(draft: FeatureFlagRulesV2Draft): RulesV2WriteBody {
     return {
         key: draft.key,
         name: draft.name,
         filters: draft.config,
-        ...(version != null ? { version } : {}),
+        ...(draft.version != null ? { version: draft.version } : {}),
     }
 }
 
@@ -148,9 +153,8 @@ export interface featureFlagRulesV2EditorLogicValues {
     currentProjectId: number | null // projectLogic
     draft: FeatureFlagRulesV2Draft
     featureFlag: FeatureFlagType // featureFlagLogic
-    rowVersionToken: {
-        version?: number
-    } // featureFlagLogic
+    fieldError: (field: string) => string | null
+    hasUnsavedChanges: boolean
     ruleKeys: number[]
     saveDisabledReason: string | null
     saveError: RulesV2SaveError | null
@@ -171,6 +175,9 @@ export interface featureFlagRulesV2EditorLogicActions {
         editing: boolean
         expandAdvanced: boolean
     } // featureFlagLogic
+    loadDraft: (draft: FeatureFlagRulesV2Draft) => {
+        draft: FeatureFlagRulesV2Draft
+    }
     loadFeatureFlag: () => void // featureFlagLogic
     moveRule: (
         from: number,
@@ -211,6 +218,7 @@ export interface featureFlagRulesV2EditorLogicMeta {
     key: string | number
     __keaTypeGenInternalSelectorTypes: {
         saveDisabledReason: (draft: FeatureFlagRulesV2Draft) => string | null
+        fieldError: (saveError: RulesV2SaveError | null) => (field: string) => string | null
     }
 }
 
@@ -226,10 +234,11 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
     props({} as FeatureFlagLogicProps),
     key(({ id }) => id),
     connect((props: FeatureFlagLogicProps) => ({
-        values: [featureFlagLogic(props), ['featureFlag', 'rowVersionToken'], projectLogic, ['currentProjectId']],
+        values: [featureFlagLogic(props), ['featureFlag'], projectLogic, ['currentProjectId']],
         actions: [featureFlagLogic(props), ['editFeatureFlag', 'loadFeatureFlag']],
     })),
     actions({
+        loadDraft: (draft: FeatureFlagRulesV2Draft) => ({ draft }),
         setDraft: (draft: Partial<FeatureFlagRulesV2Draft>) => ({ draft }),
         setConfig: (config: Partial<FeatureFlagRulesV2DraftConfig>) => ({ config }),
         addRule: true,
@@ -244,6 +253,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         draft: [
             NEW_RULES_V2_DRAFT,
             {
+                loadDraft: (_, { draft }) => draft,
                 setDraft: (state, { draft }) => ({ ...state, ...draft }),
                 setConfig: (state, { config }) => ({ ...state, config: { ...state.config, ...config } }),
                 addRule: (state) => ({
@@ -267,6 +277,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         ruleKeys: [
             [] as number[],
             {
+                loadDraft: (_, { draft }) => draft.config.rules.map(nextRuleKey),
                 setDraft: (state, { draft }) => (draft.config ? draft.config.rules.map(nextRuleKey) : state),
                 setConfig: (state, { config }) => (config.rules ? config.rules.map(nextRuleKey) : state),
                 addRule: (state) => [...state, nextRuleKey()],
@@ -288,6 +299,19 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 moveRule: () => null,
             },
         ],
+        hasUnsavedChanges: [
+            false,
+            {
+                loadDraft: () => false,
+                saveRulesV2FlagSuccess: () => false,
+                setDraft: () => true,
+                setConfig: () => true,
+                addRule: () => true,
+                updateRule: () => true,
+                removeRule: () => true,
+                moveRule: () => true,
+            },
+        ],
         saving: [
             false,
             {
@@ -298,6 +322,12 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         ],
     }),
     selectors({
+        fieldError: [
+            (s) => [s.saveError],
+            (saveError: RulesV2SaveError | null) =>
+                (field: string): string | null =>
+                    saveError?.field === field ? saveError.message : null,
+        ],
         saveDisabledReason: [
             (s) => [s.draft],
             (draft: FeatureFlagRulesV2Draft): string | null => {
@@ -328,8 +358,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                               projectId,
                               props.id as number,
                               rulesV2WriteBody(
-                                  values.draft,
-                                  values.rowVersionToken.version
+                                  values.draft
                               ) as unknown as PatchedFeatureFlagPartialUpdateRequestSchemaApi
                           )
                 actions.saveRulesV2FlagSuccess(saved as unknown as FeatureFlagType)
@@ -357,9 +386,15 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
             actions.loadFeatureFlag()
         },
     })),
+    beforeUnload(({ values }) => ({
+        // In-page URL updates such as opening the side panel keep the pathname and the draft.
+        enabled: (newLocation?: CombinedLocation) =>
+            values.hasUnsavedChanges && newLocation?.pathname !== router.values.location.pathname,
+        message: 'Leave this flag?\nChanges you made will be discarded.',
+    })),
     afterMount(({ actions, values, props }) => {
         if (typeof props.id === 'number') {
-            actions.setDraft(rulesV2DraftFromFlag(values.featureFlag))
+            actions.loadDraft(rulesV2DraftFromFlag(values.featureFlag))
         }
     }),
 ])

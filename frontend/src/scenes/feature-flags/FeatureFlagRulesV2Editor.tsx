@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconPlusSmall } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -11,145 +11,21 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { FeatureFlagRulesV2DraftRule } from '~/types'
 
 import { FeatureFlagLogicProps, slugifyFeatureFlagKey } from './featureFlagLogic'
-import { featureFlagRulesV2EditorLogic, withRuleType } from './featureFlagRulesV2EditorLogic'
-import { PercentageInput } from './PercentageInput'
-
-const BOOLEAN_OPTIONS = [
-    { value: 'true', label: 'true' },
-    { value: 'false', label: 'false' },
-]
-
-function RulesV2RuleEditor({
-    id,
-    index,
-    rule,
-    ruleCount,
-    ruleKey,
-}: FeatureFlagLogicProps & {
-    index: number
-    rule: FeatureFlagRulesV2DraftRule
-    ruleCount: number
-    ruleKey: number
-}): JSX.Element {
-    const { saveError } = useValues(featureFlagRulesV2EditorLogic({ id }))
-    const { updateRule, removeRule, moveRule } = useActions(featureFlagRulesV2EditorLogic({ id }))
-    const path = `filters.rules[${index}]`
-    const errorFor = (field: string): string | undefined => (saveError?.field === field ? saveError.message : undefined)
-
-    return (
-        <div className="rounded border p-3 bg-surface-primary flex flex-col gap-3" data-attr="rules-v2-rule">
-            <div className="flex items-center gap-2">
-                <span className="font-semibold">Rule {index + 1}</span>
-                <LemonSelect
-                    size="small"
-                    value={rule.rule_type}
-                    onChange={(ruleType) => updateRule(index, withRuleType(rule, ruleType))}
-                    options={[
-                        { value: 'targeted_release', label: 'Targeted release' },
-                        { value: 'percentage_rollout', label: 'Percentage rollout' },
-                    ]}
-                    data-attr="rules-v2-rule-type"
-                />
-                <div className="flex-1" />
-                <LemonButton
-                    icon={<IconArrowUp />}
-                    size="small"
-                    tooltip="Move up"
-                    disabledReason={index === 0 ? 'This rule is evaluated first.' : undefined}
-                    onClick={() => moveRule(index, index - 1)}
-                />
-                <LemonButton
-                    icon={<IconArrowDown />}
-                    size="small"
-                    tooltip="Move down"
-                    disabledReason={index === ruleCount - 1 ? 'This rule is evaluated last.' : undefined}
-                    onClick={() => moveRule(index, index + 1)}
-                />
-                <LemonButton
-                    icon={<IconTrash />}
-                    size="small"
-                    status="danger"
-                    tooltip="Remove rule"
-                    onClick={() => removeRule(index)}
-                />
-            </div>
-            {errorFor(path) && <LemonBanner type="error">{errorFor(path)}</LemonBanner>}
-            <LemonField.Pure label="Description" showOptional error={errorFor(`${path}.description`)}>
-                <LemonInput
-                    value={rule.description ?? ''}
-                    onChange={(description) => updateRule(index, { ...rule, description: description || undefined })}
-                />
-            </LemonField.Pure>
-            <LemonField.Pure
-                label="Match persons where"
-                help={rule.targeting.properties.length === 0 ? 'No conditions: every person matches.' : undefined}
-                error={errorFor(`${path}.targeting`)}
-            >
-                <PropertyFilters
-                    pageKey={`rules-v2-${id}-${ruleKey}`}
-                    propertyFilters={rule.targeting.properties}
-                    onChange={(properties) => updateRule(index, { ...rule, targeting: { properties } })}
-                    taxonomicGroupTypes={[TaxonomicFilterGroupType.PersonProperties]}
-                    hasRowOperator={false}
-                    logicalRowDivider
-                    sendAllKeyUpdates
-                    addText="Add condition"
-                />
-            </LemonField.Pure>
-            {rule.rule_type === 'percentage_rollout' && (
-                <div className="flex flex-wrap gap-4">
-                    <LemonField.Pure
-                        label="Rollout percentage"
-                        className="w-40"
-                        error={errorFor(`${path}.rollout_percentage`)}
-                    >
-                        <PercentageInput
-                            value={rule.rollout_percentage}
-                            onChange={(rollout_percentage) => updateRule(index, { ...rule, rollout_percentage })}
-                            data-attr="rules-v2-rollout-percentage"
-                        />
-                    </LemonField.Pure>
-                    <LemonField.Pure label="Persons outside the rollout" error={errorFor(`${path}.on_rollout_miss`)}>
-                        <LemonSelect
-                            value={rule.on_rollout_miss}
-                            onChange={(on_rollout_miss) => updateRule(index, { ...rule, on_rollout_miss })}
-                            options={[
-                                { value: 'continue', label: 'Continue to the next rule' },
-                                { value: 'return_default', label: 'Get the default value' },
-                            ]}
-                        />
-                    </LemonField.Pure>
-                </div>
-            )}
-            <LemonField.Pure label="Value" error={errorFor(`${path}.value`)}>
-                <LemonSegmentedButton
-                    size="small"
-                    value={String(rule.value)}
-                    onChange={(value) => updateRule(index, { ...rule, value: value === 'true' })}
-                    options={BOOLEAN_OPTIONS}
-                />
-            </LemonField.Pure>
-        </div>
-    )
-}
+import { featureFlagRulesV2EditorLogic } from './featureFlagRulesV2EditorLogic'
+import { BOOLEAN_OPTIONS, RulesV2RuleEditor } from './RulesV2RuleEditor'
 
 export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Element {
     const logic = featureFlagRulesV2EditorLogic({ id })
-    const { draft, ruleKeys, featureFlag, saving, saveError, saveDisabledReason } = useValues(logic)
+    const { draft, ruleKeys, featureFlag, saving, saveError, saveDisabledReason, fieldError } = useValues(logic)
     const { setDraft, setConfig, addRule, saveRulesV2Flag, editFeatureFlag } = useActions(logic)
     const isNew = id === 'new'
-    const errorFor = (field: string): string | undefined => (saveError?.field === field ? saveError.message : undefined)
 
     return (
         <div className="flex flex-col gap-4" data-attr="feature-flag-rules-v2-editor">
@@ -188,7 +64,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                 <div className="rounded border p-3 bg-surface-primary flex flex-col gap-3 max-w-200">
                     <LemonField.Pure
                         label="Flag key"
-                        error={errorFor('key')}
+                        error={fieldError('key')}
                         help={
                             !isNew && draft.key !== featureFlag.key
                                 ? 'Changing the key breaks every SDK call that uses the old one.'
@@ -205,7 +81,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                             placeholder="e.g. new-checkout"
                         />
                     </LemonField.Pure>
-                    <LemonField.Pure label="Description" showOptional error={errorFor('name')}>
+                    <LemonField.Pure label="Description" showOptional error={fieldError('name')}>
                         <LemonTextArea
                             value={draft.name}
                             onChange={(name) => setDraft({ name })}
@@ -223,7 +99,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                         <LemonField.Pure
                             label="Default value"
                             help="Returned when no rule matches. Null returns no value, so the SDK uses the caller's default."
-                            error={errorFor('filters.default_value')}
+                            error={fieldError('filters.default_value')}
                         >
                             <LemonSegmentedButton
                                 size="small"
