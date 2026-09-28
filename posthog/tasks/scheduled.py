@@ -87,7 +87,7 @@ from products.conversations.backend.tasks.email import flush_pending_email_repli
 from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
-from products.customer_analytics.backend.facade.tasks import schedule_task_digests
+from products.customer_analytics.backend.facade.tasks import schedule_task_digests, sweep_agent_customer_tasks
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -1187,5 +1187,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/5"),
         schedule_task_digests.s(),
         name="schedule customer task digests",
+        expires_seconds=300,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_agent_customer_tasks.s(),
+        name="sweep customer tasks assigned to PostHog",
         expires_seconds=300,
     )
