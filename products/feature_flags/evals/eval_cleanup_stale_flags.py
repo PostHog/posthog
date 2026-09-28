@@ -25,14 +25,14 @@ check can fail against it, is exactly what no seeder here can build.
 ``SandboxedEvalCase.repo_fixture`` names this gap but only tracks it; there is no
 seeding path that lands files in the cloned repo. The skipped-pre-edit-read
 regression is covered instead by deterministic scorer unit tests against
-synthesized call sequences: see ``FreshDefinitionReadBeforeEdit`` in ``scorers.py``
-and ``TestFreshDefinitionReadBeforeEdit`` in
+synthesized call sequences: see ``FreshReadsBeforeEdit`` in ``scorers.py`` and
+``TestFreshReadsBeforeEdit`` in
 ``products/posthog_ai/eval_harness/test/test_feature_flags_scorers.py``. The
 failed/unavailable-check refusal wording has no scorer yet.
-``FreshDefinitionReadBeforeEdit`` is deliberately left out of the suite's scorer
-list below. No case here can seed call sites, so it would add a ``None`` row to
-every case on every run, and its divider would stay unmeasured against a real agent
-trace. The pull request that adds the first fixture case registers it.
+``FreshReadsBeforeEdit`` is deliberately left out of the suite's scorer list below.
+No case here can seed call sites, so it would add a ``None`` row to every case on
+every run, and its divider would stay unmeasured against a real agent trace. The
+pull request that adds the first fixture case registers it.
 
 Most scorers are deterministic; the three wording cases use one LLM judge each
 (``FinalMessageJudge``), which costs a model call per case but is what the "does the

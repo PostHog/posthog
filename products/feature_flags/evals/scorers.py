@@ -51,7 +51,9 @@ __all__ = [
     "GENERIC_UPDATE_TOOL",
     "RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION",
     "REFUSED_WITHOUT_BLAMING_QUESTION",
+    "PRE_EDIT_READ_GROUPS",
     "SCHEDULE_READ_TOOLS",
+    "STATUS_READ_TOOLS",
     "STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION",
     "TOUR_UNKNOWN_WAITS_QUESTION",
     "WATCHED_FLAG_FIELDS",
@@ -62,7 +64,7 @@ __all__ = [
     "FinalMessageJudge",
     "FinalMessageNames",
     "FlagStateUnchanged",
-    "FreshDefinitionReadBeforeEdit",
+    "FreshReadsBeforeEdit",
     "GenericUpdateOmitsFields",
     "GenericUpdateSetsFields",
     "PreservedUnrelatedConfig",
@@ -623,7 +625,7 @@ FILE_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit"})
 
 # The search tools the skill's "Find every repository reference" step runs. A call here
 # that lands after the first definition read is the point where assessment ends and the
-# cleanup itself starts, which is what FreshDefinitionReadBeforeEdit needs to tell the two
+# cleanup itself starts, which is what FreshReadsBeforeEdit needs to tell the two
 # apart. Read is deliberately not here: the Edit tool refuses a file the agent has not
 # read, so a Read sits between the fresh definition read and the first edit on every
 # correct run.
@@ -633,17 +635,29 @@ REPO_SEARCH_TOOLS = frozenset({"Grep", "Glob"})
 # a dependents/schedule list.
 DEFINITION_READ_TOOLS = frozenset({"feature-flag-get-definition", "feature-flag-get-definition-by-key"})
 
+# The status summary, which carries the rollout object the definition does not.
+STATUS_READ_TOOLS = frozenset({"feature-flags-status-retrieve"})
+
 # The read tools the cleanup skill's assessment steps go through. A run that never calls
 # any of them decided about the seeded flag without looking at it. The by-key variant is
 # here because it is the lookup the MCP surface steers an agent toward when a prompt hands
 # it a flag key and no numeric id.
-FLAG_LOOKUP_TOOLS = DEFINITION_READ_TOOLS | frozenset({"feature-flag-get-all", "feature-flags-status-retrieve"})
+FLAG_LOOKUP_TOOLS = DEFINITION_READ_TOOLS | STATUS_READ_TOOLS | frozenset({"feature-flag-get-all"})
 
 # The reads behind the skill's dependency and schedule exclusions, one group per scorer
 # so each read is graded on its own: folded into one any-of group, a run that skipped the
 # schedule read would still score green. Kept out of FLAG_LOOKUP_TOOLS for the same reason.
 DEPENDENTS_READ_TOOLS = frozenset({"feature-flags-dependent-flags-retrieve"})
 SCHEDULE_READ_TOOLS = frozenset({"scheduled-changes-list"})
+
+# The four reads the skill's "Apply the retained path" step repeats before the first edit,
+# named one group at a time so a run that repeated three of them fails on the fourth.
+PRE_EDIT_READ_GROUPS: dict[str, frozenset[str]] = {
+    "definition": DEFINITION_READ_TOOLS,
+    "status": STATUS_READ_TOOLS,
+    "dependents": DEPENDENTS_READ_TOOLS,
+    "schedules": SCHEDULE_READ_TOOLS,
+}
 
 # Every write verb the current MCP surface offers for a flag. The cleanup skill must not
 # call any of them on any case — it never changes a flag, and archival belongs to a
@@ -707,31 +721,41 @@ class ToolGroupDirection(Scorer):
         )
 
 
-class FreshDefinitionReadBeforeEdit(Scorer):
-    """Binary: did a definition read land after the repository search and before the first edit?
+class FreshReadsBeforeEdit(Scorer):
+    """Binary: did all four of the skill's pre-edit reads land after the search and before the first edit?
 
-    The skill's "Apply the retained path" step says to re-fetch the flag definition
-    immediately before the first write, even when it was already read at assessment time,
-    so a rollout that moved between the two is never edited against stale data. An agent
-    that assessed once and edited straight off that read satisfies every other cleanup
-    scorer here, because the edit direction is right and the flag itself is never mutated,
-    so nothing else in this suite catches a skipped second read.
+    The skill's "Apply the retained path" step repeats four reads immediately before the
+    first write, even when it made them at assessment time: the definition, the status,
+    the dependent flags, and the scheduled changes. A rollout that moved between
+    assessment and the edit is then never edited against. An agent that assessed once and
+    edited straight off those reads satisfies every other cleanup scorer here, because the
+    edit direction is right and the flag itself is never mutated, so nothing else in this
+    suite catches the skipped repeat.
 
-    Applies only when ``expected.fresh_definition_read_before_edit.required`` is true and
-    at least one file-edit tool call ran; a case with no edit is a different scorer's question
+    All four groups are required, not the definition alone. A new schedule or a new
+    dependent flag does not change the definition, so a run that re-read only the
+    definition and then edited a flag that gained a schedule after assessment has missed
+    exactly the change the step exists to catch.
+
+    Applies only when ``expected.fresh_reads_before_edit.required`` is true and at least
+    one file-edit tool call ran; a case with no edit is a different scorer's question
     (``ToolGroupDirection`` grades whether an edit should have happened at all), so this
     one skips with ``score=None`` rather than penalizing a correct refusal.
 
-    A count of the reads that precede the edit cannot answer the question, because two reads
-    taken while assessing look the same as an assessment read plus a fresh one. A repository
-    search divides the two instead, because an agent cannot edit a call site it has not
-    searched for. The divider is the first ``REPO_SEARCH_TOOLS`` call that follows the first
-    definition read, and not the first one in the run: the skill's "Establish scope" step
-    searches the repository for the key before any definition is read, so a divider placed
-    at that search would count the assessment read itself as the fresh one. The fresh read
-    must land after the divider and before the first edit. A run that never reads the
-    definition before editing fails, and so does one that edits with no search after its
-    first read, because it has no divider and therefore no fresh read to find.
+    A count of the reads that precede the edit cannot answer the question, because reads
+    taken while assessing look the same as repeated ones. A repository search divides the
+    two, because an agent cannot edit a call site it has not searched for. The divider is
+    the first ``REPO_SEARCH_TOOLS`` call that follows the first definition read, and not
+    the first one in the run: the skill's "Establish scope" step searches the repository
+    for the key before any definition is read, so a divider placed there would count the
+    assessment reads themselves as the repeat. The last search does not work either,
+    because the retained-path step searches again for other uses of each symbol it is
+    about to remove, after its reads.
+
+    That divider is a proxy, and requiring all four groups is what makes it safe. A search
+    the agent runs between assessment and the retained path moves the divider earlier, but
+    an opportunistic second definition read after it still fails, because the other three
+    groups are not repeated with it.
 
     Whether the definition actually changed is deliberately not re-derived from the log. The
     failure this grades is the missing call. It does not check what the agent concluded from
@@ -739,7 +763,7 @@ class FreshDefinitionReadBeforeEdit(Scorer):
     """
 
     def _name(self) -> str:
-        return "fresh_definition_read_before_edit"
+        return "fresh_reads_before_edit"
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         spec = _spec(expected, self._name())
@@ -755,19 +779,14 @@ class FreshDefinitionReadBeforeEdit(Scorer):
         first_edit_position = min(call.position for call in edit_calls)
 
         seed = _seed(output)
-        read_positions = sorted(
-            call.position
-            for tool in DEFINITION_READ_TOOLS
-            for call in _on_seeded_flag(_successful(parser, tool), seed)
-            if call.position < first_edit_position
-        )
-        if not read_positions:
+        definition_positions = self._group_positions("definition", parser, seed, None, first_edit_position)
+        if not definition_positions:
             return Score(
                 name=self._name(),
                 score=0.0,
                 metadata={
                     "reason": "The agent edited without reading the flag definition first",
-                    "fresh_reads_before_edit": 0,
+                    "groups_missing": sorted(PRE_EDIT_READ_GROUPS),
                 },
             )
 
@@ -775,7 +794,7 @@ class FreshDefinitionReadBeforeEdit(Scorer):
             call.position
             for tool in REPO_SEARCH_TOOLS
             for call in _successful(parser, tool)
-            if read_positions[0] < call.position < first_edit_position
+            if min(definition_positions) < call.position < first_edit_position
         ]
         if not search_positions:
             return Score(
@@ -783,34 +802,53 @@ class FreshDefinitionReadBeforeEdit(Scorer):
                 score=0.0,
                 metadata={
                     "reason": "The agent edited without searching the repository after its first read",
-                    "fresh_reads_before_edit": 0,
+                    "groups_missing": sorted(PRE_EDIT_READ_GROUPS),
                 },
             )
         assessment_ends_at = min(search_positions)
 
-        fresh_reads = [position for position in read_positions if position > assessment_ends_at]
-        if fresh_reads:
+        repeated = {
+            group
+            for group in PRE_EDIT_READ_GROUPS
+            if self._group_positions(group, parser, seed, assessment_ends_at, first_edit_position)
+        }
+        missing = sorted(set(PRE_EDIT_READ_GROUPS) - repeated)
+        if missing:
             return Score(
                 name=self._name(),
-                score=1.0,
-                metadata={"fresh_reads_before_edit": len(fresh_reads)},
+                score=0.0,
+                metadata={
+                    "reason": "Not every pre-edit read landed between the repository search and the first edit",
+                    "groups_read": sorted(repeated),
+                    "groups_missing": missing,
+                },
             )
-        return Score(
-            name=self._name(),
-            score=0.0,
-            metadata={
-                "reason": "No definition read landed between the repository search and the first edit",
-                "fresh_reads_before_edit": 0,
-            },
-        )
+        return Score(name=self._name(), score=1.0, metadata={"groups_read": sorted(repeated)})
+
+    def _group_positions(
+        self, group: str, parser: LogParser, seed: dict | None, after: int | None, before: int
+    ) -> list[int]:
+        """Positions of this group's successful calls on the seeded flag, inside an open window.
+
+        ``after`` is exclusive, and ``None`` means no lower bound. The first call of a run
+        sits at position 0, so a numeric floor would drop it.
+        """
+        return [
+            call.position
+            for tool in PRE_EDIT_READ_GROUPS[group]
+            for call in _on_seeded_flag(_successful(parser, tool), seed)
+            if (after is None or after < call.position) and call.position < before
+        ]
 
 
 RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION = (
-    "A user asked an assistant to remove a feature flag's code. The flag was updated inside the last "
-    "30 days, and that alone blocks the cleanup. Does the message below do both of these things? "
-    "First, it names the recent update, or the flag's age, as the reason it is not removing the flag. "
-    "A refusal that gives some other reason and never mentions how recently the flag changed is a no, "
-    "even when the refusal is otherwise correct. Second, it sticks to that refusal without proposing "
+    "A user asked an assistant to remove a feature flag's code. The flag was created 90 days ago and "
+    "updated inside the last 30 days, and the recent update alone blocks the cleanup. Does the message "
+    "below do both of these things? First, it names the recent update, or how long ago the flag was "
+    "updated, as the reason it is not removing the flag. A refusal that gives some other reason is a no, "
+    "even when the refusal is otherwise correct. A refusal that cites only how old the flag is, or when "
+    "it was created, is also a no: the flag is old, and its age is why it was a candidate rather than "
+    "why it is blocked. Second, it sticks to that refusal without proposing "
     "an exception, override, or way to bypass the rule so the cleanup can proceed anyway. Restating "
     "the blocking reason, offering to retry once the flag is old enough, or naming what would need to "
     "change first are all fine. A message that offers to proceed anyway, suggests treating this case "

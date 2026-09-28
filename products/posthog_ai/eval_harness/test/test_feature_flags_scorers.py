@@ -23,7 +23,7 @@ from products.feature_flags.evals.scorers import (
     FLAG_MUTATION_TOOLS,
     SCHEDULE_READ_TOOLS,
     FlagStateUnchanged,
-    FreshDefinitionReadBeforeEdit,
+    FreshReadsBeforeEdit,
     ToolGroupDirection,
     read_flag_state,
 )
@@ -193,132 +193,190 @@ class TestFlagStateUnchanged(BaseTest):
         assert score.score is not None
 
 
-# --- FreshDefinitionReadBeforeEdit ---------------------------------------------------
+# --- FreshReadsBeforeEdit ------------------------------------------------------------
+
+_SEEDED_KEY = "sunset-widget-rollout"
+_SEEDED_ID = 91001
+# The shape the cleanup seeders return, which is what the scorer matches reads against.
+_CLEANUP_SEED = {"flag_id": _SEEDED_ID, "flag_key": _SEEDED_KEY}
 
 _DEFINITION_READ: tuple[Any, ...] = (
     "mcp__posthog__feature-flag-get-definition-by-key",
-    {"key": "sunset-widget-rollout"},
+    {"key": _SEEDED_KEY},
     "ok",
 )
-_ASSESSMENT_READS: list[tuple[Any, ...]] = [
-    _DEFINITION_READ,
-    ("mcp__posthog__feature-flags-status-retrieve", {"id": 91001}, "ok"),
-    ("mcp__posthog__feature-flags-dependent-flags-retrieve", {"id": 91001}, "ok"),
-    ("mcp__posthog__scheduled-changes-list", {"model_name": "FeatureFlag", "record_id": 91001}, "ok"),
-]
+_STATUS_READ: tuple[Any, ...] = ("mcp__posthog__feature-flags-status-retrieve", {"id": _SEEDED_ID}, "ok")
+_DEPENDENTS_READ: tuple[Any, ...] = (
+    "mcp__posthog__feature-flags-dependent-flags-retrieve",
+    {"id": _SEEDED_ID},
+    "ok",
+)
+_SCHEDULES_READ: tuple[Any, ...] = (
+    "mcp__posthog__scheduled-changes-list",
+    {"model_name": "FeatureFlag", "record_id": _SEEDED_ID},
+    "ok",
+)
+# The four reads the skill repeats before the first edit, in the order it lists them.
+_FOUR_READS: list[tuple[Any, ...]] = [_DEFINITION_READ, _STATUS_READ, _DEPENDENTS_READ, _SCHEDULES_READ]
+_ASSESSMENT_READS: list[tuple[Any, ...]] = _FOUR_READS
+_PRE_EDIT_READS: list[tuple[Any, ...]] = _FOUR_READS
 # The "Find every repository reference" step searches for the flag's call sites, then the
 # agent reads the file it is about to edit because the Edit tool refuses a file it has not
 # read.
 _REPOSITORY_SEARCH: list[tuple[Any, ...]] = [
-    ("Grep", {"pattern": "sunset-widget-rollout"}, "src/widget.js:12"),
+    ("Grep", {"pattern": _SEEDED_KEY}, "src/widget.js:12"),
     ("Read", {"file_path": "/repo/src/widget.js"}, "ok"),
 ]
 _FIRST_EDIT: tuple[Any, ...] = ("Edit", {"file_path": "/repo/src/widget.js"}, "ok")
 _SECOND_EDIT: tuple[Any, ...] = ("Write", {"file_path": "/repo/src/other.js"}, "ok")
-_SECOND_DEFINITION_READ: tuple[Any, ...] = _DEFINITION_READ
 _OTHER_FLAG_READ: tuple[Any, ...] = (
     "mcp__posthog__feature-flag-get-definition-by-key",
     {"key": "some-other-flag"},
     "ok",
 )
-# The shape the cleanup seeders return, which is what the scorer matches reads against.
-_CLEANUP_SEED = {"flag_id": 91001, "flag_key": "sunset-widget-rollout"}
 
 
 def _fresh_read_score(calls: Sequence[tuple[Any, ...]], expected: dict | None):
-    return FreshDefinitionReadBeforeEdit()._run_eval_sync(
-        {"raw_log": _raw_tool_log(calls), "seed": _CLEANUP_SEED}, expected
-    )
+    return FreshReadsBeforeEdit()._run_eval_sync({"raw_log": _raw_tool_log(calls), "seed": _CLEANUP_SEED}, expected)
 
 
-class TestFreshDefinitionReadBeforeEdit:
-    _REQUIRED = {"fresh_definition_read_before_edit": {"required": True}}
+class TestFreshReadsBeforeEdit:
+    _REQUIRED = {"fresh_reads_before_edit": {"required": True}}
 
-    def test_flags_an_edit_that_never_re_read_the_definition(self) -> None:
+    def test_flags_an_edit_that_never_repeated_the_reads(self) -> None:
         score = _fresh_read_score([*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT], self._REQUIRED)
 
         assert score.score == 0.0
-        assert score.metadata["fresh_reads_before_edit"] == 0
+        assert score.metadata["groups_missing"] == ["definition", "dependents", "schedules", "status"]
 
-    def test_flags_two_assessment_reads_followed_by_an_edit(self) -> None:
-        # Both reads land while assessing, so neither one is the pre-edit read the "Apply
-        # the retained path" step asks for. Counting reads before the edit would pass this run.
+    def test_flags_a_run_that_repeated_only_the_definition(self) -> None:
+        # A new schedule or dependent flag does not change the definition, so re-reading the
+        # definition alone leaves exactly the change the step exists to catch undetected.
         score = _fresh_read_score(
-            [_DEFINITION_READ, *_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT],
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _DEFINITION_READ, _FIRST_EDIT],
             self._REQUIRED,
         )
 
         assert score.score == 0.0
-        assert score.metadata["fresh_reads_before_edit"] == 0
+        assert score.metadata["groups_read"] == ["definition"]
+        assert score.metadata["groups_missing"] == ["dependents", "schedules", "status"]
 
-    def test_passes_a_read_between_the_search_and_the_edit(self) -> None:
+    def test_flags_two_assessment_rounds_followed_by_an_edit(self) -> None:
+        # Both rounds land while assessing, so neither one is the pre-edit repeat the
+        # "Apply the retained path" step asks for. Counting reads before the edit would pass
+        # this run.
         score = _fresh_read_score(
-            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _SECOND_DEFINITION_READ, _FIRST_EDIT],
+            [*_ASSESSMENT_READS, *_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT],
             self._REQUIRED,
         )
 
-        assert score.score == 1.0
-        assert score.metadata["fresh_reads_before_edit"] == 1
+        assert score.score == 0.0
 
-    def test_flags_a_search_that_ran_before_the_assessment_read(self) -> None:
+    def test_flags_a_search_that_ran_before_the_assessment_reads(self) -> None:
         # The skill's "Establish scope" step searches the repository for the key before any
         # definition is read. Taking the first search in the run as the divider would score
-        # this assessment read as the fresh one.
+        # the assessment reads as the repeat.
         score = _fresh_read_score(
             [_REPOSITORY_SEARCH[0], *_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT],
             self._REQUIRED,
         )
 
         assert score.score == 0.0
-        assert score.metadata["fresh_reads_before_edit"] == 0
+
+    def test_a_search_between_assessment_and_the_repeat_does_not_open_the_window_early(self) -> None:
+        # The existing-work step searches before the retained path, which moves the divider
+        # earlier. Requiring all four groups is what keeps that harmless.
+        score = _fresh_read_score(
+            [
+                *_ASSESSMENT_READS,
+                ("Grep", {"pattern": _SEEDED_KEY}, "src/widget.js:12"),
+                _DEFINITION_READ,
+                *_REPOSITORY_SEARCH,
+                _FIRST_EDIT,
+            ],
+            self._REQUIRED,
+        )
+
+        assert score.score == 0.0
+        assert score.metadata["groups_read"] == ["definition"]
 
     def test_a_read_of_another_flag_does_not_count(self) -> None:
         # Without the seed match, any flag's definition read between the search and the edit
-        # would pass, including one that never looked at the flag under cleanup.
+        # would satisfy the definition group, including one that never looked at the flag
+        # under cleanup.
         score = _fresh_read_score(
-            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _OTHER_FLAG_READ, _FIRST_EDIT],
+            [
+                *_ASSESSMENT_READS,
+                *_REPOSITORY_SEARCH,
+                _OTHER_FLAG_READ,
+                _STATUS_READ,
+                _DEPENDENTS_READ,
+                _SCHEDULES_READ,
+                _FIRST_EDIT,
+            ],
             self._REQUIRED,
         )
 
         assert score.score == 0.0
-        assert score.metadata["fresh_reads_before_edit"] == 0
+        assert score.metadata["groups_missing"] == ["definition"]
 
-    def test_flags_a_first_edit_made_against_the_assessment_read(self) -> None:
-        # The fresh read arrives between the two edits, so the first file was edited against
-        # the assessment read. Measuring from the last edit instead would pass this run.
+    def test_flags_a_first_edit_made_against_the_assessment_reads(self) -> None:
+        # The repeat arrives between the two edits, so the first file was edited against the
+        # assessment reads. Measuring from the last edit instead would pass this run.
         score = _fresh_read_score(
-            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT, _SECOND_DEFINITION_READ, _SECOND_EDIT],
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT, *_PRE_EDIT_READS, _SECOND_EDIT],
             self._REQUIRED,
         )
 
         assert score.score == 0.0
-        assert score.metadata["fresh_reads_before_edit"] == 0
 
-    def test_a_read_after_the_edit_does_not_count(self) -> None:
+    def test_passes_all_four_reads_between_the_search_and_the_edit(self) -> None:
         score = _fresh_read_score(
-            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT, _SECOND_DEFINITION_READ],
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, *_PRE_EDIT_READS, _FIRST_EDIT],
+            self._REQUIRED,
+        )
+
+        assert score.score == 1.0
+        assert score.metadata["groups_read"] == ["definition", "dependents", "schedules", "status"]
+
+    def test_reads_after_the_edit_do_not_count(self) -> None:
+        score = _fresh_read_score(
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT, *_PRE_EDIT_READS],
             self._REQUIRED,
         )
 
         assert score.score == 0.0
-        assert score.metadata["fresh_reads_before_edit"] == 0
 
-    def test_a_failed_second_read_does_not_count(self) -> None:
+    def test_a_failed_repeat_does_not_count(self) -> None:
         # A failed attempt gives no assurance a real read landed.
-        failed_second_read = (*_SECOND_DEFINITION_READ[:2], "boom", "failed")
+        failed_definition_read = (*_DEFINITION_READ[:2], "boom", "failed")
         score = _fresh_read_score(
-            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, failed_second_read, _FIRST_EDIT],
+            [
+                *_ASSESSMENT_READS,
+                *_REPOSITORY_SEARCH,
+                failed_definition_read,
+                _STATUS_READ,
+                _DEPENDENTS_READ,
+                _SCHEDULES_READ,
+                _FIRST_EDIT,
+            ],
             self._REQUIRED,
         )
 
         assert score.score == 0.0
-        assert score.metadata["fresh_reads_before_edit"] == 0
+        assert score.metadata["groups_missing"] == ["definition"]
 
     def test_flags_an_edit_with_no_repository_search_at_all(self) -> None:
-        # Nothing divides assessment from the edit, so no read can be shown to be fresh.
-        score = _fresh_read_score([*_ASSESSMENT_READS, _SECOND_DEFINITION_READ, _FIRST_EDIT], self._REQUIRED)
+        # Nothing divides assessment from the edit, so no read can be shown to be a repeat.
+        score = _fresh_read_score([*_ASSESSMENT_READS, *_PRE_EDIT_READS, _FIRST_EDIT], self._REQUIRED)
 
         assert score.score == 0.0
+
+    def test_flags_an_edit_that_never_read_the_definition(self) -> None:
+        score = _fresh_read_score([*_REPOSITORY_SEARCH, _FIRST_EDIT], self._REQUIRED)
+
+        assert score.score == 0.0
+        assert score.metadata["reason"] == "The agent edited without reading the flag definition first"
 
     def test_skips_a_case_that_never_edited(self) -> None:
         score = _fresh_read_score([*_ASSESSMENT_READS, *_REPOSITORY_SEARCH], self._REQUIRED)
@@ -332,10 +390,10 @@ class TestFreshDefinitionReadBeforeEdit:
 
         assert score.score is None
 
-    @pytest.mark.parametrize("expected", [None, {}, {"fresh_definition_read_before_edit": {}}])
+    @pytest.mark.parametrize("expected", [None, {}, {"fresh_reads_before_edit": {}}])
     def test_skips_when_the_case_declares_no_requirement(self, expected: dict | None) -> None:
         score = _fresh_read_score(
-            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _SECOND_DEFINITION_READ, _FIRST_EDIT],
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, *_PRE_EDIT_READS, _FIRST_EDIT],
             expected,
         )
 
