@@ -2116,14 +2116,12 @@ jobs:
                       # migration with one master added later and report it as R, dropping it here.
                       git diff --no-renames --name-only --diff-filter="$1" "$2"..HEAD -- posthog/clickhouse/migrations/ | awk '!/README|__pycache__/' | sort
                   }
-                  # Compare contents against master so conflicting additions still reach validation.
-                  ch_migrations AM upstream/master > "$RUNNER_TEMP/ch-master.txt"
-                  for filter in A AM; do
-                      ch_migrations "$filter" "$DIFF_BASE" > "$RUNNER_TEMP/ch-base-$filter.txt"
-                      output="$RUNNER_TEMP/ch-migrations-changed.txt"
-                      [ "$filter" = A ] && output="$RUNNER_TEMP/ch-migrations-added.txt"
-                      comm -12 "$RUNNER_TEMP/ch-base-$filter.txt" "$RUNNER_TEMP/ch-master.txt" > "$output"
-                  done
+                  ch_migrations A upstream/master > "$RUNNER_TEMP/ch-master-added.txt"
+                  ch_migrations AM upstream/master > "$RUNNER_TEMP/ch-master-changed.txt"
+                  # A stacked branch can carry master's migrations, and master can edit one later.
+                  # Only a file that master lacks counts as this PR's addition.
+                  ch_migrations A "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-added.txt" > "$RUNNER_TEMP/ch-migrations-added.txt"
+                  ch_migrations AM "$DIFF_BASE" | comm -12 - "$RUNNER_TEMP/ch-master-changed.txt" > "$RUNNER_TEMP/ch-migrations-changed.txt"
                   cat "$RUNNER_TEMP/ch-migrations-changed.txt"
 
             - name: Check CH migrations

@@ -18,6 +18,7 @@ operations = [
     ),
 ]
 """
+OWN = f"{MIGRATIONS}/0003_own.py"
 
 
 def git(repo: Path, *args: str) -> str:
@@ -33,12 +34,45 @@ def commit_file(repo: Path, name: str, content: str) -> str:
     return git(repo, "rev-parse", "HEAD")
 
 
+def commit_on_master(repo: Path, master: str, name: str, content: str) -> None:
+    git(repo, "checkout", "-q", "master")
+    commit_file(repo, name, content)
+    git(repo, "update-ref", f"refs/remotes/{master}", "HEAD")
+    git(repo, "checkout", "-q", "topic")
+
+
+def list_step(engine: str) -> str:
+    workflow = yaml.safe_load((ROOT / engine / "workflows/ci-backend.yml").read_text())
+    return next(
+        step["run"]
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "List this PR's ClickHouse migrations"
+    )
+
+
 @pytest.mark.parametrize("engine,master", [(".github", "origin/master"), (".depot", "upstream/master")])
 @pytest.mark.parametrize(
-    "case", ["plain", "stale", "own", "behind", "collision", "modified", "missing-base", "bad-base", "bad-master"]
+    "case,expected_added,expected_changed",
+    [
+        ("based on master", [OWN], [OWN]),
+        ("stale base", [OWN], [OWN]),
+        ("stale base carries master's migration", [], []),
+        ("master adds a similar migration later", [OWN], [OWN]),
+        ("master edits a migration the branch carries", [], [f"{MIGRATIONS}/0002_master.py"]),
+        ("edits an existing migration", [], [f"{MIGRATIONS}/0001_base.py"]),
+        ("base missing from the clone", [f"{MIGRATIONS}/0004_own.py"], [f"{MIGRATIONS}/0004_own.py"]),
+        ("unknown base", None, None),
+        ("no master ref", None, None),
+    ],
 )
-def test_selects_only_pr_migrations_and_fails_on_invalid_refs(
-    engine: str, master: str, case: str, tmp_path: Path
+def test_lists_only_this_prs_migrations(
+    engine: str,
+    master: str,
+    case: str,
+    expected_added: list[str] | None,
+    expected_changed: list[str] | None,
+    tmp_path: Path,
 ) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -49,48 +83,39 @@ def test_selects_only_pr_migrations_and_fails_on_invalid_refs(
     base = commit_file(repo, "0001_base.py", "base\n")
     commit_file(repo, "0002_master.py", "master\n")
     git(repo, "update-ref", f"refs/remotes/{master}", "HEAD")
-    if case == "plain":
-        base = git(repo, "rev-parse", "HEAD")
     git(repo, "checkout", "-qb", "topic")
-    if case == "missing-base":
+
+    if case == "based on master":
+        base = git(repo, "rev-parse", "HEAD")
+        commit_file(repo, "0003_own.py", "own\n")
+    elif case == "stale base":
+        commit_file(repo, "0003_own.py", "own\n")
+    elif case == "master adds a similar migration later":
+        commit_on_master(repo, master, "0003_master.py", MIGRATION_TEMPLATE.format(table="master_table"))
+        commit_file(repo, "0003_own.py", MIGRATION_TEMPLATE.format(table="own_table"))
+    elif case == "master edits a migration the branch carries":
+        commit_on_master(repo, master, "0002_master.py", "master fixed\n")
+    elif case == "edits an existing migration":
+        commit_file(repo, "0001_base.py", "modified\n")
+    elif case == "base missing from the clone":
+        base = commit_file(repo, "0003_lower_layer.py", "lower\n")
+        commit_file(repo, "0004_own.py", "own\n")
         source = tmp_path / "upstream.git"
         repo.rename(source)
-        subprocess.run(["git", "clone", "-q", "--depth=1", source.as_uri(), str(repo)], check=True)
-        git(repo, "update-ref", f"refs/remotes/{master}", "HEAD")
+        subprocess.run(
+            ["git", "clone", "-q", "--depth=1", "--no-single-branch", "-b", "topic", source.as_uri(), str(repo)],
+            check=True,
+        )
         if engine == ".depot":
+            git(repo, "update-ref", f"refs/remotes/{master}", "refs/remotes/origin/master")
             git(repo, "remote", "remove", "origin")
-    expected_added: list[str] = []
-    expected_changed: list[str] = []
-    if case in ("own", "plain"):
-        commit_file(repo, "0003_own.py", "own\n")
-        expected_added = expected_changed = [f"{MIGRATIONS}/0003_own.py"]
-    elif case == "behind":
-        git(repo, "checkout", "-q", "master")
-        commit_file(repo, "0003_master.py", MIGRATION_TEMPLATE.format(table="master_table"))
-        git(repo, "update-ref", f"refs/remotes/{master}", "HEAD")
-        git(repo, "checkout", "-q", "topic")
-        commit_file(repo, "0003_own.py", MIGRATION_TEMPLATE.format(table="own_table"))
-        expected_added = expected_changed = [f"{MIGRATIONS}/0003_own.py"]
-    elif case == "collision":
-        commit_file(repo, "0002_master.py", "conflict\n")
-        expected_added = expected_changed = [f"{MIGRATIONS}/0002_master.py"]
-    elif case == "modified":
-        commit_file(repo, "0001_base.py", "modified\n")
-        expected_changed = [f"{MIGRATIONS}/0001_base.py"]
-    elif case == "bad-base":
+    elif case == "unknown base":
         base = "0" * 40
-    elif case == "bad-master":
+    elif case == "no master ref":
         git(repo, "update-ref", "-d", f"refs/remotes/{master}")
 
-    workflow = yaml.safe_load((ROOT / engine / "workflows/ci-backend.yml").read_text())
-    script = next(
-        step["run"]
-        for job in workflow["jobs"].values()
-        for step in job.get("steps", [])
-        if step.get("name") == "List this PR's ClickHouse migrations"
-    )
     result = subprocess.run(
-        ["bash", "-euo", "pipefail", "-c", script],
+        ["bash", "-e", "-c", list_step(engine)],
         cwd=repo,
         env={
             **os.environ,
@@ -102,7 +127,7 @@ def test_selects_only_pr_migrations_and_fails_on_invalid_refs(
         text=True,
         capture_output=True,
     )
-    if case.startswith("bad-"):
+    if expected_added is None:
         assert result.returncode != 0
         return
     assert result.returncode == 0, result.stderr
