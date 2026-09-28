@@ -37,7 +37,6 @@ _ACTIVE = "products.marketing_analytics.dags.marketing_precompute._recently_acti
 _IS_CLOUD = "products.marketing_analytics.dags.marketing_precompute.is_cloud"
 _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
-_BUILD_DB = "products.marketing_analytics.dags.marketing_precompute._build_team_database"
 _FACTORY = "products.marketing_analytics.dags.marketing_precompute.MarketingSourceFactory"
 _DWT = "products.marketing_analytics.dags.marketing_precompute.DataWarehouseTable"
 # Patch chunking to a single chunk so call counts are deterministic in the op tests. Must exceed
@@ -313,25 +312,28 @@ class TestConversionWarming(APIBaseTest):
         assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
         ensure_mock.assert_not_called()
 
+    @parameterized.expand([("database_built", False), ("database_build_fails", True)])
     @patch(_ENSURE, new_callable=_ready_mock)
-    @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_pool_warms_every_team(self, ensure_mock):
+    def test_pool_warms_every_team(self, _name, database_fails, ensure_mock):
         # The parallel fan-out must process every team, not just the first — a pool that dropped teams
-        # would leave them cold. Three teams, each with a precomputable goal, must all warm.
-        # Each team's database is built once and reused for every bucket: rebuilding it per INSERT is
+        # would leave them cold. Three teams, each with a precomputable goal, must all warm, and a failed
+        # database build must not stop them. With a window of 2, a third team only starts after one finishes.
+        # The database is built once per team however many buckets it warms: rebuilding it per bucket is
         # what made the warmer CPU-bound.
         teams = [self._make_team(name, goals=[_PRECOMPUTABLE_GOAL]) for name in ("A", "B", "C")]
         ids = ",".join(str(team.pk) for team in teams)
         with (
             patch(_FF, _flag_fn(conversion=True)),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ids, TEAM_CONCURRENCY_ENV_VAR: "2"}),
-            patch(_BUILD_DB, side_effect=lambda team: f"db-{team.pk}") as build_db,
+            patch(_DB) as database,
         ):
+            if database_fails:
+                database.create_for.side_effect = Exception("warehouse source broken")
             result = warm_selected_teams(dagster.build_op_context())
+
         assert result == {"teams": 3, "conversion_teams": 3, "costs_teams": 0, "failures": 0}
-        assert sorted(call.args[0].pk for call in build_db.call_args_list) == sorted(t.pk for t in teams)
-        for call in ensure_mock.call_args_list:
-            assert call.kwargs["database"] == f"db-{call.kwargs['team'].pk}"
+        assert ensure_mock.call_count > len(teams)
+        assert database.create_for.call_count == len(teams)
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)

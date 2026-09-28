@@ -34,9 +34,10 @@ only. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
 import os
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from datetime import UTC, datetime, timedelta
 from functools import partial
+from itertools import islice
 from typing import NamedTuple
 
 from django.db import connections
@@ -634,29 +635,31 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
     costs_teams = 0
     done = 0
     warm_started = time.monotonic()
+
+    def with_database(plan: _TeamWarmPlan) -> _TeamWarmPlan:
+        # Built on the main thread, because it reads Postgres and worker threads must not.
+        if not (plan.warm_conversions or plan.warm_costs):
+            return plan  # nothing to warm, so skip the database build
+        try:
+            return plan._replace(database=_build_team_database(plan.team))
+        except Exception:
+            # Without a shared database each block builds its own, as before, so one failure here
+            # does not leave both conversions and costs cold.
+            MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="database").inc()
+            logger.exception("marketing_precompute_database_failed", team_id=plan.team.pk)
+            return plan
+
     with ThreadPoolExecutor(max_workers=concurrency, thread_name_prefix="ma_warm") as pool:
-        # Batches of `concurrency`: each team's database is built on the main thread (it reads Postgres,
-        # which worker threads must not) just before its batch runs, so only one batch of databases is
-        # held in memory at a time.
-        for batch_start in range(0, len(plans), concurrency):
-            batch: list[_TeamWarmPlan] = []
-            db_started = time.monotonic()
-            for plan in plans[batch_start : batch_start + concurrency]:
-                if not (plan.warm_conversions or plan.warm_costs):
-                    batch.append(plan)  # nothing to warm, so skip the database build
-                    continue
-                try:
-                    batch.append(plan._replace(database=_build_team_database(plan.team)))
-                except Exception:
-                    MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="database").inc()
-                    logger.exception("marketing_precompute_database_failed", team_id=plan.team.pk)
-                    failures += 1
-            context.log.info(
-                f"marketing_precompute_databases_built teams={len(batch)} "
-                f"ms={round((time.monotonic() - db_started) * 1000)}"
-            )
-            futures = [pool.submit(_warm_team, context, plan, end) for plan in batch]
-            for future in as_completed(futures):
+        # A sliding window of `concurrency` teams: when one finishes, the next team's database is built
+        # and submitted, so a slow team never idles the other workers and at most `concurrency`
+        # databases are held in memory.
+        pending = iter(plans)
+        in_flight = {
+            pool.submit(_warm_team, context, with_database(plan), end) for plan in islice(pending, concurrency)
+        }
+        while in_flight:
+            finished, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+            for future in finished:
                 conv_inc, costs_inc, fail_inc = future.result()
                 conversion_teams += conv_inc
                 costs_teams += costs_inc
@@ -666,6 +669,9 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
                     f"marketing_precompute_progress done={done}/{len(plans)} "
                     f"elapsed_s={round(time.monotonic() - warm_started)}"
                 )
+                next_plan = next(pending, None)
+                if next_plan is not None:
+                    in_flight.add(pool.submit(_warm_team, context, with_database(next_plan), end))
 
     context.log.info(
         f"marketing_precompute_complete teams={len(teams)} conversion_teams={conversion_teams} "
