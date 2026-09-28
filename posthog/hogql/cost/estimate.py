@@ -771,7 +771,7 @@ def _constant_datetime(expr: ast.Expr, now: datetime) -> datetime | None:
     """Resolve a literal or ``now() [- interval]`` bound to an aware datetime; None for anything else."""
     if isinstance(expr, ast.Constant):
         return _parse_literal(expr.value)
-    if isinstance(expr, ast.Call) and expr.name == "now" and not expr.args:
+    if isinstance(expr, ast.Call) and expr.name.lower() == "now" and not expr.args:
         return now
     if isinstance(expr, ast.Call) and expr.name in ("toDateTime", "toDate") and len(expr.args) == 1:
         return _constant_datetime(expr.args[0], now)

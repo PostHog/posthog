@@ -33,7 +33,7 @@ class ExplainSQLMCPTool(MCPTool[ExplainSQLMCPToolArgs]):
     args_schema = ExplainSQLMCPToolArgs
 
     async def execute(self, args: ExplainSQLMCPToolArgs) -> MCPToolResult:
-        query = args.query.rstrip(";").strip()
+        query = args.query.strip().rstrip(";").strip()
         if not query:
             raise MaxToolRetryableError("Query is empty")
         response = await self._metadata(query, args.connectionId)
