@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
@@ -258,6 +258,33 @@ describe('LemonTable', () => {
         it('keeps horizontal scrolling instead when the table is wider than its container', () => {
             renderWithWidths({ stickyHeader: true }, 800)
             expect(document.querySelector('.LemonTable')).not.toHaveClass('LemonTable--sticky-header')
+        })
+
+        it('switches between pinning and horizontal scrolling when the table or its container resizes', () => {
+            const resizeCallbacks: (() => void)[] = []
+            jest.spyOn(globalThis, 'ResizeObserver').mockImplementation((callback: ResizeObserverCallback) => {
+                resizeCallbacks.push(() => callback([], {} as ResizeObserver))
+                return { observe: () => null, unobserve: () => null, disconnect: () => null } as ResizeObserver
+            })
+            let tableWidth = 400
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function (this: HTMLElement) {
+                return this.tagName === 'TABLE' ? tableWidth : 0
+            })
+            jest.spyOn(Element.prototype, 'clientWidth', 'get').mockImplementation(function (this: Element) {
+                return this.classList.contains('ScrollableShadows__inner') ? 500 : 0
+            })
+            render(<LemonTable rowKey="id" dataSource={DATA} columns={COLUMNS} stickyHeader />)
+            const table = document.querySelector('.LemonTable')
+            expect(table).toHaveClass('LemonTable--sticky-header')
+            expect(resizeCallbacks.length).toBeGreaterThan(0)
+
+            tableWidth = 800
+            act(() => resizeCallbacks.forEach((callback) => callback()))
+            expect(table).not.toHaveClass('LemonTable--sticky-header')
+
+            tableWidth = 400
+            act(() => resizeCallbacks.forEach((callback) => callback()))
+            expect(table).toHaveClass('LemonTable--sticky-header')
         })
 
         it('does not pin the header by default', () => {

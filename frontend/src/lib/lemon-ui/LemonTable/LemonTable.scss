@@ -410,5 +410,11 @@ body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-header {
                 background: var(--lemon-table-background-color);
             }
         }
+
+        // Keep the loading overlay above the sticky header, so the header cannot be used while the table loads.
+        // The overlay comes after the table in the DOM, so at the same z-index it paints above the header.
+        &.LemonTable--loading .LemonTable__overlay {
+            z-index: 7;
+        }
     }
 }
