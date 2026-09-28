@@ -43,6 +43,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
 from products.tasks.backend.models import Channel, Task
@@ -65,15 +66,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             "kind": "affected_users",
             "value_format": "count",
             "unit": "users",
-            "query": {
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "dateRange": {"date_from": "-14d"},
-                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "dau"}],
-                    "trendsFilter": {"display": "ActionsBar"},
-                },
-            },
+            "query": trends_metric_query(
+                series=[{"kind": "EventsNode", "event": "$exception", "math": "dau"}], date_from="-14d"
+            ),
             "goal_value": 0,
             "goal_direction": "at_most",
             "decision_window_days": 7,

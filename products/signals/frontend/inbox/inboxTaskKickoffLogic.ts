@@ -398,10 +398,10 @@ export interface inboxTaskKickoffLogicActions {
         intent?: 'measurement_plan'
     ) => {
         agentQuestion: string | undefined
+        intent: 'measurement_plan' | undefined
         question: string
         report: SignalReport
         reportUrl: string
-        intent: 'measurement_plan' | undefined
     }
     discussReportFailure: () => {
         value: true

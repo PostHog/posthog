@@ -70,8 +70,8 @@ describe('ReportExpectedImpact', () => {
             />
         )
 
-        expect(screen.queryByRole('button', { name: 'Approve measurement' })).not.toBeInTheDocument()
-        await user.click(screen.getByRole('button', { name: 'Keep an eye on this for me' }))
+        expect(screen.queryByText('Approve measurement')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Keep an eye on this for me'))
 
         await waitFor(() => expect(onApprovalComplete).toHaveBeenCalledTimes(1))
         expect(activateMeasurement).toHaveBeenCalledTimes(2)
@@ -79,7 +79,7 @@ describe('ReportExpectedImpact', () => {
         expect(activateMeasurement).toHaveBeenCalledWith(report.id, 'second')
         expect(screen.getAllByText(/Saved measurement/)).toHaveLength(2)
 
-        await user.click(screen.getByRole('button', { name: 'Keep an eye on this for me' }))
+        await user.click(screen.getByText('Keep an eye on this for me'))
         expect(activateMeasurement).toHaveBeenCalledTimes(2)
     })
 
@@ -98,9 +98,9 @@ describe('ReportExpectedImpact', () => {
             />
         )
 
-        await user.click(screen.getByRole('button', { name: 'Keep an eye on this for me' }))
+        await user.click(screen.getByText('Keep an eye on this for me'))
         await waitFor(() => expect(screen.getAllByText(/Saved measurement/)).toHaveLength(1))
-        await user.click(screen.getByRole('button', { name: 'Keep an eye on this for me' }))
+        await user.click(screen.getByText('Keep an eye on this for me'))
 
         await waitFor(() => expect(screen.getAllByText(/Saved measurement/)).toHaveLength(2))
         expect(activateMeasurement.mock.calls.map(([, id]) => id)).toEqual(['first', 'second', 'second'])
@@ -109,11 +109,11 @@ describe('ReportExpectedImpact', () => {
     it('does not offer follow-ups without a proposal', () => {
         render(<ReportExpectedImpact report={report} reportUrl="https://example.test/report-1" artefacts={[]} />)
 
-        expect(screen.getByRole('button', { name: 'Keep an eye on this for me' })).toHaveAttribute(
+        expect(screen.getByText('Keep an eye on this for me').closest('button')).toHaveAttribute(
             'aria-disabled',
             'true'
         )
-        expect(screen.getByRole('button', { name: 'Suggest different metrics' })).toBeEnabled()
+        expect(screen.getByText('Suggest different metrics').closest('button')).toBeEnabled()
     })
 
     it('bounds the number of charts and approval requests for older oversized reports', async () => {
@@ -125,7 +125,7 @@ describe('ReportExpectedImpact', () => {
         expect(screen.getAllByText('Chart')).toHaveLength(6)
         expect(screen.queryByText(/Outcome outcome-6/)).not.toBeInTheDocument()
 
-        await user.click(screen.getByRole('button', { name: 'Keep an eye on this for me' }))
+        await user.click(screen.getByText('Keep an eye on this for me'))
         await waitFor(() => expect(activateMeasurement).toHaveBeenCalledTimes(6))
     })
 })
