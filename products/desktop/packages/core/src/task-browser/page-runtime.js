@@ -298,6 +298,15 @@ export function findText(kit, { text }) {
     }
   }
 
+  for (const element of document.querySelectorAll(ACTIONABLE)) {
+    if (
+      kit.visible(element) &&
+      kit.clean(element.innerText, 400).toLowerCase().includes(needle)
+    ) {
+      return kit.refFor(element);
+    }
+  }
+
   const walker = document.createTreeWalker(
     document.body || document.documentElement,
     NodeFilter.SHOW_TEXT,

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  findTextScript,
   focusedFormScript,
   rectScript,
   sensitivityScript,
@@ -122,6 +123,13 @@ describe("page scripts", () => {
       password: true,
       filled: true,
     });
+  });
+
+  it("finds a button whose label spans child elements", () => {
+    document.body.innerHTML = `<p>Save changes later</p><button><span>Save</span> <b>changes</b></button>`;
+    const ref = refFor(run<string>(snapshotScript(4_000)), "button");
+
+    expect(run(findTextScript("Save changes"))).toBe(ref);
   });
 
   it("rejects a reference from an earlier page", () => {
