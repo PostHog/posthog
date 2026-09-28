@@ -68425,6 +68425,8 @@ export namespace Schemas {
          * @nullable
          */
       task_summary: string | null;
+      /** Latest slug tags for this task, including tags inherited from an earlier run. */
+      task_tags: string[];
       state: TaskRunDetailDTOState;
       readonly artifacts: readonly TaskRunArtifactResponse[];
       /** @nullable */
@@ -78396,6 +78398,13 @@ export namespace Schemas {
          * @maxLength 1500
          */
       summary?: string;
+      /**
+         * Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.
+         * @maxItems 10
+         * @items.maxLength 50
+         * @items.pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$(?!\n)
+         */
+      tags?: string[];
     }
 
     /**
