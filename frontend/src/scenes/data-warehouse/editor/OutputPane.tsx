@@ -889,10 +889,10 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
             <Content activeTab={OutputTab.Visualization} {...sharedContentProps} />
         </div>
     ) : splitView ? (
-        <div className="flex flex-1 min-h-0 bg-dark">
+        <div className="flex flex-1 min-h-0 bg-dark @max-[48rem]/sql-output:flex-col @max-[48rem]/sql-output:overflow-y-auto">
             <div
                 ref={splitPaneRef}
-                className="relative flex min-w-64 flex-col bg-white dark:bg-black"
+                className="relative flex min-w-64 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:!w-full @max-[48rem]/sql-output:!max-w-full @max-[48rem]/sql-output:min-h-64 @max-[48rem]/sql-output:shrink-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ width: splitPaneWidth, maxWidth: 'calc(100% - 16rem)' }}
             >
@@ -910,9 +910,11 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 <div className="flex flex-1 min-h-0 relative bg-dark border-r">
                     <Content activeTab={OutputTab.Results} {...sharedContentProps} />
                 </div>
-                <Resizer {...splitResizerProps} />
+                <div className="@max-[48rem]/sql-output:hidden">
+                    <Resizer {...splitResizerProps} />
+                </div>
             </div>
-            <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black">
+            <div className="flex min-w-0 flex-1 flex-col bg-white dark:bg-black @max-[48rem]/sql-output:min-h-80 @max-[48rem]/sql-output:shrink-0">
                 {showToolbar ? (
                     <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                         <div className="flex min-h-[41px] gap-2 ml-4">
@@ -955,7 +957,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
     )
 
     return (
-        <div className="OutputPane flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
+        <div className="OutputPane @container/sql-output flex flex-col w-full flex-1 min-h-0 bg-white dark:bg-black">
             <QueryIndexUsageBar
                 predicates={metadata?.index_usage ?? []}
                 refreshing={metadataLoading}

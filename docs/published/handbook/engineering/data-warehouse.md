@@ -6,6 +6,14 @@ showTitle: true
 
 This is an internal guide to setting up and working with the data warehouse for PostHog engineers. If you're a PostHog user, check out our [data warehouse docs](https://posthog.com/docs/data-warehouse) instead.
 
+## SQL editor chart autodetection experiment
+
+Enable `jev-chart-autodetection` and `ml-inference-decisions` to try Jev recommendations for SQL queries in Auto mode. Organization AI data-processing consent is required. Local development bypasses the decisions service flag, but still requires consent and the chart experiment flag.
+
+After a query completes, one decision request selects a supported chart, its column bindings, and table-only, chart-only, or split output. The request includes column names and types, the returned row count, and three sample rows with text values capped at 120 characters. Queries with more than 15 columns keep the existing heuristics.
+
+The existing result stays usable while the request runs. Missing consent, unavailable inference, a five-second timeout, or invalid bindings keep the existing behavior. Manual chart choices are preserved, and late responses cannot overwrite edits to axes, layout, or the query. Recommendations apply in the SQL editor; saved explicit chart settings continue to render normally elsewhere.
+
 ## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.

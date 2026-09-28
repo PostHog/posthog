@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Decorator, Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { App } from 'scenes/App'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -120,6 +123,9 @@ const meta: Meta = {
                     }
                     if (kind === 'HogQLMetadata') {
                         return [200, { errors: [], warnings: [], notices: [], isValid: true }]
+                    }
+                    if (body?.query?.query === 'SELECT category, revenue FROM example_sales') {
+                        return [200, CHART_EXPERIMENT_RESULTS]
                     }
                     return [200, SQL_RESULTS]
                 },
@@ -365,4 +371,84 @@ export const LazySchema: Story = {
             },
         },
     },
+}
+
+const CHART_EXPERIMENT_RESULTS = {
+    columns: ['category', 'revenue'],
+    types: [
+        ['category', 'String'],
+        ['revenue', 'Float64'],
+    ],
+    results: [
+        ['Books', 120],
+        ['Games', 240],
+        ['Music', 180],
+    ],
+    hasMore: false,
+}
+
+const chartExperimentParameters = (approved: boolean): Record<string, unknown> => ({
+    featureFlags: ['jev-chart-autodetection', 'ml-inference-decisions'],
+    pageUrl: urls.sqlEditor({ query: 'SELECT category, revenue FROM example_sales' }),
+    msw: {
+        mocks: {
+            get: {
+                '/api/organizations/@current/': {
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: approved,
+                },
+                '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+            },
+            post: {
+                '/api/projects/:team_id/ml_inference/decisions/decide/': () => [
+                    200,
+                    {
+                        model: 'test',
+                        input_tokens: 1,
+                        latency_ms: 1,
+                        answers: Object.fromEntries(
+                            Object.entries({
+                                chart: 'ActionsBar',
+                                layout: 'both',
+                                x: 'c0',
+                                value: 'c1',
+                                dimension: 'none',
+                            }).map(([id, choice]) => [
+                                id,
+                                {
+                                    type: 'choice',
+                                    choice,
+                                    confidence: 1,
+                                    probability: null,
+                                    probabilities: {},
+                                    score: null,
+                                },
+                            ])
+                        ),
+                    },
+                ],
+            },
+        },
+    },
+})
+
+const withAIConsent = (approved: boolean): Decorator =>
+    function AIConsentStory(Story): JSX.Element {
+        useEffect(() => {
+            organizationLogic.actions.loadCurrentOrganizationSuccess({
+                ...MOCK_DEFAULT_ORGANIZATION,
+                is_ai_data_processing_approved: approved,
+            })
+        }, [])
+        return <Story />
+    }
+
+export const JevChartAndTable: Story = {
+    parameters: chartExperimentParameters(true),
+    decorators: [withAIConsent(true)],
+}
+
+export const JevWithoutConsent: Story = {
+    parameters: chartExperimentParameters(false),
+    decorators: [withAIConsent(false)],
 }
