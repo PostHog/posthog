@@ -10,6 +10,9 @@ Postgres holds the order. A layer starts when every layer it depends on has a pu
 run checks out the head branch of that pull request, so the pull request it opens stacks on it.
 """
 
+from functools import partial
+from typing import cast
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -66,7 +69,9 @@ def _inherited_judgments(parent: SignalReport) -> list[StatusArtefactContent]:
         )
         if latest is None:
             continue
-        judgments.append(ARTEFACT_CONTENT_SCHEMAS[artefact_type].model_validate_json(latest))
+        judgments.append(
+            cast(StatusArtefactContent, ARTEFACT_CONTENT_SCHEMAS[artefact_type].model_validate_json(latest))
+        )
     return judgments
 
 
@@ -226,6 +231,5 @@ def schedule_dependent_layers(*, team_id: int, report_ids: list[str]) -> None:
 
     for report_id in report_ids:
         transaction.on_commit(
-            lambda queued=report_id: start_dependent_stack_layers.delay(team_id=team_id, report_id=queued),
-            robust=True,
+            partial(start_dependent_stack_layers.delay, team_id=team_id, report_id=report_id), robust=True
         )
