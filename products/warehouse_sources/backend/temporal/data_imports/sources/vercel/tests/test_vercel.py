@@ -194,7 +194,7 @@ class TestValidateCredentials:
         # A transient Vercel-side error must not tell the user to fix their (possibly valid) token.
         assert "Check that it's a valid token" not in (error or "")
 
-    @parameterized.expand([(400,), (401,)])
+    @parameterized.expand([(400,), (401,), (404,)])
     def test_credential_rejection_status_tells_the_user_to_replace_the_token(self, status: int) -> None:
         response = requests.Response()
         response.status_code = status

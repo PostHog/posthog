@@ -173,7 +173,31 @@ class TestPostgresProducerSupersede:
         ) as mock_supersede:
             producer.send_batch_notification(batch_result)
 
-        mock_supersede.assert_called_once_with(producer._conn, job_id="job-1", current_run_uuid="run-1")
+        mock_supersede.assert_called_once_with(
+            producer._conn,
+            job_id="job-1",
+            current_run_uuid="run-1",
+            spare_runs_with_progress=False,
+        )
+
+    @pytest.mark.parametrize(
+        "sync_type,spare",
+        [("full_refresh", False), ("incremental", True), ("append", True), ("cdc", True)],
+    )
+    def test_only_full_refresh_supersedes_a_run_that_is_still_loading(self, sync_type: str, spare: bool) -> None:
+        """A fresh full_refresh overwrites the table on batch 0, so an older attempt's loaded rows
+        are discarded either way and its queued batches are dead weight on the serial per-schema
+        gate. Every other sync type keeps the sparing rule, because partially merged work survives."""
+        producer = _make_producer(is_resume=False, sync_type=sync_type)
+        batch_result = _make_batch_result(batch_index=0)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            return_value=0,
+        ) as mock_supersede:
+            producer.send_batch_notification(batch_result)
+
+        assert mock_supersede.call_args.kwargs["spare_runs_with_progress"] is spare
 
     def test_does_not_supersede_on_non_zero_batch(self) -> None:
         producer = _make_producer(is_resume=False)

@@ -151,14 +151,22 @@ def get_query_specific_instructions(kind: str) -> str:
 def get_or_create_saved_insight(
     *,
     team_id: int,
-    user_id: int,
+    user_id: int | None,
     short_id: str,
     name: str | None,
     description: str | None,
     query: dict[str, object] | None,
+    revive_deleted: bool = True,
 ) -> tuple[int, bool]:
+    """Create a saved insight, optionally restoring a soft-deleted short-ID collision."""
     return logic.get_or_create_saved_insight(
-        team_id=team_id, user_id=user_id, short_id=short_id, name=name, description=description, query=query
+        team_id=team_id,
+        user_id=user_id,
+        short_id=short_id,
+        name=name,
+        description=description,
+        query=query,
+        revive_deleted=revive_deleted,
     )
 
 
