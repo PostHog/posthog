@@ -52,7 +52,9 @@ def _rebuilds(error=None, skip_write=False, load_error=None, omit=()):
         patch.object(rebuild_queue, "Team") as team,
         patch.object(rebuild_queue, "_skip_write_if_group_mapping_emptied", return_value=skip_write),
         patch.object(rebuild_queue.flag_definitions_hypercache, "batch_load_fn", new=_load),
-        patch.object(rebuild_queue.flag_definitions_hypercache.cache_client, "get_many", return_value={}),
+        patch.object(
+            rebuild_queue.flag_definitions_hypercache, "cache_client", new=SimpleNamespace(get_many=lambda keys: {})
+        ),
         patch.object(rebuild_queue.flag_definitions_hypercache, "set_cache_value", side_effect=error) as set_cache,
     ):
         team.objects.filter.side_effect = lambda id__in: [SimpleNamespace(id=int(t)) for t in id__in]
@@ -119,14 +121,15 @@ def test_cache_misses_take_priority_over_older_s3_hits(fake_redis):
 
 def test_restored_redis_entry_skips_rebuild(fake_redis):
     _enqueue(fake_redis, 3)
-    cache = rebuild_queue.flag_definitions_hypercache
-    with _rebuilds() as set_cache:
-        with patch.object(
-            cache.cache_client,
-            "get_many",
-            return_value={cache.get_cache_key(3): '{"flags": []}', cache.get_etag_key(3): "etag"},
-        ):
-            stats = drain_rebuild_requests()
+    with _dedicated_cache(registered=False):
+        cache = rebuild_queue.flag_definitions_hypercache
+        with _rebuilds() as set_cache:
+            with patch.object(
+                cache.cache_client,
+                "get_many",
+                return_value={cache.get_cache_key(3): '{"flags": []}', cache.get_etag_key(3): "etag"},
+            ):
+                stats = drain_rebuild_requests()
 
     assert stats["restored"] == 1
     assert fake_redis.zscore(REBUILD_REQUESTS_ZSET, "3") is None
