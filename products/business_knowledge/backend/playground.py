@@ -10,10 +10,13 @@ from products.tasks.backend.facade.contracts import CreatedTaskDTO
 
 from .models import PlaygroundChat, PlaygroundTurn
 from .sandbox import (
+    MAX_OPEN_RUNS_PER_OWNER,
     SandboxPollStatus,
     SandboxRunInProgress,
+    SandboxRunLimitReached,
     _title_for,
     load_sandbox_run,
+    lock_owner_admission,
     open_sandbox_task_ids,
     start_sandbox_run,
 )
@@ -74,14 +77,16 @@ def serialize_playground_turn(turn: PlaygroundTurn, *, user_id: int) -> dict[str
 
 def ask_playground_chat(*, chat: PlaygroundChat, team: Team, user_id: int, question: str) -> dict[str, Any]:
     def admit_one_run_per_chat() -> None:
-        # The chat row lock serializes asks in this chat. Other chats of the same person run in parallel.
-        PlaygroundChat.objects.for_team(chat.team_id).select_for_update().filter(id=chat.id).first()
+        # The owner lock serializes this person's asks, so the chat check and the owner cap see every open run.
+        lock_owner_admission(chat.team_id, user_id)
         open_task_ids = open_sandbox_task_ids(team_id=chat.team_id, user_id=user_id)
         if (
             open_task_ids
             and PlaygroundTurn.objects.for_team(chat.team_id).filter(chat=chat, task_id__in=open_task_ids).exists()
         ):
             raise SandboxRunInProgress()
+        if len(open_task_ids) >= MAX_OPEN_RUNS_PER_OWNER:
+            raise SandboxRunLimitReached()
 
     def record_turn(created: CreatedTaskDTO) -> None:
         last = PlaygroundTurn.objects.filter(chat=chat).order_by("-position").values_list("position", flat=True).first()

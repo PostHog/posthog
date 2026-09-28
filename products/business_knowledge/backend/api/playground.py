@@ -27,7 +27,7 @@ from ..playground import (
     serialize_playground_chat,
     serialize_playground_chat_list,
 )
-from ..sandbox import SandboxRunInProgress
+from ..sandbox import MAX_OPEN_RUNS_PER_OWNER, SandboxRunInProgress, SandboxRunLimitReached
 from .sandbox import SandboxConflict
 from .serializers import PlaygroundChatListSerializer, PlaygroundChatSerializer, SandboxQuestionSerializer
 from .settings import CanonicalTeamTokenPermission
@@ -127,10 +127,12 @@ class BusinessKnowledgePlaygroundChatViewSet(
         responses={
             201: OpenApiResponse(response=PlaygroundChatSerializer, description="Chat with the new turn."),
             403: OpenApiResponse(description="AI data processing is not approved for this organization."),
-            409: OpenApiResponse(description="This chat already has an answer that has not finished."),
+            409: OpenApiResponse(
+                description=f"This chat already has an answer that has not finished, or this person already has {MAX_OPEN_RUNS_PER_OWNER} answers running."
+            ),
         },
         summary="Ask a question in a playground chat",
-        description="Append a turn and start a sandbox run. A second question in the same chat while its answer is still open returns 409. Other chats can run at the same time.",
+        description=f"Append a turn and start a sandbox run. A second question in the same chat while its answer is still open returns 409. Other chats can run at the same time, up to {MAX_OPEN_RUNS_PER_OWNER} open answers per person.",
     )
     @validated_request(
         request_serializer=SandboxQuestionSerializer,
@@ -147,6 +149,10 @@ class BusinessKnowledgePlaygroundChatViewSet(
                 team=self.team,
                 user_id=cast(User, request.user).id,
                 question=request.validated_data["question"],
+            )
+        except SandboxRunLimitReached:
+            raise SandboxConflict(
+                f"You have {MAX_OPEN_RUNS_PER_OWNER} answers running. Wait for one to finish before you ask another question."
             )
         except SandboxRunInProgress:
             raise SandboxConflict()

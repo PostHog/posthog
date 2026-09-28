@@ -13,6 +13,7 @@ from posthog.models.user import User
 
 from products.business_knowledge.backend.api.playground import BusinessKnowledgePlaygroundChatViewSet
 from products.business_knowledge.backend.models import PlaygroundChat, PlaygroundTurn
+from products.business_knowledge.backend.sandbox import MAX_OPEN_RUNS_PER_OWNER
 from products.tasks.backend.models import Task, TaskRun
 
 WORKFLOW = "products.tasks.backend.temporal.client.execute_task_processing_workflow"
@@ -98,6 +99,15 @@ class TestPlaygroundChatAPI(APIBaseTest):
         assert listed == {first["id"]: False, second["id"]: True}
         follow_up = self.client.post(f"{self.url}{first['id']}/ask/", {"question": "And after 30 days?"}, format="json")
         assert follow_up.status_code == status.HTTP_201_CREATED, follow_up.content
+
+        third = self._create_chat()
+        at_cap = self.client.post(f"{self.url}{third['id']}/ask/", {"question": "Who approves?"}, format="json")
+        assert at_cap.status_code == status.HTTP_201_CREATED, at_cap.content
+        fourth = self._create_chat()
+        over_cap = self.client.post(f"{self.url}{fourth['id']}/ask/", {"question": "Who approves?"}, format="json")
+        assert over_cap.status_code == status.HTTP_409_CONFLICT
+        assert f"{MAX_OPEN_RUNS_PER_OWNER} answers running" in over_cap.json()["detail"]
+        assert not PlaygroundTurn.objects.unscoped().filter(chat_id=fourth["id"]).exists()
 
     def test_reload_reads_the_sandbox_run(self, _ff, _workflow) -> None:
         chat = self._create_chat()

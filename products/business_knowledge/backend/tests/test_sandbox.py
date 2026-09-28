@@ -275,6 +275,11 @@ class TestSandboxAPI(APIBaseTest):
         assert self.client.get(f"{self.url}{task_id}/").status_code == status.HTTP_404_NOT_FOUND
 
         self.client.force_login(self.user)
+        tasks_url = f"/api/projects/{self.team.id}/tasks/"
+        assert self.client.get(f"{tasks_url}{task_id}/").status_code == status.HTTP_404_NOT_FOUND
+        assert self.client.get(f"{tasks_url}{task_id}/runs/").status_code == status.HTTP_404_NOT_FOUND
+        listed = self.client.get(tasks_url, {"internal": "true"}).json()["results"]
+        assert task_id not in {task["id"] for task in listed}
         other_team = Team.objects.create_with_data(
             organization=self.organization, initiating_user=self.user, name="Other"
         )

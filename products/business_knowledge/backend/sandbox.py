@@ -23,6 +23,8 @@ BUSINESS_KNOWLEDGE_SANDBOX_ENV_NAME = "BUSINESS_KNOWLEDGE_SANDBOX"
 SANDBOX_MODEL = "claude-sonnet-5"
 SANDBOX_RUNTIME_ADAPTER = "claude"
 MAX_SANDBOX_QUESTION_CHARS = 4_000
+# Chats run in parallel, but the request throttles skip session auth, so this caps billable runs per person.
+MAX_OPEN_RUNS_PER_OWNER = 3
 FINISHED_ACTIVITY_CACHE_SECONDS = 60 * 60
 
 BK_MCP_SCOPE = "business_knowledge:read"
@@ -65,6 +67,10 @@ class SandboxAnswer(BaseModel):
 
 class SandboxRunInProgress(Exception):
     """This owner already has a business-knowledge sandbox run that has not finished."""
+
+
+class SandboxRunLimitReached(SandboxRunInProgress):
+    """This owner already has the maximum number of open business-knowledge sandbox runs."""
 
 
 @frozen
@@ -311,7 +317,7 @@ def _finished_sandbox_activity(*, run_id: UUID, task_id: UUID, team_id: int) -> 
 
 
 def _admit_one_run_per_owner(team_id: int, user_id: int) -> None:
-    _lock_admission(team_id, user_id)
+    lock_owner_admission(team_id, user_id)
     if tasks_facade.owner_origin_has_non_terminal_run(
         team_id=team_id,
         created_by_id=user_id,
@@ -320,7 +326,7 @@ def _admit_one_run_per_owner(team_id: int, user_id: int) -> None:
         raise SandboxRunInProgress()
 
 
-def _lock_admission(team_id: int, user_id: int) -> None:
+def lock_owner_admission(team_id: int, user_id: int) -> None:
     # Transaction-scoped: released on commit or rollback. Not a lock on the Team row.
     with connection.cursor() as cursor:
         cursor.execute(
