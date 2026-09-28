@@ -12,6 +12,7 @@ with wf.unsafe.imports_passed_through():
         finalize_observation_thumbnail_activity,
         prepare_observation_thumbnail_activity,
     )
+    from products.replay_vision.backend.temporal.constants import STATE_ACTIVITY_RETRY, STATE_ACTIVITY_SCHEDULE_TO_CLOSE
     from products.replay_vision.backend.temporal.media_types import (
         MEDIA_WORKFLOW_NAME,
         THUMBNAIL_SCHEDULE_TO_CLOSE,
@@ -22,7 +23,6 @@ with wf.unsafe.imports_passed_through():
     )
 
 _THUMBNAIL_TIMEOUT = dt.timedelta(minutes=5)
-_STATE_RETRY = common.RetryPolicy(maximum_attempts=3)
 # Nothing retries a lost poster later, so this chain has to outlast a rasterizer backlog or outage.
 _THUMBNAIL_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=20),
@@ -43,7 +43,8 @@ class ObservationMediaWorkflow(PostHogWorkflow):
             prepare_observation_thumbnail_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(seconds=30),
-            retry_policy=_STATE_RETRY,
+            schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+            retry_policy=STATE_ACTIVITY_RETRY,
         )
 
         raw_result = await wf.execute_activity(
@@ -66,5 +67,6 @@ class ObservationMediaWorkflow(PostHogWorkflow):
                 result=ExtractThumbnailActivityOutput.model_validate(raw_result),
             ),
             start_to_close_timeout=dt.timedelta(seconds=30),
-            retry_policy=_STATE_RETRY,
+            schedule_to_close_timeout=STATE_ACTIVITY_SCHEDULE_TO_CLOSE,
+            retry_policy=STATE_ACTIVITY_RETRY,
         )

@@ -12,7 +12,9 @@ from products.access_control.backend.facade.api import (
     InvalidObjectAccessControlError,
     every_member_has_resource_access,
     object_ids_restricted_from_any_member,
+    role_belongs_to_organization,
     set_object_access_control,
+    valid_role_member_user_ids,
 )
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
@@ -226,3 +228,24 @@ class TestObjectIdsRestrictedFromAnyMember(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
         assert self._restricted() == set()
+
+
+class TestRoleReads(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.role = Role.objects.create(name="Support", organization=self.organization)
+        self.other_organization = Organization.objects.create(name="Other")
+
+    def test_role_belongs_only_to_its_own_organization(self) -> None:
+        assert role_belongs_to_organization(role_id=self.role.id, organization_id=self.organization.id)
+        assert not role_belongs_to_organization(role_id=self.role.id, organization_id=self.other_organization.id)
+
+    def test_member_ids_leave_out_a_membership_from_another_organization(self) -> None:
+        self.role.members.add(self.user)
+        assert valid_role_member_user_ids(role_id=self.role.id) == [self.user.id]
+
+        outsider = User.objects.create_and_join(self.other_organization, "outsider@posthog.com", "testtest")
+        outside_membership = OrganizationMembership.objects.get(user=outsider, organization=self.other_organization)
+        RoleMembership.objects.create(role=self.role, user=outsider, organization_member=outside_membership)
+
+        assert valid_role_member_user_ids(role_id=self.role.id) == [self.user.id]

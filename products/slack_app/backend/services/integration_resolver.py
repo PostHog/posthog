@@ -6,10 +6,10 @@ from django.db.models import Q
 
 import structlog
 
-from posthog.comment.formatting import escape_slack_mrkdwn
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.user import User
+from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.facade import api as signals_facade

@@ -1,3 +1,6 @@
+import hmac
+import time
+import hashlib
 from datetime import timedelta
 from uuid import UUID
 
@@ -412,6 +415,8 @@ class TestActivityLogVisibilityManager(BaseTest):
             ("instance_setting_updated", "InstanceSetting", "updated", False, True),
             # AI-gateway top-ups are staff-only and must be hidden from non-staff viewers
             ("ai_gateway_credit_added", "AIGatewayCredit", "credit_added", False, True),
+            ("github_diagnostic", "Integration", "github_diagnostic", False, True),
+            ("github_connected", "Integration", "created", False, False),
             # Ticket comment rows reference support-ticket bodies (rows written before write-time
             # masking still hold plaintext) and must be hidden from non-staff viewers
             ("ticket_comment", "Ticket", "commented", False, True),
@@ -698,14 +703,21 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
         expected_trigger: dict | None,
     ) -> None:
         self._authenticate_as_oauth_agent(client_id, task_id, delegated)
+        signed_at = str(int(time.time()))
 
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/dashboards/",
-            {"name": "Weekly signups"},
-            HTTP_X_POSTHOG_CLIENT="mcp",
-            HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
-            HTTP_X_POSTHOG_INTENT=intent or "",
-        )
+        with self.settings(MCP_CLIENT_IP_SIGNING_KEYS=["mcp-client-ip-test-key"]):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/",
+                {"name": "Weekly signups"},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+                HTTP_X_POSTHOG_TASK_ID="019f4c2a-0000-7000-8000-0000000000bb",
+                HTTP_X_POSTHOG_INTENT=intent or "",
+                HTTP_X_POSTHOG_MCP_CLIENT_IP="203.0.113.7",
+                HTTP_X_POSTHOG_MCP_CLIENT_IP_TIMESTAMP=signed_at,
+                HTTP_X_POSTHOG_MCP_CLIENT_IP_SIGNATURE=hmac.new(
+                    b"mcp-client-ip-test-key", f"203.0.113.7:{signed_at}".encode(), hashlib.sha256
+                ).hexdigest(),
+            )
         self.assertEqual(response.status_code, 201, response.content)
 
         log = ActivityLog.objects.filter(scope="Dashboard").latest("id")
@@ -713,6 +725,7 @@ class TestAgentAttributionOnApiWrites(APIBaseTest):
         self.assertEqual(log.detail["trigger"], expected_trigger)
         self.assertEqual(log.user_id, self.user.id)
         self.assertEqual(log.client, "mcp")
+        self.assertEqual(log.ip_address, "203.0.113.7")
 
     def test_recording_intent_does_not_re_enter_authentication(self) -> None:
         self._authenticate_as_oauth_agent(ARRAY_APP_CLIENT_ID_DEV, None)

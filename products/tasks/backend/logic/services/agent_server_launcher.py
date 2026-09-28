@@ -39,12 +39,14 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url
 from products.tasks.backend.logic.services.sandbox import (
+    CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     WORKING_DIR,
     SandboxBase,
     build_agent_runtime_env_prefix,
     build_agent_server_capability_probe,
     build_bundled_skills_clear_command,
     build_health_check_command,
+    build_subscription_flags,
     health_check_timeout_seconds,
     wait_for_health_check,
 )
@@ -60,6 +62,10 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 # The whole diagnostics dict rides in the Temporal failure payload, which is capped at about 2 MiB.
 STARTUP_LOG_MAX_BYTES = 64 * 1024
 AGENT_SERVER_HEALTH_DURATION_PREFIX = "__posthog_agent_health_ms="
+# The agent-server reads this fd once at boot and closes it, so processes it starts never see the
+# token. The launch shell opens the file on fd 3 and deletes it before the server starts.
+CODEX_RUN_TOKEN_FD = 3
+CODEX_RUN_TOKEN_FILE = "/tmp/agent-codex-run-token"
 
 AGENT_SERVER_FREE_PORT_SCRIPT = (
     "agent_server_pids() { for p in $(pgrep -f '[a]gent-server'); do "
@@ -221,7 +227,7 @@ def build_agent_server_preflight_script(*, probe_health: bool, executable_paths:
                 f"health_output=$({health_command})",
                 "health_status=$?",
                 'printf "%s\\n" "$health_output"',
-                f'case "$health_output" in *claude_credential_unavailable*) '
+                f'case "$health_output" in *claude_credential_unavailable*|*codex_credential_unavailable*) '
                 f"exit {AGENT_SERVER_PREFLIGHT_CREDENTIAL_EXIT_CODE};; esac",
                 f'if [ "$health_status" -eq 0 ]; then '
                 f"echo {shlex.quote(AGENT_SERVER_PREFLIGHT_REUSE_MARKER)}; exit 0; fi",
@@ -230,6 +236,17 @@ def build_agent_server_preflight_script(*, probe_health: bool, executable_paths:
         )
     lines.append("exit 0")
     return "\n".join(lines)
+
+
+CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER = "claude_credential_unavailable"
+CODEX_CREDENTIAL_UNAVAILABLE_MARKER = "codex_credential_unavailable"
+
+
+def _credential_marker(*sources: str) -> str | None:
+    for marker in (CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER, CODEX_CREDENTIAL_UNAVAILABLE_MARKER):
+        if any(marker in source for source in sources):
+            return marker
+    return None
 
 
 def _health_duration_ms(stdout: str) -> int | None:
@@ -295,6 +312,8 @@ class AgentServerLaunchMixin(SandboxBase):
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token_file: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -317,7 +336,7 @@ class AgentServerLaunchMixin(SandboxBase):
             peer_messaging=peer_messaging,
             unset_bedrock=self.disable_direct_bedrock,
         )
-        subscription_flag = " --claudeSubscription" if claude_model_access == "own-subscription" else ""
+        subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
         # flags, so default runs (and resumes of old snapshots) must not see it.
@@ -353,6 +372,8 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"{launch_started_at}; exec {server_cmd}"
             )
             server_cmd = f"bash -c {shlex.quote(wait_for_repo)}"
+        if codex_run_token_file:
+            server_cmd = self._with_codex_run_token_fd(server_cmd, codex_run_token_file)
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
         initialize_env_file = f"bash {shlex.quote(BASH_ENV_SCRIPT)}"
@@ -368,6 +389,26 @@ class AgentServerLaunchMixin(SandboxBase):
                 f"cd /scripts && {launch_started_prefix}{initialize_env_file} && "
                 f"(nohup {server_cmd} > /tmp/agent-server.log 2>&1 & echo $! > /tmp/agent-server.pid)"
             )
+
+    def _stage_codex_run_token(self, codex_run_token: str) -> None:
+        self._write_required_file(CODEX_RUN_TOKEN_FILE, codex_run_token.encode())
+        # Best effort: a child process must not read the token out of the agent-server's memory.
+        # agentsh still traces its own descendants under scope 1. Kernels without Yama ignore this,
+        # and a sandbox with CAP_SYS_PTRACE bypasses it.
+        self.execute(
+            f"chmod 600 {CODEX_RUN_TOKEN_FILE}; (echo 1 > /proc/sys/kernel/yama/ptrace_scope) 2>/dev/null || true",
+            timeout_seconds=5,
+        )
+
+    @staticmethod
+    def _with_codex_run_token_fd(server_cmd: str, token_file: str) -> str:
+        """Open the run token on fd 3 for the agent-server and remove the file before it starts.
+
+        Runs inside the launched process tree, so it works the same under ``nohup`` and under
+        ``agentsh exec``, which does not forward the caller's descriptors.
+        """
+        quoted_file = shlex.quote(token_file)
+        return f"bash -c {shlex.quote(f'exec {CODEX_RUN_TOKEN_FD}< {quoted_file} && rm -f {quoted_file} && exec {server_cmd}')}"
 
     def _termination_failure_reason(self) -> str:
         """Provider-specific detail for a sandbox that died before becoming healthy."""
@@ -392,6 +433,9 @@ class AgentServerLaunchMixin(SandboxBase):
             diagnostics["log"] = log_result.stdout
             if len(log_result.stdout.encode()) >= STARTUP_LOG_MAX_BYTES:
                 diagnostics["log_truncated"] = "true"
+            if _credential_marker(log_result.stdout) is not None:
+                diagnostics["failure_reason"] = "agent-server reported a missing subscription token"
+                return diagnostics
             health_result = self.execute(
                 f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
                 timeout_seconds=5,
@@ -537,16 +581,11 @@ class AgentServerLaunchMixin(SandboxBase):
             health_duration_ms = _health_duration_ms(launch_result.stdout)
             if wait_for_health and health_duration_ms is not None:
                 diagnostics = self._diagnose_startup_failure(allowed_domains)
-                if (
-                    "claude_credential_unavailable" in launch_result.stdout
-                    or "claude_credential_unavailable" in diagnostics.get("log", "")
-                ):
-                    raise ProcessTaskFatalError(
-                        "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
-                        {"task_id": task_id, "run_id": run_id},
-                        RuntimeError("Claude token unavailable"),
-                        capture=False,
-                    )
+                credential_error = self._credential_unavailable_error(
+                    launch_result.stdout, diagnostics.get("log", ""), context={"task_id": task_id, "run_id": run_id}
+                )
+                if credential_error is not None:
+                    raise credential_error
                 raise SandboxExecutionError(
                     "Agent-server failed to start",
                     {
@@ -607,6 +646,8 @@ class AgentServerLaunchMixin(SandboxBase):
         benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         claude_model_access: str | None = None,
+        codex_model_access: str | None = None,
+        codex_run_token: str | None = None,
     ) -> int | None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -628,6 +669,8 @@ class AgentServerLaunchMixin(SandboxBase):
             repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
         self._prepare_agent_server_launch(allowed_domains)
+
+        codex_run_token_file = CODEX_RUN_TOKEN_FILE if codex_run_token else None
 
         mcp_servers_arg = ""
         if mcp_configs:
@@ -654,6 +697,9 @@ class AgentServerLaunchMixin(SandboxBase):
             exec_permission_regex = None
 
         def build_command(base_branch: str | None) -> str:
+            # The launch shell deletes the token file, so every launch attempt needs its own copy.
+            if codex_run_token:
+                self._stage_codex_run_token(codex_run_token)
             return self._build_agent_server_command(
                 repo_path,
                 task_id,
@@ -685,6 +731,8 @@ class AgentServerLaunchMixin(SandboxBase):
                 peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
                 claude_model_access=claude_model_access,
+                codex_model_access=codex_model_access,
+                codex_run_token_file=codex_run_token_file,
             )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
@@ -718,16 +766,51 @@ class AgentServerLaunchMixin(SandboxBase):
             logger.info(f"Agent-server ready in sandbox {self.id}")
             return
         diagnostics = self._diagnose_startup_failure(allowed_domains)
+        credential_error = self._credential_unavailable_error(
+            diagnostics.get("log", ""), context={"sandbox_id": self.id}
+        )
+        if credential_error is not None:
+            raise credential_error
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, **diagnostics},
             cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
         )
 
+    def _credential_unavailable_error(self, *sources: str, context: dict[str, str]) -> ProcessTaskFatalError | None:
+        """Turn a missing subscription token into a non-retryable error.
+
+        The health poll sees the marker only while the agent-server still answers. After the
+        relay timeout ends the session, the marker survives only in the log. Checking the log
+        too means the run fails at once, instead of relaunching and waiting out the same
+        timeout again for a token the user has to supply.
+        """
+        marker = _credential_marker(*sources)
+        if marker == CLAUDE_CREDENTIAL_UNAVAILABLE_MARKER:
+            return ProcessTaskFatalError(
+                "The Claude token did not arrive. Open Desktop and check your token in Settings > Harness. Then start the task again.",
+                context,
+                RuntimeError("Claude token unavailable"),
+                capture=False,
+            )
+        if marker == CODEX_CREDENTIAL_UNAVAILABLE_MARKER:
+            return ProcessTaskFatalError(
+                CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
+                context,
+                RuntimeError("ChatGPT token unavailable"),
+                capture=False,
+            )
+        return None
+
     def _startup_timeout_with_diagnostics(
         self, allowed_domains: list[str] | None, timeout_seconds: int
-    ) -> SandboxTimeoutError:
+    ) -> SandboxTimeoutError | ProcessTaskFatalError:
         diagnostics = self._diagnose_startup_failure(allowed_domains)
+        credential_error = self._credential_unavailable_error(
+            diagnostics.get("log", ""), context={"sandbox_id": self.id}
+        )
+        if credential_error is not None:
+            return credential_error
         logger.warning(
             "Agent-server health poll timed out in sandbox %s after %ss: %s",
             self.id,

@@ -129,6 +129,9 @@ pub struct Config {
     #[envconfig(default = "")]
     pub clickhouse_password: String,
 
+    #[envconfig(default = "")]
+    pub clickhouse_password_file: String,
+
     #[envconfig(default = "default")]
     pub clickhouse_database: String,
 
@@ -204,6 +207,19 @@ pub struct Config {
     /// adds narrower re-scans.
     #[envconfig(default = "1")]
     pub seeder_bands_per_day: u16,
+
+    /// How long after a run's boundary the stream processor may take to start counting a new cohort
+    /// leaf. Keep it at least the processor's `FILTER_CATALOG_REFRESH_SECS` plus
+    /// `FILTER_CATALOG_REFRESH_JITTER_SECS`. The seeder plans every day this reaches as a trailing
+    /// day, so a boundary set just before midnight also seeds the minutes the live path missed of
+    /// the next day.
+    #[envconfig(default = "420")]
+    pub seeder_live_tracking_lag_secs: u64,
+
+    /// How long the seeder waits after a trailing day ends, in the run's timezone, before it scans
+    /// that day. An event ingested for the day after the scan is missing from its tile.
+    #[envconfig(default = "1800")]
+    pub seeder_trailing_day_grace_secs: u64,
 
     /// Enable the person-property seed path: discovery widens to `person_property` runs and the
     /// planning/scan/emission pipeline arms. Default off — the processor's decode arm and

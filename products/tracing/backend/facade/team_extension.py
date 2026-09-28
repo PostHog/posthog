@@ -7,12 +7,14 @@ models module. Mirrors the customer_analytics precedent.
 """
 
 from products.tracing.backend.models import (
+    DEFAULT_TRACES_RETENTION_DAYS,
     DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS,
     DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS,
     TeamTracingConfig,
 )
 
 __all__ = [
+    "DEFAULT_TRACES_RETENTION_DAYS",
     "DEFAULT_TRACING_DISTINCT_ID_ATTRIBUTE_KEYS",
     "DEFAULT_TRACING_SESSION_ID_ATTRIBUTE_KEYS",
     "TeamTracingConfig",

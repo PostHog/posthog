@@ -77,7 +77,6 @@ def get_exposure_config_params_for_builder(
     team: Team,
     start_date: Optional[datetime],
 ) -> ExposureQueryParams:
-    """Returns exposure-related parameters required by the query builder."""
     criteria = normalize_to_exposure_criteria(exposure_criteria)
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
@@ -160,9 +159,9 @@ class ExperimentQueryBuilder:
         if activation_config is not None and isinstance(metric, ExperimentFunnelMetric):
             self.cuped_config = CupedQueryConfig(enabled=False, lookback_days=self.cuped_config.lookback_days)
 
-        # Experiment-level invariants, gathered into a single frozen context for
-        # later extracted modules to consume. Additive: every self.* attribute
-        # above remains the source of truth for existing internal methods.
+        # Frozen snapshot for builders that take a context instead of this builder,
+        # such as ExposureQueryBuilder. Methods on this class read the self.* attributes,
+        # so a later change to one of them does not reach the context.
         self.context = ExperimentQueryContext(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
@@ -179,19 +178,17 @@ class ExperimentQueryBuilder:
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is
-    # bounded by num_variants × num_breakdown_values.  The HogQL executor injects
+    # bounded by num_variants × num_breakdown_values. The HogQL executor injects
     # LIMIT 100 when no explicit limit is set, which silently truncates results for
-    # high-cardinality breakdowns.  Set a generous explicit limit to prevent this.
+    # high-cardinality breakdowns.
     QUERY_RESULT_LIMIT = MAX_SELECT_RETURNED_ROWS
 
     def build_query(self, precomputation_context: ExperimentPrecomputationContext | None = None) -> ast.SelectQuery:
         """
-        Main entry point. Returns complete query built from HogQL with placeholders.
-
-        When ``precomputation_context`` is supplied, the precomputed job IDs are
-        applied here so every internal method that reads ``self.*`` stays
-        unchanged. Job IDs can only be supplied at build time because the builder
-        itself generates the precompute queries before any job IDs exist.
+        ``precomputation_context`` carries the precomputed job IDs. They arrive here
+        and not in __init__, because the same builder generates the precompute
+        queries before any job IDs exist. The IDs are stored on self so the
+        metric builders read them like any other builder state.
         """
         if precomputation_context is not None:
             self.preaggregation_job_ids = precomputation_context.exposure_job_ids
@@ -216,11 +213,7 @@ class ExperimentQueryBuilder:
         return query
 
     def _exposure_query_builder(self) -> ExposureQueryBuilder:
-        """Construct an ExposureQueryBuilder from the current builder state.
-
-        Built fresh per call so it picks up the current ``preaggregation_job_ids``
-        (only known at build time).
-        """
+        """Built per call so it picks up the ``preaggregation_job_ids`` that build_query() sets."""
         return ExposureQueryBuilder(
             context=self.context,
             breakdown_injector=self.breakdown_injector,
@@ -229,38 +222,24 @@ class ExperimentQueryBuilder:
         )
 
     def _funnel_query_builder(self) -> FunnelQueryBuilder:
-        """Construct a FunnelQueryBuilder backed by the current builder state.
-
-        Built fresh per call so it picks up the current precomputation job IDs
-        (only known at build time).
-        """
         return FunnelQueryBuilder(self)
 
     def _retention_query_builder(self) -> RetentionQueryBuilder:
-        """Construct a RetentionQueryBuilder backed by the current builder state."""
         return RetentionQueryBuilder(self)
 
     def _mean_query_builder(self) -> MeanQueryBuilder:
-        """Construct a MeanQueryBuilder backed by the current builder state."""
         return MeanQueryBuilder(self)
 
     def _ratio_query_builder(self) -> RatioQueryBuilder:
-        """Construct a RatioQueryBuilder backed by the current builder state."""
         return RatioQueryBuilder(self)
 
     def _cuped_query_builder(self) -> CupedQueryBuilder:
-        """Construct a CupedQueryBuilder backed by the current builder state."""
         return CupedQueryBuilder(self)
 
     def get_exposure_timeseries_query(self) -> ast.SelectQuery:
         """
-        Returns a query for exposure timeseries data.
-
-        Generates daily exposure counts per variant, counting each entity
-        only once on their first exposure day.
-
-        Returns:
-            SelectQuery with columns: day, variant, exposed_count
+        Daily exposure counts per variant. Each entity counts once, on the day of
+        its first exposure. Columns: day, variant, exposed_count.
         """
         return self._exposure_query_builder().timeseries_query()
 
@@ -272,18 +251,15 @@ class ExperimentQueryBuilder:
         return self._exposure_query_builder().daily_exposures_from_precomputed(job_ids)
 
     def _get_conversion_window_seconds(self) -> int:
-        """
-        Returns the conversion window in seconds for the current metric.
-        Returns 0 if no conversion window is configured.
-        """
+        """Returns 0 when the metric has no conversion window."""
         assert self.metric is not None, "metric is required for _get_conversion_window_seconds()"
         return get_conversion_window_seconds(self.metric)
 
     def _get_maturity_window_seconds(self) -> int:
         """
-        Returns the maturity window in seconds for non-retention metrics.
-        Retention metrics use _get_retention_maturity_seconds and apply maturity
-        in the start_events CTE, anchored on start_event timestamp.
+        Non-retention metrics only. Retention uses
+        RetentionQueryBuilder.get_retention_maturity_seconds() and applies maturity
+        in its start_events CTE, anchored on the start_event timestamp.
         """
         return self._get_conversion_window_seconds()
 
@@ -297,8 +273,8 @@ class ExperimentQueryBuilder:
         window for flags re-evaluated repeatedly (e.g. backend flags), so active users
         would never mature. Callers pass an exposure-only timestamp expression.
 
-        Retention metrics handle maturity separately in their own start_events CTE
-        via _build_retention_maturity_having_clause; this function intentionally
+        Retention metrics apply maturity in their own start_events CTE through
+        RetentionQueryBuilder.build_retention_maturity_having_clause(), so this
         returns None for them.
         """
         if self.metric is None:
@@ -322,46 +298,23 @@ class ExperimentQueryBuilder:
         )
 
     def _build_funnel_query(self) -> ast.SelectQuery:
-        """
-        Builds query for funnel metrics.
-        Dispatches to optimized (single-scan) or legacy (double-scan) path.
-        """
         return self._funnel_query_builder().build_funnel_query()
 
     def _build_mean_query(self) -> ast.SelectQuery:
-        """
-        Builds query for mean metrics (count, sum, avg, etc.)
-        """
         return self._mean_query_builder().build_mean_query()
 
     def _build_ratio_query(self) -> ast.SelectQuery:
-        """
-        Builds query for ratio metrics.
-
-        Dispatches to the winsorized variant when outlier handling is configured for
-        either the numerator or the denominator.
-        """
         return self._ratio_query_builder().build_ratio_query()
 
     def _build_conversion_window_predicate(self) -> ast.Expr:
-        """
-        Build the predicate for limiting metric events to the conversion window for the user.
-        Uses "metric_events" as the events alias.
-        """
+        """Uses "metric_events" as the events alias."""
         return build_conversion_window_predicate(self._get_conversion_window_seconds())
 
     def _build_session_conversion_window_predicate(self) -> ast.Expr:
-        """
-        Build the predicate for limiting session metric events to the conversion window.
-        Uses first_event_timestamp from metric_events_by_session for temporal filtering.
-        """
+        """Uses first_event_timestamp from metric_events_by_session as the event time."""
         return build_session_conversion_window_predicate(self._get_conversion_window_seconds())
 
     def _build_conversion_window_predicate_for_events(self, events_alias: str) -> ast.Expr:
-        """
-        Build the predicate for limiting metric events to the conversion window for the user.
-        Parameterized to support different event table aliases (for ratio metrics).
-        """
         return build_conversion_window_predicate_for_events(events_alias, self._get_conversion_window_seconds())
 
     def _build_cuped_pre_window_predicate(
@@ -401,9 +354,8 @@ class ExperimentQueryBuilder:
         cuped_lookback_days: int | None = None,
     ) -> ast.Expr:
         """
-        Builds the metric predicate as an AST expression.
         For ratio metrics, pass the specific source (numerator or denominator) and table_alias.
-        For mean metrics, uses self.metric.source by default with "events" alias.
+        For mean metrics, the default is self.metric.source with the "events" alias.
         """
         if source is None:
             assert isinstance(self.metric, ExperimentMeanMetric)
@@ -420,20 +372,10 @@ class ExperimentQueryBuilder:
 
     def _build_value_expr(self, source=None, apply_coalesce: bool = True) -> ast.Expr:
         """
-        Extracts the value expression from the metric source configuration.
         For ratio metrics, pass the specific source (numerator or denominator).
-        For mean metrics, uses self.metric.source by default.
+        For mean metrics, the default is self.metric.source.
 
-        Args:
-            source: The metric source configuration
-            apply_coalesce: If True, wrap numeric values with coalesce(..., 0) so that
-                           NULL property values are treated as 0. This should be True
-                           for event CTEs (metric_events, numerator_events, denominator_events)
-                           so that downstream aggregations don't need to distinguish between
-                           metric types.
-
-        Note: For count distinct math types (UNIQUE_SESSION, DAU, UNIQUE_GROUP), coalesce
-        is not applied since the value is an ID, not a numeric value.
+        See build_value_expr() for apply_coalesce.
         """
         if source is None:
             assert isinstance(self.metric, ExperimentMeanMetric)
@@ -449,19 +391,10 @@ class ExperimentQueryBuilder:
         value_expr: ast.Expr | None = None,
     ) -> ast.Expr:
         """
-        Returns the value aggregation expression based on math type.
         For ratio metrics, pass the specific source (numerator or denominator) and events_alias.
-        For mean metrics, uses self.metric.source by default with "metric_events" alias.
+        For mean metrics, the default is self.metric.source with the "metric_events" alias.
 
-        Args:
-            source: The metric source configuration
-            events_alias: The table/CTE alias to use (e.g., "metric_events", "combined_events")
-            column_name: The column name containing the value (e.g., "value", "numerator_value")
-
-        Note: NULL handling (coalesce) is applied upstream in _build_value_expr() when building
-        the event CTEs. This method does not need to handle NULLs - aggregation functions will
-        naturally ignore NULLs from combined_events (ratio metrics), while NULL property values
-        have already been coalesced to 0 at the source.
+        value_expr, when set, replaces the {events_alias}.{column_name} column.
         """
         if source is None:
             assert isinstance(self.metric, ExperimentMeanMetric)
@@ -475,13 +408,9 @@ class ExperimentQueryBuilder:
         )
 
     def _build_variant_property(self) -> ast.Field:
-        """Derive which event property that should be used for variants"""
         return self._exposure_query_builder().build_variant_property()
 
     def _build_exposure_predicate(self) -> ast.Expr:
-        """
-        Builds the exposure predicate as an AST expression.
-        """
         return self._exposure_query_builder().build_exposure_predicate()
 
     def _build_exposure_step_predicate(self) -> ast.Expr:
@@ -496,15 +425,9 @@ class ExperimentQueryBuilder:
 
     def get_exposure_query_for_precomputation(self) -> tuple[str, dict[str, ast.Expr]]:
         """
-        Returns the exposure query and placeholders for lazy computation.
-
         The query string uses {time_window_min} and {time_window_max} placeholders
-        which are filled in by the lazy computation system for each daily bucket.
-        Other placeholders are returned in the dict and should be passed to
-        ensure_precomputed().
-
-        Returns:
-            Tuple of (query_string, placeholders_dict)
+        that the lazy computation system fills for each daily bucket. Pass the
+        returned placeholders dict to ensure_precomputed().
         """
         return self._exposure_query_builder().precomputation_query()
 
@@ -512,15 +435,12 @@ class ExperimentQueryBuilder:
         """
         Returns the SELECT query that the lazy computation system wraps in an
         INSERT INTO experiment_metric_events_preaggregated, dispatched by metric
-        type. This is the write path — it scans the events table and stores one
-        row per matching event: funnel metrics pack step indicators into an
-        Array(UInt8), mean metrics store the per-event value in numeric_value.
+        type. This is the write path. It scans the events table and stores one
+        row per matching event: funnel and retention metrics pack step indicators
+        into an Array(UInt8), mean metrics store the per-event value in numeric_value.
 
         The query uses {time_window_min} and {time_window_max} placeholders filled
         by the lazy computation system for each daily bucket.
-
-        Returns:
-            Tuple of (query_string, placeholders_dict)
         """
         match self.metric:
             case ExperimentFunnelMetric():
@@ -543,40 +463,4 @@ class ExperimentQueryBuilder:
         return self._get_conversion_window_seconds()
 
     def _build_retention_query(self) -> ast.SelectQuery:
-        """
-        Builds query for retention metrics.
-
-        Retention measures the proportion of users who performed a "completion event"
-        within a specified time window after performing a "start event".
-
-        Statistical Treatment:
-        This metric is treated as a ratio metric using RatioStatistic. Each entity has:
-        - Numerator value: 1 if completed within retention window, 0 otherwise
-        - Denominator value: 1 (they performed the start event)
-
-        Unlike standard proportion tests (where sample size is fixed), retention metrics
-        have a random denominator (count of users who started). This makes retention a
-        ratio of two random variables, requiring delta method variance.
-
-        Returns 7 fields for RatioStatistic:
-        - Standard: num_users, total_sum, total_sum_of_squares
-        - Ratio-specific: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
-
-        The collected statistics are processed using RatioStatistic (not ProportionStatistic)
-        for both frequentist and Bayesian analysis.
-
-        Structure:
-        - exposures: all exposures with variant assignment
-        - start_events: when each entity performed the start_event (with start_handling logic)
-        - completion_events: when each entity performed the completion_event
-        - entity_metrics: join exposures + start_events + completion_events
-                          Calculate retention per entity (1 if retained, 0 if not)
-        - Final SELECT: aggregated statistics per variant
-
-        Key Design Decision:
-        Uses INNER JOIN between exposures and start_events, meaning only users who
-        performed the start event are included in the retention calculation. This
-        measures "Of users who did X, how many came back to do Y?" rather than
-        "Of all exposed users, how many did X and then Y?"
-        """
         return self._retention_query_builder().build_retention_query()

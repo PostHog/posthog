@@ -280,12 +280,14 @@ fn dedup(teams: impl Iterator<Item = i64>) -> Vec<i64> {
     teams
 }
 
-/// The two billable request types are priced apart — the nightly report weighs one local
-/// evaluation as ten decide requests — so they cannot share a key. The weighting itself stays
-/// out of here: a producer reports what happened, and pricing is applied downstream.
+/// Full local evaluation responses are priced apart — the nightly report weighs one as ten
+/// decide requests — so they cannot share a key with decide, while a 304 is priced like a
+/// decide request. The weighting itself stays out of here: pricing is applied downstream.
 fn usage_key(request_type: FlagRequestType) -> &'static str {
     match request_type {
-        FlagRequestType::Decide => "feature_flag_requests",
+        FlagRequestType::Decide | FlagRequestType::FlagDefinitionsNotModified => {
+            "feature_flag_requests"
+        }
         FlagRequestType::FlagDefinitions => "feature_flag_local_evaluation_requests",
     }
 }
@@ -329,7 +331,7 @@ mod tests {
     #[test]
     fn build_records_keys_the_two_billable_request_types_apart() {
         // The report weighs one local evaluation as ten decide requests, so a shared key
-        // would price them the same.
+        // would price them the same. A 304 costs the same as a decide request.
         let entries = vec![
             (key(1, None), 3),
             (
@@ -338,6 +340,13 @@ mod tests {
                     ..key(1, None)
                 },
                 4,
+            ),
+            (
+                AggregationKey {
+                    request_type: FlagRequestType::FlagDefinitionsNotModified,
+                    ..key(1, None)
+                },
+                5,
             ),
         ];
         let records = build_records(&entries, &TeamIdCollection::All, 1);
@@ -349,7 +358,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![
                 ("feature_flag_requests", 3),
-                ("feature_flag_local_evaluation_requests", 4)
+                ("feature_flag_local_evaluation_requests", 4),
+                ("feature_flag_requests", 5)
             ]
         );
     }

@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from modal import Probe
@@ -29,6 +30,7 @@ from requests.exceptions import (
 
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
 from products.tasks.backend.exceptions import (
+    ProcessTaskFatalError,
     SandboxControlPlaneError,
     SandboxControlPlaneUnavailableError,
     SandboxExecutionError,
@@ -76,10 +78,12 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _get_sandbox_image_reference,
     _image_ref_cache,
     _merge_runtime_dependency_specs,
+    _pep723_script_header,
     _resource_create_kwargs,
     _session_init_probe_hosts,
 )
 from products.tasks.backend.logic.services.sandbox import (
+    CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE,
     AgentServerResult,
     ExecutionResult,
     SandboxConfig,
@@ -310,6 +314,16 @@ class TestGetSandboxImageReferenceIntegration:
         digest_part = result.split("@")[1]
         assert digest_part.startswith("sha256:")
         assert len(digest_part) == 71  # "sha256:" + 64 hex chars
+
+
+class TestStamphogReviewImageDeps:
+    def test_reads_the_dependency_header_of_the_real_engine_script(self) -> None:
+        header = _pep723_script_header(Path(settings.STAMPHOG_REVIEW_ENGINE_SCRIPT))
+
+        lines = header.splitlines()
+        assert lines[0] == "# /// script"
+        assert lines[-1] == "# ///"
+        assert any(line.startswith("# dependencies = [") for line in lines)
 
 
 class TestGetModalRegion:
@@ -932,11 +946,15 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.supports_combined_agent_server_start_and_health() is True
 
     @pytest.mark.parametrize(
-        "exit_code, stdout, expected", [(0, "ok:3", True), (1, "", False), (1, "claude_credential_unavailable", None)]
+        "exit_code, stdout, expected",
+        [
+            (0, "ok:3", True),
+            (1, "", False),
+            (1, "claude_credential_unavailable", None),
+            (1, "codex_credential_unavailable", None),
+        ],
     )
     def test_wait_for_health_check(self, mock_sandbox: Any, exit_code, stdout, expected):
-        from products.tasks.backend.exceptions import ProcessTaskFatalError
-
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout=stdout, stderr="", exit_code=exit_code, error=None),
         )
@@ -1002,6 +1020,40 @@ class TestModalSandboxAgentServer:
         mock_setup_agentsh.assert_called_once_with(["example.com"])
         wait_for_ready.assert_not_called()
         assert "./node_modules/.bin/agent-server" in _agent_server_launch_command(mock_sandbox.execute)
+
+    @pytest.mark.parametrize(
+        "marker, message",
+        [
+            ("claude_credential_unavailable", "The Claude token did not arrive"),
+            ("codex_credential_unavailable", CODEX_CREDENTIAL_UNAVAILABLE_MESSAGE),
+        ],
+    )
+    @pytest.mark.parametrize("health_poll", ["unhealthy", "timed_out"])
+    def test_wait_for_agent_server_ready_fails_fast_when_credential_never_arrived(
+        self, mock_sandbox: Any, marker: str, message: str, health_poll: str
+    ) -> None:
+        diagnostics = {
+            "log": f"[AgentServer] [warn] {marker}\n[AgentServer] [error] Fatal agent-server error; marking run failed",
+            "failure_reason": "agent server alive but never reported hasSession=true",
+        }
+        poll_timeout = SandboxTimeoutError(
+            "Execution timed out", {"sandbox_id": mock_sandbox.id}, cause=TimeoutError(), capture=False
+        )
+        with (
+            patch.object(
+                mock_sandbox,
+                "_wait_for_health_check",
+                return_value=False,
+                side_effect=poll_timeout if health_poll == "timed_out" else None,
+            ),
+            patch.object(mock_sandbox, "_diagnose_startup_failure", return_value=diagnostics),
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(ProcessTaskFatalError, match=message) as error,
+        ):
+            mock_sandbox.wait_for_agent_server_ready(claude_model_access="own-subscription")
+
+        assert error.value.non_retryable
+        capture_exception.assert_not_called()
 
     def test_wait_for_agent_server_ready_rejects_unhealthy_agentsh(self, mock_sandbox: Any):
         with (
@@ -1491,6 +1543,26 @@ class TestStartupFailureDiagnostics:
         assert diagnostics["sandbox_terminated"] == "false"
         assert "never reported hasSession=true" in diagnostics["failure_reason"]
         assert diagnostics["host_pressure"] == "ok"
+
+    def test_skips_probes_when_the_log_shows_a_missing_credential(self) -> None:
+        sandbox = self._sandbox()
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "agent-server.log" in command:
+                return ExecutionResult(
+                    stdout="[AgentServer] [warn] claude_credential_unavailable", stderr="", exit_code=0, error=None
+                )
+            return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec) as execute,
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=["github.com"])
+
+        assert "missing subscription token" in diagnostics["failure_reason"]
+        assert "host_pressure" not in diagnostics
+        assert all("agent-server.log" in call.args[0] for call in execute.call_args_list)
 
     def test_host_pressure_probe_failure_keeps_the_failure_reason(self):
         sandbox = self._sandbox()

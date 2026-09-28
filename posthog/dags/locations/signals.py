@@ -21,6 +21,7 @@ if is_inbox_ranking_registered():
             inbox_ranking_training.inbox_ranking_training_examples,
             inbox_ranking_training.inbox_ranking_model_candidate,
             inbox_ranking_training.inbox_ranking_model_champion,
+            inbox_ranking_training.inbox_ranking_serving_manifest,
             inbox_ranking_training.inbox_ranking_unseen_scores,
             inbox_ranking_training.inbox_ranking_unseen_graded,
             inbox_ranking_shadow.inbox_ranking_shadow_eval,

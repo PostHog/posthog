@@ -19,7 +19,6 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -108,6 +107,7 @@ import {
     nodeKindToFilterProperty,
     supportsBarValueStacking,
     supportsPercentStackView,
+    hasBreakdownFilter,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -2250,7 +2250,10 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     (formula && !formulas) ||
                     (formulas && formulas.length === 1) ||
                     (formulaNodes && formulaNodes.length === 1)
-                return (isTrends && hasSingleFormula) || ((series || []).length <= 1 && !breakdownFilter?.breakdown)
+                return (
+                    !hasBreakdownFilter(breakdownFilter) &&
+                    ((isTrends && hasSingleFormula) || (series || []).length <= 1)
+                )
             },
         ],
         isBreakdownSeries: [
@@ -2689,7 +2692,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         zoomDateRange: ({ dateFrom, dateTo }) => {
-            eventUsageLogic.actions.reportInsightDragToZoomed(values.querySource?.kind)
+            posthog.capture('insight drag to zoomed', { query_kind: values.querySource?.kind })
             // Charts emit bucket starts — widen the end to the last selected bucket's end, so
             // e.g. dragging over the "May" bar of a monthly chart zooms to all of May.
             // Sub-day buckets carry a time component; explicitDate stops the backend from
@@ -2716,7 +2719,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 cache.pendingFilterUpdateCancelled = false
                 return
             }
-            eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
+            posthog.capture('insight date range changed', { query_kind: values.querySource?.kind })
             const updates = {
                 dateRange: {
                     ...values.dateRange,
@@ -2746,13 +2749,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
             await breakpoint(500) // extra debounce time because of number input
-            eventUsageLogic.actions.reportInsightBreakdownChanged(values.querySource?.kind)
+            posthog.capture('insight breakdown changed', { query_kind: values.querySource?.kind })
             const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
             actions.updateQuerySource(update)
         },
         updateCompareFilter: async ({ compareFilter }, breakpoint) => {
             await breakpoint(500) // extra debounce time because of number input
-            eventUsageLogic.actions.reportInsightCompareChanged(values.querySource?.kind)
+            posthog.capture('insight compare changed', { query_kind: values.querySource?.kind })
             const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
             actions.updateQuerySource(update)
         },

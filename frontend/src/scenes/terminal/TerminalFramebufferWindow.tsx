@@ -183,7 +183,7 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
                 <div
                     ref={screenRef}
                     role="application"
-                    aria-label="Game display. Arrow keys move, Ctrl fires, Space opens doors, Escape opens the game menu. Shift+Tab releases keyboard focus."
+                    aria-label="Game display. W and S move, A and D strafe, left and right arrows turn, Space fires, E opens doors. Shift+Tab releases keyboard focus."
                     tabIndex={0}
                     className="TerminalFramebufferWindow__screen ph-no-capture ph-replay-block flex-1 min-h-0 bg-black focus-visible:ring-2 focus-visible:ring-inset"
                     data-attr="terminal-display-screen"
@@ -233,8 +233,8 @@ export function TerminalFramebufferWindow(): JSX.Element | null {
                 />
                 <div className="text-xs text-secondary pl-3 pr-6 py-2 border-t shrink-0">
                     <span>
-                        Arrows move · Ctrl fires · Space opens doors · Shift runs · Esc opens the menu or releases the
-                        mouse · Shift+Tab releases keyboard focus
+                        W/S move · A/D strafe · ←/→ turn · Space or click fires · E opens doors · Shift runs · Capture
+                        mouse to turn · Esc opens the menu or releases the mouse · Shift+Tab releases keyboard focus
                     </span>
                     {error && (
                         <p className="text-danger mb-0 mt-1" role="status">

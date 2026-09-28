@@ -7997,10 +7997,9 @@ describe("SessionService", () => {
         const service = getSessionService();
         mockFeatureFlags.isEnabled.mockReturnValue(true);
         if (tokenMissing)
-          vi.spyOn(
-            service,
-            "resolveClaudeCloudModelAccess",
-          ).mockRejectedValueOnce(new Error("Save a Claude token first."));
+          vi.spyOn(service, "resolveCloudModelAccess").mockRejectedValueOnce(
+            new Error("Save a Claude token first."),
+          );
         mockSessionStoreSetters.getSessionByTaskId.mockReturnValue(
           createMockSession({
             isCloud: true,
