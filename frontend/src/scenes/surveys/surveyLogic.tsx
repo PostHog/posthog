@@ -98,7 +98,7 @@ import {
 } from '~/types'
 
 import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
-import { reportSurveyEdited } from 'products/surveys/frontend/surveyUsage'
+import { reportSurveyCreated, reportSurveyEdited } from 'products/surveys/frontend/surveyUsage'
 
 import type { ProductIntentProperties } from '../../lib/utils/product-intents'
 import type {
@@ -799,29 +799,6 @@ export interface surveyLogicActions {
         survey: Survey
         totalDurationMs: number
     } // eventUsageLogic
-    reportSurveyCreated: (
-        survey: Survey,
-        isDuplicate?: boolean | undefined,
-        creationSource?:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
-    ) => {
-        creationSource:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
-        isDuplicate: boolean | undefined
-        survey: Survey
-    } // eventUsageLogic
     reportSurveyCycleDetected: (survey: NewSurvey | Survey) => {
         survey: NewSurvey | Survey
     } // eventUsageLogic
@@ -1516,7 +1493,7 @@ export const surveyLogic = kea<surveyLogicType>([
             surveysLogic,
             ['loadSurveys'],
             eventUsageLogic,
-            ['reportSurveyCreated', 'reportSurveyCycleDetected', 'reportSurveyConsolidatedResultsQuery'],
+            ['reportSurveyCycleDetected', 'reportSurveyConsolidatedResultsQuery'],
             teamLogic,
             ['addProductIntent'],
         ],
@@ -2024,7 +2001,7 @@ export const surveyLogic = kea<surveyLogicType>([
                 lemonToast.success(<>Survey {survey.name} created</>)
                 actions.loadSurveys()
                 router.actions.replace(urls.survey(survey.id))
-                actions.reportSurveyCreated(survey)
+                reportSurveyCreated(survey)
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
                 const surveyType = survey.type ? `${survey.type} ` : ''
                 tryShowMCPHint('surveys.create', {

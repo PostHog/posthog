@@ -62,14 +62,12 @@ import {
     ExperimentIdType,
     ExperimentStatsMethod,
     FunnelCorrelation,
-    MultipleSurveyQuestion,
     OnboardingStepKey,
     ProductTour,
     PropertyFilterType,
     InsightModel,
     type SDK,
     Survey,
-    SurveyQuestionType,
 } from '~/types'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
@@ -1589,22 +1587,6 @@ export interface eventUsageLogicActions {
         survey: Survey
         totalDurationMs: number
     }
-    reportSurveyCreated: (
-        survey: Survey,
-        isDuplicate?: boolean,
-        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
-    ) => {
-        creationSource:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
-        isDuplicate: boolean | undefined
-        survey: Survey
-    }
     reportSurveyCycleDetected: (survey: NewSurvey | Survey) => {
         survey: NewSurvey | Survey
     }
@@ -2084,11 +2066,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
-        reportSurveyCreated: (
-            survey: Survey,
-            isDuplicate?: boolean,
-            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics' | 'form_builder'
-        ) => ({ survey, isDuplicate, creationSource }),
         reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
             source,
             meta,
@@ -2836,45 +2813,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFlagsCodeExampleLanguage: ({ language }) => {
             posthog.capture('flags code example language selected', {
                 language,
-            })
-        },
-        reportSurveyCreated: ({ survey, isDuplicate, creationSource }) => {
-            const questionsWithShuffledOptions = survey.questions.filter((question) => {
-                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
-            })
-
-            posthog.capture('survey created', {
-                // The web app is the only place this event is emitted from — there is no backend
-                // equivalent — so stamping the surface here is what puts surveys in a `source`
-                // breakdown at all, rather than showing up as unattributed.
-                source: 'web',
-                name: survey.name,
-                id: survey.id,
-                survey_type: survey.type,
-                questions_length: survey.questions.length,
-                question_types: survey.questions.map((question) => question.type),
-                is_duplicate: isDuplicate ?? false,
-                creation_source: creationSource ?? 'full_editor',
-                linked_insight_id: survey.linked_insight_id,
-                events_count: survey.conditions?.events?.values.length,
-                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
-                recurring_survey_iteration_interval:
-                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
-                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
-                has_branching_logic: survey.questions.some(
-                    (question) => question.branching && Object.keys(question.branching).length > 0
-                ),
-                has_partial_responses: survey.enable_partial_responses,
-                skipping_submit_button: survey.questions.some((question) => {
-                    if (
-                        question.type === SurveyQuestionType.SingleChoice ||
-                        question.type === SurveyQuestionType.MultipleChoice
-                    ) {
-                        return question.skipSubmitButton
-                    }
-                    return false
-                }),
             })
         },
         reportSurveyTemplateClicked: ({ template, source }) => {
