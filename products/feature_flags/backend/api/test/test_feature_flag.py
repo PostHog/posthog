@@ -14192,6 +14192,37 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                 "multivariate": {"variants": []},
             },
         )
+        targeted_override = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="targeted_override",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                    {"properties": [], "rollout_percentage": 100},
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 100},
+                        {"key": "test", "rollout_percentage": 0},
+                    ]
+                },
+            },
+        )
+        overallocated = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="overallocated",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 40},
+                        {"key": "test", "rollout_percentage": 100},
+                    ]
+                },
+            },
+        )
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/bulk_delete/",
@@ -14202,13 +14233,15 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
                     partial.id,
                     multivariate.id,
                     empty_variants.id,
+                    targeted_override.id,
+                    overallocated.id,
                 ]
             },
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert len(data["deleted"]) == 5
+        assert len(data["deleted"]) == 7
 
         by_key = {d["key"]: d for d in data["deleted"]}
 
@@ -14226,6 +14259,12 @@ class TestFeatureFlagBulkDelete(APIBaseTest):
 
         assert by_key["empty_variants"]["rollout_state"] == "fully_rolled_out"
         assert by_key["empty_variants"]["active_variant"] is None
+
+        assert by_key["targeted_override"]["rollout_state"] == "partial"
+        assert by_key["targeted_override"]["active_variant"] is None
+
+        assert by_key["overallocated"]["rollout_state"] == "partial"
+        assert by_key["overallocated"]["active_variant"] is None
 
     def test_bulk_delete_with_dependent_flags(self):
         """Test that flags with dependents cannot be deleted."""

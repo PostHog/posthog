@@ -114,10 +114,18 @@ def filter_stale_flags(queryset: QuerySet, *, stale_threshold: datetime | None =
     classify the same flags, so change them together. `STALE_ACTIVE_PARAM_DESCRIPTION` states
     these branches in prose for the published API schemas, so change it with them too.
 
-    They do not agree on one shape: the checker calls a flag with no release conditions fully
-    rolled out, so `filters` of `{"groups": []}` (the model default) is STALE to the checker and
-    not stale here, because the config branch below matches an empty `filters` only as `NULL` or
-    `{}`. Matching the model default would make every unconfigured flag in a project stale.
+    They do not agree on two shapes. First, the checker calls a flag with no release conditions
+    fully rolled out, so `filters` of `{"groups": []}` (the model default) is STALE to the checker
+    and not stale here, because the config branch below matches an empty `filters` only as `NULL`
+    or `{}`. Matching the model default would make every unconfigured flag in a project stale.
+
+    Second, a multivariate flag is stale here as soon as a variant sits at 100% under an
+    untargeted 100% condition, or that condition carries a variant override, while the checker
+    requires every reachable path to serve the same variant. A flag that serves two variants is
+    therefore stale to the SQL and not to the checker. The SQL stays as it is on purpose: it backs
+    the public `active=STALE` filter, and reading declaration order and cumulative variant slices
+    in raw SQL would cost more than the filter is worth.
+
     `test_stale_filter_agrees_with_status_checker` covers the shapes where the two do agree.
 
     The caller supplies the scope, so pass a queryset already narrowed to the team.
@@ -201,9 +209,9 @@ def filter_effectively_full_rollout_flags(queryset: QuerySet) -> QuerySet:
 
     This is a prefilter, not a verdict. The SQL matches a release condition at an explicit 100%
     with no properties, which every branch of `FeatureFlagStatusChecker.is_flag_fully_rolled_out`
-    needs, boolean and multivariate alike. A multivariate flag also needs a winning variant or a
-    variant override on that condition, which this does not test, so the caller must confirm each
-    row with `is_flag_fully_rolled_out` before it treats the flag as fully rolled out.
+    needs, boolean and multivariate alike. A multivariate flag also needs every reachable path to
+    serve the same variant, which this does not test, so the caller must confirm each row with
+    `is_flag_fully_rolled_out` before it treats the flag as fully rolled out.
 
     A group that omits the `properties` key, or stores it as JSON null, counts as having no
     targeting. See `_ELEM_HAS_NO_TARGETING`.
@@ -252,6 +260,22 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
     # Handle both string "true"/"false" (any casing) and boolean True/False
     is_active = str(value).lower() == "true"
     return queryset.filter(active=is_active)
+
+
+def _sole_reachable_variant(variants: list[dict]) -> str | None:
+    """The only variant the distribution can serve, or None when a user can land on more than one.
+
+    Variants take cumulative slices of the hash space in declaration order, so the first variant
+    with a non-zero rollout takes the low hashes. Only that variant exists when it takes the whole
+    space. A list such as `[40, 100]` is overallocated: the 100 does not make the flag constant,
+    because the 40 still owns the low hashes.
+    """
+    for variant in variants:
+        percentage = variant.get("rollout_percentage") or 0
+        if percentage <= 0:
+            continue
+        return variant.get("key") if percentage >= 100 else None
+    return None
 
 
 # FeatureFlagStatusChecker is used to determine the status of a feature flag for a given user.
@@ -396,7 +420,7 @@ class FeatureFlagStatusChecker:
             if summary.is_multivariate:
                 # summary already established full rollout; this only fetches the winning variant key.
                 # Both calls read the same in-memory flag, so they cannot disagree.
-                _, variant = self.is_multivariate_flag_fully_rolled_out(flag)
+                variant = self.sole_served_variant(flag)
             return ROLLOUT_FULLY_ROLLED_OUT, variant
         # Effectively at 0%: every release condition is at 0 (max across groups is 0).
         if summary.max_rollout_percentage == 0:
@@ -409,46 +433,61 @@ class FeatureFlagStatusChecker:
         # (which routes `jsonb_array_length(variants) = 0` into the boolean branch).
         has_variants = bool(multivariate and multivariate.get("variants"))
         if has_variants:
-            is_multivariate_flag_fully_rolled_out, fully_rolled_out_variant_name = (
-                self.is_multivariate_flag_fully_rolled_out(flag)
-            )
-            if is_multivariate_flag_fully_rolled_out:
-                return True, f'This flag will always use the variant "{fully_rolled_out_variant_name}"'
+            served_variant = self.sole_served_variant(flag)
+            if served_variant is not None:
+                return True, f'This flag will always use the variant "{served_variant}"'
         elif self.is_boolean_flag_fully_rolled_out(flag):
             return True, 'This boolean flag will always evaluate to "true"'
 
         return False, ""
 
-    def is_multivariate_flag_fully_rolled_out(self, flag: FeatureFlag) -> tuple[bool, str]:
-        # If flag is multivariant and one variant is rolled out to 100%,
-        # and there is a release condition set to 100%, it is fully rolled out.
-        #
-        # Alternatively, if there is a release condition set to 100% and it has a
-        # variant override, the flag is fully rolled out.
-        fully_rolled_out_variant_key: str | None = None
-        some_release_condition_fully_rolled_out = False
-        fully_rolled_out_release_condition_variant_override: str | None = None
+    def multivariate_results_agree(self, flag: FeatureFlag) -> bool:
+        """Whether every user a multivariate flag can reach receives the same variant.
 
-        multivariate = (flag.filters or {}).get("multivariate") or {}
-        variants = multivariate.get("variants", [])
-        for variant in variants:
-            if variant.get("rollout_percentage") == 100:
-                fully_rolled_out_variant_key = variant.get("key")
-                break
+        Boolean flags are constant by this test, because every condition that matches returns true.
+        """
+        variants = ((flag.filters or {}).get("multivariate") or {}).get("variants") or []
+        if not variants:
+            return True
+        return self.sole_served_variant(flag) is not None
 
-        for release_condition in (flag.filters or {}).get("groups", []):
-            if self.is_group_fully_rolled_out(release_condition):
-                some_release_condition_fully_rolled_out = True
-                fully_rolled_out_release_condition_variant_override = (
-                    fully_rolled_out_release_condition_variant_override or release_condition.get("variant", None)
-                )
+    def sole_served_variant(self, flag: FeatureFlag) -> str | None:
+        """The one variant that every reachable path serves, or None when the paths disagree.
 
-        fully_rolled_out_variant = (
-            fully_rolled_out_release_condition_variant_override or fully_rolled_out_variant_key or ""
-        )
-        return some_release_condition_fully_rolled_out and (
-            fully_rolled_out_release_condition_variant_override is not None or fully_rolled_out_variant_key is not None
-        ), fully_rolled_out_variant
+        The matcher reads the release conditions in declaration order and stops at the first one
+        that matches, so a condition declared before the blanket one decides the result for the
+        users it matches. A condition carrying a `variant` override serves that variant, and any
+        other condition serves whatever the variant distribution gives. The flag is fully rolled
+        out to one variant only when every one of those paths lands on the same variant.
+
+        A boolean flag carries no variants and returns None, so a caller must not read None as
+        "the flag is not constant". `multivariate_results_agree` holds that distinction.
+        """
+        filters = flag.filters or {}
+        variants = ((filters.get("multivariate") or {}).get("variants")) or []
+
+        groups = filters.get("groups") or []
+        decider = next((index for index, group in enumerate(groups) if self.is_group_fully_rolled_out(group)), None)
+        if decider is None:
+            return None
+
+        distributed = _sole_reachable_variant(variants)
+        variant_keys = {variant.get("key") for variant in variants}
+        results = set()
+        for group in groups[: decider + 1]:
+            # A missing rollout_percentage evaluates to 100% at runtime, matching `get_rollout_summary`.
+            percentage = group.get("rollout_percentage")
+            if percentage is not None and percentage <= 0:
+                continue
+            # The matcher ignores an override naming a variant the flag does not configure, and the
+            # distribution decides instead.
+            override = group.get("variant")
+            results.add(override if override in variant_keys else distributed)
+        # `None` is in the set when a path falls through to a distribution that is not itself constant.
+        if len(results) != 1:
+            return None
+        (served,) = results
+        return served
 
     def is_group_fully_rolled_out(self, group: dict) -> bool:
         rollout_percentage = group.get("rollout_percentage")

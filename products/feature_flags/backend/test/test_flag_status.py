@@ -8,6 +8,8 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from products.feature_flags.backend.flag_status import (
+    ROLLOUT_FULLY_ROLLED_OUT,
+    ROLLOUT_PARTIAL,
     FeatureFlagStatus,
     FeatureFlagStatusChecker,
     filter_flags_by_active_param,
@@ -422,3 +424,133 @@ class TestRolloutSummary(BaseTest):
         assert summary.effectively_full_rollout is True
         assert summary.max_rollout_percentage is None
         assert summary.is_multivariate is False
+
+
+class TestMultivariateFullRollout(BaseTest):
+    def _flag(self, key: str, filters: dict[str, Any]) -> FeatureFlag:
+        # Old enough, and with no call data, so `get_status` takes the configuration route.
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key=key,
+            created_by=self.user,
+            active=True,
+            created_at=timezone.now() - timedelta(days=60),
+            last_called_at=None,
+            filters=filters,
+        )
+
+    # (name, filters, expected status, expected reason, expected rollout state, expected variant)
+    @parameterized.expand(
+        [
+            (
+                "targeted_override_before_the_blanket_condition",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+            (
+                "blanket_condition_before_the_targeted_override",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [], "rollout_percentage": 100},
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 100, "variant": "test"},
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "control"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "control",
+            ),
+            (
+                "overallocated_variants",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 40},
+                            {"key": "test", "rollout_percentage": 100},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+                FeatureFlagStatus.ACTIVE,
+                "Flag has no usage data yet",
+                ROLLOUT_PARTIAL,
+                None,
+            ),
+            # A condition at 0% matches nobody, so its override cannot reach a user and the blanket
+            # condition below it still decides for everyone. This is what a targeted override leaves
+            # behind when it is zeroed instead of deleted.
+            (
+                "zeroed_targeted_override_does_not_block_full_rollout",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [
+                        {"properties": [{"key": "email", "value": "x"}], "rollout_percentage": 0, "variant": "test"},
+                        {"properties": [], "rollout_percentage": 100},
+                    ],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "control"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "control",
+            ),
+            (
+                "override_names_an_absent_variant",
+                {
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 100},
+                            {"key": "test", "rollout_percentage": 0},
+                        ]
+                    },
+                    "groups": [{"properties": [], "rollout_percentage": 100, "variant": "ghost"}],
+                },
+                FeatureFlagStatus.STALE,
+                'This flag will always use the variant "control"',
+                ROLLOUT_FULLY_ROLLED_OUT,
+                "control",
+            ),
+        ]
+    )
+    def test_full_rollout_names_the_variant_the_matcher_serves(
+        self,
+        key: str,
+        filters: dict[str, Any],
+        expected_status: FeatureFlagStatus,
+        expected_reason: str,
+        expected_rollout_state: str,
+        expected_variant: str | None,
+    ) -> None:
+        flag = self._flag(key, filters)
+        checker = FeatureFlagStatusChecker(feature_flag=flag)
+
+        status, reason = checker.get_status()
+        assert (status, reason) == (expected_status, expected_reason)
+
+        # The pair `_get_flag_rollout_info` serves as `rollout_state` and `active_variant`.
+        summary = checker.get_rollout_summary(flag)
+        assert checker.rollout_state_and_variant(flag, summary) == (expected_rollout_state, expected_variant)

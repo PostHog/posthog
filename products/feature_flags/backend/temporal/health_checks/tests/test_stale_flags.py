@@ -576,6 +576,36 @@ class TestStaleFlagsDetect(BaseTest):
                     "winning_variant": "control",
                 },
             ),
+            # The cold class is not gated by `_serves_more_than_one_result`, so it is the one place
+            # the checker's rule reaches the payload unguarded. A flag that serves two variants is
+            # partially rolled out, and the evidence for it is the missing calls, not the rollout.
+            (
+                "cold_multivariate_with_disagreeing_paths_is_partial",
+                {
+                    "last_called_at": timezone.now() - timedelta(days=45),
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 100},
+                                {"key": "test", "rollout_percentage": 0},
+                            ]
+                        },
+                        "groups": [
+                            {
+                                "properties": [{"key": "email", "value": "x"}],
+                                "rollout_percentage": 100,
+                                "variant": "test",
+                            },
+                            {"properties": [], "rollout_percentage": 100},
+                        ],
+                    },
+                },
+                {
+                    "evidence_class": EVIDENCE_NOT_CALLED_RECENTLY,
+                    "rollout_state": ROLLOUT_PARTIAL,
+                    "winning_variant": None,
+                },
+            ),
             # The matcher ignores the override and serves the distribution, so the payload must
             # name `control` and not the key the condition carries.
             (
