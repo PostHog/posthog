@@ -396,7 +396,9 @@ export const VariantsPanelCreateFeatureFlag = ({
                                                                 className="w-30"
                                                             />
                                                         ) : (
-                                                            <div className="flex items-center h-10 px-2">
+                                                            // Same size as the split input, so toggling "Customize split"
+                                                            // doesn't resize the row or reflow the table's columns
+                                                            <div className="flex items-center h-[calc(2.125rem+3px)] w-30 px-2">
                                                                 {formatPercentage(variant.rollout_percentage, {
                                                                     compact: true,
                                                                 })}
