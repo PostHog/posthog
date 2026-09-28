@@ -55,6 +55,27 @@ describe('alertSchedulingStale', () => {
                 '2026-07-24T17:02:00.000Z',
                 '2026-07-24T17:13:00.000Z',
             ],
+            [
+                AlertCalculationInterval.DAILY,
+                '09:35',
+                '2026-07-24T08:00:00.000Z',
+                '2026-07-24T09:35:00.000Z',
+                '2026-07-24T09:35:00.000Z',
+            ],
+            [
+                AlertCalculationInterval.WEEKLY,
+                '09:35',
+                '2026-07-24T16:30:00.000Z',
+                '2026-07-27T09:35:00.000Z',
+                '2026-07-27T09:35:00.000Z',
+            ],
+            [
+                AlertCalculationInterval.MONTHLY,
+                '09:35',
+                '2026-07-24T16:30:00.000Z',
+                '2026-08-01T09:35:00.000Z',
+                '2026-08-01T09:35:00.000Z',
+            ],
         ])('uses %s schedule start time %s', (interval, scheduleStartTime, nowValue, expected, expectedLatest) => {
             const now = dayjs.utc(nowValue)
 

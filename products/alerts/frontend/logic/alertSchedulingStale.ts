@@ -6,8 +6,20 @@ import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
 import type { ScheduleRestriction } from '../types'
 
-function calendarAnchor(localDate: Dayjs, hour: number, timezone: string): Dayjs {
-    return dayjs.tz(`${localDate.format('YYYY-MM-DD')} ${hour}:00`, 'YYYY-MM-DD H:mm', timezone)
+function calendarTime(localDate: Dayjs, hour: number, minute: number, timezone: string): Dayjs {
+    return dayjs.tz(
+        `${localDate.format('YYYY-MM-DD')} ${hour}:${String(minute).padStart(2, '0')}`,
+        'YYYY-MM-DD H:mm',
+        timezone
+    )
+}
+
+function parseScheduleStartTime(scheduleStartTime: string | null | undefined): { hour: number; minute: number } | null {
+    const [hour, minute] = (scheduleStartTime ?? '').split(':').map(Number)
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+        return null
+    }
+    return { hour, minute }
 }
 
 export function approximateNextAlertRun(
@@ -24,18 +36,13 @@ export function approximateNextAlertRun(
         localNow = now.utc()
     }
 
-    const scheduleStartMinute = scheduleStartTime ? Number(scheduleStartTime.split(':')[1]) : undefined
+    const scheduleStart = parseScheduleStartTime(scheduleStartTime)
     const nextRunFromScheduleStartMinute = (cadenceMinutes: number): Dayjs | null => {
-        if (
-            scheduleStartMinute === undefined ||
-            !Number.isInteger(scheduleStartMinute) ||
-            scheduleStartMinute < 0 ||
-            scheduleStartMinute > 59
-        ) {
+        if (!scheduleStart) {
             return null
         }
 
-        let candidate = localNow.startOf('hour').minute(scheduleStartMinute).second(0).millisecond(0)
+        let candidate = localNow.startOf('hour').minute(scheduleStart.minute).second(0).millisecond(0)
         while (!candidate.isAfter(localNow)) {
             candidate = candidate.add(cadenceMinutes, 'minutes')
         }
@@ -59,18 +66,46 @@ export function approximateNextAlertRun(
         }
     }
 
+    if (scheduleStart) {
+        // An explicit start time runs at exactly that local time: today, this Monday, or the 1st of this
+        // month, moved on by whole days, weeks, or months until it is in the future.
+        let firstDate: Dayjs
+        let unit: 'day' | 'week' | 'month'
+        switch (interval) {
+            case AlertCalculationInterval.DAILY:
+                firstDate = localNow
+                unit = 'day'
+                break
+            case AlertCalculationInterval.WEEKLY:
+                firstDate = localNow.add((8 - localNow.day()) % 7, 'days')
+                unit = 'week'
+                break
+            case AlertCalculationInterval.MONTHLY:
+                firstDate = localNow.startOf('month')
+                unit = 'month'
+                break
+        }
+        let steps = 0
+        let run = calendarTime(firstDate, scheduleStart.hour, scheduleStart.minute, timezone)
+        while (!run.isAfter(localNow)) {
+            steps += 1
+            run = calendarTime(firstDate.add(steps, unit), scheduleStart.hour, scheduleStart.minute, timezone)
+        }
+        return { earliest: run, latest: run }
+    }
+
     let anchor: Dayjs
     switch (interval) {
         case AlertCalculationInterval.DAILY:
-            anchor = calendarAnchor(localNow.add(1, 'day'), 1, timezone)
+            anchor = calendarTime(localNow.add(1, 'day'), 1, 0, timezone)
             break
         case AlertCalculationInterval.WEEKLY: {
             const daysUntilMonday = localNow.day() === 0 ? 1 : 8 - localNow.day()
-            anchor = calendarAnchor(localNow.add(daysUntilMonday, 'days'), 3, timezone)
+            anchor = calendarTime(localNow.add(daysUntilMonday, 'days'), 3, 0, timezone)
             break
         }
         case AlertCalculationInterval.MONTHLY:
-            anchor = calendarAnchor(localNow.add(1, 'month').startOf('month'), 4, timezone)
+            anchor = calendarTime(localNow.add(1, 'month').startOf('month'), 4, 0, timezone)
             break
     }
     return { earliest: anchor.add(2, 'minutes'), latest: anchor.add(59, 'minutes') }
