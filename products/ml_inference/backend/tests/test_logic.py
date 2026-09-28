@@ -211,8 +211,7 @@ class TestDecisionsEnabled:
     @pytest.mark.parametrize(
         "debug,deployment,expected",
         [
-            (True, "EU", True),
-            (False, "EU", False),
+            (False, "unsupported", False),
             (False, None, False),
         ],
     )
@@ -224,3 +223,20 @@ class TestDecisionsEnabled:
             assert decisions.decisions_enabled(team_id=1) is expected
 
         flag.assert_not_called()
+
+    @pytest.mark.parametrize("deployment", ["US", "EU"])
+    @pytest.mark.parametrize("enabled", [False, True])
+    def test_cloud_regions_require_enrollment(self, deployment: str, enabled: bool) -> None:
+        with (
+            override_settings(DEBUG=False, CLOUD_DEPLOYMENT=deployment),
+            patch("products.ml_inference.backend.logic.decisions.Team") as team_model,
+            patch(
+                "products.ml_inference.backend.logic.decisions.posthoganalytics.feature_enabled", return_value=enabled
+            ) as flag,
+        ):
+            team = team_model.objects.select_related.return_value.only.return_value.get.return_value
+            team.uuid = "test-team"
+            team.organization_id = "test-organization"
+            team.organization.is_ai_data_processing_approved = True
+            assert decisions.decisions_enabled(team_id=1) is enabled
+            flag.assert_called_once()
