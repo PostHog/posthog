@@ -75,7 +75,8 @@ Keys must be unique lowercase identifiers; labels are for display.
 Keep keys stable when changing labels so historical results retain their meaning.
 
 Hog returns a list of keys, or a single key string for single selection.
-The editor updates the untouched Hog example when its category key changes or is removed, and preserves custom code.
+The editor updates the untouched Hog example when its category key changes, is removed, or the draft's output type changes.
+Custom code is preserved.
 The LLM judge returns `categories` and `reasoning`.
 Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
 Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.

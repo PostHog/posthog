@@ -316,7 +316,7 @@ describe('llmEvaluationLogic', () => {
             ['hog', 'return [input.category];'],
             ['llm_judge', 'return [input.category];'],
         ] as const)(
-            'keeps category edits in sync with generated Hog code from %s (custom: %s)',
+            'keeps category edits and output switches in sync with generated Hog code from %s (custom: %s)',
             (runtime, customSource) => {
                 logic.actions.setEvaluationType(runtime)
                 logic.actions.setOutputType('categorical')
@@ -341,6 +341,18 @@ describe('llmEvaluationLogic', () => {
                 expect(logic.values.evaluation?.evaluation_config).toEqual({
                     source: customSource ?? "return ['unresolved'];",
                 })
+
+                for (const outputType of ['numeric', 'boolean'] as const) {
+                    logic.actions.setOutputType(outputType)
+                    expect(logic.values.evaluation?.evaluation_config).toEqual({
+                        source: customSource ?? (outputType === 'numeric' ? 'return 0;' : DEFAULT_HOG_SOURCE),
+                    })
+
+                    logic.actions.setOutputType('categorical')
+                    expect(logic.values.evaluation?.evaluation_config).toEqual({
+                        source: customSource ?? "return ['unresolved'];",
+                    })
+                }
             }
         )
 

@@ -839,6 +839,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
                     if (state.evaluation_type === 'hog') {
                         const source = state.evaluation_config.source
+                        const isDefaultCategoricalSource =
+                            state.output_type === 'categorical' &&
+                            source === defaultCategoricalHogSource(state.output_config)
                         return {
                             ...state,
                             output_type: outputType,
@@ -852,10 +855,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                         LEGACY_HOG_DEFAULT_SOURCES.includes(source))
                                         ? defaultCategoricalHogSource(output_config)
                                         : outputType === 'numeric' &&
-                                            (source === DEFAULT_HOG_SOURCE ||
+                                            (isDefaultCategoricalSource ||
+                                                source === DEFAULT_HOG_SOURCE ||
                                                 LEGACY_HOG_DEFAULT_SOURCES.includes(source))
                                           ? 'return 0;'
-                                          : outputType === 'boolean' && source === 'return 0;'
+                                          : outputType === 'boolean' &&
+                                              (isDefaultCategoricalSource || source === 'return 0;')
                                             ? DEFAULT_HOG_SOURCE
                                             : source,
                             },
