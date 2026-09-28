@@ -175,6 +175,18 @@ def test_start_agent_server_stages_the_codex_run_token_again_for_the_branchless_
     assert len(token_writes) == 2
 
 
+@pytest.mark.parametrize("wrap_repo_ready", [True, False])
+def test_docker_build_agent_server_command_never_wraps_repo_ready(wrap_repo_ready: bool, sandbox: DockerSandbox):
+    repo_ready_file = "/tmp/workspace/.repo-ready"
+    command = sandbox._build_agent_server_command(
+        None, "t1", "r1", "interactive", True, repo_ready_file=repo_ready_file, wrap_repo_ready=wrap_repo_ready
+    )
+    # Docker always relies on the binary blocking on --repoReadyFile; it never adds a bash wait
+    # wrapper, so wrap_repo_ready is inert here (only the base mixin gates the wrapper on it).
+    assert f"--repoReadyFile {shlex.quote(repo_ready_file)}" in command
+    assert "while [ ! -f" not in command
+
+
 @parameterized.expand([("supported", AGENT_SERVER_LAUNCH_CAPABILITIES), ("unsupported", ())])
 def test_start_agent_server_launch_failure_is_captured(_name: str, capabilities: tuple[str, ...]):
     config = SandboxConfig(name="test-sandbox")
