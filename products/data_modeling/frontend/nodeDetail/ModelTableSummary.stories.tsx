@@ -27,7 +27,12 @@ const meta: Meta<typeof ModelTableSummary> = {
         accessDenied: false,
         onRetry: () => undefined,
     },
-    parameters: { testOptions: { snapshotBrowsers: ['chromium'] } },
+    parameters: {
+        // The card reads last_synced_at through TZLabel, which renders it relative to now, so the
+        // snapshot changes on its own once the real clock moves past the fixture.
+        mockDate: '2026-09-19T10:42:00Z',
+        testOptions: { snapshotBrowsers: ['chromium'] },
+    },
 }
 export default meta
 

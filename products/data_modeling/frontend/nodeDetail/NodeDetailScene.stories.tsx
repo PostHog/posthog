@@ -67,7 +67,7 @@ const tableNode = {
     origin: 'warehouse',
     warehouse_table_id: '2efce7bc-9b76-442a-8234-33f6fc3e8c7d',
     created_at: '2026-02-11T10:00:00Z',
-    updated_at: '2026-09-14T10:00:00Z',
+    updated_at: '2026-09-13T10:00:00Z',
     upstream_count: 0,
     downstream_count: 3,
 }
@@ -154,7 +154,7 @@ const warehouseSchema = {
     should_sync: true,
     status: 'Completed',
     latest_error: null,
-    last_synced_at: '2026-09-14T09:42:00Z',
+    last_synced_at: '2026-09-13T09:42:00Z',
     sync_type: 'incremental',
     sync_frequency: '1hour',
 }
