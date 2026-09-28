@@ -1135,12 +1135,15 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     ).exists()
 
 
-def get_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> contracts.InProgressGithubRunsDTO:
+def get_in_progress_runs_for_github_integration(
+    team_id: int, integration_id: int, user_id: int | None
+) -> contracts.InProgressGithubRunsDTO:
     """In-progress runs whose task uses this team GitHub integration.
 
     Used by core's integration API to block disconnecting a GitHub integration while
     live runs still depend on it for credential refresh — deleting the row SET_NULLs
     ``Task.github_integration`` and permanently orphans every live sandbox's token.
+    The count covers every run, but the named task is the oldest one ``user_id`` can read.
     """
     runs = TaskRun.objects.filter(
         team_id=team_id,
@@ -1150,7 +1153,7 @@ def get_in_progress_runs_for_github_integration(team_id: int, integration_id: in
     count = runs.count()
     if not count:
         return contracts.InProgressGithubRunsDTO(count=0)
-    oldest = runs.order_by("created_at").values("task_id", "task__title").first()
+    oldest = runs.filter(task_run_visibility_q(user_id)).order_by("created_at").values("task_id", "task__title").first()
     if oldest is None:
         return contracts.InProgressGithubRunsDTO(count=count)
     return contracts.InProgressGithubRunsDTO(

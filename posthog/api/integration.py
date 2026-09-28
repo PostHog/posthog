@@ -1427,7 +1427,7 @@ class IntegrationViewSet(
 
         if instance.kind == "github":
             live_runs = get_in_progress_runs_for_github_integration(
-                team_id=instance.team_id, integration_id=instance.id
+                team_id=instance.team_id, integration_id=instance.id, user_id=self.request.user.id
             )
             if live_runs.count:
                 raise ValidationError(_github_disconnect_blocked_message(live_runs, team_id=instance.team_id))

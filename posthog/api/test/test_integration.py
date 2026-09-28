@@ -6583,7 +6583,7 @@ class TestGitHubIntegrationUninstall:
             "Wait for them to finish or cancel them before disconnecting it."
         )
         assert Integration.objects.filter(id=integration.id).exists()
-        mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id)
+        mock_count.assert_called_once_with(team_id=self.team.pk, integration_id=integration.id, user_id=self.user.id)
 
         mock_count.return_value = InProgressGithubRunsDTO(count=0)
         response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")

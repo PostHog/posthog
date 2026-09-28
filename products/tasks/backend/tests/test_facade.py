@@ -545,23 +545,33 @@ class TestFacadeReadsAndMappers(TestCase):
     def test_get_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
         other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        colleague = User.objects.create(email="colleague@test.com", distinct_id="colleague-distinct")
+        outsider = User.objects.create(email="outsider@test.com", distinct_id="outsider-distinct")
 
-        oldest_task = self._make_task(github_integration=integration, title="Oldest live task")
-        TaskRun.objects.create(task=oldest_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        TaskRun.objects.create(task=oldest_task, team=self.team, status=TaskRun.Status.COMPLETED)
-        newer_task = self._make_task(github_integration=integration, title="Newer live task")
-        TaskRun.objects.create(task=newer_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        colleague_task = self._make_task(github_integration=integration, title="Colleague's task", created_by=colleague)
+        TaskRun.objects.create(task=colleague_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=colleague_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        own_task = self._make_task(github_integration=integration, title="Own task")
+        TaskRun.objects.create(task=own_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         other_task = self._make_task(github_integration=other_integration)
         TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         self.assertEqual(
-            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id),
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, colleague.id),
             contracts.InProgressGithubRunsDTO(
-                count=2, oldest_task_id=oldest_task.id, oldest_task_title="Oldest live task"
+                count=2, oldest_task_id=colleague_task.id, oldest_task_title="Colleague's task"
             ),
         )
         self.assertEqual(
-            facade.get_in_progress_runs_for_github_integration(self.team.id + 999, integration.id),
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, self.user.id),
+            contracts.InProgressGithubRunsDTO(count=2, oldest_task_id=own_task.id, oldest_task_title="Own task"),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, outsider.id),
+            contracts.InProgressGithubRunsDTO(count=2),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id + 999, integration.id, self.user.id),
             contracts.InProgressGithubRunsDTO(count=0),
         )
 
