@@ -635,6 +635,38 @@ mod tests {
             .unwrap();
 
         let scan = tokio::spawn(scan_persons_page(reader, team.id, 0, 10, 10_000));
+
+        // Release the lock only after the scan query waits on it. Otherwise the scan can start
+        // after the rollback and pass without the SET LOCAL timeout.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        loop {
+            // pg_stat_activity keeps one snapshot for the whole transaction, so clear it
+            // before each read.
+            sqlx::query("SELECT pg_stat_clear_snapshot()")
+                .execute(&mut *lock_tx)
+                .await
+                .unwrap();
+            let scan_blocked: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                    SELECT 1 FROM pg_stat_activity
+                    WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))
+                      AND query LIKE '%JOIN LATERAL%'
+                )",
+            )
+            .fetch_one(&mut *lock_tx)
+            .await
+            .unwrap();
+            if scan_blocked {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the person scan never waited on the table lock"
+            );
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Hold the lock for longer than the pool's 100ms statement timeout.
         tokio::time::sleep(Duration::from_millis(300)).await;
         lock_tx.rollback().await.unwrap();
 
