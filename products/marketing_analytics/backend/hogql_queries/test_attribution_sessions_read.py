@@ -12,6 +12,7 @@ from posthog.schema import (
     ConversionGoalFilter1,
     CustomChannelRule,
     DateRange,
+    HogQLPropertyFilter,
     HogQLQueryModifiers,
     MarketingAnalyticsAttributionQuery,
     PropertyMathType,
@@ -321,3 +322,37 @@ class TestAttributionSessionsRead(SimpleTestCase):
         with patch.object(attribution_sessions_read, "ensure_marketing_sessions_precomputed") as ensure:
             runner.to_query()
         ensure.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("session.$entry_utm_source = 'google'", True),
+            ("events.session.$channel_type = 'Paid Search'", True),
+            ("$session_id IN (SELECT session_id FROM sessions)", True),
+            ("matchesAction(1)", True),
+            ("not(matchesAction(1))", True),
+            ("properties.utm_source = 'google'", False),
+            ("$session_id IS NOT NULL", False),
+        ]
+    )
+    def test_session_dependent_conversion_conditions_keep_legacy_resolution(self, condition: str, legacy: bool) -> None:
+        goal = ConversionGoalFilter1(
+            event="purchase",
+            name="Purchases",
+            conversion_goal_id="session-goal",
+            conversion_goal_name="Purchases",
+            schema_map={},
+            properties=[HogQLPropertyFilter(type="hogql", key=condition)],
+        )
+        self.team.marketing_analytics_config.conversion_goals = [goal.model_dump()]
+        runner = MarketingAnalyticsAttributionQueryRunner(
+            team=self.team,
+            query=MarketingAnalyticsAttributionQuery(
+                conversionGoalId="session-goal",
+                properties=[],
+                lookbackWindowDays=4,
+                dateRange=DateRange(date_from="2023-01-10", date_to="2023-01-20"),
+            ),
+        )
+        runner.config.live_session_resolution_enabled = True
+        reason = attribution_sessions_read.ineligible_reason(runner, runner.query_date_range)
+        assert reason == ("session_filtered_conversion_goal" if legacy else None)

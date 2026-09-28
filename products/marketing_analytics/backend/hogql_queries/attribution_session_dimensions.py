@@ -31,6 +31,81 @@ _DIMENSION_FIELDS = {
 }
 
 
+def _raw_dimensions(
+    modifiers: HogQLQueryModifiers,
+    columns: set[str],
+    start: datetime,
+    end: datetime,
+    candidates: ast.SelectQuery,
+    *,
+    having: ast.Expr | None = None,
+    require_valid_start: bool = False,
+) -> ast.SelectQuery:
+    is_v3 = modifiers.sessionTableVersion == SessionTableVersion.V3
+    table = "raw_sessions_v3" if is_v3 else "raw_sessions"
+    timestamp = (
+        ast.Field(chain=[table, "session_timestamp"])
+        if is_v3
+        else uuid_uint128_expr_to_timestamp_expr_v2(ast.Field(chain=[table, "session_id_v7"]))
+    )
+    fields = [
+        "$start_timestamp",
+        "$end_timestamp",
+        *[field for column, field in _DIMENSION_FIELDS.items() if column in columns],
+    ]
+    context = HogQLContext(modifiers=modifiers)
+    select_sessions = select_from_sessions_table_v3 if is_v3 else select_from_sessions_table_v2
+    source = select_sessions(
+        {field: [field] for field in fields}, ast.SelectQuery(select=[ast.Constant(value=1)]), context
+    )
+    assert isinstance(source, ast.SelectQuery)
+    # Filter IDs before merging entry properties; a HAVING alone classifies every session in the range.
+    # GLOBAL IN sends the complete set to each shard without depending on session sharding.
+    source.where = ast.And(
+        exprs=[
+            ast.CompareOperation(
+                left=ast.Field(chain=[table, "session_id_v7"]), op=ast.CompareOperationOp.GlobalIn, right=candidates
+            ),
+            ast.CompareOperation(
+                left=timestamp,
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Constant(value=start - timedelta(days=SESSION_BUFFER_DAYS)),
+            ),
+            ast.CompareOperation(
+                left=timestamp,
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Constant(value=end + timedelta(days=SESSION_BUFFER_DAYS)),
+            ),
+        ]
+    )
+    source.having = having
+    # Empty slots preserve tuple positions without reading unused entry properties.
+    dimensions: list[ast.Expr] = [
+        parse_expr("toStartOfHour(toTimeZone($start_timestamp, 'UTC'))"),
+        ast.Field(chain=["$start_timestamp"]),
+    ]
+    for column, field in _DIMENSION_FIELDS.items():
+        if column not in columns:
+            dimensions.append(ast.Constant(value=""))
+        elif column == "channel_type":
+            dimensions.append(parse_expr("if(notEmpty(ifNull($channel_type, '')), $channel_type, 'Unknown')"))
+        else:
+            dimensions.append(
+                parse_expr("toString(ifNull({field}, ''))", placeholders={"field": ast.Field(chain=[field])})
+            )
+    query = parse_select(
+        """
+        SELECT session_id_v7, {dimensions} AS dimensions, now() AS computed_at, 1 AS source_priority
+        FROM {source}
+        """,
+        placeholders={"source": source, "dimensions": ast.Tuple(exprs=dimensions)},
+    )
+    assert isinstance(query, ast.SelectQuery)
+    if require_valid_start:
+        query.where = parse_expr("toUnixTimestamp($start_timestamp) > 0")
+    return query
+
+
 def _exceptional_dimensions(
     modifiers: HogQLQueryModifiers, columns: set[str], start: datetime, end: datetime
 ) -> ast.SelectQuery:
@@ -70,37 +145,8 @@ def _exceptional_dimensions(
             ),
         },
     )
-    fields = [
-        "$start_timestamp",
-        "$end_timestamp",
-        *[field for column, field in _DIMENSION_FIELDS.items() if column in columns],
-    ]
-    context = HogQLContext(modifiers=modifiers)
-    select_sessions = select_from_sessions_table_v3 if is_v3 else select_from_sessions_table_v2
-    source = select_sessions(
-        {field: [field] for field in fields}, ast.SelectQuery(select=[ast.Constant(value=1)]), context
-    )
-    assert isinstance(source, ast.SelectQuery)
-    # Filter IDs before merging entry properties; a HAVING alone classifies every session in the range.
-    # GLOBAL IN sends the complete set to each shard without depending on session sharding.
-    source.where = ast.And(
-        exprs=[
-            ast.CompareOperation(
-                left=ast.Field(chain=[table, "session_id_v7"]), op=ast.CompareOperationOp.GlobalIn, right=candidates
-            ),
-            ast.CompareOperation(
-                left=timestamp,
-                op=ast.CompareOperationOp.GtEq,
-                right=ast.Constant(value=start - timedelta(days=SESSION_BUFFER_DAYS)),
-            ),
-            ast.CompareOperation(
-                left=timestamp,
-                op=ast.CompareOperationOp.LtEq,
-                right=ast.Constant(value=end + timedelta(days=SESSION_BUFFER_DAYS)),
-            ),
-        ]
-    )
-    source.having = parse_expr(
+    assert isinstance(candidates, ast.SelectQuery)
+    having = parse_expr(
         """
         $end_timestamp >= {start} AND $start_timestamp <= {end}
         AND ($start_timestamp < {reachback}
@@ -108,34 +154,33 @@ def _exceptional_dimensions(
         """,
         placeholders=bounds,
     )
-    # Empty slots preserve tuple positions without reading unused entry properties.
-    dimensions: list[ast.Expr] = [
-        parse_expr("toStartOfHour(toTimeZone($start_timestamp, 'UTC'))"),
-        ast.Field(chain=["$start_timestamp"]),
-    ]
-    for column, field in _DIMENSION_FIELDS.items():
-        if column not in columns:
-            dimensions.append(ast.Constant(value=""))
-        elif column == "channel_type":
-            dimensions.append(parse_expr("if(notEmpty(ifNull($channel_type, '')), $channel_type, 'Unknown')"))
-        else:
-            dimensions.append(
-                parse_expr("toString(ifNull({field}, ''))", placeholders={"field": ast.Field(chain=[field])})
-            )
-    query = parse_select(
-        """
-        SELECT session_id_v7, {dimensions} AS dimensions, now() AS computed_at, 1 AS source_priority
-        FROM {source}
-        """,
-        placeholders={"source": source, "dimensions": ast.Tuple(exprs=dimensions)},
-    )
-    assert isinstance(query, ast.SelectQuery)
-    return query
+    return _raw_dimensions(modifiers, columns, start, end, candidates, having=having)
+
+
+def _live_dimensions(
+    modifiers: HogQLQueryModifiers, columns: set[str], start: datetime, end: datetime
+) -> ast.SelectQuery:
+    candidates = parse_select("SELECT DISTINCT session_id_v7 FROM attribution_session_identities")
+    assert isinstance(candidates, ast.SelectQuery)
+    return _raw_dimensions(modifiers, columns, start, end, candidates, require_valid_start=True)
 
 
 def session_dimensions(
-    modifiers: HogQLQueryModifiers, columns: set[str], job_ids: list[str], start: datetime, end: datetime
+    modifiers: HogQLQueryModifiers,
+    columns: set[str],
+    job_ids: list[str],
+    start: datetime,
+    end: datetime,
+    *,
+    live: bool = False,
 ) -> ast.SelectQuery:
+    if live:
+        query = parse_select(
+            "SELECT session_id_v7, dimensions AS latest, computed_at FROM {live}",
+            placeholders={"live": _live_dimensions(modifiers, columns, start, end)},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
     # A cached session can grow after materialization, so live exceptions must replace its old dimensions.
     query = parse_select(
         """
