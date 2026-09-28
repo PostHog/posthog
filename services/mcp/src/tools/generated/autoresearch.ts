@@ -656,7 +656,17 @@ const autoresearchTrainingRunsIterationsCreate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/iterations/`,
             body,
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'training_run',
+            'iteration_number',
+            'recipe_hash',
+            'train_score',
+            'holdout_score',
+            'status',
+            'parent_suggestion',
+        ]) as typeof result
+        return filtered
     },
 })
 
