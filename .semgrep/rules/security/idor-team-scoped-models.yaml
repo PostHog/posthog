@@ -115,6 +115,7 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotOpportunity
                               |ContentAutopilotProposal
                               |ContentAutopilotRun
                               |ContentAutopilotSiteProfile
@@ -550,6 +551,7 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotOpportunity
                         |ContentAutopilotProposal
                         |ContentAutopilotRun
                         |ContentAutopilotSiteProfile
