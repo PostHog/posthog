@@ -13,7 +13,7 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
-from products.signals.backend.emission.pipeline import filter_actionable
+from products.signals.backend.emission.pipeline import check_actionability, filter_actionable
 from products.signals.backend.emission.registry import SignalEmitterOutput
 from products.signals.backend.temporal.safety_filter import SafetyFilterJudgeResponse, safety_filter
 from products.signals.backend.typesafe_decision import (
@@ -168,6 +168,29 @@ async def test_shadow_disagreement_keeps_primary_result_and_records_usage() -> N
     assert primary.await_args is not None
     assert primary.await_args.args == (trace_id,)
     assert decide.call_args.args[0].trace_id == trace_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("probability,expected", [(0.849, False), (0.85, True)])
+async def test_actionability_threshold_boundary(probability: float, expected: bool) -> None:
+    client = MagicMock()
+    client.messages.create = AsyncMock()
+    output = SignalEmitterOutput("test", "test", "record-1", "description", 1.0, {})
+    with (
+        patch(
+            "products.signals.backend.typesafe_decision.posthoganalytics.get_feature_flag",
+            return_value="traditional-shadow",
+        ),
+        patch("products.signals.backend.typesafe_decision.posthoganalytics.capture") as capture,
+        patch(
+            "products.signals.backend.typesafe_decision.decision_api.decide_when_available",
+            return_value=_actionability_result(probability),
+        ),
+    ):
+        result = await check_actionability(client, 7, output, "Is this actionable? {description}")
+
+    assert result is expected
+    assert capture.call_args.kwargs["properties"]["typesafe_threshold"] == 0.85
 
 
 @pytest.mark.asyncio
