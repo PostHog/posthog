@@ -787,6 +787,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
                         "agent_mode": "sql",
                         "team_id": str(self.team.id),
                         "conversation_id": "conversation-1",
+                        "ai_span_name": "MaxChatAnthropic",
                         "ai_product": "posthog_ai",
                         **impersonation_props,
                     },
