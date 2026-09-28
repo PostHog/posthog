@@ -192,33 +192,150 @@ pub fn get_remote_url(git_dir: &Path) -> Option<String> {
 }
 
 fn get_remote_url_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
-    // Try grab it from the git config
-    for config_path in config_paths(&paths.git_dir, &paths.common_dir) {
-        if !config_path.exists() {
-            continue;
-        }
+    let url = find_remote_url(paths)?;
+    let sanitized = strip_credentials(&url)?;
 
-        let config_content = match fs::read_to_string(&config_path) {
-            Ok(content) => content,
-            Err(_) => continue,
+    if sanitized.ends_with(".git") {
+        Some(sanitized)
+    } else {
+        Some(format!("{sanitized}.git"))
+    }
+}
+
+/// Finds the URL of the repository's own remote, across the config files that apply to this
+/// worktree. `origin` wins when it is present, because that is the remote the release belongs
+/// to; otherwise the first remote in config precedence order is used.
+fn find_remote_url(paths: &GitRepositoryPaths) -> Option<String> {
+    // Ordered from the highest precedence config file to the lowest, so the first URL found
+    // for a remote name is the one git itself would use.
+    let mut remotes: Vec<(String, String)> = Vec::new();
+
+    for config_path in config_paths(&paths.git_dir, &paths.common_dir) {
+        let Ok(config_content) = fs::read_to_string(&config_path) else {
+            continue;
         };
 
-        for line in config_content.lines() {
-            let line = line.trim();
-            if line.starts_with("url = ") {
-                let url = line.trim_start_matches("url = ").trim();
-                let sanitized = strip_credentials(url)?;
-                let normalized = if sanitized.ends_with(".git") {
-                    sanitized
-                } else {
-                    format!("{sanitized}.git")
-                };
-                return Some(normalized);
+        for (name, url) in parse_remote_urls(&config_content) {
+            if !remotes.iter().any(|(known, _)| *known == name) {
+                remotes.push((name, url));
             }
         }
     }
 
-    None
+    remotes
+        .iter()
+        .find(|(name, _)| name == "origin")
+        .or_else(|| remotes.first())
+        .map(|(_, url)| url.clone())
+}
+
+/// Reads every `[remote "<name>"] url = <url>` entry out of one git config file, in file order.
+///
+/// Git config is section based, so a scan that only looks for a `url = ` line also matches
+/// sections that are not remotes. A superproject with submodules is the common case: `git
+/// submodule add` writes a `[submodule "<path>"] url = ...` entry, and that entry sits above
+/// the `[remote "origin"]` section whenever the repository got its remote after its
+/// submodules. A section blind reader then reports the submodule's URL as the repository's
+/// remote.
+fn parse_remote_urls(config_content: &str) -> Vec<(String, String)> {
+    let mut remotes = Vec::new();
+    let mut remote_name: Option<String> = None;
+
+    for line in config_content.lines() {
+        let mut line = strip_config_comment(line.trim());
+
+        if line.starts_with('[') {
+            let Some(header_end) = line.find(']') else {
+                // The section is unreadable, so every key below it is too.
+                remote_name = None;
+                continue;
+            };
+            remote_name = parse_remote_section_header(&line[1..header_end]);
+            // Git allows a key on the same line as the section header.
+            line = line[header_end + 1..].trim();
+        }
+
+        let Some(remote_name) = remote_name.as_deref() else {
+            continue;
+        };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        if !key.trim().eq_ignore_ascii_case("url") {
+            continue;
+        }
+
+        let url = parse_config_value(value);
+        if !url.is_empty() {
+            remotes.push((remote_name.to_string(), url));
+        }
+    }
+
+    remotes
+}
+
+/// Returns the remote name of a `remote "<name>"` section header, and `None` for every other
+/// section. Section names are case insensitive, subsection names are not.
+fn parse_remote_section_header(header: &str) -> Option<String> {
+    let (section, subsection) = header.trim().split_once('"')?;
+    if !section.trim().eq_ignore_ascii_case("remote") {
+        return None;
+    }
+
+    let name = subsection.strip_suffix('"')?;
+    if name.is_empty() {
+        return None;
+    }
+
+    Some(name.to_string())
+}
+
+/// Drops a trailing `#` or `;` comment. A `#` inside a quoted value is part of the value, and a
+/// URL can hold one as a fragment.
+fn strip_config_comment(line: &str) -> &str {
+    let mut in_quotes = false;
+    let mut escaped = false;
+
+    for (index, character) in line.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match character {
+            '\\' => escaped = true,
+            '"' => in_quotes = !in_quotes,
+            '#' | ';' if !in_quotes => return line[..index].trim_end(),
+            _ => {}
+        }
+    }
+
+    line
+}
+
+/// Unwraps a git config value: it can be quoted, and a quoted value can escape a quote or a
+/// backslash.
+fn parse_config_value(value: &str) -> String {
+    let value = value.trim();
+    let mut parsed = String::with_capacity(value.len());
+    let mut characters = value.chars();
+
+    while let Some(character) = characters.next() {
+        match character {
+            '"' => {}
+            '\\' => match characters.next() {
+                Some(escaped @ ('"' | '\\')) => parsed.push(escaped),
+                Some(other) => {
+                    parsed.push('\\');
+                    parsed.push(other);
+                }
+                None => parsed.push('\\'),
+            },
+            _ => parsed.push(character),
+        }
+    }
+
+    parsed
 }
 
 /// Drops every part of a URL that can carry a credential before it is stored anywhere: the
@@ -295,34 +412,15 @@ pub fn get_repo_name(git_dir: &Path) -> Option<String> {
 }
 
 fn get_repo_name_from_paths(paths: &GitRepositoryPaths) -> Option<String> {
-    // Try grab it from the configured remote, otherwise just use the directory name
-    'configs: for config_path in config_paths(&paths.git_dir, &paths.common_dir) {
-        if !config_path.exists() {
-            continue;
-        }
-
-        let config_content = match fs::read_to_string(&config_path) {
-            Ok(content) => content,
-            Err(_) => continue,
-        };
-
-        for line in config_content.lines() {
-            let line = line.trim();
-            if line.starts_with("url = ") {
-                let url = line.trim_start_matches("url = ").trim();
-                // A remote with no path puts the authority in the last segment, so the name
-                // is taken from the sanitized URL. Fall back to the directory name when the
-                // URL cannot be sanitized, rather than name the repository after a credential.
-                let Some(sanitized) = strip_credentials(url) else {
-                    break 'configs;
-                };
-                if let Some(repo_name) = sanitized.split('/').next_back() {
-                    let clean_name = repo_name.trim_end_matches(".git");
-                    if !clean_name.is_empty() {
-                        return Some(clean_name.to_string());
-                    }
-                }
-                break 'configs;
+    // Try grab it from the configured remote, otherwise just use the directory name.
+    // A remote with no path puts the authority in the last segment, so the name is taken from
+    // the sanitized URL. Fall back to the directory name when the URL cannot be sanitized,
+    // rather than name the repository after a credential.
+    if let Some(sanitized) = find_remote_url(paths).and_then(|url| strip_credentials(&url)) {
+        if let Some(repo_name) = sanitized.split('/').next_back() {
+            let clean_name = repo_name.trim_end_matches(".git");
+            if !clean_name.is_empty() {
+                return Some(clean_name.to_string());
             }
         }
     }
@@ -568,20 +666,165 @@ mod tests {
     }
 
     fn write_config(url: &str) -> (tempfile::TempDir, GitRepositoryPaths) {
+        write_config_content(&format!("[remote \"origin\"]\n\turl = {url}\n"))
+    }
+
+    fn write_config_content(content: &str) -> (tempfile::TempDir, GitRepositoryPaths) {
         let dir = tempfile::tempdir().unwrap();
         let git_dir = dir.path().join(".git");
         fs::create_dir_all(&git_dir).unwrap();
-        fs::write(
-            git_dir.join("config"),
-            format!("[remote \"origin\"]\n\turl = {url}\n"),
-        )
-        .unwrap();
+        fs::write(git_dir.join("config"), content).unwrap();
         let paths = GitRepositoryPaths {
             git_dir: git_dir.clone(),
             common_dir: git_dir,
             worktree_dir: dir.path().to_path_buf(),
         };
         (dir, paths)
+    }
+
+    #[test]
+    fn parse_remote_urls_reads_only_remote_sections() {
+        let config = r#"
+[core]
+    repositoryformatversion = 0
+[submodule "vendor/lib"]
+    url = https://github.com/PostHog/vendored.git
+    active = true
+[remote "upstream"]
+    url = https://github.com/Other/upstream.git
+[remote "origin"]
+    url = https://github.com/PostHog/posthog.git
+    pushurl = https://github.com/PostHog/fork.git
+"#;
+
+        assert_eq!(
+            parse_remote_urls(config),
+            vec![
+                (
+                    "upstream".to_string(),
+                    "https://github.com/Other/upstream.git".to_string()
+                ),
+                (
+                    "origin".to_string(),
+                    "https://github.com/PostHog/posthog.git".to_string()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_remote_urls_handles_config_syntax() {
+        let cases = [
+            (
+                "no spaces around the separator",
+                "[remote \"origin\"]\nurl=https://github.com/PostHog/posthog.git\n",
+                vec!["https://github.com/PostHog/posthog.git"],
+            ),
+            (
+                "a quoted value",
+                "[remote \"origin\"]\n\turl = \"https://github.com/PostHog/posthog.git\"\n",
+                vec!["https://github.com/PostHog/posthog.git"],
+            ),
+            (
+                "a key on the section header line",
+                "[remote \"origin\"] url = https://github.com/PostHog/posthog.git\n",
+                vec!["https://github.com/PostHog/posthog.git"],
+            ),
+            (
+                "a trailing comment",
+                "[remote \"origin\"]\n\turl = https://github.com/PostHog/posthog.git ; the remote\n",
+                vec!["https://github.com/PostHog/posthog.git"],
+            ),
+            (
+                "a section name in a different case",
+                "[REMOTE \"origin\"]\n\tURL = https://github.com/PostHog/posthog.git\n",
+                vec!["https://github.com/PostHog/posthog.git"],
+            ),
+            (
+                "a url section, which names the URL in the header rather than a value",
+                "[url \"git@github.com:\"]\n\tinsteadOf = https://github.com/\n",
+                vec![],
+            ),
+            (
+                "a key that only ends in url",
+                "[remote \"origin\"]\n\tpushurl = https://github.com/PostHog/fork.git\n",
+                vec![],
+            ),
+        ];
+
+        for (name, config, expected) in cases {
+            let urls: Vec<String> = parse_remote_urls(config)
+                .into_iter()
+                .map(|(_, url)| url)
+                .collect();
+            assert_eq!(urls, expected, "case: {name}");
+        }
+    }
+
+    #[test]
+    fn get_repo_infos_prefer_origin_over_another_remote() {
+        let (_dir, paths) = write_config_content(
+            r#"
+[submodule "vendor/lib"]
+    url = https://github.com/PostHog/vendored.git
+[remote "upstream"]
+    url = https://github.com/Other/upstream.git
+[remote "origin"]
+    url = https://github.com/PostHog/posthog.git
+"#,
+        );
+
+        assert_eq!(
+            get_remote_url_from_paths(&paths),
+            Some("https://github.com/PostHog/posthog.git".to_string())
+        );
+        assert_eq!(
+            get_repo_name_from_paths(&paths),
+            Some("posthog".to_string())
+        );
+    }
+
+    #[test]
+    fn get_repo_infos_use_the_only_remote_when_there_is_no_origin() {
+        let (_dir, paths) = write_config_content(
+            r#"
+[submodule "vendor/lib"]
+    url = https://github.com/PostHog/vendored.git
+[remote "upstream"]
+    url = https://github.com/Other/upstream.git
+"#,
+        );
+
+        assert_eq!(
+            get_remote_url_from_paths(&paths),
+            Some("https://github.com/Other/upstream.git".to_string())
+        );
+        assert_eq!(
+            get_repo_name_from_paths(&paths),
+            Some("upstream".to_string())
+        );
+    }
+
+    #[test]
+    fn get_repo_infos_ignore_a_submodule_url_and_fall_back_to_the_directory_name() {
+        let (dir, paths) = write_config_content(
+            r#"
+[submodule "vendor/lib"]
+    url = https://github.com/PostHog/vendored.git
+"#,
+        );
+
+        assert_eq!(get_remote_url_from_paths(&paths), None);
+        assert_eq!(
+            get_repo_name_from_paths(&paths),
+            Some(
+                dir.path()
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
     }
 
     #[test]
