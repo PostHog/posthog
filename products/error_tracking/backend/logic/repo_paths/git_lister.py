@@ -20,6 +20,10 @@ from pathlib import Path
 from typing import IO, Literal
 from urllib.parse import urlsplit
 
+from django.conf import settings
+
+import httpx
+
 from posthog.dataclasses import frozen
 from posthog.security.pinned_requests import select_pinned_ip
 from posthog.security.url_validation import validate_url_and_pin_ips
@@ -234,6 +238,7 @@ def _git_env(remote: GitRemote, *, home: Path) -> dict[str, str]:
         *(("http.curloptResolve", entry) for entry in _pinned_host_entries(remote.url)),
     ]
     env = {name: os.environ[name] for name in _PASSTHROUGH_ENV if name in os.environ}
+    _check_proxy(env, urlsplit(remote.url).scheme)
     env.update(
         {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
@@ -276,6 +281,28 @@ def _pinned_host_entries(url: str) -> list[str]:
     port = parts.port or (443 if parts.scheme == "https" else 80)
     address = f"[{ip}]" if ip.version == 6 else str(ip)
     return [f"{host}:{port}:{address}"]
+
+
+def _check_proxy(env: dict[str, str], scheme: str) -> None:
+    """Refuse a proxy that is not in ``SSRF_TRUSTED_PROXY_URLS``, the same rule as ``pinned_httpx``.
+
+    The pin has no effect through a proxy, because the proxy resolves the host itself. Only a
+    trusted proxy blocks internal addresses after its own lookup. The check ignores ``NO_PROXY``:
+    a host that it exempts connects directly to the pinned address, so the refusal is only strict.
+    """
+    # libcurl reads the lower case variable first, and it reads only the lower case http_proxy.
+    names = ("https_proxy", "HTTPS_PROXY") if scheme == "https" else ("http_proxy",)
+    proxy = next((env[name] for name in names if env.get(name)), None)
+    if proxy is None:
+        return
+    try:
+        trusted = httpx.URL(proxy) in {httpx.URL(url) for url in settings.SSRF_TRUSTED_PROXY_URLS}
+    except httpx.InvalidURL:
+        trusted = False
+    if not trusted:
+        raise GitHostNotAllowed(
+            "The outbound proxy is not trusted. Ask an administrator to configure SSRF_TRUSTED_PROXY_URLS."
+        )
 
 
 def _is_ip_literal(host: str) -> bool:

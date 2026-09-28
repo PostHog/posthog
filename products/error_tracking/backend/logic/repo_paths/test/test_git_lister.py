@@ -11,6 +11,8 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
@@ -36,6 +38,8 @@ TOKEN = "ghs_exampletoken0123456789"
 FILES = ["README.md", "services/api/acme_api/orders/views.py", "apps/web/src/zażółć.ts", "a/b/c/d/e.txt"]
 # DNS never resolves the .invalid TLD, so git reaches a test server under this name only through the pinned address.
 PINNED_HOST = "git.example.invalid"
+LOOPBACK = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips={ipaddress.IPv4Address("127.0.0.1")})
+PROXY_VARIABLES = ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NO_PROXY", "no_proxy")
 
 
 def _git(*args: str, cwd: Path, stdin: str | None = None) -> str:
@@ -56,11 +60,12 @@ def _git(*args: str, cwd: Path, stdin: str | None = None) -> str:
 
 
 @pytest.fixture
-def local_remotes() -> Iterator[None]:
-    loopback = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips={ipaddress.IPv4Address("127.0.0.1")})
+def local_remotes(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    for name in PROXY_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
     with (
         patch.object(git_lister, "_ALLOWED_PROTOCOLS", frozenset({"file", "http"})),
-        patch.object(git_lister, "validate_url_and_pin_ips", return_value=loopback),
+        patch.object(git_lister, "validate_url_and_pin_ips", return_value=LOOPBACK),
     ):
         yield
 
@@ -263,6 +268,28 @@ def test_internal_host_never_reaches_git(_name: str, call: Callable[[GitRemote],
             call(remote)
 
     popen.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "trusted,expected", [(False, GitHostNotAllowed), (True, GitFailed)], ids=["untrusted", "trusted"]
+)
+def test_git_uses_a_proxy_only_when_it_is_trusted(
+    trusted: bool, expected: type[GitListError], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with socket.socket() as closed_port:
+        closed_port.bind(("127.0.0.1", 0))
+        proxy = f"http://127.0.0.1:{closed_port.getsockname()[1]}"
+    for name in PROXY_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("HTTPS_PROXY", proxy)
+    remote = GitRemote(url=f"https://{PINNED_HOST}/acme/shop.git", auth_header=github_auth_header(TOKEN))
+
+    with (
+        patch.object(git_lister, "validate_url_and_pin_ips", return_value=LOOPBACK),
+        override_settings(SSRF_TRUSTED_PROXY_URLS=[proxy] if trusted else []),
+        pytest.raises(expected),
+    ):
+        can_read_repository(remote, timeout_seconds=30)
 
 
 @parameterized.expand(
