@@ -194,7 +194,9 @@ class SignupSerializer(serializers.Serializer):
         if not settings.DEMO:
             if not self.is_social_signup:
                 reject_plus_addressed_email(value)
-                if EmailValidationHelper.user_exists_with_stripped_alias(value):
+                if EmailValidationHelper.user_exists_with_stripped_alias(
+                    value
+                ) or EmailValidationHelper.user_exists_with_gmail_canonical(value):
                     raise serializers.ValidationError(
                         "There is already an account with this email address.", code="unique"
                     )
@@ -419,7 +421,9 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
-            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(email)
+            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(
+                email
+            ) or EmailValidationHelper.user_exists_with_gmail_canonical(email)
         if email_exists:
             return response.Response(
                 {

@@ -18,12 +18,14 @@ function probeDateFrom(period: SessionRecordingRetentionPeriod | null | undefine
 /**
  * Setup detection for the session replay empty state. Three-state: recordings
  * exist → has-data; recording opt-in without recordings yet → waiting-for-data;
- * neither → needs-setup. No has-data cache: recordings expire with retention,
- * so a positive answer is not permanent.
+ * neither → needs-setup. Recordings expire with retention, so a cached has-data
+ * answer is revalidated in the background instead of trusted forever.
  */
 export const sessionReplaySetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.SESSION_REPLAY,
     path: ['products', 'replay', 'frontend', 'emptyState', 'sessionReplaySetupLogic'],
+    cacheHasData: true,
+    revalidateCachedHasData: true,
     detect: async () => {
         const currentTeam = teamLogic.findMounted()?.values.currentTeam
         const response = await api.recordings.list({

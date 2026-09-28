@@ -64,6 +64,7 @@ import {
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
     findSchemaByFieldName,
     generateUniqueName,
+    getEnabledNativeMarketingSources,
     sanitizeIntegrationFilter,
     validColumnsForTiles,
 } from './utils'
@@ -637,7 +638,10 @@ export interface marketingAnalyticsLogicMeta {
                 [x: string]: SourceMap
             } | null
         ) => ExternalTable[]
-        nativeSources: (dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null) => ExternalDataSource[]
+        nativeSources: (
+            dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+            featureFlags: FeatureFlagsSet
+        ) => ExternalDataSource[]
         validNativeSources: (
             nativeSources: ExternalDataSource[],
             dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
@@ -1163,13 +1167,18 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             },
         ],
         nativeSources: [
-            (s) => [s.dataWarehouseSources],
+            (s) => [s.dataWarehouseSources, s.featureFlags],
             (
-                dataWarehouseSources: null | import('../../../../../../lib/api').PaginatedResponse<ExternalDataSource>
-            ): ExternalDataSource[] =>
-                dataWarehouseSources?.results.filter((source) =>
-                    VALID_NATIVE_MARKETING_SOURCES.includes(source.source_type as NativeMarketingSource)
-                ) ?? [],
+                dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
+                featureFlags: FeatureFlagsSet
+            ): ExternalDataSource[] => {
+                const enabledSources = getEnabledNativeMarketingSources(featureFlags)
+                return (
+                    dataWarehouseSources?.results.filter((source) =>
+                        enabledSources.includes(source.source_type as NativeMarketingSource)
+                    ) ?? []
+                )
+            },
         ],
         validNativeSources: [
             (s) => [s.nativeSources, s.dataWarehouseTables],
@@ -1507,6 +1516,13 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 return [router.values.location.pathname, searchParams.toString()]
             }
             const searchParams = new URLSearchParams()
+            const currentSearchParams = new URLSearchParams(router.values.location.search)
+            for (const key of ['select', 'order_column', 'order_direction', 'pinned_columns']) {
+                const value = currentSearchParams.get(key)
+                if (value !== null) {
+                    searchParams.set(key, value)
+                }
+            }
 
             // Tab
             if (values.activeTab && values.activeTab !== MarketingAnalyticsTab.DASHBOARD) {

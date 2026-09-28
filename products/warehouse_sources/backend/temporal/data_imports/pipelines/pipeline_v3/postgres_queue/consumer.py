@@ -21,7 +21,6 @@ import structlog
 from asgiref.sync import sync_to_async
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.common.db_errors import is_transient_db_error
 
 from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
@@ -49,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
+    _is_transient_queue_db_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -64,16 +64,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     BACKLOGGED_GROUPS,
     BLOCKED_BATCHES,
     CLAIMABLE_BATCHES,
+    CLAIMABLE_GROUPS,
     DRAINED_AFTER_FAILURE_TOTAL,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     ORPHANED_BATCHES_DRAINED_TOTAL,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
+    SERIALIZED_BATCHES,
+    SLOT_WAITING_BATCHES,
+    TOP_GROUPS_CLAIMABLE_SHARE,
     observe_queue_query,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import is_transient_internal_db_error
 from products.warehouse_sources.backend.types import ExternalDataJobStatus
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -178,10 +183,15 @@ def _is_transient_queue_connection_drop(err: Exception, conn: psycopg.AsyncConne
     """Whether `err` is a queue-db connection dying mid-query rather than a real bug.
 
     A network blip, server-side cull, or pgbouncer bounce leaves `conn` closed; the next
-    reconcile cycle reconnects and retries, so it isn't worth paging on (mirrors the
-    conn.closed check already applied to the stranded-run sweep's own OperationalError).
+    reconcile cycle reconnects and retries, so it isn't worth paging on.
+
+    The engine's classifier reads the error itself, so it also catches the shapes that
+    leave the connection usable, such as pgbouncer cutting the query loose before it
+    reached Postgres. The `conn.closed` arm stays for a drop worded in a way no marker
+    matches, because a closed connection under a psycopg error is a drop however it is
+    phrased.
     """
-    return isinstance(err, psycopg.OperationalError) and conn.closed
+    return _is_transient_queue_db_error(err) or (isinstance(err, psycopg.OperationalError) and conn.closed)
 
 
 class DeltaBatchConsumerAdapter:
@@ -328,7 +338,7 @@ class DeltaBatchConsumerAdapter:
             )
         except Exception as e:
             # Leave the job for the reconcile sweep rather than crashing the consumer.
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "fail_run_job_status_update_app_db_not_ready",
                     job_id=batch.job_id,
@@ -480,7 +490,7 @@ class DeltaBatchConsumerAdapter:
         try:
             await self._drain_orphaned_batches(conn, limit=limit)
         except psycopg.OperationalError as e:
-            if conn.closed:
+            if _is_transient_queue_connection_drop(e, conn):
                 logger.warning("orphaned_batch_drain_closed_connection", error=str(e))
             else:
                 logger.exception("orphaned_batch_drain_failed")
@@ -494,9 +504,9 @@ class DeltaBatchConsumerAdapter:
         try:
             await self._reconcile_stale_stranded_runs(conn, stale_seconds=TAKEOVER_STALE_THRESHOLD_SECONDS, limit=limit)
         except psycopg.OperationalError as e:
-            if conn.closed:
-                # A transient connection drop (network blip, server-side cull, pgbouncer bounce)
-                # leaves the connection closed. The engine reconnects on the next cycle.
+            if _is_transient_queue_connection_drop(e, conn):
+                # A transient connection drop (network blip, server-side cull, pgbouncer bounce).
+                # The engine reconnects on the next cycle.
                 logger.warning("stranded_run_reconcile_sweep_closed_connection", error=str(e))
             else:
                 logger.exception("stranded_run_reconcile_sweep_failed")
@@ -581,7 +591,7 @@ class DeltaBatchConsumerAdapter:
                 error=ref.reason or "run failed (reconciled from queue)",
             )
         except Exception as e:
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "reconcile_job_status_update_app_db_not_ready",
                     job_id=ref.job_id,
@@ -671,7 +681,7 @@ class DeltaBatchConsumerAdapter:
                     error=STRANDED_RUN_ERROR,
                 )
             except Exception as e:
-                if is_transient_db_error(e):
+                if is_transient_internal_db_error(e):
                     logger.warning(
                         "stranded_run_job_status_update_app_db_not_ready",
                         job_id=ref.job_id,
@@ -742,8 +752,12 @@ class DeltaBatchConsumerAdapter:
                 # of the queue is, depth says how much sits behind it — a stall and a
                 # burst are indistinguishable on age alone.
                 with observe_queue_query("claimable_depth_probe"):
-                    depth = await BatchQueue.get_claimable_batch_count(conn)
-                CLAIMABLE_BATCHES.set(depth)
+                    depth = await BatchQueue.get_queue_depth(conn)
+                CLAIMABLE_BATCHES.set(depth.claimable_batches)
+                CLAIMABLE_GROUPS.set(depth.claimable_groups)
+                TOP_GROUPS_CLAIMABLE_SHARE.set(depth.top_groups_claimable_share)
+                SLOT_WAITING_BATCHES.set(depth.slot_waiting_batches)
+                SERIALIZED_BATCHES.set(depth.serialized_batches)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed degraded path, traceback is noise
                 "queue_freshness_probe_timed_out",
@@ -766,7 +780,7 @@ class DeltaBatchConsumerAdapter:
             job_dead = await self._is_job_dead(batch)
         except Exception as e:
             # Fail open: an app-DB hiccup must never wedge the loader.
-            if is_transient_db_error(e):
+            if is_transient_internal_db_error(e):
                 logger.warning(
                     "job_status_check_app_db_not_ready", batch_id=batch.id, job_id=batch.job_id, error=str(e)
                 )

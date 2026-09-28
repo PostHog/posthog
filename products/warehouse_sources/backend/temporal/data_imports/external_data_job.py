@@ -1,5 +1,6 @@
 import re
 import json
+import uuid
 import typing
 import datetime as dt
 import dataclasses
@@ -12,7 +13,7 @@ from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity, exceptions, workflow
 from temporalio.client import Client
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, SearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import TimeoutType, WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
@@ -742,6 +743,13 @@ def trigger_schedule_buffer_one_activity(schedule_id: str) -> None:
     trigger_schedule_buffer_one(temporal, schedule_id)
 
 
+def _started_by_own_schedule(search_attributes: SearchAttributes, schema_id: uuid.UUID | None) -> bool:
+    # Temporal sets this on every run a schedule starts, manual triggers included. It comes from the start
+    # event, so replay reads the same value.
+    scheduled_by = search_attributes.get("TemporalScheduledById") or []
+    return any(str(value) == str(schema_id) for value in scheduled_by)
+
+
 # TODO: update retry policies
 #
 # DETERMINISM: adding, removing, or reordering activities / child-workflow starts in `run` breaks
@@ -845,6 +853,9 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 billable=inputs.billable,
                 is_v3=is_v3,
+                started_by_schedule=_started_by_own_schedule(
+                    workflow.info().search_attributes, inputs.external_data_schema_id
+                ),
             )
 
             create_job_result = await workflow.execute_activity(
@@ -864,6 +875,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = False
                 person_property_sync_enabled = False
                 fast_return_eligible = False
+                scheduled_full_refresh = False
+                repartition_needed = True
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -875,6 +888,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 statistics_needed = create_job_result.statistics_needed
                 person_property_sync_enabled = create_job_result.person_property_sync_enabled
                 fast_return_eligible = create_job_result.fast_return_eligible
+                scheduled_full_refresh = create_job_result.scheduled_full_refresh
+                repartition_needed = create_job_result.repartition_needed
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -895,8 +910,10 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
 
             # Pre-extraction, in-place repartition of any table flagged on a prior run. Runs here — sole
             # writer, lock held, before the merge — so the subsequent merge uses the memory-safe layout.
-            # A no-op unless a repartition is pending; never fails the sync (errors are swallowed).
-            if job_id is not None:
+            # Never fails the sync (errors are swallowed). Skipped when the job-creation activity saw nothing
+            # queued and no on-disk measurement due, so the common sync pays no activity round trip. A
+            # scheduled full refresh deletes the table before extraction, so rewriting it first is wasted work.
+            if job_id is not None and not scheduled_full_refresh and repartition_needed:
                 try:
                     await workflow.execute_activity(
                         maybe_repartition_table_activity,
@@ -915,6 +932,17 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         "Repartition activity failed; continuing with sync on existing layout",
                         extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
+            elif job_id is not None:
+                # Logged so the Syncs UI/log stream still shows the repartition check ran for the
+                # common no-op case — the activity's own start/finish logs only fire when it's called.
+                workflow.logger.info(
+                    "Repartition scheduling skipped",
+                    extra={
+                        "schema_id": str(inputs.external_data_schema_id),
+                        "repartition_needed": repartition_needed,
+                        "scheduled_full_refresh": scheduled_full_refresh,
+                    },
+                )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,
@@ -923,12 +951,19 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source_id=inputs.external_data_source_id,
                 reset_pipeline=inputs.reset_pipeline,
                 fast_return_eligible=fast_return_eligible,
+                scheduled_full_refresh=scheduled_full_refresh,
             )
 
             is_resumable_source = False
             if source_type is not None:
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
-                is_resumable_source = isinstance(source, ResumableSource)
+                # The class can resume, and its mechanism covers a run of this shape. Both halves
+                # matter: a class whose resume is narrower than itself would otherwise hand the
+                # resumable allowance to every one of its runs, including the ones that restart from
+                # row 0 on each of those extra attempts.
+                is_resumable_source = isinstance(source, ResumableSource) and source.resume_covers_run(
+                    incremental_or_append=incremental_or_append
+                )
 
             max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES
             max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES
