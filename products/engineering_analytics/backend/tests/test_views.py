@@ -15,6 +15,7 @@ from products.engineering_analytics.backend.logic.sources import (
     resolve_trunk_merge_queue_table,
 )
 from products.engineering_analytics.backend.logic.views import (
+    ci_job_history,
     depot_ci,
     job_costs,
     pull_requests,
@@ -255,6 +256,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             started: str,
             finished: str,
             *,
+            job_id: str = "p4kd9tq2xs",
             run_id: str = "427q556wmn",
             run_workflow_count: int = 1,
             workflow_id: str = "6n4tghls33",
@@ -276,6 +278,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 "workflow_created_at": "2026-09-24T14:51:17.948Z",
                 "workflow_started_at": "2026-09-24T14:51:18.000Z",
                 "workflow_finished_at": "2026-09-24T15:01:18.000Z",
+                "job_id": job_id,
                 "job_key": "ci-backend.yml:turbo-tests:matrix-38",
                 "job_display_name": display_name,
                 "attempt_id": attempt_id,
@@ -295,7 +298,13 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                 attempt("3v4pbsqvfc", 2, "finished", "2026-09-24T14:56:00.000Z", "2026-09-24T14:59:00.000Z"),
                 # A job with no display name falls back to its key.
                 attempt(
-                    "b82nsv77wl", 1, "finished", "2026-09-24T14:52:00.000Z", "2026-09-24T14:52:30.000Z", display_name=""
+                    "b82nsv77wl",
+                    1,
+                    "finished",
+                    "2026-09-24T14:52:00.000Z",
+                    "2026-09-24T14:52:30.000Z",
+                    job_id="t7m3xc4pzb",
+                    display_name="",
                 ),
                 # A run with two workflows keys each one by its own id, so no join on the id fans out.
                 attempt(
@@ -304,6 +313,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "finished",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
+                    job_id="w2hq8vn5cd",
                     workflow_id="cccccccccc",
                     workflow_name="Monitor",
                     workflow_status="finished",
@@ -315,6 +325,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "failed",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
+                    job_id="x9fz3kr7bm",
                     workflow_id="dddddddddd",
                     workflow_name="Timing",
                     workflow_status="failed",
@@ -327,6 +338,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
                     "finished",
                     "2026-09-24T14:52:00.000Z",
                     "2026-09-24T14:53:00.000Z",
+                    job_id="y6tc2pw4hn",
                     run_id="zzzzzzzzzz",
                     repo="PostHog/other",
                 ),
@@ -347,16 +359,23 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         ]
         assert self._select(
             "SELECT run_id, run_attempt, name, conclusion, duration_seconds, is_rerun_copy "
-            f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at"
+            f"FROM ({workflow_jobs.build_query(jobs)}) AS j WHERE run_id = 80213453736890 ORDER BY started_at, run_attempt"
         ) == [
             (80213453736890, 1, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 0),
+            # Listed again under the run's second attempt, like a job GitHub did not re-run.
+            (80213453736890, 2, "ci-backend.yml:turbo-tests:matrix-38", "success", 30, 1),
             (80213453736890, 1, "Product tests (experiments)", "failure", 120, 0),
             (80213453736890, 2, "Product tests (experiments)", "success", 180, 0),
         ]
         assert self._select(
-            "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0 "
-            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c"
-        ) == [("depot", 2, 1)]
+            "SELECT DISTINCT provider, vcpu, estimated_cost_usd > 0, head_branch, is_rerun_copy "
+            f"FROM ({job_costs.build_query(jobs_table=jobs, runs_table=runs)}) AS c WHERE run_id = 80213453736890 "
+            "ORDER BY is_rerun_copy"
+        ) == [("depot", 2, 1, "feature/depot", 0), ("depot", 2, 0, "feature/depot", 1)]
+        assert self._select(
+            "SELECT DISTINCT head_branch "
+            f"FROM ({ci_job_history.build_query(jobs_table=jobs, runs_table=runs)}) AS h WHERE run_id = 80213453736890"
+        ) == [("feature/depot",)]
 
     def test_pull_requests_view_handles_null_user(self) -> None:
         # The real source lands user as Nullable(String), NULL for a PR by a deleted GitHub account.
