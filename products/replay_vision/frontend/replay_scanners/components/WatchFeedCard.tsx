@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconFlag, IconPlay, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { CitedText, ObservationResultSummary, readResult } from '../../components/ObservationCard'
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { ReplayObservationApi, WatchFeedItemApi, WatchFeedReasonApi } from '../../generated/api.schemas'
 import { OBSERVATION_ORIGIN_PARAM, WATCH_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText, citedTimestampRange } from '../../utils/citations'
@@ -277,17 +278,7 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         </span>
                     )}
                 </button>
-                {!observation.viewed && (
-                    <LemonTag
-                        type="primary"
-                        size="small"
-                        // The primary tag is transparent by default, which lets the frame show through.
-                        className="absolute top-1 left-1 z-10 shadow-sm bg-surface-primary!"
-                        title="You haven't opened this observation yet."
-                    >
-                        New
-                    </LemonTag>
-                )}
+                {!observation.viewed && <UnviewedObservationTag className="absolute top-1 left-1 z-10" />}
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                 {/* Stretched to cover the card: clicking anywhere opens the observation with the
