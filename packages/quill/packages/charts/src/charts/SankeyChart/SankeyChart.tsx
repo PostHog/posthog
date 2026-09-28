@@ -38,7 +38,10 @@ export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
     ...rest
 }: SankeyChartProps<NodeMeta, LinkMeta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary
+            onError={onError}
+            resetKey={`${rest.nodes.length}:${rest.links.length}:${rest.nodes.map((node) => node.id).join(',')}`}
+        >
             <SankeyChartInner {...rest} />
         </ChartErrorBoundary>
     )
