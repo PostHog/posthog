@@ -1041,7 +1041,7 @@ class ImpactMeasurementPlan(BaseModel):
     activated: bool = Field(default=False, strict=True)
     retired: bool = Field(default=False, strict=True)
 
-    @field_validator("decision_window_days", "minimum_data_points", mode="before")
+    @field_validator("goal_value", "decision_window_days", "minimum_data_points", mode="before")
     @classmethod
     def reject_coerced_flags_and_counts(cls, value: object) -> object:
         if isinstance(value, bool):

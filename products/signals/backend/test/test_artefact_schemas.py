@@ -45,10 +45,11 @@ class TestArtefactSchemas(SimpleTestCase):
             "decision_window_days": 7,
         }
         ImpactMeasurementPlan.model_validate(plan)
-        for field in ("decision_window_days", "minimum_data_points"):
-            with self.assertRaises(ValidationError) as caught:
-                ImpactMeasurementPlan.model_validate({**plan, field: True})
-            self.assertIn(field, str(caught.exception))
+        for field in ("goal_value", "decision_window_days", "minimum_data_points"):
+            for boolean in (True, False):
+                with self.assertRaises(ValidationError) as caught:
+                    ImpactMeasurementPlan.model_validate({**plan, field: boolean})
+                self.assertIn(field, str(caught.exception))
 
     def test_reviewer_reasons_are_bounded_on_write(self):
         with self.assertRaises(ValidationError):
