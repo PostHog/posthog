@@ -960,7 +960,8 @@ def poll_query_performance(last_known_run_time_ns: int) -> None:
     try:
         redis_client = get_client()
         if Polling.get_last_run_time(redis_client) != last_known_run_time_ns:
-            logger.error("Poll query performance task terminating: another poller is running")
+            # Expected when the heartbeat restarts a slow chain while the old chain is still queued.
+            logger.info("Poll query performance task terminating: another poller is running")
             return
         Polling.set_last_run_time(redis_client, start_time_ns)
         from posthog.tasks.poll_query_performance import poll_query_performance as poll_query_performance_nontask
