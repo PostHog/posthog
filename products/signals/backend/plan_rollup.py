@@ -53,7 +53,8 @@ def _rolled_up_status(*, team_id: int, parent: SignalReport) -> SignalReport.Sta
     if not child_ids:
         return None
     statuses = list(
-        SignalReport.objects.filter(team_id=team_id, id__in=child_ids)
+        SignalReport.objects.using("default")
+        .filter(team_id=team_id, id__in=child_ids)
         .exclude(status=SignalReport.Status.DELETED)
         .values_list("status", flat=True)
     )
@@ -120,15 +121,19 @@ def roll_up_plan_parents(*, team_id: int, report_id: str) -> list[str]:
             if parent_id in visited:
                 continue
             visited.add(parent_id)
-            parent = SignalReport.objects.filter(team_id=team_id, id=parent_id).first()
-            if parent is None or parent.status == SignalReport.Status.DELETED:
-                continue
-            if _pending_replacement(team_id, parent_id):
-                continue
-            target = _rolled_up_status(team_id=team_id, parent=parent)
-            if target is None or not _close_parent(parent=parent, target=target):
-                continue
-            closed.append(parent_id)
+            with transaction.atomic():
+                parent = SignalReport.objects.select_for_update().filter(team_id=team_id, id=parent_id).first()
+                if parent is None or parent.status == SignalReport.Status.DELETED:
+                    continue
+                if _pending_replacement(team_id, parent_id):
+                    continue
+                target = _rolled_up_status(team_id=team_id, parent=parent)
+                if target is None:
+                    continue
+                if _close_parent(parent=parent, target=target):
+                    closed.append(parent_id)
+                if parent.status not in _CLOSED_STATUSES:
+                    continue
             next_frontier.extend(
                 edge.target_id
                 for edge in outgoing_links(team_id=team_id, report_id=parent_id, kinds=(ReportLinkKind.PART_OF,))

@@ -1,13 +1,14 @@
 import json
 import random
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
@@ -334,6 +335,21 @@ async def test_linked_report_context_carries_the_linked_reports_findings(ateam, 
     linked = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, title="step index column", summary="The column is missing."
     )
+    await database_sync_to_async(SignalReportArtefact.objects.create)(
+        team=ateam, report=linked, type="safety_judgment", content=json.dumps({"choice": True})
+    )
+    await database_sync_to_async(SignalReportArtefact.append_finding)(
+        team_id=ateam.id,
+        report_id=str(linked.id),
+        content=SignalFinding(
+            signal_id="sig-1",
+            relevant_code_paths=["obsolete.py"],
+            relevant_commit_hashes={},
+            data_queried="",
+            verified=True,
+        ),
+        attribution=ArtefactAttribution.system(),
+    )
     await database_sync_to_async(SignalReportArtefact.append_finding)(
         team_id=ateam.id,
         report_id=str(linked.id),
@@ -354,6 +370,13 @@ async def test_linked_report_context_carries_the_linked_reports_findings(ateam, 
         attribution=ArtefactAttribution.system(),
     )
 
+    await database_sync_to_async(SignalReportArtefact.add_log)(
+        team_id=ateam.id,
+        report_id=str(report.id),
+        content=ReportLink(kind=kind, report_id=str(linked.id), reason="repeated link"),
+        attribution=ArtefactAttribution.system(),
+    )
+
     context = await _load_linked_report_context(ateam.id, str(report.id))
 
     if not expected:
@@ -368,16 +391,19 @@ async def test_linked_report_context_carries_the_linked_reports_findings(ateam, 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_a_safety_suppressed_linked_report_is_never_read_back_into_a_prompt(ateam):
+@pytest.mark.parametrize("verdicts", [[], [False], [True, False], [False, True], ["invalid"], [{}], ["true"]])
+async def test_linked_report_context_requires_an_explicit_safe_verdict(ateam, verdicts):
     linked = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, title="unsafe", summary="Do not repeat this."
     )
-    await database_sync_to_async(SignalReportArtefact.objects.create)(
-        team=ateam,
-        report=linked,
-        type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
-        content=json.dumps({"choice": False}),
-    )
+    for index, verdict in enumerate(verdicts):
+        await database_sync_to_async(SignalReportArtefact.objects.create)(
+            team=ateam,
+            report=linked,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content="invalid" if verdict == "invalid" else json.dumps({"choice": verdict}),
+            created_at=timezone.now() + timedelta(seconds=index),
+        )
     report = await database_sync_to_async(SignalReport.objects.create)(team=ateam, title="r", summary="s")
     await database_sync_to_async(SignalReportArtefact.add_log)(
         team_id=ateam.id,
@@ -386,7 +412,8 @@ async def test_a_safety_suppressed_linked_report_is_never_read_back_into_a_promp
         attribution=ArtefactAttribution.system(),
     )
 
-    assert await _load_linked_report_context(ateam.id, str(report.id)) == []
+    context = await _load_linked_report_context(ateam.id, str(report.id))
+    assert bool(context) == bool(verdicts and verdicts[-1] is True)
 
 
 @pytest.mark.asyncio

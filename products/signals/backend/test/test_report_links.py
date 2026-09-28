@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -41,12 +42,17 @@ class TestReportLinkReaders(BaseTest):
             attribution=ArtefactAttribution.system(),
         )
 
-    def test_the_same_edge_reads_identically_from_either_end(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_the_same_edge_reads_identically_from_either_end(self, replica_reads):
         source, target = self._report("source"), self._report("target")
         self._link(source, target, ReportLinkKind.DEPENDS_ON, reason="needs the schema first")
 
-        outgoing = outgoing_links(team_id=self.team.id, report_id=source.id)
-        incoming = incoming_links(team_id=self.team.id, report_id=target.id)
+        with patch(
+            "posthog.dbrouter.ReplicaRouter.db_for_read",
+            return_value="unavailable_replica" if replica_reads else "default",
+        ):
+            outgoing = outgoing_links(team_id=self.team.id, report_id=source.id)
+            incoming = incoming_links(team_id=self.team.id, report_id=target.id)
 
         assert outgoing == incoming
         assert outgoing[0].source_id == str(source.id)
