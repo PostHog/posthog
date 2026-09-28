@@ -240,6 +240,7 @@ class RunsCursorPagination(CursorPagination):
 @extend_schema_view(list=extend_schema(parameters=[BatchExportRunListQuerySerializer]))
 class BatchExportRunViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "batch_export"
+    scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = BatchExportRun.objects.select_related("batch_export__destination").all()
     serializer_class = BatchExportRunSerializer
     pagination_class = RunsCursorPagination
@@ -1959,6 +1960,7 @@ def recursive_dict_merge(
 )
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
     scope_object = "batch_export"
+    scope_object_read_actions = ["list", "retrieve", "logs"]
     queryset = (
         BatchExport.objects.exclude(deleted=True)
         .order_by("-created_at")
