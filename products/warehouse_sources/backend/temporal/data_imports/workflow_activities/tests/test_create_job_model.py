@@ -4,7 +4,7 @@ import datetime as dt
 import pytest
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError
+from django.db import IntegrityError, OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -432,3 +432,34 @@ class TestCreateJobActivityDeletedSourceOrSchema:
         assert is_expected_activity_failure(exc_info.value)
         mock_delete_schedule.assert_called_once_with(str(schema.id))
         assert ExternalDataJob.objects.filter(schema_id=schema.id).count() == 0
+
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.delete_external_data_schedule")
+    @patch(f"{MODULE}._create_job")
+    def test_integrity_error_on_insert_is_treated_as_the_same_race(
+        self,
+        mock_create_job: MagicMock,
+        mock_delete_schedule: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        # The row can still vanish (e.g. a team deletion cascading to its source/schema) between
+        # the existence check passing and the insert itself, surfacing as a raw IntegrityError
+        # instead of the early check catching it.
+        team = _team()
+        schema = _schema(team, None)
+        mock_create_job.side_effect = IntegrityError(
+            'insert or update on table "posthog_externaldatajob" violates foreign key constraint'
+        )
+
+        inputs = CreateExternalDataJobModelActivityInputs(
+            team_id=team.id,
+            schema_id=schema.id,
+            source_id=schema.source_id,
+            billable=True,
+        )
+
+        with pytest.raises(SourceOrSchemaDeletedError) as exc_info:
+            create_external_data_job_model_activity(inputs)
+
+        assert is_expected_activity_failure(exc_info.value)
+        mock_delete_schedule.assert_called_once_with(str(schema.id))
