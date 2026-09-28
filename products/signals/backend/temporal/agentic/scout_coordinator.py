@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 import hashlib
-from collections import Counter
+from collections import Counter, deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
@@ -462,8 +462,8 @@ def _allocate_tick_budget(
 ) -> list[_DueRun]:
     """Apply the per-team and global tick caps fairly. Deterministic — no sampling.
 
-    Each team's due runs are ordered most-overdue-first and trimmed to its effective per-team
-    cap, then the global budget is filled round-robin across teams (one run per team per round) so
+    Each team's due runs are ordered most-overdue-first, then the global budgets are filled
+    round-robin across teams (one run per team per round, up to its effective per-team cap) so
     a single team with many due scouts can't monopolize the tick. Deferred runs stay unstamped, so
     they're the most overdue next tick — a poor-man's queue, same catch-up semantics as before.
 
@@ -499,12 +499,12 @@ def _allocate_tick_budget(
         return min(per_tick, remaining_today)
 
     by_team: dict[int, list[_DueRun]] = {}
-    overflow_by_team: dict[int, list[_DueRun]] = {}
     for d in due:
         by_team.setdefault(d.team_id, []).append(d)
+    team_caps: dict[int, int] = {}
     for team_id, runs in by_team.items():
         runs.sort(key=lambda d: (-d.overdue_s, d.skill_name))
-        cap = _team_cap(team_id)
+        cap = team_caps[team_id] = _team_cap(team_id)
         if len(runs) > cap:
             if cap == 0:
                 # The expected steady state once a team has spent its daily budget — info, not a
@@ -522,55 +522,50 @@ def _allocate_tick_budget(
                     due=len(runs),
                     cap=cap,
                 )
-            overflow_by_team[team_id] = runs[cap:]
-            del runs[cap:]
 
-    product_by_team = {team_id: [d for d in runs if not d.operational] for team_id, runs in by_team.items()}
-    operational_by_team = {team_id: [d for d in runs if d.operational] for team_id, runs in by_team.items()}
-    operational_selected = _fill_global_budget(operational_by_team, operational_cap)
-    # An operational run that loses its global slot releases its per-team slot. The team's most
-    # overdue product runs that the per-team trim dropped take that slot back.
-    unselected_operational = Counter(d.team_id for runs in operational_by_team.values() for d in runs) - Counter(
-        d.team_id for d in operational_selected
-    )
-    for team_id, released in unselected_operational.items():
-        refill = [d for d in overflow_by_team.get(team_id, []) if not d.operational][:released]
-        product_by_team[team_id].extend(refill)
-    return _fill_global_budget(product_by_team, global_cap) + operational_selected
+    # Keyed on `_DueRun.operational`: False is the product budget, True the operational one.
+    pool_caps = {False: global_cap, True: operational_cap}
+    queues = {
+        team_id: {pool: deque(d for d in runs if d.operational is pool) for pool in pool_caps}
+        for team_id, runs in by_team.items()
+    }
 
-
-def _fill_global_budget(by_team: dict[int, list[_DueRun]], global_cap: int) -> list[_DueRun]:
-    """Fill one global budget round-robin across teams, from runs already trimmed to per-team caps."""
-    # Drop teams trimmed to zero (e.g. daily budget spent) so the round-robin's most-overdue-team
-    # sort never indexes into an empty list.
-    by_team = {team_id: runs for team_id, runs in by_team.items() if runs}
-
-    # Count after per-team trimming — that's the real candidate pool the global cap defers
+    # Count after the per-team caps — that's the real candidate pool the global cap defers
     # against, so the warning doesn't fire on runs already dropped by the per-team caps.
-    total_after_team_caps = sum(len(runs) for runs in by_team.values())
-    if total_after_team_caps > global_cap:
-        logger.warning(
-            "signals_scout coordinator: more due than cap, deferring overflow",
-            due=total_after_team_caps,
-            cap=global_cap,
-        )
+    for pool, pool_cap in pool_caps.items():
+        candidates = sum(min(len(queues[team_id][pool]), team_caps[team_id]) for team_id in by_team)
+        if candidates > pool_cap:
+            logger.warning(
+                "signals_scout coordinator: more due than cap, deferring overflow",
+                due=candidates,
+                cap=pool_cap,
+                operational=pool,
+            )
 
-    # Most-overdue team first, team id as the deterministic tiebreak.
-    team_order = sorted(by_team, key=lambda t: (-by_team[t][0].overdue_s, t))
+    # Round-robin, one run per team per round, most-overdue team first with team id as the
+    # deterministic tiebreak. Each pick is the team's most overdue run in a budget that still has
+    # room, so a full budget hands the team's per-team slot to its next run in the other one.
+    active = sorted(
+        (team_id for team_id, runs in by_team.items() if runs and team_caps[team_id] > 0),
+        key=lambda t: (-by_team[t][0].overdue_s, t),
+    )
     selected: list[_DueRun] = []
-    # Lists are already trimmed to each team's cap, so the longest list is exactly the number
-    # of rounds needed — this naturally covers a team with a raised override too.
-    max_rounds = max((len(runs) for runs in by_team.values()), default=0)
-    for round_idx in range(max_rounds):
-        if len(selected) >= global_cap:
-            break
-        for team_id in team_order:
-            runs = by_team[team_id]
-            if round_idx >= len(runs):
+    taken: Counter[int] = Counter()
+    pool_used: Counter[bool] = Counter()
+    while active:
+        still_active: list[int] = []
+        for team_id in active:
+            heads = [q[0] for pool, q in queues[team_id].items() if q and pool_used[pool] < pool_caps[pool]]
+            if not heads:
                 continue
-            selected.append(runs[round_idx])
-            if len(selected) >= global_cap:
-                break
+            pick = min(heads, key=lambda d: (-d.overdue_s, d.skill_name))
+            queues[team_id][pick.operational].popleft()
+            selected.append(pick)
+            taken[team_id] += 1
+            pool_used[pick.operational] += 1
+            if taken[team_id] < team_caps[team_id]:
+                still_active.append(team_id)
+        active = still_active
     return selected
 
 

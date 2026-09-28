@@ -1238,17 +1238,38 @@ def test_per_team_caps_count_both_budgets(default_cfg: dict[str, int], runs_toda
     assert [d.skill_name for d in selected] == [_OPERATIONAL_SCOUT]
 
 
-def test_product_run_takes_the_slot_an_operational_run_did_not_get() -> None:
-    due = [
-        _DueRun(overdue_s=float("inf"), config_pk="o1", team_id=1, skill_name=_OPERATIONAL_SCOUT, operational=True),
-        _DueRun(overdue_s=float("inf"), config_pk="o2", team_id=2, skill_name=_OPERATIONAL_SCOUT, operational=True),
-        _DueRun(overdue_s=3600, config_pk="p2", team_id=2, skill_name="signals-scout-product"),
+@pytest.mark.parametrize(
+    "due,expected",
+    [
+        # Team 2's operational run loses the operational slot, so its product run takes the team's slot.
+        (
+            [
+                (1, "signals-scout-ops", float("inf"), True),
+                (2, "signals-scout-ops", float("inf"), True),
+                (2, "signals-scout-product", 3600, False),
+            ],
+            [(1, "signals-scout-ops"), (2, "signals-scout-product")],
+        ),
+        # Team 1's product run loses the product slot, so its operational run takes the team's slot.
+        (
+            [
+                (1, "signals-scout-product", 1000, False),
+                (1, "signals-scout-ops", 900, True),
+                (2, "signals-scout-product", 1100, False),
+            ],
+            [(1, "signals-scout-ops"), (2, "signals-scout-product")],
+        ),
+    ],
+)
+def test_a_full_budget_passes_the_team_slot_to_the_other_budget(
+    due: list[tuple[int, str, float, bool]], expected: list[tuple[int, str]]
+) -> None:
+    runs = [
+        _DueRun(overdue_s=overdue_s, config_pk=f"{team_id}-{name}", team_id=team_id, skill_name=name, operational=op)
+        for team_id, name, overdue_s, op in due
     ]
-    selected = _allocate_tick_budget(due, {}, {"max_runs_per_tick": 1}, {}, 1, 1)
-    assert sorted((d.team_id, d.skill_name) for d in selected) == [
-        (1, _OPERATIONAL_SCOUT),
-        (2, "signals-scout-product"),
-    ]
+    selected = _allocate_tick_budget(runs, {}, {"max_runs_per_tick": 1}, {}, 1, 1)
+    assert sorted((d.team_id, d.skill_name) for d in selected) == expected
 
 
 # ── Per-team config overrides via the flag payload (optional, opt-in per team) ───
