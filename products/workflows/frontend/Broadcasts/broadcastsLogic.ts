@@ -316,6 +316,12 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
             {} as Record<string, BroadcastRowDetails>,
             {
                 setRowDetails: (state, { id, details }) => ({ ...state, [id]: details }),
+                // A send can start between loads, so the run statuses that gate Archive are refetched with the
+                // list. The status tags and counts stay on screen until then.
+                loadBroadcasts: (state) =>
+                    Object.fromEntries(
+                        Object.entries(state).map(([id, { batchJobStatuses: _, ...details }]) => [id, details])
+                    ),
                 clearRowDetails: (state, { id }) => {
                     const { [id]: _, ...rest } = state
                     return rest
