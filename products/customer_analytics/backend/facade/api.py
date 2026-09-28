@@ -3589,7 +3589,6 @@ def create_account(
         was_impersonated=was_impersonated,
         trigger=trigger,
     )
-    schedule_email_thread_link_recalculation(team.pk)
     return account
 
 
