@@ -385,6 +385,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                                 onPressEnter={addOnEnter}
                                 autoComplete="off"
                                 fullWidth
+                                aria-label="PagerDuty routing key"
                                 data-attr="alert-notification-pagerduty-routing-key"
                             />
                             <p className="text-xs text-muted-alt m-0">
@@ -401,6 +402,8 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                                         options={PAGERDUTY_SEVERITY_OPTIONS}
                                         value={pagerduty.severity}
                                         onChange={pagerduty.onSeverityChange}
+                                        aria-label="PagerDuty severity"
+                                        data-attr="alert-notification-pagerduty-severity"
                                     />
                                 </div>
                                 {addDestinationButton}

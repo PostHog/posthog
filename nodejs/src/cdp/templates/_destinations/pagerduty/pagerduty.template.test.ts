@@ -116,14 +116,14 @@ describe('pagerduty template', () => {
         expect(response.error).toContain('Unsupported event action "page". Use trigger, acknowledge or resolve.')
     })
 
-    it('fails when PagerDuty rejects the event', async () => {
+    it.each([400, 302])('fails when PagerDuty answers with status %p', async (status) => {
         const response = await tester.invoke(inputs())
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            status: 400,
+            status,
             body: { status: 'invalid event', message: 'Event object is invalid' },
         })
 
-        expect(fetchResponse.error).toContain('PagerDuty rejected the event: 400')
+        expect(fetchResponse.error).toContain(`PagerDuty rejected the event: ${status}`)
     })
 })

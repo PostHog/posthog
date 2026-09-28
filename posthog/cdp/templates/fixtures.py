@@ -106,7 +106,7 @@ let res := fetch('https://events.pagerduty.com/v2/enqueue', {
   }
 });
 
-if (res.status >= 400) {
+if (res.status < 200 or res.status >= 300) {
   throw Error(f'PagerDuty rejected the event: {res.status}: {res.body}');
 }
 """.strip(),
