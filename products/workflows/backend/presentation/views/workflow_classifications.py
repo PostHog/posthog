@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 
 import structlog
@@ -23,6 +24,9 @@ JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 # Keep it below CLASSIFY_TIMEOUT_MS in nodejs/src/cdp/async-functions/classify.ts so the worker receives the 503.
 TIMEOUT_SECONDS = 5.0
 _QUESTION_ID = "category"
+# Same state limit as the ml_inference decide API, which asks the same model.
+# Keep it equal to MAX_CONTEXT_CHARS in nodejs/src/cdp/async-functions/classify.ts.
+MAX_CONTEXT_CHARS = 65_536
 
 
 class WorkflowClassifyJWTAuthentication(ScopedServiceJWTAuthentication):
@@ -43,12 +47,17 @@ class WorkflowClassificationRequestSerializer(serializers.Serializer):
         help_text="What to decide about the context, for example 'Which team should handle this ticket?'",
     )
     context = serializers.JSONField(
-        help_text="The data to classify, such as ticket fields or event properties. The model reads it as data, never as instructions."
+        help_text=f"The data to classify, such as ticket fields or event properties. The model reads it as data, never as instructions. At most {MAX_CONTEXT_CHARS} characters of JSON."
     )
     categories = serializers.DictField(
         child=serializers.CharField(max_length=500, allow_blank=True),
         help_text=f"Category names mapped to a short description of when each applies. 2 to {GATEWAY_MAX_CHOICE_OPTIONS} categories.",
     )
+
+    def validate_context(self, value: Any) -> Any:
+        if len(json.dumps(value, ensure_ascii=False, separators=(",", ":"))) > MAX_CONTEXT_CHARS:
+            raise serializers.ValidationError(f"Keep the context to {MAX_CONTEXT_CHARS} characters of JSON or fewer.")
+        return value
 
     def validate_categories(self, value: dict[str, str]) -> dict[str, str]:
         if not 2 <= len(value) <= GATEWAY_MAX_CHOICE_OPTIONS:
