@@ -2,6 +2,9 @@ import * as fs from 'fs/promises'
 import { HTTPRequest } from 'puppeteer'
 import { zstdDecompressSync } from 'zlib'
 
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { downloadFromS3, parseS3Uri } from '~/session-replay/recording-rasterizer/storage'
+
 import { BLOCK_REQUEST_PREFIX, BlockSource } from './block-proxy'
 
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd])
@@ -36,4 +39,18 @@ export class FileBlockSource implements BlockSource {
         }
         await request.respond({ status: 200, contentType: 'text/plain', body: this.jsonl })
     }
+}
+
+// The rasterizer's role can read every team's exports, so the allowlist bounds what a source can point at.
+export async function blockSourceFromS3(
+    uri: string,
+    localPath: string,
+    allowedPrefixes: string[]
+): Promise<FileBlockSource> {
+    if (!allowedPrefixes.some((prefix) => uri.startsWith(prefix))) {
+        throw new RasterizationError(`source_s3_uri is outside the allowed prefixes: ${uri}`, false, 'INVALID_INPUT')
+    }
+    const { bucket, key } = parseS3Uri(uri)
+    await downloadFromS3(bucket, key, localPath)
+    return new FileBlockSource(localPath)
 }

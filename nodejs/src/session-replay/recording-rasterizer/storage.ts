@@ -125,6 +125,14 @@ export async function uploadToS3(
 }
 
 /** Fetch one object to a local path. The thumbnail activity reads the analysis MP4 this way. */
+export function parseS3Uri(uri: string): { bucket: string; key: string } {
+    const match = /^s3:\/\/([^/]+)\/(.+)$/.exec(uri)
+    if (!match) {
+        throw new RasterizationError(`Not an S3 URI: ${uri}`, false, 'INVALID_INPUT')
+    }
+    return { bucket: match[1], key: match[2] }
+}
+
 export async function downloadFromS3(bucket: string, key: string, localPath: string): Promise<void> {
     try {
         const res = await getS3Client().send(new GetObjectCommand({ Bucket: bucket, Key: key }))

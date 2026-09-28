@@ -46,6 +46,9 @@ class RasterizationActivityInput(BaseModel, frozen=True):
     # Defaults to "" so a workflow that recorded build_rasterization_input's result under an older
     # release (before this field existed) still deserializes on replay instead of failing validation.
     recording_api_token: str = ""
+    # Renders this JSONL object instead of the team's recording. Internal callers only: build_rasterization_input
+    # never reads it from export_context, which users can write through the exports API.
+    source_s3_uri: str | None = None
     s3_bucket: str
     s3_key_prefix: str
     playback_speed: float = 4
@@ -116,7 +119,14 @@ class RecordRasterizationFailureInput(BaseModel, frozen=True):
 
 # Output destination fields — excluded so bucket/prefix changes don't invalidate caches.
 # recording_api_token is per-run and ephemeral, so it must never participate in the cache key.
-_FINGERPRINT_EXCLUDE: set[str] = {"team_id", "session_id", "s3_bucket", "s3_key_prefix", "recording_api_token"}
+_FINGERPRINT_EXCLUDE: set[str] = {
+    "team_id",
+    "session_id",
+    "source_s3_uri",
+    "s3_bucket",
+    "s3_key_prefix",
+    "recording_api_token",
+}
 
 
 # Bump when the renderer draws the same inputs differently, so videos cached from the old renderer are not reused.

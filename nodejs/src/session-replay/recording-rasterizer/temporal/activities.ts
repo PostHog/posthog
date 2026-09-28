@@ -8,6 +8,7 @@ import * as path from 'path'
 import { METADATA_FOOTER_HEIGHT_PX } from '@posthog/replay-headless/protocol'
 
 import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { blockSourceFromS3 } from '~/session-replay/recording-rasterizer/capture/file-block-source'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { asRasterizationError } from '~/session-replay/recording-rasterizer/errors'
@@ -60,6 +61,7 @@ async function rasterizeRecordingActivity(
     const workDir = process.env.VIDEO_WORK_DIR || os.tmpdir()
     const ext = input.output_format || 'mp4'
     const outputPath = path.join(workDir, `ph-video-${id}.${ext}`)
+    const sourcePath = path.join(workDir, `ph-source-${id}.jsonl`)
 
     const timings: ActivityTimings = { total_s: 0, setup_s: 0, capture_s: 0, upload_s: 0 }
 
@@ -127,10 +129,14 @@ async function rasterizeRecordingActivity(
     }, 10_000)
 
     try {
+        const blockSource = input.source_s3_uri
+            ? await blockSourceFromS3(input.source_s3_uri, sourcePath, config.sourceS3Prefixes)
+            : undefined
         const result = await rasterizeRecording(pool, input, outputPath, playerHtml, onProgress, {
             progress,
             log,
             signal: abort.signal,
+            blockSource,
         })
         timings.setup_s = result.timings.setup_s
         timings.capture_s = result.timings.capture_s
@@ -223,6 +229,7 @@ async function rasterizeRecordingActivity(
         ctx.cancellationSignal.removeEventListener('abort', onCancel)
         RasterizationMetrics.activityFinished()
         await fs.rm(outputPath, { force: true })
+        await fs.rm(sourcePath, { force: true })
     }
 }
 

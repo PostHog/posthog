@@ -45,6 +45,8 @@ export const config = {
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,
     s3Region: process.env.VIDEO_EXPORT_OBJECT_STORAGE_REGION || 'us-east-1',
+    // `s3://bucket/prefix/` entries a render's source_s3_uri may point into. Empty disables file sources.
+    sourceS3Prefixes: parseList(process.env.RASTERIZER_SOURCE_S3_PREFIXES ?? '').filter(Boolean),
 
     // Recording API. The dev recording-api listens on 6741 (bin/temporal-recording-rasterizer-worker).
     recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6741',
