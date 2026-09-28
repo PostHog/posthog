@@ -9,7 +9,7 @@ import SourceForm from 'products/data_warehouse/frontend/shared/components/forms
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import { WAREHOUSE_SOURCE_SETUP, WarehouseBackedSource } from '../../signalSourcesLogic'
+import { WAREHOUSE_SOURCE_SETUP, WarehouseBackedSource, dataSourceSetupReturnUrl } from '../../signalSourcesLogic'
 
 /** Connect-a-warehouse-source flow for a signal source; tables and wizard product come from its registration. */
 export function DataSourceSetup({
@@ -40,12 +40,18 @@ export function DataSourceSetup({
                 onComplete,
             }}
         >
-            <DataSourceSetupForm sourceConfig={sourceConfig} />
+            <DataSourceSetupForm sourceConfig={sourceConfig} source={source} />
         </BindLogic>
     )
 }
 
-function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfigResponseApi }): JSX.Element {
+function DataSourceSetupForm({
+    sourceConfig,
+    source,
+}: {
+    sourceConfig: SourceConfigResponseApi
+    source: WarehouseBackedSource
+}): JSX.Element {
     const { isLoading, canGoNext } = useValues(sourceWizardLogic)
     const { setInitialConnector, onSubmit } = useActions(sourceWizardLogic)
 
@@ -62,7 +68,13 @@ function DataSourceSetupForm({ sourceConfig }: { sourceConfig: SourceConfigRespo
                 </p>
             </div>
 
-            <SourceForm sourceConfig={sourceConfig} showPrefix={false} />
+            {/* A source that connects over OAuth leaves PostHog, so say where to come back to:
+                here, rather than the standalone new-source scene the wizard defaults to. */}
+            <SourceForm
+                sourceConfig={sourceConfig}
+                showPrefix={false}
+                oauthRedirectUrl={dataSourceSetupReturnUrl(source)}
+            />
 
             <div className="flex justify-end">
                 <LemonButton
