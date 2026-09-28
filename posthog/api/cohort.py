@@ -2120,13 +2120,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             raise ValidationError("person_ids cannot be empty")
         if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
             raise ValidationError("List size exceeds limit")
+        normalized_person_ids: dict[str, None] = {}
         for person_id in person_ids:
+            if not isinstance(person_id, str):
+                raise ValidationError("person_ids must contain valid UUIDs")
             try:
-                uuid.UUID(str(person_id))
+                normalized_person_ids[str(uuid.UUID(person_id))] = None
             except ValueError:
                 raise ValidationError("person_ids must contain valid UUIDs")
 
-        removed_count = cohort.remove_users_by_uuids([str(person_id) for person_id in person_ids], team_id=self.team_id)
+        removed_count = cohort.remove_users_by_uuids(list(normalized_person_ids), team_id=self.team_id)
         if removed_count == 0:
             raise NotFound("None of these UUIDs match a person in the cohort's team")
 

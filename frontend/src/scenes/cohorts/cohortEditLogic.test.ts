@@ -1062,6 +1062,35 @@ describe('cohortEditLogic', () => {
 
             expect(requestBody).toEqual({ person_ids: ['person-1', 'person-2'] })
         })
+
+        it('keeps the selection when the request fails', async () => {
+            useMocks({
+                patch: {
+                    '/api/projects/:team_id/cohorts/:id/remove_persons_from_static_cohort/': () => [
+                        500,
+                        { detail: 'Server error' },
+                    ],
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            logic.actions.togglePersonToRemoveFromCohort('person-1')
+
+            await expectLogic(logic, () => {
+                logic.actions.removeSelectedPersonsFromCohort()
+            })
+                .toDispatchActions(['removeSelectedPersonsFromCohortDone'])
+                .toNotHaveDispatchedActions(['resetPersonsToRemoveFromCohort'])
+                .toMatchValues({ personsToRemoveFromCohort: { 'person-1': true }, removingPersonsFromCohort: false })
+        })
+
+        it('clears the selection when the query changes', async () => {
+            await initCohortLogic({ id: 1 })
+            logic.actions.togglePersonToRemoveFromCohort('person-1')
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(logic.values.query)
+            }).toMatchValues({ personsToRemoveFromCohort: {} })
+        })
     })
 
     describe('mutate filters', () => {

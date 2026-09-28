@@ -59,6 +59,7 @@ export function RemovePersonFromCohortButton({ person }: RemovePersonFromCohortB
             <LemonCheckbox
                 checked={person.id in personsToRemoveFromCohort}
                 onChange={() => togglePersonToRemoveFromCohort(person.id)}
+                aria-label={`Select ${person.display_name === person.id ? 'Anonymous' : person.display_name} for removal`}
                 data-attr="select-person-to-remove-from-cohort"
             />
             <LemonButton

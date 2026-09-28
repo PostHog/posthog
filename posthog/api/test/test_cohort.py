@@ -5199,7 +5199,7 @@ email@example.org,
         unknown_uuid = "12345678-1234-1234-1234-123456789abc"
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{static_cohort.id}/remove_persons_from_static_cohort",
-            {"person_ids": [str(persons[0].uuid), str(persons[1].uuid), unknown_uuid]},
+            {"person_ids": [str(persons[0].uuid), persons[0].uuid.hex, str(persons[1].uuid).upper(), unknown_uuid]},
             format="json",
         )
 
@@ -5219,6 +5219,7 @@ email@example.org,
             ("missing", {}, 400, "person_ids must be a list"),
             ("empty", {"person_ids": []}, 400, "person_ids cannot be empty"),
             ("invalid_uuid", {"person_ids": ["a"]}, 400, "person_ids must contain valid UUIDs"),
+            ("non_string_uuid", {"person_ids": [123]}, 400, "person_ids must contain valid UUIDs"),
             ("too_many", {"person_ids": [str(uuid4()) for _ in range(1001)]}, 400, "List size exceeds limit"),
             ("unknown_persons", {"person_ids": [str(uuid4())]}, 404, "None of these UUIDs match a person"),
         ]

@@ -808,6 +808,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     return newState
                 },
                 resetPersonsToRemoveFromCohort: () => ({}),
+                // A new search or filter can hide selected rows, so drop the selection before the user removes them.
+                setQuery: () => ({}),
             },
         ],
         removingPersonsFromCohort: [
