@@ -15,6 +15,7 @@ export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
 
 export const CreditCTAHero = (): JSX.Element | null => {
     const {
+        billing,
         creditOverview,
         isPurchaseCreditsModalOpen,
         isCreditCTAHeroDismissed,
@@ -133,7 +134,11 @@ export const CreditCTAHero = (): JSX.Element | null => {
                             <LemonButton
                                 type="primary"
                                 onClick={() =>
-                                    creditOverview.invoice_url && window.open(creditOverview.invoice_url, '_blank')
+                                    creditOverview.invoice_url &&
+                                    window.open(
+                                        billing?.external_billing_provider_invoices_url || creditOverview.invoice_url,
+                                        '_blank'
+                                    )
                                 }
                                 className="w-30 mt-4"
                             >

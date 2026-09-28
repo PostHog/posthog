@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { BillingAPIErrorCodes, billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -28,6 +28,9 @@ const creditOverviewResponse = {
     email: null,
     credit_brackets: [],
 }
+
+const EXTERNAL_INVOICES_URL = 'https://vercel.com/example-team/~/integrations/posthog/icfg_example/invoices'
+const HOSTED_INVOICE_URL = 'https://invoice.stripe.com/i/acct_example/test_example'
 
 const productWithUsage = (
     percentageUsage: number,
@@ -313,5 +316,119 @@ describe('billingLogic', () => {
         expect(billingLogic.values.canViewUsageAndSpend).toBe(expected.canViewUsageAndSpend)
         expect(billingLogic.values.canOnlyViewUsageAndSpend).toBe(expected.canOnlyViewUsageAndSpend)
         expect(billingLogic.values.billingEntryUrl).toBe(expected.billingEntryUrl)
+    })
+
+    it.each<{
+        name: string
+        externalInvoicesUrl?: string
+        openInvoices: { count: number; link: string | null }
+        loadBillingFirst: boolean
+        expectedLink: string | undefined
+    }>([
+        {
+            name: 'the hosted invoice when one invoice is open',
+            openInvoices: { count: 1, link: HOSTED_INVOICE_URL },
+            loadBillingFirst: true,
+            expectedLink: HOSTED_INVOICE_URL,
+        },
+        {
+            name: 'the Stripe portal when several invoices are open',
+            openInvoices: { count: 2, link: null },
+            loadBillingFirst: true,
+            expectedLink: billingJson.stripe_portal_url,
+        },
+        {
+            name: 'the external provider instead of the hosted invoice',
+            externalInvoicesUrl: EXTERNAL_INVOICES_URL,
+            openInvoices: { count: 1, link: HOSTED_INVOICE_URL },
+            loadBillingFirst: true,
+            expectedLink: EXTERNAL_INVOICES_URL,
+        },
+        {
+            name: 'the external provider instead of the Stripe portal',
+            externalInvoicesUrl: EXTERNAL_INVOICES_URL,
+            openInvoices: { count: 2, link: null },
+            loadBillingFirst: true,
+            expectedLink: EXTERNAL_INVOICES_URL,
+        },
+        {
+            name: 'the external provider when invoices load before billing',
+            externalInvoicesUrl: EXTERNAL_INVOICES_URL,
+            openInvoices: { count: 1, link: HOSTED_INVOICE_URL },
+            loadBillingFirst: false,
+            expectedLink: EXTERNAL_INVOICES_URL,
+        },
+    ])(
+        'links the open invoice banner to $name',
+        async ({ externalInvoicesUrl, openInvoices, loadBillingFirst, expectedLink }) => {
+            billingState = { ...billingState, external_billing_provider_invoices_url: externalInvoicesUrl }
+            useMocks({ get: { '/api/billing/get_invoices': [200, openInvoices] } })
+            billingLogic.mount()
+            await expectLogic(preflightLogic).toFinishAllListeners()
+
+            if (loadBillingFirst) {
+                await expectLogic(billingLogic, () => {
+                    billingLogic.actions.loadBilling()
+                }).toFinishAllListeners()
+            }
+            await expectLogic(billingLogic, () => {
+                billingLogic.actions.loadInvoices()
+            }).toFinishAllListeners()
+
+            expect(billingLogic.values.billingError?.action.to).toBe(expectedLink)
+        }
+    )
+
+    it.each<{
+        name: string
+        code: BillingAPIErrorCodes
+        externalInvoicesUrl?: string
+        invoiceLink: string | null
+        expectedLink: string | undefined
+    }>([
+        {
+            name: 'open invoices to the Stripe portal',
+            code: BillingAPIErrorCodes.OPEN_INVOICES_ERROR,
+            invoiceLink: null,
+            expectedLink: billingJson.stripe_portal_url,
+        },
+        {
+            name: 'an unpaid invoice to its hosted invoice',
+            code: BillingAPIErrorCodes.COULD_NOT_PAY_INVOICES_ERROR,
+            invoiceLink: HOSTED_INVOICE_URL,
+            expectedLink: HOSTED_INVOICE_URL,
+        },
+        {
+            name: 'open invoices to the external provider',
+            code: BillingAPIErrorCodes.OPEN_INVOICES_ERROR,
+            externalInvoicesUrl: EXTERNAL_INVOICES_URL,
+            invoiceLink: null,
+            expectedLink: EXTERNAL_INVOICES_URL,
+        },
+        {
+            name: 'an unpaid invoice to the external provider',
+            code: BillingAPIErrorCodes.COULD_NOT_PAY_INVOICES_ERROR,
+            externalInvoicesUrl: EXTERNAL_INVOICES_URL,
+            invoiceLink: HOSTED_INVOICE_URL,
+            expectedLink: EXTERNAL_INVOICES_URL,
+        },
+    ])('links the unsubscribe error for $name', async ({ code, externalInvoicesUrl, invoiceLink, expectedLink }) => {
+        billingState = { ...billingState, external_billing_provider_invoices_url: externalInvoicesUrl }
+        useMocks({
+            post: {
+                '/api/billing/deactivate': [400, { code, detail: 'Pay your open invoices first.', link: invoiceLink }],
+            },
+        })
+        billingLogic.mount()
+        await expectLogic(preflightLogic).toFinishAllListeners()
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.loadBilling()
+        }).toFinishAllListeners()
+
+        await expectLogic(billingLogic, () => {
+            billingLogic.actions.deactivateProduct(ProductKey.PRODUCT_ANALYTICS)
+        }).toFinishAllListeners()
+
+        expect(billingLogic.values.unsubscribeError?.link.props.to).toBe(expectedLink)
     })
 })

@@ -848,7 +848,7 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
     }),
-    lazyLoaders(({ actions, values }) => ({
+    lazyLoaders(({ actions, asyncActions, values }) => ({
         billing: [
             null as BillingType | null,
             {
@@ -912,7 +912,13 @@ export const billingLogic = kea<billingLogicType>([
                                 actions.setUnsubscribeError({
                                     detail: error.detail,
                                     link: (
-                                        <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                        <Link
+                                            to={
+                                                values.billing?.external_billing_provider_invoices_url ||
+                                                values.billing?.stripe_portal_url
+                                            }
+                                            target="_blank"
+                                        >
                                             View invoices
                                         </Link>
                                     ),
@@ -925,7 +931,14 @@ export const billingLogic = kea<billingLogicType>([
                                 actions.setUnsubscribeError({
                                     detail: error.detail,
                                     link: (
-                                        <Link to={error.link || values.billing?.stripe_portal_url} target="_blank">
+                                        <Link
+                                            to={
+                                                values.billing?.external_billing_provider_invoices_url ||
+                                                error.link ||
+                                                values.billing?.stripe_portal_url
+                                            }
+                                            target="_blank"
+                                        >
                                             {error.link ? 'View invoice' : 'View invoices'}
                                         </Link>
                                     ),
@@ -984,11 +997,17 @@ export const billingLogic = kea<billingLogicType>([
                         const jsonRes = await getJSONOrNull(res)
                         const numOpenInvoices = jsonRes['count']
                         if (numOpenInvoices > 0) {
+                            // Invoices can load before billing, and only billing says whether an
+                            // external provider collects payment.
+                            if (!values.billing) {
+                                await asyncActions.loadBilling()
+                            }
                             const viewInvoicesButton = {
                                 to:
-                                    numOpenInvoices == 1 && jsonRes['link']
+                                    values.billing?.external_billing_provider_invoices_url ||
+                                    (numOpenInvoices == 1 && jsonRes['link']
                                         ? jsonRes['link']
-                                        : values.billing?.stripe_portal_url,
+                                        : values.billing?.stripe_portal_url),
                                 children: `View invoice${numOpenInvoices > 1 ? 's' : ''}`,
                                 targetBlank: true,
                             }
@@ -1352,7 +1371,13 @@ export const billingLogic = kea<billingLogicType>([
                                 <p>
                                     Your card will be charged soon and the credits will be applied to your account.
                                     Please make sure your{' '}
-                                    <Link to={values.billing?.stripe_portal_url} target="_blank">
+                                    <Link
+                                        to={
+                                            values.billing?.external_billing_provider_invoices_url ||
+                                            values.billing?.stripe_portal_url
+                                        }
+                                        target="_blank"
+                                    >
                                         card on file
                                     </Link>{' '}
                                     is up to date. You will receive an email when the credits are applied.

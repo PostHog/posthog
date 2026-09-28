@@ -201,7 +201,10 @@ export const UnsubscribeSurveyModal = ({
                                 We're sorry to see you go! Please note, you'll lose access to platform features and
                                 usage limits will apply immediately. And if you have any outstanding invoices, they will
                                 be billed immediately.{' '}
-                                <Link to={billing?.stripe_portal_url} target="_blank">
+                                <Link
+                                    to={billing?.external_billing_provider_invoices_url || billing?.stripe_portal_url}
+                                    target="_blank"
+                                >
                                     View invoices
                                 </Link>
                             </p>
