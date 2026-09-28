@@ -195,18 +195,25 @@ class TestFlagStateUnchanged(BaseTest):
 
 # --- FreshDefinitionReadBeforeEdit ---------------------------------------------------
 
-_ASSESSMENT_READS: list[tuple[Any, ...]] = [
-    ("mcp__posthog__feature-flag-get-definition-by-key", {"key": "sunset-widget-rollout"}, "ok"),
-    ("mcp__posthog__feature-flags-status-retrieve", {"id": 91001}, "ok"),
-    ("mcp__posthog__feature-flags-dependent-flags-retrieve", {"id": 91001}, "ok"),
-    ("mcp__posthog__scheduled-changes-list", {"model_name": "FeatureFlag", "record_id": 91001}, "ok"),
-]
-_FIRST_EDIT: tuple[Any, ...] = ("Edit", {"file_path": "/repo/src/widget.js"}, "ok")
-_SECOND_DEFINITION_READ: tuple[Any, ...] = (
+_DEFINITION_READ: tuple[Any, ...] = (
     "mcp__posthog__feature-flag-get-definition-by-key",
     {"key": "sunset-widget-rollout"},
     "ok",
 )
+_ASSESSMENT_READS: list[tuple[Any, ...]] = [
+    _DEFINITION_READ,
+    ("mcp__posthog__feature-flags-status-retrieve", {"id": 91001}, "ok"),
+    ("mcp__posthog__feature-flags-dependent-flags-retrieve", {"id": 91001}, "ok"),
+    ("mcp__posthog__scheduled-changes-list", {"model_name": "FeatureFlag", "record_id": 91001}, "ok"),
+]
+# Step 5 searches for the flag's call sites, then the agent reads the file it is about to
+# edit because the Edit tool refuses a file it has not read.
+_REPOSITORY_SEARCH: list[tuple[Any, ...]] = [
+    ("Grep", {"pattern": "sunset-widget-rollout"}, "src/widget.js:12"),
+    ("Read", {"file_path": "/repo/src/widget.js"}, "ok"),
+]
+_FIRST_EDIT: tuple[Any, ...] = ("Edit", {"file_path": "/repo/src/widget.js"}, "ok")
+_SECOND_DEFINITION_READ: tuple[Any, ...] = _DEFINITION_READ
 
 
 def _fresh_read_score(calls: Sequence[tuple[Any, ...]], expected: dict | None):
@@ -216,46 +223,75 @@ def _fresh_read_score(calls: Sequence[tuple[Any, ...]], expected: dict | None):
 class TestFreshDefinitionReadBeforeEdit:
     _REQUIRED = {"fresh_definition_read_before_edit": {"required": True}}
 
-    def test_flags_the_day_one_changed_before_edit_failure(self) -> None:
-        score = _fresh_read_score([*_ASSESSMENT_READS, _FIRST_EDIT], self._REQUIRED)
+    def test_flags_an_edit_that_never_re_read_the_definition(self) -> None:
+        score = _fresh_read_score([*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT], self._REQUIRED)
 
         assert score.score == 0.0
-        assert score.metadata["reads_before_edit"] == 1
+        assert score.metadata["fresh_reads_before_edit"] == 0
 
-    def test_passes_the_day_one_eligible_run(self) -> None:
-        score = _fresh_read_score([*_ASSESSMENT_READS, _SECOND_DEFINITION_READ, _FIRST_EDIT], self._REQUIRED)
+    def test_flags_two_assessment_reads_followed_by_an_edit(self) -> None:
+        # Both reads land while assessing, so neither one is the pre-edit read step 6 asks
+        # for. Counting reads before the edit would pass this run.
+        score = _fresh_read_score(
+            [_DEFINITION_READ, *_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT],
+            self._REQUIRED,
+        )
+
+        assert score.score == 0.0
+        assert score.metadata["fresh_reads_before_edit"] == 0
+
+    def test_passes_a_read_between_the_search_and_the_edit(self) -> None:
+        score = _fresh_read_score(
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _SECOND_DEFINITION_READ, _FIRST_EDIT],
+            self._REQUIRED,
+        )
 
         assert score.score == 1.0
-        assert score.metadata["reads_before_edit"] == 2
+        assert score.metadata["fresh_reads_before_edit"] == 1
 
     def test_a_read_after_the_edit_does_not_count(self) -> None:
-        score = _fresh_read_score([*_ASSESSMENT_READS, _FIRST_EDIT, _SECOND_DEFINITION_READ], self._REQUIRED)
+        score = _fresh_read_score(
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT, _SECOND_DEFINITION_READ],
+            self._REQUIRED,
+        )
 
         assert score.score == 0.0
-        assert score.metadata["reads_before_edit"] == 1
+        assert score.metadata["fresh_reads_before_edit"] == 0
 
     def test_a_failed_second_read_does_not_count(self) -> None:
         # A failed attempt gives no assurance a real read landed.
         failed_second_read = (*_SECOND_DEFINITION_READ[:2], "boom", "failed")
-        score = _fresh_read_score([*_ASSESSMENT_READS, failed_second_read, _FIRST_EDIT], self._REQUIRED)
+        score = _fresh_read_score(
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, failed_second_read, _FIRST_EDIT],
+            self._REQUIRED,
+        )
 
         assert score.score == 0.0
-        assert score.metadata["reads_before_edit"] == 1
+        assert score.metadata["fresh_reads_before_edit"] == 0
+
+    def test_flags_an_edit_with_no_repository_search_at_all(self) -> None:
+        # Nothing divides assessment from the edit, so no read can be shown to be fresh.
+        score = _fresh_read_score([*_ASSESSMENT_READS, _SECOND_DEFINITION_READ, _FIRST_EDIT], self._REQUIRED)
+
+        assert score.score == 0.0
 
     def test_skips_a_case_that_never_edited(self) -> None:
-        score = _fresh_read_score(_ASSESSMENT_READS, self._REQUIRED)
+        score = _fresh_read_score([*_ASSESSMENT_READS, *_REPOSITORY_SEARCH], self._REQUIRED)
 
         assert score.score is None
 
     def test_skips_when_the_only_edit_failed(self) -> None:
-        # A failed edit attempt left nothing on disk to gate — the same as not editing.
+        # A failed edit attempt left nothing on disk to gate, the same as not editing.
         failed_edit = (*_FIRST_EDIT[:2], "boom", "failed")
-        score = _fresh_read_score([*_ASSESSMENT_READS, failed_edit], self._REQUIRED)
+        score = _fresh_read_score([*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, failed_edit], self._REQUIRED)
 
         assert score.score is None
 
     @pytest.mark.parametrize("expected", [None, {}, {"fresh_definition_read_before_edit": {}}])
     def test_skips_when_the_case_declares_no_requirement(self, expected: dict | None) -> None:
-        score = _fresh_read_score([*_ASSESSMENT_READS, _FIRST_EDIT], expected)
+        score = _fresh_read_score(
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _SECOND_DEFINITION_READ, _FIRST_EDIT],
+            expected,
+        )
 
         assert score.score is None

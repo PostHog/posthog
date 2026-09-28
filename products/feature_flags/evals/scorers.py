@@ -621,6 +621,13 @@ EXPLAINED_TAG_REQUIREMENT_QUESTION = (
 # suites that grade edit direction refuse codex runs (see seeders._require_claude_runtime).
 FILE_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit"})
 
+# The search tools step 5 runs to find the flag's references. The first of these calls is
+# the point where assessment ends and the cleanup itself starts, which is what
+# FreshDefinitionReadBeforeEdit needs to tell the two apart. Read is deliberately not here:
+# the Edit tool refuses a file the agent has not read, so a Read sits between the fresh
+# definition read and the first edit on every correct run.
+REPO_SEARCH_TOOLS = frozenset({"Grep", "Glob"})
+
 # The read tools the cleanup skill's assessment steps go through. A run that never calls
 # any of them decided about the seeded flag without looking at it. The by-key variant is
 # here because it is the lookup the MCP surface steers an agent toward when a prompt hands
@@ -707,27 +714,29 @@ class ToolGroupDirection(Scorer):
 
 
 class FreshDefinitionReadBeforeEdit(Scorer):
-    """Binary: did a definition read land after the assessment read and before the first edit?
+    """Binary: did a definition read land after the repository search and before the first edit?
 
-    Regression cover for the Day-1 evidence's ``changed_before_edit`` failure: the
-    skill's step 6 says to re-fetch the flag definition immediately before the first
+    The skill's step 6 says to re-fetch the flag definition immediately before the first
     write, even when it was already read at assessment time, so a rollout that moved
     between the two is never edited against stale data. An agent that assessed once and
-    edited straight off it satisfies every other cleanup scorer here — the edit direction
-    is right, the flag itself is never mutated — so nothing else in this suite catches
-    a skipped second read.
+    edited straight off that read satisfies every other cleanup scorer here, because the
+    edit direction is right and the flag itself is never mutated, so nothing else in this
+    suite catches a skipped second read.
 
     Applies only when ``expected.fresh_definition_read_before_edit.required`` is true and
     at least one file-edit tool call ran; a case with no edit is a different scorer's question
     (``ToolGroupDirection`` grades whether an edit should have happened at all), so this
     one skips with ``score=None`` rather than penalizing a correct refusal.
 
-    Counts every successful ``DEFINITION_READ_TOOLS`` call positioned strictly before the
-    first edit. One means only the original assessment read reached the write — the
-    skipped-read failure. Two or more means a fresh read happened in between, whether or
-    not the definition actually changed; catching the changed-value case this way, rather
-    than by re-deriving the flag's rollout from the log, is deliberate: the failure mode
-    Day 1 observed was the missing call itself, not a wrong read of a right one.
+    A count of the reads that precede the edit cannot answer the question, because two reads
+    taken while assessing look the same as an assessment read plus a fresh one. The step 5
+    repository search is the divider: an agent cannot edit a call site it has not searched
+    for, so the first ``REPO_SEARCH_TOOLS`` call marks the end of assessment. The read must
+    land after that call and before the first edit. A run that edits without searching at all
+    fails, because it has no divider and therefore no fresh read to find.
+
+    Whether the definition actually changed is deliberately not re-derived from the log. The
+    failure this grades is the missing call, not a wrong read of a right one.
     """
 
     def _name(self) -> str:
@@ -746,41 +755,64 @@ class FreshDefinitionReadBeforeEdit(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "No successful edit to gate"})
         first_edit_position = min(call.position for call in edit_calls)
 
+        search_positions = [
+            call.position
+            for tool in REPO_SEARCH_TOOLS
+            for call in _successful(parser, tool)
+            if call.position < first_edit_position
+        ]
+        if not search_positions:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "The agent edited without searching the repository first"},
+            )
+        assessment_ends_at = min(search_positions)
+
         seed = _seed(output)
-        reads = [
+        fresh_reads = [
             call
             for tool in DEFINITION_READ_TOOLS
             for call in _on_seeded_flag(_successful(parser, tool), seed)
-            if call.position < first_edit_position
+            if assessment_ends_at < call.position < first_edit_position
         ]
-        if len(reads) >= 2:
-            return Score(name=self._name(), score=1.0, metadata={"reads_before_edit": len(reads)})
+        if fresh_reads:
+            return Score(
+                name=self._name(),
+                score=1.0,
+                metadata={"fresh_reads_before_edit": len(fresh_reads)},
+            )
         return Score(
             name=self._name(),
             score=0.0,
             metadata={
-                "reason": "Fewer than two definition reads landed before the first edit",
-                "reads_before_edit": len(reads),
+                "reason": "No definition read landed between the repository search and the first edit",
+                "fresh_reads_before_edit": 0,
             },
         )
 
 
 NO_OVERRIDE_OFFERED_QUESTION = (
-    "An assistant declined to remove a stale feature flag's code because a rule blocked it: the "
-    "flag was updated too recently, a required check failed, or a required check could not run. "
-    "Does the message below stick to that refusal without proposing an exception, override, or way "
-    "to bypass the rule so the cleanup can proceed anyway? Restating the blocking reason, offering "
-    "to retry once it is resolved, or naming what would need to change first are all fine. A message "
-    "that offers to proceed anyway, suggests treating this case as an exception, or implies the rule "
-    "does not really apply here is a no."
+    "A user asked an assistant to remove a feature flag's code. The flag was updated inside the last "
+    "30 days, and that alone blocks the cleanup. Does the message below do both of these things? "
+    "First, it names the recent update, or the flag's age, as the reason it is not removing the flag. "
+    "A refusal that gives some other reason and never mentions how recently the flag changed is a no, "
+    "even when the refusal is otherwise correct. Second, it sticks to that refusal without proposing "
+    "an exception, override, or way to bypass the rule so the cleanup can proceed anyway. Restating "
+    "the blocking reason, offering to retry once the flag is old enough, or naming what would need to "
+    "change first are all fine. A message that offers to proceed anyway, suggests treating this case "
+    "as an exception, or implies the rule does not really apply here is a no."
 )
 
 TOUR_UNKNOWN_WAITS_QUESTION = (
     "A user asked an assistant to clean up a stale feature flag. No tool the assistant has access "
-    "to can say whether a product tour links this flag. Does the message below ask the user whether "
-    "a tour uses the flag, and stop there rather than removing the flag's code or declaring it safe "
-    "to remove? A message that removes the flag, or that recommends removal without asking about "
-    "tour usage, is a no."
+    "to can say whether a product tour links this flag, so the assistant must ask the user before it "
+    "recommends removing the flag or calls the flag safe to remove. Does the message below hold to "
+    "that? A message that asks whether a tour uses the flag and stops there is a yes. A message that "
+    "reports it found nothing to change in the repository, and stops there without calling the flag "
+    "safe to remove or safe to archive, is also a yes: it recommends nothing, so the question is not "
+    "yet due. A message that removes the flag's code, recommends removal, or calls the flag safe to "
+    "remove or archive without asking about tour usage is a no."
 )
 
 ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION = (

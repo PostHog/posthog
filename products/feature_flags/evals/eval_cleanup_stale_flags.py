@@ -8,9 +8,9 @@ on product-tour usage, since no MCP tool reports it and the same fixture already
 covers the scenario — the same removal ask for a 40%-rollout flag, and a direct
 request to archive the flag, which the skill must refuse: it never changes the flag
 in PostHog, and without that case the two mutation scorers only ever see prompts
-that could not produce a flag write. Two more cover response-wording regressions the
-25 September Day-1 evidence found: a flag stale on every other signal but updated
-two days ago, and an explicit assess-only request.
+that could not produce a flag write. Two more cover response-wording regressions:
+a flag stale on every other signal but updated two days ago, and an explicit
+assess-only request.
 
 What the suite cannot grade: the sandbox always clones ``posthog/hedgebox`` and
 seeders cannot write files into it, so retained-path correctness (does a diff keep
@@ -19,14 +19,14 @@ No scorer reads repo files, branches, or PR state, and the key-named cases canno
 be told apart by refusal reason. What each case does grade is its ``expected``
 dict below; the scorer mechanics live in the ``scorers.py`` docstrings.
 
-Two regressions the Day-1 evidence found have no case here for the same reason:
-a fixture repo with real call sites for the seeded flag, so the skill actually
-edits code and a required check can fail against it, is exactly what no seeder
-here can build. ``SandboxedEvalCase.repo_fixture`` names this gap but currently
-only tracks it; there is no seeding path that lands files in the cloned repo. The
-skipped-pre-edit-read regression and the failed/unavailable-check refusal wording
-are covered instead as deterministic scorer unit tests against reconstructed
-Day-1 call sequences — see ``FreshDefinitionReadBeforeEdit`` in ``scorers.py`` and
+Two regressions have no case here for the same reason: a fixture repo with real
+call sites for the seeded flag, so the skill actually edits code and a required
+check can fail against it, is exactly what no seeder here can build.
+``SandboxedEvalCase.repo_fixture`` names this gap but only tracks it; there is no
+seeding path that lands files in the cloned repo. The skipped-pre-edit-read
+regression and the failed/unavailable-check refusal wording are covered instead as
+deterministic scorer unit tests against synthesized call sequences, see
+``FreshDefinitionReadBeforeEdit`` in ``scorers.py`` and
 ``TestFreshDefinitionReadBeforeEdit`` in
 ``products/posthog_ai/eval_harness/test/test_feature_flags_scorers.py``.
 ``FreshDefinitionReadBeforeEdit`` is wired into the suite's scorers below, but no
@@ -83,7 +83,7 @@ EDIT_SCORER_NAME = "code_edit_direction"
 LOOKUP_SCORER_NAME = "flag_lookup_direction"
 DEPENDENTS_SCORER_NAME = "dependents_check_direction"
 SCHEDULE_SCORER_NAME = "schedule_check_direction"
-NO_OVERRIDE_SCORER_NAME = "no_override_offered"
+RECENCY_REFUSAL_SCORER_NAME = "recency_refusal_without_override"
 TOUR_UNKNOWN_SCORER_NAME = "tour_unknown_waits"
 ASSESSMENT_ONLY_SCORER_NAME = "assessment_only_no_edit_claim"
 
@@ -138,9 +138,14 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
         ),
         SandboxedEvalCase(
             name="no_references_is_noop",
-            # Also the tour-unknown case: no MCP tool reports tour usage, so the only
-            # correct move is to ask and stop. Reuses this fixture rather than a
+            # Also the tour-unknown case: no MCP tool reports tour usage, so the agent
+            # must ask before it recommends removal. Reuses this fixture rather than a
             # duplicate case, avoiding a second live agent run for the same prompt.
+            # hedgebox holds no call site for the seeded key, so the correct answer here
+            # is a no-op report and no case in this suite can reach a removal
+            # recommendation. The tour judge therefore grades the claim, not the
+            # question: a report that stops at "nothing to change" passes, and one that
+            # calls the flag safe to remove without asking about tours fails.
             prompt=(
                 f"The feature flag '{STALE_FULL_ROLLOUT_FLAG_KEY}' is fully rolled out and "
                 "stale. Remove it from this repository."
@@ -180,7 +185,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             setup=seed_recently_updated_flag,
             expected={
                 **_NO_CALL_SITES,
-                NO_OVERRIDE_SCORER_NAME: {"required": True},
+                RECENCY_REFUSAL_SCORER_NAME: {"required": True},
             },
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
         ),
@@ -213,7 +218,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             ToolGroupDirection(FLAG_LOOKUP_TOOLS, name=LOOKUP_SCORER_NAME, key="should_look_up"),
             ToolGroupDirection(DEPENDENTS_READ_TOOLS, name=DEPENDENTS_SCORER_NAME, key="should_check_dependents"),
             ToolGroupDirection(SCHEDULE_READ_TOOLS, name=SCHEDULE_SCORER_NAME, key="should_check_schedules"),
-            FinalMessageJudge(name=NO_OVERRIDE_SCORER_NAME, question=NO_OVERRIDE_OFFERED_QUESTION),
+            FinalMessageJudge(name=RECENCY_REFUSAL_SCORER_NAME, question=NO_OVERRIDE_OFFERED_QUESTION),
             FinalMessageJudge(name=TOUR_UNKNOWN_SCORER_NAME, question=TOUR_UNKNOWN_WAITS_QUESTION),
             FinalMessageJudge(name=ASSESSMENT_ONLY_SCORER_NAME, question=ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION),
             FreshDefinitionReadBeforeEdit(),
