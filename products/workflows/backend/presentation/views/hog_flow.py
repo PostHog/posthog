@@ -16,7 +16,7 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import IntegrityError, models, transaction
-from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery
+from django.db.models import Count, Exists, OuterRef, Q, QuerySet, Subquery, Window
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
 from django.http import Http404, HttpResponse
@@ -90,7 +90,7 @@ from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_sour
 from posthog.models import Team, User
 from posthog.models.filters import Filter
 from posthog.models.integration import Integration
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.permissions import is_service_auth, posthog_feature_flag_enabled
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -177,6 +177,14 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     TRIGGER_TYPES,
     WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
+)
+from products.workflows.backend.models.hog_flow.search_text import (
+    MAX_SEARCH_TERM_LENGTH,
+    StepSearchField,
+    StepSearchMatch,
+    StepSearchSource,
+    find_step_matches,
+    search_pattern,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
@@ -2791,6 +2799,70 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
         read_only_fields = fields
 
 
+class HogFlowSearchQuerySerializer(serializers.Serializer):
+    q = serializers.CharField(
+        max_length=MAX_SEARCH_TERM_LENGTH,
+        help_text=(
+            "Text to find, at most 200 characters. Case-insensitive, and a space also matches a dash or an "
+            "underscore. Matches the workflow name and description, and the step names and the subject line, "
+            "preheader and body text of email steps, in both the live workflow and its pending draft."
+        ),
+    )
+
+
+class HogFlowSearchStepMatchSerializer(serializers.Serializer):
+    action_id = serializers.CharField(help_text="ID of the step that matched.")
+    field = serializers.ChoiceField(
+        choices=StepSearchField.choices,
+        help_text="The first field of the step that matched: the step name, or the email subject, preheader or body text.",
+    )
+    source = serializers.ChoiceField(
+        choices=StepSearchSource.choices,
+        help_text="`live` when the published step matched, `draft` when only the version staged in the draft matched.",
+    )
+    excerpt = serializers.CharField(
+        help_text="The matched text with the surrounding words, whitespace collapsed. Ellipses mark cut text."
+    )
+
+
+class HogFlowSearchResultSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """A workflow that matched a search: its metadata and the steps that matched."""
+
+    # Metadata only, like HogFlowSummarySerializer, because action config can hold credential-like values. The
+    # matched steps name the step and quote only the searchable text.
+    created_by = UserBasicSerializer(read_only=True)
+    matched_steps = serializers.SerializerMethodField(
+        help_text=(
+            "The steps that matched the search, one entry per step. Empty when only the workflow name or "
+            "description matched."
+        )
+    )
+
+    class Meta:
+        model = HogFlow
+        fields = [
+            "id",
+            "name",
+            "description",
+            "version",
+            "status",
+            "origin_product",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "user_access_level",
+            "matched_steps",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(HogFlowSearchStepMatchSerializer(many=True))
+    def get_matched_steps(self, instance: HogFlow) -> list[dict[str, str]]:
+        matches: list[StepSearchMatch] = find_step_matches(
+            instance.actions, instance.draft, self.context["search_term"]
+        )
+        return [dataclasses.asdict(match) for match in matches]
+
+
 class HogFlowSerializer(HogFlowMinimalSerializer):
     origin_product = serializers.ChoiceField(
         choices=HogFlow.OriginProduct.choices,
@@ -4615,6 +4687,24 @@ class HogFlowPagination(LimitOffsetPagination):
     max_limit = 500
 
 
+class HogFlowSearchPagination(HogFlowPagination):
+    """Reads the total from a window count on the page query, so the search predicate runs once per request
+    instead of once for the count and again for the page."""
+
+    def paginate_queryset(self, queryset: QuerySet, request: Request, view: Any = None) -> list[HogFlow]:
+        self.request = request
+        self.limit = self.get_limit(request)
+        self.offset = self.get_offset(request)
+        assert self.limit is not None
+        page = list(queryset.annotate(_search_total=Window(Count("id")))[self.offset : self.offset + self.limit])
+        if page:
+            self.count = page[0]._search_total
+        else:
+            # A page past the end has no row to carry the total, so only this case counts separately.
+            self.count = queryset.count() if self.offset else 0
+        return page
+
+
 # The email body as a person reads it: the editor's plain-text export when it exists, otherwise the HTML
 # with style and script blocks and tags removed, so CSS, script and markup never match a search term.
 # The block patterns start with a non-greedy quantifier because Postgres gives a whole regex the
@@ -4786,6 +4876,7 @@ class HogFlowViewSet(
     scope_object = "hog_flow"
     scope_object_read_actions = [
         "list",
+        "search",
         "retrieve",
         "logs",
         "metrics",
@@ -5069,6 +5160,46 @@ class HogFlowViewSet(
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups
         return super().safely_get_object(queryset)
+
+    @extend_schema(
+        summary="Search workflows",
+        description=(
+            "Workflows whose name, description or step content matches the search term, newest created first. "
+            "Each row lists the steps that matched. Rows carry metadata only, not the step graph."
+        ),
+        parameters=[HogFlowSearchQuerySerializer],
+        responses={200: HogFlowSearchResultSerializer(many=True)},
+    )
+    @action(
+        detail=False, methods=["GET"], url_path="search", pagination_class=HogFlowSearchPagination, filter_backends=[]
+    )
+    def search(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query = HogFlowSearchQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        term: str = query.validated_data["q"]
+        pattern = search_pattern(term)
+
+        # The routing mixin applies the access-level filter to `list` only.
+        queryset = self.get_queryset()
+        if not is_service_auth(request):
+            queryset = self.user_access_control.filter_queryset_by_access_level(queryset)
+
+        # Rows saved before `search_text` existed stay null until the rebuild command runs, so they match the
+        # source columns the way the list search does.
+        by_stored_text = Q(search_text__isnull=False, search_text__iregex=pattern)
+        by_source_columns = Q(search_text__isnull=True) & (
+            Q(name__iregex=pattern) | Q(description__iregex=pattern) | Q(_action_content_matches(pattern))
+        )
+        queryset = (
+            queryset.filter(by_stored_text | by_source_columns)
+            .select_related("created_by")
+            .defer("search_text", "encrypted_inputs", "draft_encrypted_inputs")
+            .order_by("-created_at", "-id")
+        )
+
+        page = self.paginate_queryset(queryset)
+        context = {**self.get_serializer_context(), "search_term": term}
+        return self.get_paginated_response(HogFlowSearchResultSerializer(page, many=True, context=context).data)
 
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:

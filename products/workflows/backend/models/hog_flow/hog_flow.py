@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from django.db import models, transaction
 from django.db.models.signals import post_delete, post_save
@@ -13,6 +13,7 @@ from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.actions.backend.models.action import Action
+from products.workflows.backend.models.hog_flow.search_text import build_search_text
 
 if TYPE_CHECKING:
     pass
@@ -100,6 +101,13 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
     "data-warehouse-view",
     "internal-event",
 }
+
+
+# The fields `HogFlow.search_text` is built from.
+SEARCH_TEXT_SOURCE_FIELDS: Final[frozenset[str]] = frozenset({"name", "description", "actions", "draft"})
+
+# Columns that do not change how a workflow runs, so saving only these needs no worker reload.
+_NON_EXECUTING_FIELDS: Final[frozenset[str]] = frozenset({"draft", "draft_updated_at", "search_text"})
 
 
 def hog_flow_origin_product_choices() -> list[tuple[str, str | Promise]]:
@@ -214,14 +222,31 @@ class HogFlow(UUIDTModel):
     # present in this row's `actions`; entries with no surviving successor are omitted.
     action_redirects = models.JSONField(null=True, blank=True)
 
+    # Name, description and the searchable text of every live and staged step, joined by SEARCH_TEXT_SEPARATOR,
+    # so the workflow search reads one column instead of stripping email HTML at query time. save() rebuilds it,
+    # so a write that bypasses save() and changes a source field leaves it stale until
+    # `rebuild_hog_flow_search_text` runs. Null on rows not saved since the column was added, and the search
+    # matches the source columns for those rows instead.
+    search_text = models.TextField(null=True, blank=True, editable=False)
+
     def __str__(self):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        update_fields = kwargs.get("update_fields")
+        if update_fields is None or not SEARCH_TEXT_SOURCE_FIELDS.isdisjoint(update_fields):
+            self.search_text = build_search_text(
+                name=self.name, description=self.description, actions=self.actions, draft=self.draft
+            )
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "search_text"}
+        super().save(*args, **kwargs)
 
 
 @receiver(post_save, sender=HogFlow)
 def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
-    if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
+    if update_fields and set(update_fields) <= _NON_EXECUTING_FIELDS:
         return
     reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
 

@@ -150,6 +150,9 @@ tools:
     hog-flows-schedules-list:
         operation: hog_flows_schedules_list
         enabled: false
+    hog-flows-search-list:
+        operation: hog_flows_search_list
+        enabled: false
     hog-flows-update:
         operation: hog_flows_update
         enabled: false
