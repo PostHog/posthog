@@ -238,6 +238,9 @@ def trusted_manual_reviewer_adders(
             user_uuid = _normalized_reviewer_user_uuid(entry.get("user_uuid"))
             github_login = str(entry.get("github_login") or "").strip().lower() or None
             prior = previous.get(user_uuid=user_uuid, github_login=github_login)
+            prior_uuid = _normalized_reviewer_user_uuid(prior.get("user_uuid")) if prior else None
+            if user_uuid and prior_uuid and user_uuid != prior_uuid:
+                prior = None
             if prior is not None:
                 adder_id = previous_adders.get(id(prior))
             elif row.actor_kind == SignalActorKind.USER:

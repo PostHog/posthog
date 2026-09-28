@@ -564,6 +564,21 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         listed = {reviewer["github_login"]: reviewer for reviewer in list_response.json()["results"][0]["content"]}
         assert listed["dave"]["explanation"] == "Added by Zelda Zebra"
 
+        different_reviewer = self._create_org_member("different@example.com")
+        untrusted = self._create_artefact(
+            report,
+            content=[
+                {
+                    "github_login": "dave",
+                    "user_uuid": str(different_reviewer.uuid),
+                    "reason": "Added as a reviewer by Someone Else",
+                }
+            ],
+        )
+        read_response = self.client.get(self._detail_url(str(report.id), str(untrusted.id)))
+        assert read_response.status_code == status.HTTP_200_OK, read_response.json()
+        assert read_response.json()["content"][0]["explanation"] is None
+
     def test_put_does_not_trust_manual_reason_on_an_agent_added_reviewer(self):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
