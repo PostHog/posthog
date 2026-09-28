@@ -6924,6 +6924,10 @@ snapshots:
         hash: v1.k794b7964.e0e79a77be55d932e351dd624093d0107d0fc1737ad2377ff59625f8c9d2919f.FoUJvZ3pT1VvRHqfLTd8ng_hDXpYvjWqiodIwsZhnGw
     products-tracing-spanerrorsbadge--trace-tier-with-more-in-session--light:
         hash: v1.k794b7964.b816e38267a9feb005f365b0826180703192d0d7e1775020b201aa4b9c4a1832.I52iOSlgYhkIDdh5N-Zm-Kb0yYD09_Fdkwzq1RvocwQ
+    products-tracing-traceaieventscapnotice--past-the-cap--dark:
+        hash: v1.k794b7964.d6977b391a9f26309799ef1ef522b6834aa7f0e23dab4e293069c58c2a0b54e4.IwwwLP99sni7rCWBvJCE_8dpsla1s7t7mGMyixDS0rI
+    products-tracing-traceaieventscapnotice--past-the-cap--light:
+        hash: v1.k794b7964.feda0df05e8e57c124b6730048dd57d0d678d429c263cff2c5fcb575f945b280.ahdaUiPk9d3Xp8PlnXG7oy3Y5sUkAslXiNwntmQsWAk
     products-tracing-virtualizedspanlist--custom-columns--dark:
         hash: v1.k794b7964.706ec8b392aa8b7e63123ae73233f0aa49314df1f4c32894f6f48c7883c35cf3.4royX3fTwY_wCZ7DXohmhbu1njNM4B7nRI6YgxJaKiw
     products-tracing-virtualizedspanlist--custom-columns--light:
