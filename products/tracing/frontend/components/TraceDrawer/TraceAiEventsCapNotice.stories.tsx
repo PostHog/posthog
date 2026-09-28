@@ -27,6 +27,14 @@ const meta: Meta<typeof TraceAiEventsCapNotice> = {
             },
         ],
     },
+    decorators: [
+        (Story) => (
+            // The snapshot root shrinks to its content, so a full-width banner needs a set width.
+            <div className="w-[720px]">
+                <Story />
+            </div>
+        ),
+    ],
     parameters: {
         layout: 'padded',
         viewMode: 'story',
