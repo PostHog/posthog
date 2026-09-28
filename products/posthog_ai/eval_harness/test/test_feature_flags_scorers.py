@@ -16,12 +16,14 @@ from parameterized import parameterized
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.scorers import (
+    DEFINITION_READ_TOOLS,
     DEPENDENTS_READ_TOOLS,
     FILE_EDIT_TOOLS,
     FLAG_LOOKUP_TOOLS,
     FLAG_MUTATION_TOOLS,
     SCHEDULE_READ_TOOLS,
     FlagStateUnchanged,
+    FreshDefinitionReadBeforeEdit,
     ToolGroupDirection,
     read_flag_state,
 )
@@ -120,7 +122,7 @@ def test_read_tool_sets_name_enabled_read_only_tools() -> None:
     tools = _declared_tools()
     hand_written = set(json.loads((Path(settings.BASE_DIR) / "services/mcp/schema/tool-definitions.json").read_text()))
 
-    for name in sorted(FLAG_LOOKUP_TOOLS | DEPENDENTS_READ_TOOLS | SCHEDULE_READ_TOOLS):
+    for name in sorted(FLAG_LOOKUP_TOOLS | DEFINITION_READ_TOOLS | DEPENDENTS_READ_TOOLS | SCHEDULE_READ_TOOLS):
         spec = tools.get(name)
         if spec is None:
             assert name in hand_written, name
@@ -189,3 +191,71 @@ class TestFlagStateUnchanged(BaseTest):
         score = asyncio.run(FlagStateUnchanged().eval_async(output))
 
         assert score.score is not None
+
+
+# --- FreshDefinitionReadBeforeEdit ---------------------------------------------------
+
+_ASSESSMENT_READS: list[tuple[Any, ...]] = [
+    ("mcp__posthog__feature-flag-get-definition-by-key", {"key": "sunset-widget-rollout"}, "ok"),
+    ("mcp__posthog__feature-flags-status-retrieve", {"id": 91001}, "ok"),
+    ("mcp__posthog__feature-flags-dependent-flags-retrieve", {"id": 91001}, "ok"),
+    ("mcp__posthog__scheduled-changes-list", {"model_name": "FeatureFlag", "record_id": 91001}, "ok"),
+]
+_FIRST_EDIT: tuple[Any, ...] = ("Edit", {"file_path": "/repo/src/widget.js"}, "ok")
+_SECOND_DEFINITION_READ: tuple[Any, ...] = (
+    "mcp__posthog__feature-flag-get-definition-by-key",
+    {"key": "sunset-widget-rollout"},
+    "ok",
+)
+
+
+def _fresh_read_score(calls: Sequence[tuple[Any, ...]], expected: dict | None):
+    return FreshDefinitionReadBeforeEdit()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, expected)
+
+
+class TestFreshDefinitionReadBeforeEdit:
+    _REQUIRED = {"fresh_definition_read_before_edit": {"required": True}}
+
+    def test_flags_the_day_one_changed_before_edit_failure(self) -> None:
+        score = _fresh_read_score([*_ASSESSMENT_READS, _FIRST_EDIT], self._REQUIRED)
+
+        assert score.score == 0.0
+        assert score.metadata["reads_before_edit"] == 1
+
+    def test_passes_the_day_one_eligible_run(self) -> None:
+        score = _fresh_read_score([*_ASSESSMENT_READS, _SECOND_DEFINITION_READ, _FIRST_EDIT], self._REQUIRED)
+
+        assert score.score == 1.0
+        assert score.metadata["reads_before_edit"] == 2
+
+    def test_a_read_after_the_edit_does_not_count(self) -> None:
+        score = _fresh_read_score([*_ASSESSMENT_READS, _FIRST_EDIT, _SECOND_DEFINITION_READ], self._REQUIRED)
+
+        assert score.score == 0.0
+        assert score.metadata["reads_before_edit"] == 1
+
+    def test_a_failed_second_read_does_not_count(self) -> None:
+        # A failed attempt gives no assurance a real read landed.
+        failed_second_read = (*_SECOND_DEFINITION_READ[:2], "boom", "failed")
+        score = _fresh_read_score([*_ASSESSMENT_READS, failed_second_read, _FIRST_EDIT], self._REQUIRED)
+
+        assert score.score == 0.0
+        assert score.metadata["reads_before_edit"] == 1
+
+    def test_skips_a_case_that_never_edited(self) -> None:
+        score = _fresh_read_score(_ASSESSMENT_READS, self._REQUIRED)
+
+        assert score.score is None
+
+    def test_skips_when_the_only_edit_failed(self) -> None:
+        # A failed edit attempt left nothing on disk to gate — the same as not editing.
+        failed_edit = (*_FIRST_EDIT[:2], "boom", "failed")
+        score = _fresh_read_score([*_ASSESSMENT_READS, failed_edit], self._REQUIRED)
+
+        assert score.score is None
+
+    @pytest.mark.parametrize("expected", [None, {}, {"fresh_definition_read_before_edit": {}}])
+    def test_skips_when_the_case_declares_no_requirement(self, expected: dict | None) -> None:
+        score = _fresh_read_score([*_ASSESSMENT_READS, _FIRST_EDIT], expected)
+
+        assert score.score is None
