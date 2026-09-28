@@ -22,13 +22,13 @@ from posthog.models.scoping import team_scope
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import find_metric_dict, is_daily_timeseries_metric
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.recalculation import get_active_recalculation
-from products.experiments.backend.temporal.metric_resolution import find_metric_dict, is_daily_timeseries_metric
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_logic import discover_experiment_metrics
 

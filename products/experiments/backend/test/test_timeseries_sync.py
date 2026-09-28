@@ -10,6 +10,7 @@ from parameterized import parameterized
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import find_metric_dict
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -18,7 +19,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.recalculation import get_run_results
-from products.experiments.backend.temporal.metric_resolution import find_metric_dict
 from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.timeseries_sync import sync_timeseries_recalculation
 from products.feature_flags.backend.models.feature_flag import FeatureFlag

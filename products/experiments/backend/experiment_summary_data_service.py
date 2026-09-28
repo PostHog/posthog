@@ -32,9 +32,9 @@ from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARI
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.metric_resolution import METRIC_BUILDERS, ExperimentMetric
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
-from products.experiments.backend.temporal.metric_resolution import METRIC_BUILDERS, ExperimentMetric
 
 
 @dataclass
