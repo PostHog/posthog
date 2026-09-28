@@ -66,7 +66,7 @@ describe('LemonMenu', () => {
                             label: 'Change view',
                             closeOnClickInside: false,
                             closeParentPopoverOnClickInside: false,
-                            items: [{ label: 'Summary', onClick: onSelect }],
+                            items: [{ label: 'Summary', onClick: onSelect }, { label: 'Details' }],
                         },
                     ]}
                 >
@@ -78,7 +78,14 @@ describe('LemonMenu', () => {
 
         await userEvent.click(screen.getByText('More actions'))
         await userEvent.click(await screen.findByText('Change view'))
-        await userEvent.click(await screen.findByText('Summary'))
+        const summary = (await screen.findByText('Summary')).closest('button')!
+        await userEvent.keyboard('{ArrowDown}')
+        expect(summary).toHaveFocus()
+        await userEvent.keyboard('{ArrowDown}')
+        expect(screen.getByText('Details').closest('button')).toHaveFocus()
+        await userEvent.keyboard('{ArrowUp}')
+        expect(summary).toHaveFocus()
+        await userEvent.click(summary)
 
         expect(onSelect).toHaveBeenCalledTimes(1)
         expect(screen.getByText('Change view')).toBeInTheDocument()
@@ -121,6 +128,8 @@ describe('LemonMenu', () => {
             expect(first).toHaveFocus()
             await userEvent.keyboard('{ArrowUp}')
             expect(trigger).toHaveFocus()
+            await userEvent.keyboard('{ArrowDown}{ArrowDown}')
+            expect(second).toHaveFocus()
             await userEvent.click(screen.getByText('Outside'))
             await waitFor(() => expect(screen.queryByText('First')).not.toBeInTheDocument())
         }

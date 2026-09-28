@@ -37,6 +37,9 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
             ) {
                 return
             }
+            if (e.target === referenceRef.current) {
+                focusedItemIndexRef.current = activeItemIndex
+            }
             if (e.key === 'ArrowDown') {
                 if (focusedItemIndexRef.current < itemCount - 1) {
                     focusedItemIndexRef.current += 1
@@ -54,12 +57,14 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
 
         const controller = new AbortController()
 
+        // A submenu trigger handles keys before its parent menu sees the bubbled event.
+        referenceRef.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
         // Portal items mount after this effect, so resolve their refs when a key is pressed.
         referenceRef.current?.ownerDocument.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
         return () => {
             controller.abort()
         }
-    }, [itemCount, enabled])
+    }, [itemCount, enabled, activeItemIndex])
 
     return { referenceRef, itemsRef }
 }
