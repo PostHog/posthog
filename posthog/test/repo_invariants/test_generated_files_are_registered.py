@@ -1,6 +1,7 @@
 import subprocess
 from pathlib import Path
 
+import yaml
 from hogli_commands.change_detection import matches_globs
 from hogli_commands.projections import PROJECTIONS
 
@@ -70,3 +71,24 @@ def test_the_registry_matches_the_tree() -> None:
     assert [path for path in known if not (REPO_ROOT / path).is_file()] == []
     assert sorted(output for output in set(outputs) if outputs.count(output) > 1) == []
     assert sorted(set(outputs) & set(EXTERNAL_PRODUCERS)) == []
+
+
+def _ci_python_filter(name: str) -> list[str]:
+    workflow = yaml.safe_load((REPO_ROOT / ".github/workflows/ci-python.yml").read_text())
+    [step] = [step for step in workflow["jobs"]["changes"]["steps"] if step.get("id") == "filter"]
+    return yaml.safe_load(step["with"]["filters"])[name]
+
+
+def test_every_output_reaches_the_drift_check() -> None:
+    python_filter = _ci_python_filter("python")
+    missing = [
+        output
+        for projection in PROJECTIONS
+        for output in projection.outputs
+        if not matches_globs(output, python_filter)
+    ]
+
+    assert missing == [], (
+        f"Projection outputs missing from the `python` paths filter in ci-python.yml: {missing}. "
+        "Add them, so a hand-edit still runs `hogli build:projections --check`."
+    )
