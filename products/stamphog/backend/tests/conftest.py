@@ -142,6 +142,12 @@ def _inline_check_out(inp: StamphogReviewInput) -> ReviewSandboxInput | None:
     )
 
 
+def _discard_input(inp: StamphogReviewInput, checked_out: ReviewSandboxInput | None) -> ReviewSandboxInput:
+    """The workflow's teardown input: the started sandbox's id, or empty to read the stored one."""
+    sandbox_id = checked_out.sandbox_id if checked_out is not None else ""
+    return ReviewSandboxInput(review_run_id=inp.review_run_id, team_id=inp.team_id, sandbox_id=sandbox_id)
+
+
 def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     """Stand in for the Temporal client by driving the real activities in order.
 
@@ -154,12 +160,12 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
     them: at the review, or never, when a pre-check verdict discards the sandbox.
     """
     inp = StamphogReviewInput(review_run_id=review_run_id, team_id=team_id)
+    checked_out: ReviewSandboxInput | None = None
     try:
         _run_activity(dismiss_stale_approvals, inp)
         _run_activity(signal_review_started, inp)
         _run_activity(fetch_review_context, inp)
         checkout_error: Exception | None = None
-        checked_out: ReviewSandboxInput | None = None
         try:
             checked_out = _inline_check_out(inp)
         except Exception as e:  # noqa: BLE001 — the workflow sees it only when it awaits the checkout
@@ -178,7 +184,7 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
                 _run_activity(review_in_sandbox, checked_out)
         _run_activity(post_verdict, inp)
         if refused:
-            _run_activity(destroy_review_sandbox, inp)
+            _run_activity(destroy_review_sandbox, _discard_input(inp, checked_out))
     except Exception as e:  # noqa: BLE001 — mirror the workflow's failure path
         try:
             _run_activity(
@@ -186,7 +192,7 @@ def _inline_review_workflow(review_run_id: str, team_id: int) -> None:
                 MarkReviewFailedInput(review_run_id, team_id, describe_failure(e)),
             )
         finally:
-            _run_activity(destroy_review_sandbox, inp)
+            _run_activity(destroy_review_sandbox, _discard_input(inp, checked_out))
 
 
 @dataclass

@@ -409,7 +409,8 @@ def test_a_final_gate_verdict_is_posted_without_a_sandbox_review(
     assert run.status == ReviewRunStatus.GATED
     assert run.output["fast_path"] is True
     # The pre-check and the sandbox start each time their own steps, and neither write drops the other.
-    assert {"pregate", "sandbox_create", "fetch_head"} <= set(run.output["timings_ms"])
+    assert "pregate" in run.output["timings_ms"]
+    assert {"sandbox_create", "fetch_head"} <= set(run.output["sandbox_start_timings_ms"])
     # The fast path has no checkout, so the commit trailers come from the server's messages alone.
     assert json.loads(run.output["reviewer_raw"])["provenance"]["task_ids"] == ["t-1"]
     refusals = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "comment_review"]
@@ -1887,9 +1888,9 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
     # the run is REVIEWING at load.
     original_post_review = activities._post_non_approval_review
 
-    def _supersede_then_post(client, repo, posting_run, pr, team_id, body) -> None:
+    def _supersede_then_post(client, repo, posting_run, pr, body) -> None:
         ReviewRun.objects.for_team(team.id).filter(id=run.id).update(status=ReviewRunStatus.SUPERSEDED)
-        original_post_review(client, repo, posting_run, pr, team_id, body)
+        original_post_review(client, repo, posting_run, pr, body)
 
     with patch.object(activities, "_post_non_approval_review", side_effect=_supersede_then_post):
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
@@ -2694,3 +2695,26 @@ def test_overlapping_activities_keep_each_others_output_keys(team, stamphog_chai
 
     stored = ReviewRun.objects.for_team(team.id).get(id=run.id).output
     assert stored == {"sandbox_started_at": "2026-09-25T10:00:00+00:00", "pr_reactions": []}
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_post_verdict_keeps_output_keys_written_while_it_runs(team, stamphog_chain: StamphogChain) -> None:
+    # A fast verdict posts while the sandbox start can still be writing sandbox_id. The teardown reads
+    # that id, so a post_verdict save from its earlier copy would leak the sandbox.
+    _repo_config(team.id)
+    event = _register_review(stamphog_chain, 131, "sha131a")
+    record_write = stamphog_chain.recorder._record_write
+
+    def record_and_race(kind: str, repo: str, number: int, body: dict | None) -> fakes.FakeResponse:
+        if kind == "approve_review":
+            run = ReviewRun.objects.for_team(team.id).latest("created_at")
+            activities._merge_run_output(run, {"sandbox_id": "sb-late"})
+        return record_write(kind, repo, number, body)
+
+    with patch.object(stamphog_chain.recorder, "_record_write", side_effect=record_and_race):
+        stamphog_chain.post_webhook(event, delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.COMPLETED
+    assert run.output["sandbox_id"] == "sb-late"
+    assert run.output["timings_captured"] is True

@@ -173,6 +173,11 @@ class StamphogReviewWorkflow(PostHogWorkflow):
                 # After the verdict, so a pre-check verdict posts without waiting for the clone.
                 await self._discard_sandbox(input, sandbox_start, sandbox_checkout)
             return {"status": "completed", "verdict": result["verdict"]}
+        except asyncio.CancelledError:
+            # A cancelled workflow still owns its sandbox, and CancelledError is not an Exception.
+            if sandbox_start is not None:
+                await self._discard_sandbox(input, sandbox_start, sandbox_checkout)
+            raise
         except Exception as e:
             # Log the full error to the worker before marking the run failed: mark_review_failed
             # persists only the first line (raw exception text can embed repo file content, and run.error
@@ -216,23 +221,31 @@ class StamphogReviewWorkflow(PostHogWorkflow):
             merge_base_sha=checkout["merge_base_sha"],
         )
 
-    async def _discard_sandbox(self, input: StamphogReviewInput, *steps: asyncio.Future | None) -> None:
+    async def _discard_sandbox(
+        self,
+        input: StamphogReviewInput,
+        sandbox_start: asyncio.Future[dict],
+        sandbox_checkout: asyncio.Future[ReviewSandboxInput | None] | None,
+    ) -> None:
         """Tear down a sandbox no review will use. Never raises: the run already has its outcome.
 
         Waits for the start and the checkout first, so the teardown finds the sandbox they made
         rather than racing a provision that is still in flight.
         """
-        for step in steps:
-            if step is None:
-                continue
+        sandbox_id = ""
+        try:
+            sandbox_id = (await sandbox_start).get("sandbox_id") or ""
+        except (Exception, asyncio.CancelledError):
+            pass
+        if sandbox_checkout is not None:
             try:
-                await step
-            except Exception:
+                await sandbox_checkout
+            except (Exception, asyncio.CancelledError):
                 pass
         try:
             await workflow.execute_activity(
                 destroy_review_sandbox,
-                input,
+                ReviewSandboxInput(review_run_id=input.review_run_id, team_id=input.team_id, sandbox_id=sandbox_id),
                 start_to_close_timeout=SANDBOX_DESTROY_TIMEOUT,
                 retry_policy=ACTIVITY_RETRY_POLICY,
             )

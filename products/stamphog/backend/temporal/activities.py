@@ -40,7 +40,8 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import router
-from django.db.models.expressions import RawSQL
+from django.db.models import F, Func, JSONField, Value
+from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -141,7 +142,7 @@ class StamphogReviewInput:
     team_id: int
 
 
-@dataclass
+@dataclass(frozen=False)
 class ReviewSandboxInput(StamphogReviewInput):
     sandbox_id: str
     merge_base_sha: str = ""
@@ -174,30 +175,17 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     would drop the keys another activity wrote in between, such as the sandbox claim. The JSONB ``||``
     merge keeps every key it does not name.
     """
+    merged = Func(
+        Coalesce(F("output"), Cast(Value("{}"), output_field=JSONField())),
+        Cast(Value(json.dumps(updates, cls=DjangoJSONEncoder)), output_field=JSONField()),
+        template="%(expressions)s",
+        arg_joiner=" || ",
+        output_field=JSONField(),
+    )
     ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
-        output=RawSQL("COALESCE(output, '{}'::jsonb) || %s::jsonb", (json.dumps(updates, cls=DjangoJSONEncoder),)),
-        updated_at=timezone.now(),
+        output=merged, updated_at=timezone.now()
     )
     run.output = {**(run.output or {}), **updates}
-
-
-def _merge_run_timings(run: ReviewRun, timings_ms: dict[str, int]) -> None:
-    """Merge step timings into ``run.output["timings_ms"]``, and keep the steps other activities recorded.
-
-    The sandbox start, the checkout, the review and the pre-check each time their own steps, and
-    some of them run at the same time. ``_merge_run_output`` replaces a key whole, so this merge goes
-    one level down.
-    """
-    ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
-        output=RawSQL(
-            "jsonb_set(COALESCE(output, '{}'::jsonb), '{timings_ms}', "
-            "COALESCE(output->'timings_ms', '{}'::jsonb) || %s::jsonb)",
-            (json.dumps(timings_ms),),
-        ),
-        updated_at=timezone.now(),
-    )
-    stored = (run.output or {}).get("timings_ms") or {}
-    run.output = {**(run.output or {}), "timings_ms": {**stored, **timings_ms}}
 
 
 # aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
@@ -903,11 +891,11 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
         {
             "reviewer_raw": scrub_credentials(json.dumps(final.result)),
             "reviewer_exit_code": 0,
+            "timings_ms": timer.timings_ms,
             "fast_path": True,
             "pregate_outcome": f"final:{final.result.get('final_verdict')}",
         },
     )
-    _merge_run_timings(run, timer.timings_ms)
     activity.logger.info(f"Pre-gate verdict for run {run.id}; step timings: {timer.timings_ms}")
     return {"refused": True}
 
@@ -1150,7 +1138,7 @@ def start_review_sandbox(input: StamphogReviewInput) -> dict:
     try:
         sandbox = _create_review_sandbox(run, gateway, token, timer, deadline)
     finally:
-        _merge_run_timings(run, timer.timings_ms)
+        _merge_run_output(run, {"sandbox_start_timings_ms": timer.timings_ms})
     return {"sandbox_id": sandbox.id}
 
 
@@ -1170,10 +1158,10 @@ def checkout_review_sandbox(input: ReviewSandboxInput) -> dict:
         raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
     finally:
         steps = timer.timings_ms
-        fetch_head_ms = ((run.output or {}).get("timings_ms") or {}).get("fetch_head")
+        fetch_head_ms = ((run.output or {}).get("sandbox_start_timings_ms") or {}).get("fetch_head")
         if isinstance(fetch_head_ms, int) and "checkout" in steps:
             steps["clone"] = fetch_head_ms + steps["checkout"]
-        _merge_run_timings(run, steps)
+        _merge_run_output(run, {"checkout_timings_ms": steps})
     return {"merge_base_sha": merge_base_sha}
 
 
@@ -1203,7 +1191,7 @@ def review_in_sandbox(input: ReviewSandboxInput) -> dict:
                 # to be persisted and posted.
                 with timer.step("destroy_dispatch"):
                     _destroy_sandbox_in_background(sandbox, str(run.id))
-                _merge_run_timings(run, timer.timings_ms)
+                _merge_run_output(run, {"timings_ms": timer.timings_ms})
                 activity.logger.info(f"Sandbox step timings for run {run.id}: {timer.timings_ms}")
         except Exception as exc:
             # Give the type only. Every step in this phase touches the sandbox, and anyone with
@@ -1218,14 +1206,13 @@ def review_in_sandbox(input: ReviewSandboxInput) -> dict:
 
 @activity.defn
 @asyncify
-def destroy_review_sandbox(input: StamphogReviewInput) -> dict:
+def destroy_review_sandbox(input: ReviewSandboxInput) -> dict:
     """Tear down the run's sandbox when no review will use it: a pre-check verdict, or a failed run.
 
-    Reads the id from the run, because start_review_sandbox records it before its head fetch, and a
-    failed start leaves no result to read it from.
+    An empty ``sandbox_id`` means the start returned none. The run can still hold one, because
+    start_review_sandbox records it before its head fetch, and a failed start returns no result.
     """
-    run = _load_run(input)
-    sandbox_id = (run.output or {}).get("sandbox_id")
+    sandbox_id = input.sandbox_id or (_load_run(input).output or {}).get("sandbox_id")
     if not sandbox_id:
         return {"destroyed": False}
     try:
@@ -1276,7 +1263,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
             raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
         finally:
-            _merge_run_timings(run, timer.timings_ms)
+            _merge_run_output(run, {"timings_ms": timer.timings_ms})
             activity.logger.info(f"Sandbox step timings for run {run.id}: {timer.timings_ms}")
     finally:
         _release_reviewer_token(gateway, gateway_token)
@@ -1450,7 +1437,13 @@ def _review_timing_properties(run: ReviewRun, verdict: str, post_verdict_ms: int
     """
     output = run.output or {}
     pull_request = run.pull_request
-    steps = output.get("timings_ms") or {}
+    # The sandbox start and checkout record their steps under their own keys, because they can run
+    # beside the pre-check, which writes timings_ms.
+    steps = {
+        **(output.get("sandbox_start_timings_ms") or {}),
+        **(output.get("checkout_timings_ms") or {}),
+        **(output.get("timings_ms") or {}),
+    }
     engine = output.get("engine_timings_ms") or {}
     bot_wait = output.get("bot_wait") or {}
     properties: dict[str, object] = {
@@ -1488,8 +1481,7 @@ def _capture_review_timings(run: ReviewRun, verdict: str, post_verdict_ms: int) 
             event="stamphog_review_timings",
             properties=_review_timing_properties(run, verdict, post_verdict_ms),
         )
-        run.output = {**(run.output or {}), "timings_captured": True}
-        run.save(update_fields=["output", "updated_at"])
+        _merge_run_output(run, {"timings_captured": True})
     except Exception:
         activity.logger.exception(f"Failed to capture review timings for run {run.id}")
 
@@ -1562,7 +1554,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # env secrets, the same belt-and-braces the review body gets below.
     run.change_summary = scrub_credentials(parsed.change_summary)
     if parsed.stamphog_version:
-        run.output = {**output, "stamphog_version": parsed.stamphog_version}
+        _merge_run_output(run, {"stamphog_version": parsed.stamphog_version})
 
     update_fields = [
         "gate_result",
@@ -1573,9 +1565,6 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         "verdict_posted_at",
         "updated_at",
     ]
-    if parsed.stamphog_version:
-        update_fields.append("output")
-
     # Last look before any GitHub write: a same-head re-review delivery (e.g. a trigger-label re-add)
     # supersedes this run WITHOUT moving the head, so the head guard above can't catch it — only a
     # fresh status read can.
@@ -1647,9 +1636,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # One post for every non-approval, keyed off the verdict the run just stored, so the review text
     # and the recorded verdict cannot disagree. The approve branch above posted its own APPROVE.
     if run.verdict != ReviewVerdict.APPROVED:
-        _post_non_approval_review(
-            client, repo, run, pull_request, input.team_id, _verdict_body(parsed, run.verdict, relabel_label)
-        )
+        _post_non_approval_review(client, repo, run, pull_request, _verdict_body(parsed, run.verdict, relabel_label))
 
     # Keyed off parsed.verdict, not run.verdict: the gate-blocked branch overrides run.verdict to WAIT,
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
@@ -2176,7 +2163,7 @@ NON_APPROVAL_REVIEW_ID_KEY = "non_approval_review_id"
 
 
 def _post_non_approval_review(
-    client: StamphogGitHubClient, repo: str, run: ReviewRun, pull_request: PullRequest, team_id: int, body: str
+    client: StamphogGitHubClient, repo: str, run: ReviewRun, pull_request: PullRequest, body: str
 ) -> None:
     """Record a non-approval as its own COMMENT review, and remember it so a retry does not repeat it.
 
@@ -2188,8 +2175,7 @@ def _post_non_approval_review(
     if (run.output or {}).get(NON_APPROVAL_REVIEW_ID_KEY) is not None:
         return
     review = client.post_comment_review(repo, pull_request.pr_number, scrub_credentials(body), run.head_sha)
-    run.output = {**(run.output or {}), NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)}
-    ReviewRun.objects.for_team(team_id).filter(id=run.id).update(output=run.output, updated_at=timezone.now())
+    _merge_run_output(run, {NON_APPROVAL_REVIEW_ID_KEY: _comment_id(review)})
 
 
 FAILURE_NOTICE_BODY = (
@@ -2229,7 +2215,7 @@ def _post_failure_notice(client: StamphogGitHubClient, run: ReviewRun, team_id: 
         return
 
     _post_non_approval_review(
-        client, run.pull_request.repo_config.repository, run, run.pull_request, team_id, FAILURE_NOTICE_BODY
+        client, run.pull_request.repo_config.repository, run, run.pull_request, FAILURE_NOTICE_BODY
     )
 
 
