@@ -844,10 +844,9 @@ class _Renderer:
 
     def action_options(self, action: dict[str, Any]) -> dict[str, Any]:
         options: dict[str, Any] = {}
-        name = self._name(action)
-        if name != "Trigger" and action.get("type") == "trigger":
-            options["name"] = name
-        if name != "Exit" and action.get("type") == "exit":
+        default_name = {"trigger": "Trigger", "exit": "Exit"}.get(action.get("type"))
+        name = action.get("name")
+        if default_name is not None and isinstance(name, str) and name.strip() and name != default_name:
             options["name"] = name
         description = action.get("description")
         if _is_set(description):

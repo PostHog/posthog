@@ -224,6 +224,18 @@ class TestCodeRenderer(SimpleTestCase):
                 None,
             ),
             (
+                "unnamed_trigger_and_exit_keep_the_sdk_defaults",
+                _basic_workflow(
+                    actions=[
+                        {"id": "trigger_node", "type": "trigger", "config": {"type": "schedule"}},
+                        {"id": "exit_node", "type": "exit", "config": {"reason": "Done"}},
+                    ]
+                ),
+                ["on: onSchedule(),", "exit: { reason: 'Done' },"],
+                ["name: 'trigger_node'", "name: 'exit_node'"],
+                None,
+            ),
+            (
                 "line_terminators_in_a_step_name_stay_inside_the_comment",
                 _branch_workflow(
                     conditions=[_cohort_condition("In cohort")],
