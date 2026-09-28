@@ -4,7 +4,7 @@ import re
 import json
 import logging
 from collections import Counter
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -44,7 +44,7 @@ from products.signals.backend.report_generation.team_membership import (
     resolve_membership_roster,
 )
 
-from ..models import SignalReportArtefact, SignalScoutConfig
+from ..models import SignalActorKind, SignalReportArtefact, SignalScoutConfig
 
 logger = logging.getLogger(__name__)
 
@@ -127,6 +127,7 @@ def enrich_reviewer_dicts_with_org_members(
     login_to_user: Mapping[str, User] | None = None,
     uuid_to_user: Mapping[str, User] | None = None,
     scout_display_names: Mapping[str, str] | None = None,
+    manual_adders: Sequence[User | None] | None = None,
 ) -> list[dict]:
     """Enrich reviewer dicts (from artefact content) with fresh PostHog user info.
 
@@ -167,7 +168,7 @@ def enrich_reviewer_dicts_with_org_members(
         resolved_by_uuid = resolve_org_users_by_uuid(team_id, wanted_uuids) if wanted_uuids else {}
 
     enriched: list[dict] = []
-    for r in reviewer_dicts:
+    for index, r in enumerate(reviewer_dicts):
         login = r.get("github_login") or ""
         user_uuid = _normalized_reviewer_user_uuid(r.get("user_uuid"))
         user = resolved_by_uuid.get(user_uuid) if user_uuid else None
@@ -175,7 +176,11 @@ def enrich_reviewer_dicts_with_org_members(
             # strip + lower matches the resolver's key normalization, so a legacy padded login
             # (stored before the schema stripped on write) still resolves.
             user = resolved_map.get(login.strip().lower())
-        enriched.append(_with_reviewer_presentation(r, user, scout_display_names))
+        enriched.append(
+            _with_reviewer_presentation(
+                r, user, scout_display_names, manual_adders[index] if manual_adders is not None else None
+            )
+        )
 
     return enriched
 
@@ -189,6 +194,79 @@ def bounded_reviewer_reason(reason: object) -> str | None:
     return reason if isinstance(reason, str) and len(reason) <= MAX_REVIEWER_REASON_LENGTH else None
 
 
+def trusted_manual_reviewer_adders(
+    artefact: SignalReportArtefact,
+    reviewers: list[dict],
+    history: Sequence[SignalReportArtefact] | None = None,
+) -> list[User | None]:
+    if not any(
+        isinstance(reviewer.get("reason"), str) and reviewer["reason"].startswith("Added as a reviewer by ")
+        for reviewer in reviewers
+    ):
+        return [None] * len(reviewers)
+
+    if history is None:
+        history = list(
+            SignalReportArtefact.objects.filter(
+                team_id=artefact.team_id,
+                report_id=artefact.report_id,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                created_at__lte=artefact.created_at,
+            )
+            .only("id", "content", "created_by_id", "actor_kind", "created_at")
+            .order_by("created_at", "id")
+        )
+
+    previous = ReviewerPayloadIndex.build([])
+    previous_adders: dict[int, int] = {}
+    current = previous
+    current_adders: dict[int, int] = {}
+    for row in sorted(history, key=lambda item: (item.created_at, item.id)):
+        if row.created_at > artefact.created_at:
+            break
+        try:
+            entries = json.loads(row.content)
+        except (TypeError, ValueError):
+            return [None] * len(reviewers)
+        if not isinstance(entries, list):
+            return [None] * len(reviewers)
+        current = ReviewerPayloadIndex.build(entries)
+        current_adders = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            user_uuid = _normalized_reviewer_user_uuid(entry.get("user_uuid"))
+            github_login = str(entry.get("github_login") or "").strip().lower() or None
+            prior = previous.get(user_uuid=user_uuid, github_login=github_login)
+            if prior is not None:
+                adder_id = previous_adders.get(id(prior))
+            elif row.actor_kind == SignalActorKind.USER:
+                adder_id = row.created_by_id
+            else:
+                adder_id = None
+            if adder_id is not None:
+                current_adders[id(entry)] = adder_id
+        if row.id == artefact.id:
+            break
+        previous, previous_adders = current, current_adders
+    else:
+        return [None] * len(reviewers)
+
+    adder_ids: list[int | None] = []
+    for reviewer in reviewers:
+        reason = reviewer.get("reason")
+        if not isinstance(reason, str) or not reason.startswith("Added as a reviewer by "):
+            adder_ids.append(None)
+            continue
+        entry = current.get(
+            user_uuid=_normalized_reviewer_user_uuid(reviewer.get("user_uuid")),
+            github_login=str(reviewer.get("github_login") or "").strip().lower() or None,
+        )
+        adder_ids.append(current_adders.get(id(entry)) if entry is not None else None)
+    users = User.objects.in_bulk({adder_id for adder_id in adder_ids if adder_id is not None})
+    return [users.get(adder_id) if adder_id is not None else None for adder_id in adder_ids]
+
+
 def _commit_explanation(commits: list[object]) -> str:
     if len(commits) == 1 and isinstance(commits[0], dict):
         reason = commits[0].get("reason")
@@ -199,7 +277,9 @@ def _commit_explanation(commits: list[object]) -> str:
     return f"Authored {len(commits)} relevant changes to the affected code."
 
 
-def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display_names: Mapping[str, str]) -> dict:
+def _with_reviewer_presentation(
+    reviewer: dict, user: User | None, scout_display_names: Mapping[str, str], manual_adder: User | None
+) -> dict:
     commits = reviewer.get("relevant_commits")
     commit_list: list[object] = commits if isinstance(commits, list) else []
     safe_commits = [
@@ -223,10 +303,8 @@ def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display
         explanation = safe_reason
     elif isinstance(safe_reason, str) and safe_reason.startswith("Added as a reviewer by "):
         source_label = "Added by teammate"
-        added_by = re.sub(
-            r" on [A-Za-z]{3} \d{1,2}, \d{4}$", "", safe_reason.removeprefix("Added as a reviewer by ")
-        ).strip()
-        explanation = f"Added by {added_by}" if added_by else None
+        name = manual_adder.get_full_name().strip() or manual_adder.email if manual_adder else None
+        explanation = f"Added by {name}" if name else None
     else:
         source_label = "Agent suggestion"
         explanation = safe_reason

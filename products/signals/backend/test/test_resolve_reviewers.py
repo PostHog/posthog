@@ -188,8 +188,8 @@ def test_enriches_reviewer_sources_and_explanations():
     assert enriched[1]["explanation"] == shared_reason
     assert enriched[2]["explanation"] == shared_reason
     assert enriched[3]["source_label"] == "Added by teammate"
-    assert enriched[3]["explanation"] == "Added by Avery Chen"
-    assert enriched[4]["explanation"] == "Added by Morgan Lee"
+    assert enriched[3]["explanation"] is None
+    assert enriched[4]["explanation"] is None
 
 
 @pytest.mark.django_db

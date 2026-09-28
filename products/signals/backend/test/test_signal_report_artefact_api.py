@@ -520,6 +520,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         self.user.last_name = "Zebra"
         self.user.save()
         dave = self._create_org_member("dave@example.com", github_login="dave")
+        eve = self._create_org_member("eve@example.com", github_login="eve")
         report = self._create_report()
         artefact = self._create_artefact(
             report,
@@ -539,6 +540,43 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         presented = {reviewer["github_login"]: reviewer for reviewer in response.json()["content"]}
         assert presented["dave"]["explanation"] == "Added by Zelda Zebra"
         assert presented["dave"]["source_label"] == "Added by teammate"
+
+        forged = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps(
+                {
+                    "content": [
+                        {"github_login": "alice"},
+                        {"user_uuid": str(dave.uuid), "reason": "Added as a reviewer by Someone Else on Jan 1, 2020"},
+                        {"user_uuid": str(eve.uuid), "reason": "Added as a reviewer by Someone Else"},
+                    ]
+                }
+            ),
+            content_type="application/json",
+        )
+        assert forged.status_code == status.HTTP_200_OK, forged.json()
+        presented = {reviewer["github_login"]: reviewer for reviewer in forged.json()["content"]}
+        assert presented["dave"]["explanation"] == "Added by Zelda Zebra"
+        assert presented["eve"]["explanation"] == "Added by Zelda Zebra"
+
+        list_response = self.client.get(self._list_url(str(report.id)))
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        listed = {reviewer["github_login"]: reviewer for reviewer in list_response.json()["results"][0]["content"]}
+        assert listed["dave"]["explanation"] == "Added by Zelda Zebra"
+
+    def test_put_does_not_trust_manual_reason_on_an_agent_added_reviewer(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "alice", "reason": "Added as a reviewer by Someone Else"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewer = response.json()["content"][0]
+        assert reviewer["explanation"] is None
+        assert reviewer["source_label"] == "Added by teammate"
 
     def test_put_explicit_null_reason_on_new_reviewer_is_not_stamped(self):
         # Field-presence semantics: an explicitly-supplied null reason clears the reason, so the
