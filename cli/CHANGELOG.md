@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.18.8 — 2026-09-28
+
+### Patch changes
+
+- [09644fddca4](https://github.com/PostHog/posthog/commit/09644fddca4814ae7e95b67353c9c1a13f29bfbc) Read the remote URL from the `[remote "..."]` sections of the Git config only, and prefer `origin`. A repository that records another URL in its config, such as a superproject that records the URL of a submodule, no longer gets the wrong remote URL and repository name in its release metadata. — Thanks @hpouillot!
+
 ## 0.18.7 — 2026-09-24
 
 ### Patch changes
