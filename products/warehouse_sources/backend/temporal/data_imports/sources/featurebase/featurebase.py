@@ -34,15 +34,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.featurebas
 
 POSTHOG_WEBHOOK_NAME = "PostHog data warehouse"
 
-# Hard cap on child pages fetched per parent to bound runaway pagination in a fan-out.
-MAX_PAGES_PER_FAN_OUT_PARENT = 100
-
 
 class FeaturebaseRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FeaturebaseResumeConfig:
     # Cursor of the next page to fetch. None means "start from the first page" — used when the
     # fan-out bookmark advances to a parent whose first page has no cursor yet.
@@ -325,7 +322,7 @@ def _get_fan_out_rows(
                         FeaturebaseResumeConfig(cursor=next_cursor, parent_id=parent_id)
                     )
                 pages_fetched += 1
-                if pages_fetched >= MAX_PAGES_PER_FAN_OUT_PARENT:
+                if fan_out.max_pages_per_parent is not None and pages_fetched >= fan_out.max_pages_per_parent:
                     logger.warning(
                         f"Featurebase: {config.name} page cap reached, truncating. parent_id={parent_id}, "
                         f"pages={pages_fetched}"

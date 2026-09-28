@@ -36,6 +36,9 @@ class FeaturebaseFanOutConfig:
     # Column the parent id is injected into on every child row.
     parent_id_column: str
     parent_params: dict[str, str] = field(default_factory=dict)
+    # Cap on child pages per parent. A cap truncates a genuinely large parent, so only set one
+    # where a runaway cursor would multiply across many parents.
+    max_pages_per_parent: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -222,6 +225,7 @@ FEATUREBASE_ENDPOINTS: dict[str, FeaturebaseEndpointConfig] = {
             path_placeholder="post_id",
             parent_id_column="postId",
             parent_params={"sortBy": "createdAt", "sortOrder": "asc"},
+            max_pages_per_parent=100,
         ),
         primary_keys=["postId", "id"],
         should_sync_default=False,
