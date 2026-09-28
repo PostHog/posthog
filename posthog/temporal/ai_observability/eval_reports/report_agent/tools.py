@@ -524,6 +524,19 @@ def get_result_distribution_over_time(
 
 
 _LIST_ALL_MAX_RESULTS = 500
+_MAX_EVAL_RESULTS_CHARS = 30_000
+
+
+def _eval_result_count_within_budget(rendered_rows: Iterable[str]) -> int:
+    # Reserve space for the header or JSON envelope without cutting category lists.
+    remaining_chars = _MAX_EVAL_RESULTS_CHARS - 256
+    count = 0
+    for row in rendered_rows:
+        remaining_chars -= len(row) + 2
+        if remaining_chars < 0:
+            break
+        count += 1
+    return count
 
 
 @tool
@@ -533,7 +546,8 @@ def list_all_eval_results(
 ) -> str:
     """Get a compact overview of evaluation results in the period.
 
-    Returns up to 500 results as condensed rows with outcome and target ID.
+    Returns up to 500 results as condensed rows with outcome and target ID,
+    with fewer rows when needed to fit the response size limit.
     Boolean results include truncated reasoning, while sentiment results include
     scores without classifier reasoning. When there are more than 500 results,
     returns a random sample. Use this as your first scan to spot patterns before
@@ -599,8 +613,6 @@ def list_all_eval_results(
         """,
         placeholders=shared_placeholders,
     )
-    _remember_returned_target_ids(state, [row[0] for row in rows if row])
-
     max_reasoning_length = min(max(20, max_reasoning_length), 200)
     lines = []
     for row in rows:
@@ -619,11 +631,15 @@ def list_all_eval_results(
             fields.append(reasoning)
         lines.append(" | ".join(fields))
 
-    if is_sampled:
+    result_count = _eval_result_count_within_budget(lines)
+    _remember_returned_target_ids(state, [row[0] for row in rows[:result_count]])
+    if result_count < len(lines):
+        header = f"Total: {total_count} results (showing {result_count}; response size limit)\n"
+    elif is_sampled:
         header = f"Total: {total_count} results (showing random sample of {len(lines)})\n"
     else:
         header = f"Total: {len(lines)} results\n"
-    return header + "\n".join(lines)
+    return header + "\n".join(lines[:result_count])
 
 
 @tool
@@ -637,6 +653,8 @@ def sample_eval_results(
 
     Boolean and numeric results include reasoning. Score ordering returns the worst
     numeric scores or the highest-confidence sentiment labels first.
+    Returns JSON with results and a truncated flag. Large rows reduce the sample
+    to fit the response size limit; each returned row retains all its categories.
 
     Args:
         outcome: "all" or one of the output type's supported outcomes
@@ -700,8 +718,6 @@ def sample_eval_results(
             "limit": ast.Constant(value=limit),
         },
     )
-    _remember_returned_target_ids(state, [row[0] for row in rows if row])
-
     target_id_key = _target_id_key(state)
     result = []
     for row in rows:
@@ -717,7 +733,16 @@ def sample_eval_results(
             entry["reasoning"] = row[2] or ""
         result.append(entry)
 
-    return json.dumps(result, indent=2)
+    result_count = _eval_result_count_within_budget(json.dumps(entry) for entry in result)
+    _remember_returned_target_ids(state, [row[0] for row in rows[:result_count]])
+    truncated = result_count < len(result)
+    response: dict[str, object] = {"results": result[:result_count], "truncated": truncated}
+    if truncated:
+        response["notice"] = (
+            f"Showing {result_count} of {len(result)} fetched results due to the response size limit. "
+            "Use get_summary_metrics for aggregate counts and pass rates."
+        )
+    return json.dumps(response)
 
 
 @tool

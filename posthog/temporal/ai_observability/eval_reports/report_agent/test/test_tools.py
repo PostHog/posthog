@@ -35,6 +35,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
 )
 from posthog.temporal.ai_observability.eval_reports.report_agent.state import REPORT_RUN_HANDLE_KEY
 from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
+    _MAX_EVAL_RESULTS_CHARS,
     _SESSION_TRACES_SQL,
     _UUID_RE,
     _ch_ts,
@@ -319,8 +320,8 @@ class TestTargetAwareEvalResults(SimpleTestCase):
 
         generation_state = self._state("generation")
         trace_state = self._state("trace")
-        generation_result = json.loads(_sample_eval_results_fn(state=generation_state))
-        trace_result = json.loads(_sample_eval_results_fn(state=trace_state))
+        generation_result = json.loads(_sample_eval_results_fn(state=generation_state))["results"]
+        trace_result = json.loads(_sample_eval_results_fn(state=trace_state))["results"]
 
         self.assertEqual(generation_result[0]["generation_id"], _VALID_GEN_ID)
         self.assertNotIn("trace_id", generation_result[0])
@@ -389,9 +390,72 @@ class TestTargetAwareEvalResults(SimpleTestCase):
 
         self.assertEqual(
             result,
-            [{"generation_id": _VALID_GEN_ID, "outcome": "negative", "score": 0.91}],
+            {
+                "results": [{"generation_id": _VALID_GEN_ID, "outcome": "negative", "score": 0.91}],
+                "truncated": False,
+            },
         )
         self.assertIn("ORDER BY score DESC, timestamp DESC", mock_execute_hogql.call_args.args[1])
+
+    @parameterized.expand(
+        [(tool_name, size) for tool_name in ("list", "sample") for size in ("empty", "small", "large")]
+    )
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_category_results_fit_response_budget_without_partial_categories(
+        self, tool_name: str, size: str, mock_execute_hogql: MagicMock
+    ) -> None:
+        categories = [f"category_{i:03d}_" + "x" * 115 for i in range(100)] if size == "large" else ["ok"]
+        count = {"empty": 0, "small": 3, "large": 500}[size]
+        state = self._state("trace", "categorical")
+        state["output_config"] = {
+            "selection_mode": "multiple",
+            "options": [{"key": key, "label": key} for key in categories],
+            "passing_rule": {"categories": categories},
+        }
+        ids = [f"trace-{i}" for i in range(count)]
+        if tool_name == "list":
+            mock_execute_hogql.side_effect = [
+                [[count]],
+                [[target_id, categories, True, None, ""] for target_id in ids],
+            ]
+            response = _list_all_eval_results_fn(state=state)
+            header, *rows = response.splitlines()
+            self.assertIn(f"Total: {count} results", header)
+            for row in rows:
+                self.assertIn(f"pass ({json.dumps(categories)})", row)
+            self.assertEqual("response size limit" in header, size == "large")
+        else:
+            mock_execute_hogql.return_value = [[target_id, categories, "", True, None] for target_id in ids]
+            response = _sample_eval_results_fn(state=state, limit=500)
+            result = json.loads(response)
+            rows = result["results"]
+            self.assertEqual(result["truncated"], size == "large")
+            for row in rows:
+                self.assertEqual(row["categories"], categories)
+                self.assertEqual(row["outcome"], "pass")
+            if size == "large":
+                self.assertIn("response size limit", result["notice"])
+        self.assertLessEqual(len(response), _MAX_EVAL_RESULTS_CHARS)
+        self.assertEqual(state["trace_id_allowlist"], ids[: len(rows)])
+        if size == "large":
+            self.assertGreater(len(rows), 0)
+            self.assertLess(len(rows), count)
+        else:
+            self.assertEqual(len(rows), count)
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_sample_reports_when_one_result_exceeds_the_budget(self, mock_execute_hogql: MagicMock) -> None:
+        mock_execute_hogql.return_value = [["trace-large", True, "x" * _MAX_EVAL_RESULTS_CHARS, True, None]]
+        state = self._state("trace")
+
+        response = _sample_eval_results_fn(state=state)
+        result = json.loads(response)
+
+        self.assertEqual(result["results"], [])
+        self.assertTrue(result["truncated"])
+        self.assertIn("response size limit", result["notice"])
+        self.assertLessEqual(len(response), _MAX_EVAL_RESULTS_CHARS)
+        self.assertEqual(state["trace_id_allowlist"], [])
 
 
 class TestTraceDetailTools(SimpleTestCase):
