@@ -226,7 +226,8 @@ def _seed_account_contact_data(*, account: Account, index: int) -> None:
             "slack_channel_id": properties.slack_channel_id or f"CSEED{index:04d}",
         }
     )
-    account.slack_summary_cadence = account.slack_summary_cadence or SlackSummaryCadence.WEEKLY
+    if not properties.slack_channel_id:
+        account.slack_summary_cadence = SlackSummaryCadence.WEEKLY
     account.save(update_fields=["_properties", "slack_summary_cadence", "updated_at"])
 
 

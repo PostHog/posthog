@@ -140,8 +140,7 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
         ticket.status = "resolved"
         ticket.priority = "high"
         ticket.save(update_fields=["status", "priority", "updated_at"])
-        meeting = Meeting.objects.get(
-            team=self.team,
+        meeting = Meeting.objects.for_team(self.team.pk).get(
             ical_uid=f"customer-analytics-seed-{account.id}-quarterly-review",
             recurrence_instance_id="",
         )
