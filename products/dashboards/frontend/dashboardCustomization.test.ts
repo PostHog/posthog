@@ -10,6 +10,55 @@ import {
 const geometry = (layout: Layout): Layout => layout.map(({ i, x, y, w, h }) => ({ i, x, y, w, h }))
 
 describe('dashboard grid compactors', () => {
+    it.each([
+        { dropColumn: 4, dropRow: 0, rightStartRow: 0, imageColumn: 6, leftRow: 0, rightRow: 4 },
+        { dropColumn: 3, dropRow: 0, rightStartRow: 0, imageColumn: 2, leftRow: 4, rightRow: 0 },
+        { dropColumn: 4, imageColumn: 6, leftRow: 0, rightRow: 6, rightStartRow: 1, dropRow: 2 },
+    ])(
+        'inserts an image between adjacent charts near column $dropColumn at row $dropRow',
+        ({ dropColumn, imageColumn, leftRow, rightRow, rightStartRow, dropRow }) => {
+            const image: LayoutItem = { i: 'image', x: 0, y: 8, w: 4, h: 4 }
+            const layout: Layout = [
+                { i: 'left-chart', x: 0, y: 0, w: 6, h: 4 },
+                { i: 'right-chart', x: 6, y: rightStartRow, w: 6, h: 4 },
+                image,
+            ]
+            const compactor = getDashboardGridCompactor(DashboardGridCompaction.Stable)
+            const moved = moveElement(
+                layout,
+                image,
+                dropColumn,
+                dropRow,
+                true,
+                false,
+                compactor.type,
+                12,
+                compactor.allowOverlap
+            )
+
+            expect(geometry(compactor.compactInteraction(12, image.i, moved, moved))).toEqual([
+                { i: 'left-chart', x: 0, y: leftRow, w: 6, h: 4 },
+                { i: 'right-chart', x: 6, y: rightRow, w: 6, h: 4 },
+                { i: 'image', x: imageColumn, y: dropRow, w: 4, h: 4 },
+            ])
+        }
+    )
+
+    it('keeps a resized tile in place when it grows across two charts', () => {
+        const layout: Layout = [
+            { i: 'left-chart', x: 0, y: 2, w: 6, h: 4 },
+            { i: 'right-chart', x: 6, y: 2, w: 6, h: 4 },
+            { i: 'image', x: 4, y: 0, w: 4, h: 4 },
+        ]
+        const compactor = getDashboardGridCompactor(DashboardGridCompaction.Stable)
+
+        expect(geometry(compactor.compactInteraction(12, 'image', layout, layout, false))).toEqual([
+            { i: 'left-chart', x: 0, y: 4, w: 6, h: 4 },
+            { i: 'right-chart', x: 6, y: 4, w: 6, h: 4 },
+            { i: 'image', x: 4, y: 0, w: 4, h: 4 },
+        ])
+    })
+
     it('keeps a dragged image at the intended row instead of moving it below a chart', () => {
         const image: LayoutItem = { i: 'image', x: 0, y: 12, w: 6, h: 4 }
         const layout: Layout = [

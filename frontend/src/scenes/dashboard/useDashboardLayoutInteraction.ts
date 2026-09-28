@@ -66,7 +66,13 @@ export function useDashboardLayoutInteraction({
                     interactionKind.current === 'resize'
                         ? resizeNeighborToFitRow(restoredLayout, baseline, activeTileId, resizeNeighbors.current)
                         : restoredLayout
-                return compactor.compactInteraction(cols, activeTileId, restoredLayout, resizedLayout)
+                return compactor.compactInteraction(
+                    cols,
+                    activeTileId,
+                    restoredLayout,
+                    resizedLayout,
+                    interactionKind.current === 'drag'
+                )
             },
         }
     }, [layoutCompaction])
