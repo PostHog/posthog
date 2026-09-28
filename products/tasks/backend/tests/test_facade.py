@@ -542,18 +542,38 @@ class TestFacadeReadsAndMappers(TestCase):
         assert latest_terminal is not None
         self.assertEqual(latest_terminal.id, terminal.id)
 
-    def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
+    def test_get_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
         integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
         other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        colleague = User.objects.create(email="colleague@test.com", distinct_id="colleague-distinct")
+        outsider = User.objects.create(email="outsider@test.com", distinct_id="outsider-distinct")
 
-        live_task = self._make_task(github_integration=integration)
-        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        colleague_task = self._make_task(github_integration=integration, title="Colleague's task", created_by=colleague)
+        TaskRun.objects.create(task=colleague_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=colleague_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        own_task = self._make_task(github_integration=integration, title="Own task")
+        TaskRun.objects.create(task=own_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         other_task = self._make_task(github_integration=other_integration)
         TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
-        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id, integration.id), 1)
-        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id + 999, integration.id), 0)
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, colleague.id),
+            contracts.InProgressGithubRunsDTO(
+                count=2, oldest_task_id=colleague_task.id, oldest_task_title="Colleague's task"
+            ),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, self.user.id),
+            contracts.InProgressGithubRunsDTO(count=2, oldest_task_id=own_task.id, oldest_task_title="Own task"),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id, integration.id, outsider.id),
+            contracts.InProgressGithubRunsDTO(count=2),
+        )
+        self.assertEqual(
+            facade.get_in_progress_runs_for_github_integration(self.team.id + 999, integration.id, self.user.id),
+            contracts.InProgressGithubRunsDTO(count=0),
+        )
 
     def test_get_latest_pr_url_and_run_by_task(self):
         task = self._make_task()
@@ -1204,19 +1224,34 @@ class TestFacadeReadsAndMappers(TestCase):
         new_run = task.runs.exclude(id=previous_run.id).get()
         self.assertEqual(new_run.state.get("self_driving_head_branch"), "posthog-self-driving/fix-abc123")
 
-    def test_run_task_resume_of_a_pipeline_task_stays_unstamped(self):
-        # The predecessor's stage is deliberately not carried forward: a stage makes the run
-        # read as pipeline-started and drops it out of the interactive duration ceiling.
+    @parameterized.expand(
+        [
+            ("manual_implementation", False, "implementation", "implementation", None),
+            ("pipeline_after_manual", True, "implementation", None, "implementation"),
+            ("pipeline_discussion", True, "discussion", "implementation", None),
+        ]
+    )
+    def test_run_task_resume_of_a_pipeline_task_stamps_only_requested_pipeline_runs(
+        self,
+        _name: str,
+        pipeline_rerun: bool,
+        relationship: str,
+        previous_stage: str | None,
+        expected_stage: str | None,
+    ):
         from products.signals.backend.models import SignalReport
+        from products.signals.backend.task_run_artefacts import record_report_task
 
-        # The report link is present so only `internal` can withhold the stamp here.
         report = SignalReport.objects.create(team=self.team)
         task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT, signal_report=report, internal=True)
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship=relationship
+        )
         previous_run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
-            state={"ai_stage": "implementation"},
+            state={"ai_stage": previous_stage} if previous_stage else {},
         )
 
         with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None):
@@ -1225,11 +1260,13 @@ class TestFacadeReadsAndMappers(TestCase):
                 self.team.id,
                 self.user.id,
                 validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+                pipeline_rerun=pipeline_rerun,
+                free_trial_enabled=False,
             )
 
         assert result is not None and result.error is None
         new_run = task.runs.exclude(id=previous_run.id).get()
-        self.assertNotIn("ai_stage", new_run.state)
+        self.assertEqual(new_run.state.get("ai_stage"), expected_stage)
 
     @parameterized.expand(
         [
@@ -2516,3 +2553,34 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
             )
         flag_mock.assert_not_called()
         self.assertTrue(Task.objects.filter(id=dto.task_id).exists())
+
+    def test_run_task_takes_a_pre_resolved_free_trial_verdict(self):
+        from products.signals.backend.task_run_artefacts import record_report_task
+
+        report = self._report()
+        task = Task.objects.create(
+            team=self.team,
+            title="Implementation: t",
+            description="d",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report_id=report.id,
+            created_by=self.user,
+        )
+        record_report_task(
+            team_id=self.team.id, report_id=str(report.id), task_id=str(task.id), relationship="implementation"
+        )
+
+        with (
+            self._on_trial() as flag_mock,
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None),
+        ):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "background"},
+                free_trial_enabled=False,
+            )
+        flag_mock.assert_not_called()
+        assert result is not None and result.error is None
+        self.assertTrue(task.runs.exists())

@@ -1,4 +1,5 @@
 import dataclasses
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from requests import Request, Response
@@ -9,7 +10,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.factorial.settings import FACTORIAL_ENDPOINTS
@@ -36,10 +40,13 @@ def base_url(api_version: str) -> str:
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class FactorialResumeConfig:
     # Opaque forward cursor (`meta.end_cursor`) passed back as `after_id` to fetch the next page.
     after_id: str
+    # Date the run pinned for a `date_param` endpoint, so a resumed walk keeps the earlier pages'
+    # as-of date instead of recomputing against the day it resumes on.
+    reference_date: Optional[str] = None
 
 
 class FactorialCursorPaginator(BasePaginator):
@@ -98,18 +105,20 @@ class FactorialCursorPaginator(BasePaginator):
             self._has_next_page = True
 
 
-def get_resource(endpoint: str) -> EndpointResource:
+def get_resource(endpoint: str, params: Optional[dict[str, str]] = None) -> EndpointResource:
     config = FACTORIAL_ENDPOINTS[endpoint]
+    endpoint_params: dict[str, Any] = dict(config.params if params is None else params)
+    endpoint_def: Endpoint = {
+        # Every list endpoint wraps its records under a top-level `data` key.
+        "data_selector": "data",
+        "path": config.path,
+        "params": endpoint_params,
+    }
     return {
         "name": config.name,
         "table_name": config.name,
         "write_disposition": "replace",
-        "endpoint": {
-            # Every list endpoint wraps its records under a top-level `data` key.
-            "data_selector": "data",
-            "path": config.path,
-            "params": {},
-        },
+        "endpoint": endpoint_def,
         "table_format": "delta",
     }
 
@@ -123,6 +132,19 @@ def factorial_source(
     api_version: str,
 ) -> SourceResponse:
     endpoint_config = FACTORIAL_ENDPOINTS[endpoint]
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    params = dict(endpoint_config.params)
+    reference_date: Optional[str] = None
+    if endpoint_config.date_param:
+        # The endpoint recomputes against the date it receives and defaults that to today, so one
+        # date is pinned for the whole walk. Without it a run that crosses midnight, or resumes the
+        # next day, writes two different as-of dates into the same table.
+        reference_date = (resume_config.reference_date if resume_config else None) or datetime.now(
+            UTC
+        ).date().isoformat()
+        params[endpoint_config.date_param] = reference_date
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -141,21 +163,21 @@ def factorial_source(
         "resource_defaults": {
             "write_disposition": "replace",
         },
-        "resources": [get_resource(endpoint)],
+        "resources": [get_resource(endpoint, params)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"after_id": resume_config.after_id}
+    if resume_config is not None:
+        initial_paginator_state = {"after_id": resume_config.after_id}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Persist only when there's a next page to resume to; the Redis TTL handles cleanup once the
         # sync finishes. Saving happens after each page is yielded, so a crash re-fetches the last
         # page rather than skipping it (merge dedupes the re-pulled rows on the primary key).
         if state and state.get("after_id"):
-            resumable_source_manager.save_state(FactorialResumeConfig(after_id=str(state["after_id"])))
+            resumable_source_manager.save_state(
+                FactorialResumeConfig(after_id=str(state["after_id"]), reference_date=reference_date)
+            )
 
     resource = rest_api_resource(
         rest_config,
