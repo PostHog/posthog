@@ -1029,20 +1029,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 }
             }
             cache.emailEditPending = true
+            // Read before the wait: a Continue in flight moves the step on, but its save may not carry this edit.
+            const editedOnContent = values.currentStep === 'content'
             const saves = getSaveQueue(cache, values)
             await saves.whenIdle()
-            if (values.currentStep !== 'content' || values.broadcast?.status !== 'draft') {
+            if (!editedOnContent || values.broadcast?.status !== 'draft') {
                 clearPending()
                 return
             }
             await breakpoint(1000)
-            if (
-                !values.broadcastId ||
-                !values.currentProjectId ||
-                values.currentStep !== 'content' ||
-                values.broadcast?.status !== 'draft'
-            ) {
-                // Continue or Launch saves this edit instead.
+            if (!values.broadcastId || !values.currentProjectId || values.broadcast?.status !== 'draft') {
+                // Launch saves this edit instead.
                 clearPending()
                 return
             }
@@ -1152,15 +1149,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return
             }
             const projectId = String(values.currentProjectId)
+            let savedEditGeneration: number | undefined
             try {
-                const saved = await saves.run(() =>
-                    values.broadcastId
+                const saved = await saves.run(() => {
+                    savedEditGeneration = cache.emailEditGeneration
+                    return values.broadcastId
                         ? saveWithoutClobbering(projectId, values.broadcastId, values)
                         : hogFlowsCreate(projectId, buildBroadcastPayload(values) as any)
-                )
+                })
                 actions.saveBroadcastFinished(saved)
-                // This save carried any email edit still waiting on its autosave.
-                cache.emailEditPending = false
+                // This save carried the email edits made before it started. A later one keeps its own autosave.
+                if (cache.emailEditGeneration === savedEditGeneration) {
+                    cache.emailEditPending = false
+                }
                 actions.nextStep()
                 actions.showSavedDraftUrl()
             } catch (error: any) {

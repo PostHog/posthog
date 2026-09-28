@@ -59,9 +59,13 @@ describe('broadcastWizardLogic', () => {
     let latest: HogFlowApi
     let releaseCreate: () => void
     let patchedSubjects: string[]
+    let holdPatch: Promise<void> | null
+    let onPatchStarted: (() => void) | null
 
     beforeEach(() => {
         patchedSubjects = []
+        holdPatch = null
+        onPatchStarted = null
         const created = new Promise<void>((resolve) => {
             releaseCreate = resolve
         })
@@ -82,6 +86,10 @@ describe('broadcastWizardLogic', () => {
                     const subject = body.actions.find((action) => action.type === 'function_email').config.inputs.email
                         .value.subject
                     patchedSubjects.push(subject)
+                    onPatchStarted?.()
+                    if (holdPatch) {
+                        await holdPatch
+                    }
                     return [200, savedBroadcast({ name: '', subject, updatedAt: '2026-09-24T10:00:05Z' })]
                 },
             },
@@ -173,6 +181,39 @@ describe('broadcastWizardLogic', () => {
         }).toDispatchActions(['nextStep', 'showSavedDraftUrl'])
 
         expect(patchedSubjects).toEqual(['Typed before Continue'])
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+    })
+
+    it('keeps an email edit made while Continue is saving and moves to the draft URL after it saves', async () => {
+        const validEmail = {
+            ...DEFAULT_BROADCAST_EMAIL,
+            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
+            html: '<p>Hi</p>',
+        }
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved'])
+        logic.actions.setEmail({ ...validEmail, subject: 'Saved by Continue' })
+        await expectLogic(logic).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
+        router.actions.push('/broadcasts/new')
+        patchedSubjects = []
+
+        let releasePatch: () => void = () => {}
+        holdPatch = new Promise((resolve) => {
+            releasePatch = resolve
+        })
+        const patchStarted = new Promise<void>((resolve) => {
+            onPatchStarted = resolve
+        })
+        logic.actions.continueStep()
+        await patchStarted
+        holdPatch = null
+        logic.actions.setEmail({ ...validEmail, subject: 'Typed during Continue' })
+        releasePatch()
+
+        await expectLogic(logic).toDispatchActions(['nextStep', 'draftAutosaved', 'showSavedDraftUrl'])
+        expect(patchedSubjects).toEqual(['Saved by Continue', 'Typed during Continue'])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 
