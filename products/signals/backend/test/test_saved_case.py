@@ -284,6 +284,7 @@ class TestSavedCaseValidation(SimpleTestCase):
             "unknown_field",
             "unknown_state_table",
             "missing_reference",
+            "missing_content_reference",
             "source_insight",
             "old_schema",
             "missing_schema",
@@ -311,6 +312,18 @@ class TestSavedCaseValidation(SimpleTestCase):
                         "content": "Saved",
                         "created_at": SOURCE.isoformat(),
                         "created_by_run_id": str(uuid4()),
+                    }
+                ]
+            elif failure == "missing_content_reference":
+                report_id = str(uuid4())
+                state["reports"] = [{"id": report_id, "created_at": SOURCE.isoformat(), "status": "ready"}]
+                state["report_artefacts"] = [
+                    {
+                        "id": str(uuid4()),
+                        "created_at": SOURCE.isoformat(),
+                        "report_id": report_id,
+                        "type": "report_link",
+                        "content": json.dumps({"kind": "depends_on", "report_id": str(uuid4())}),
                     }
                 ]
             elif failure == "source_insight":
