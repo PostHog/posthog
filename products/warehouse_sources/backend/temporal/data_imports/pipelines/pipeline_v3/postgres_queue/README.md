@@ -48,7 +48,10 @@ All SQL lives in `jobs_db.py`; the polling/retry/recovery engine is `../batch_co
     It is single-flighted fleet-wide through a sentinel lease row (`try_acquire_reconcile_sweep_slot`, team_id 0 / `__reconcile-sweep__`, 240s slot TTL): the sweeps reconcile global state, so N pods running them concurrently is pure duplicated load, exactly when the queue DB can least afford it.
   - **Stranded-run sweep** (same cadence and connection, `get_stale_stranded_runs`): runs the loader abandoned, meaning non-terminal batches, no live lease, and no loader progress for 6 hours.
     These have no `failed` batch for the reconcile sweep to key on (the extraction died before a final batch), so without this pass they would strand until the retention prune.
-- **Sync producer** (`producer.py`): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each `send_batch_notification` is a single INSERT.
+- **Sync producer** (`producer.py`): runs inside Temporal activities, plain `psycopg.Connection` with autocommit. Each queue row is a single INSERT.
+  The v3 pipeline holds each batch's row back by one (`hold_batch`): staging batch N inserts the row for batch N-1, and the end of the run inserts the held row with `is_final_batch = true`, so the run's last data row is its own final marker and the loader reads every parquet file once.
+  A resumable source releases the held row before it commits a cursor (`release_held_batch`), because the cursor promises that every row before it is loadable; when that leaves nothing held at the end, `send_final_batch` inserts the last batch a second time as a final-only marker, which the loader still accepts (`_run_post_load_for_already_processed_batch`).
+  The CDC extraction activities know at send time whether a batch is final and keep using `send_batch_notification` directly.
 - **New DB**: we created a new DB to store these tables.
 - **Daily range partitioning** on `created_at`: both tables use `PARTITION BY RANGE (created_at)` with daily partitions and a DEFAULT partition catching rows that miss one.
   A Temporal scheduled workflow (`warehouse-sources-queue-partition-management`, daily at 8 AM UTC) creates the next 7 days of partitions, drops partitions older than 7 days, deletes DEFAULT-partition rows older than 7 days, and prunes the matching S3 extraction prefixes on the same retention.

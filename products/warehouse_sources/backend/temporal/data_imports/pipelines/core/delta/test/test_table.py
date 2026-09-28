@@ -8,6 +8,9 @@ from django.test import override_settings
 import deltalake
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    DeltaLiteHandleCache,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
 )
@@ -441,3 +444,24 @@ class TestPurgeS3PrefixPermissionErrors:
                 await _purge_s3_prefix(MagicMock(), "s3://bucket/prefix")
 
         assert mock_once.await_count == expected_attempts
+
+
+class TestInvalidateDropsTheDeltaliteHandle:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table"
+
+    @pytest.mark.asyncio
+    async def test_invalidating_the_ref_forgets_the_process_wide_handle(self):
+        # A reset or repartition swap replaces the table under the same URI. A deltalite handle
+        # that survives it would refresh the old snapshot with the new log's commits.
+        cache = DeltaLiteHandleCache(maxsize=2, opener=lambda uri, storage_options: MagicMock())
+        ref = _openable_table_ref("s3://bucket/team/job/t")
+
+        with patch(f"{self._MODULE}.get_handle_cache", return_value=cache):
+            await ref.get_table_uri()
+            with cache.lease("s3://bucket/team/job/t", storage_options={}, table_id="tid", table_version=1):
+                pass
+            assert "s3://bucket/team/job/t" in cache
+
+            ref.invalidate_cached_table()
+
+        assert "s3://bucket/team/job/t" not in cache

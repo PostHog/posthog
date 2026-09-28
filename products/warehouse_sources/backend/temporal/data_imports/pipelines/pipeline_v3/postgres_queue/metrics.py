@@ -263,7 +263,14 @@ class ConsumerMetrics:
     poll_failures_total: Counter
     active_groups: Gauge
     recovery_sweeps_total: Counter
+    coalesced_sets_total: Counter
 
+
+COALESCED_SETS_TOTAL = Counter(
+    "warehouse_pg_consumer_coalesced_sets_total",
+    "Sets of consecutive batches of one run loaded as a single write, by outcome",
+    labelnames=["outcome"],
+)
 
 DELTA_CONSUMER_METRICS = ConsumerMetrics(
     batches_processed_total=BATCHES_PROCESSED_TOTAL,
@@ -275,6 +282,7 @@ DELTA_CONSUMER_METRICS = ConsumerMetrics(
     poll_failures_total=POLL_FAILURES_TOTAL,
     active_groups=ACTIVE_GROUPS,
     recovery_sweeps_total=RECOVERY_SWEEPS_TOTAL,
+    coalesced_sets_total=COALESCED_SETS_TOTAL,
 )
 
 _metrics_by_prefix: dict[str, ConsumerMetrics] = {}
@@ -330,6 +338,11 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
         recovery_sweeps_total=Counter(
             f"{p}_recovery_sweeps_total",
             "Total recovery sweeps executed",
+            labelnames=["outcome"],
+        ),
+        coalesced_sets_total=Counter(
+            f"{p}_coalesced_sets_total",
+            "Sets of consecutive batches of one run loaded as a single write, by outcome",
             labelnames=["outcome"],
         ),
     )
