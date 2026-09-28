@@ -73,10 +73,9 @@ export class PushApiServer implements NodeServer {
 
     private async startServices(): Promise<void> {
         if (!this.config.SECRET_KEY && isProdEnv()) {
-            // Registrations still work; only the rejection log degrades, so this must not stop the
-            // endpoint serving. Unkeyed, the fingerprint of a secret key submitted in the wrong field
-            // becomes confirmable by anyone who can read the log and holds a candidate value.
-            logger.warn('⚠️', 'SECRET_KEY is unset, so rejection fingerprints are unkeyed and do not match Django')
+            // Unkeyed, the fingerprint of a secret key submitted in the wrong field becomes confirmable by
+            // anyone who can read the rejection log and holds a candidate value.
+            throw new Error('SECRET_KEY is required to serve push subscriptions')
         }
 
         if (!this.config.ENCRYPTION_SALT_KEYS && isProdEnv()) {

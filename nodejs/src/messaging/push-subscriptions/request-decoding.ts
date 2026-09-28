@@ -135,7 +135,7 @@ function parseJsonLikePython(text: string): unknown {
     }
 }
 
-const BARE_CONSTANT = /^(NaN|-?Infinity)/
+const BARE_CONSTANT = /NaN|-?Infinity/y
 
 /** Replaces the non-JSON numeric constants outside string literals, or null when there are none. */
 function replaceBareConstants(text: string): string | null {
@@ -165,7 +165,8 @@ function replaceBareConstants(text: string): string | null {
             index += 1
             continue
         }
-        const match = BARE_CONSTANT.exec(text.slice(index))
+        BARE_CONSTANT.lastIndex = index
+        const match = BARE_CONSTANT.exec(text)
         if (match) {
             result += 'null'
             index += match[0].length
