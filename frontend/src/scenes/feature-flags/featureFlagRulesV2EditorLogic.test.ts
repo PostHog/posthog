@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { FeatureFlagType } from '~/types'
+import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import {
@@ -261,6 +261,29 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({ isEditingFlag: true })
             expect(logic.values.draft.config.default_value).toBeNull()
+        })
+
+        it.each([
+            {
+                condition: 'an exact match with no value',
+                operator: PropertyOperator.Exact,
+                value: null,
+                reason: 'Choose a value for every condition in rule 2.',
+            },
+            {
+                condition: 'an exact match with every value removed',
+                operator: PropertyOperator.Exact,
+                value: [],
+                reason: 'Choose a value for every condition in rule 2.',
+            },
+            { condition: 'an is-set check', operator: PropertyOperator.IsSet, value: null, reason: null },
+        ])('with $condition, the save guard says $reason', ({ operator, value, reason }) => {
+            const rule = logic.values.draft.config.rules[1]
+            logic.actions.updateRule(1, {
+                ...rule,
+                targeting: { properties: [{ key: 'email', type: PropertyFilterType.Person, operator, value }] },
+            })
+            expect(logic.values.saveDisabledReason).toBe(reason)
         })
 
         it('shows a validation error against its field and clears it on the next edit', async () => {

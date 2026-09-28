@@ -17,7 +17,9 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import { subscriptions } from 'kea-subscriptions'
 
 import { isApprovalRequiredError } from 'lib/api-error'
+import { isEmptyProperty, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isOperatorFlag } from 'lib/utils/operators'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -378,7 +380,21 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                         rule.rule_type === 'percentage_rollout' &&
                         !(rule.rollout_percentage >= 0 && rule.rollout_percentage <= 100)
                 )
-                return badRollout ? 'Rollout percentages must be between 0 and 100.' : null
+                if (badRollout) {
+                    return 'Rollout percentages must be between 0 and 100.'
+                }
+                // The server accepts a condition with no value, but the condition never matches.
+                // Set and not-set conditions take no value, so they are not incomplete.
+                const emptyConditionIndex = draft.config.rules.findIndex((rule) =>
+                    rule.targeting.properties.some(
+                        (property) =>
+                            isEmptyProperty(property) &&
+                            !(isPropertyFilterWithOperator(property) && isOperatorFlag(property.operator))
+                    )
+                )
+                return emptyConditionIndex >= 0
+                    ? `Choose a value for every condition in rule ${emptyConditionIndex + 1}.`
+                    : null
             },
         ],
     }),
