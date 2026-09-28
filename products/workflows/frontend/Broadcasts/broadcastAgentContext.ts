@@ -1,5 +1,7 @@
 import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
+import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 
+import type { ComposerOverride } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 // Own dismiss group: a dismissal is global and never resets, so a chip closed elsewhere must not strip this page.
@@ -8,6 +10,12 @@ const NEW_BROADCAST_DISMISS_GROUP = 'new-broadcast-composer'
 const BUILDING_WORKFLOWS_SKILL = 'building-workflows'
 
 export const NEW_BROADCAST_AGENT_HEADLINES: string[] = ['What would you like to send?']
+
+export const NEW_BROADCAST_COMPOSER_OVERRIDE: ComposerOverride = {
+    ...AI_FIRST_COMPOSER_OVERRIDE,
+    subheadline: 'Describe the email and who should get it.',
+    placeholder: 'For example, announce our new pricing to all active users…',
+}
 
 export const NEW_BROADCAST_SUGGESTIONS: AiFirstSuggestion[] = [
     {
