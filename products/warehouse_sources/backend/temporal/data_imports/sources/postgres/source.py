@@ -935,6 +935,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
                 "re-enable the sync."
             ),
+            # A Neon-style proxy refuses the connection because the compute endpoint itself has been
+            # disabled — distinct from the quota entries above, which describe a database that's
+            # still enabled but out of allowance. A disabled endpoint doesn't auto-wake on connect
+            # like a normally suspended one; only an explicit API/console call re-enables it, so every
+            # retry re-hits the same refusal. Match the stable provider sentence; it carries no host
+            # or account detail.
+            "The endpoint has been disabled": (
+                "Your database provider has disabled the compute endpoint, so PostHog can't connect "
+                '("The endpoint has been disabled"). This usually happens when a usage limit is '
+                "exceeded or the endpoint was disabled manually. Re-enable the endpoint from your "
+                "provider's dashboard or API, then re-enable the sync."
+            ),
             # The same provider family names some quotas in the refusal and others not at all
             # ("has exceeded the quota"), so the two keys above miss those wordings and the raw
             # libpq line — carrying the customer's host and port — is retried and then stored.
