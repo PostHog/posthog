@@ -85,7 +85,7 @@ This also holds when the document is `toString(properties)`.
 The original function still determines the return type, the missing-value default and any deeper keys.
 A `$feature/<key>` value parses as the SDK sent it: a boolean flag as JSON `true` or `false`, and a variant as a JSON string, so `$false` parses as `"false"`.
 A variant named `true` parses as boolean `true`, because the map cannot tell it apart from an enabled boolean flag.
-These reads do not see the rebuilt flags: key listings of the whole document such as `JSONExtractKeys(properties)`, JSON functions with a computed key, and JSON functions over `properties` selected through a subquery.
+These reads do not see the rebuilt flags: key listings of the whole document such as `JSONExtractKeys(properties)`, JSON functions with a computed key, JSON functions over `properties` selected through a subquery, and `JSON_VALUE`, which takes a JSONPath instead of keys.
 The legacy table stores flags as sent, so HogQL reads every flag property there as stored, `$feature_flags` included.
 
 ### Benchmarking the cleaner

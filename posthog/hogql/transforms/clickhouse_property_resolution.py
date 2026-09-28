@@ -1287,7 +1287,14 @@ class ClickHousePropertyResolver(CloningVisitor):
         The native stored document has no `$feature/<key>` or `$active_feature_flags` key, so a JSON function that reads
         the document sees a missing key. The legacy document holds every flag key as sent, so it is read as stored.
         """
-        if not self.context.uses_new_events_schema() or not node.name.startswith("JSON") or len(node.args) < 2:
+        # `JSON_VALUE` and the other SQL-standard `JSON_` functions take one JSONPath argument instead of keys, so
+        # dropping their second argument would leave them without a path.
+        if (
+            not self.context.uses_new_events_schema()
+            or not node.name.startswith("JSON")
+            or node.name.startswith("JSON_")
+            or len(node.args) < 2
+        ):
             return None
         key_arg = node.args[1]
         if not isinstance(key_arg, ast.Constant) or not isinstance(key_arg.value, str):

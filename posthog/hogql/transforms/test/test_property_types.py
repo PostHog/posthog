@@ -272,6 +272,15 @@ class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
                 ("events.properties.`$active_feature_flags`", "events._active_feature_flags"),
             ),
             (
+                "json_path_function_reads_document",
+                "SELECT JSON_VALUE(properties, '$feature_flags') FROM events",
+                True,
+                None,
+                None,
+                ("JSON_VALUE(",),
+                ("events.properties.`$feature_flags`",),
+            ),
+            (
                 "native_restricted",
                 "SELECT properties.$feature_flags, properties.$active_feature_flags, "
                 "JSONHas(properties, '$feature_flags', 'secret') FROM events",
