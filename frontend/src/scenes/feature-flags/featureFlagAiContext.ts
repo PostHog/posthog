@@ -67,17 +67,13 @@ function targetingValue(featureFlag: FeatureFlagType): string {
 /** Skill the "Review cleanup with AI" action asks PostHog AI to load; bundled into the agent sandbox image. */
 export const FEATURE_FLAG_CLEANUP_SKILL = 'cleaning-up-stale-feature-flags'
 
-// The visible chip and the hidden instruction it stands for share this group, so dismissing the chip
-// detaches the instruction too. Mirrors the pattern in products/workflows/frontend/Workflows/workflowAgentContext.ts.
-export const FEATURE_FLAG_CLEANUP_DISMISS_GROUP = 'feature-flag-cleanup-assessment'
-
 export const FEATURE_FLAG_CLEANUP_ASSESSMENT_PROMPT = 'Assess this feature flag for cleanup.'
+const FEATURE_FLAG_CLEANUP_TARGET_TYPE = 'feature_flag_cleanup_target'
 
-export const FEATURE_FLAG_CLEANUP_SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
+const FEATURE_FLAG_CLEANUP_SKILL_CONTEXT_ITEM: AttachedContextItem = {
     type: 'skill',
     key: FEATURE_FLAG_CLEANUP_SKILL,
     label: 'Cleaning up stale feature flags skill',
-    dismissGroup: FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
 }
 
 // Our own static, build-time text only. Never interpolate the flag's key, name, or description into
@@ -87,9 +83,8 @@ export const FEATURE_FLAG_CLEANUP_SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem =
 const FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
-    dismissGroup: FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
     value:
-        `Load the ${FEATURE_FLAG_CLEANUP_SKILL} skill before assessing. The feature_flag_cleanup_target item ` +
+        `Load the ${FEATURE_FLAG_CLEANUP_SKILL} skill before assessing. The ${FEATURE_FLAG_CLEANUP_TARGET_TYPE} item ` +
         'names the flag by project, id, and key. Re-fetch its current definition with the feature-flag tools ' +
         'rather than trusting values elsewhere in this conversation, because it can have changed since the page ' +
         'that started this request was loaded. Check linked systems (dependent flags, experiments, holdouts, ' +
@@ -98,27 +93,21 @@ const FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
         'change this flag in PostHog - do not enable, disable, archive, unarchive, or delete it.',
 }
 
-function cleanupTargetValue(featureFlag: FeatureFlagType, projectId: number | null): string {
+function cleanupTargetValue(featureFlag: Pick<FeatureFlagType, 'id' | 'key'>, projectId: number | null): string {
     return JSON.stringify({ project_id: projectId, id: featureFlag.id, key: featureFlag.key })
 }
 
-/**
- * Context for the flag-page "Review cleanup with AI" action: a visible pointer to the cleanup skill, a
- * static instruction to load it, and the saved flag's identity as untrusted data. Attach this only when
- * that action is taken - an ordinary conversation on this page keeps using `featureFlagContextItems` alone,
- * so it is unaffected by this skill and instruction.
- */
+/** The instruction stays trusted text; the flag identity travels separately as untrusted data. */
 export function featureFlagCleanupAssessmentContextItems(
-    featureFlag: FeatureFlagType,
+    featureFlag: Pick<FeatureFlagType, 'id' | 'key'>,
     projectId: number | null
 ): AttachedContextItem[] {
     return [
-        FEATURE_FLAG_CLEANUP_SKILL_CHIP_CONTEXT_ITEM,
+        FEATURE_FLAG_CLEANUP_SKILL_CONTEXT_ITEM,
         FEATURE_FLAG_CLEANUP_INSTRUCTIONS_CONTEXT_ITEM,
         {
-            type: 'feature_flag_cleanup_target',
+            type: FEATURE_FLAG_CLEANUP_TARGET_TYPE,
             hidden: true,
-            dismissGroup: FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
             value: cleanupTargetValue(featureFlag, projectId),
         },
     ]

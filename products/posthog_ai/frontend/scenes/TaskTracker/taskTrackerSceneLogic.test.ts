@@ -559,24 +559,32 @@ describe('taskTrackerSceneLogic', () => {
     // The seeded first message wraps the on-screen context, and the wrapped non-text refs must be marked
     // sent under the created task's id — otherwise the run's first follow-up (sent via
     // `runInteractionLogic`, which prunes against the task-scoped store) re-wraps the same refs.
-    it('marks seeded context sent for the created task so the first follow-up will not re-wrap it', async () => {
-        logic.mount()
-        attachedContextLogic().actions.registerContext('scene', [
-            { type: 'insight', key: 'sig', label: 'Signups' },
-            { type: 'text', value: 'always resend me' },
-        ])
+    it.each(['scene', 'seed'])(
+        'marks %s context sent for the created task without adding it to later sends',
+        async (source) => {
+            logic.mount()
+            const contextItems = [
+                { type: 'insight', key: 'sig', label: 'Signups' },
+                { type: 'text', value: 'always resend me' },
+            ]
+            if (source === 'scene') {
+                attachedContextLogic().actions.registerContext('scene', contextItems)
+                logic.actions.setNewTaskData({ description: 'why the drop?' })
+                logic.actions.submitNewTask()
+            } else {
+                composerSeedLogic().actions.setSeed({ prompt: 'why the drop?', autoSubmit: true, contextItems })
+            }
 
-        logic.actions.setNewTaskData({ description: 'why the drop?' })
-        logic.actions.submitNewTask()
-        await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
-        // The message sent to the agent is wrapped; the task description stays raw.
-        expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
-        expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
-        expect(createBody?.description).toBe('why the drop?')
-        // Only the entity ref is marked sent (text items always resend), under the created task's id.
-        expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({ 'new-task': ['insight:sig'] })
-    })
+            expect(runBody?.pending_user_message).toContain('<posthog_untrusted_context>')
+            expect(runBody?.pending_user_message).toContain('- insight sig ("Signups")')
+            expect(createBody?.description).toBe('why the drop?')
+            expect(attachedContextLogic().values.sentContextKeysByTask).toEqual({ 'new-task': ['insight:sig'] })
+            expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+            expect(attachedContextLogic().values.contextItems).toHaveLength(source === 'seed' ? 0 : 2)
+        }
+    )
 
     // The tasks backend has no server-side consent check (unlike the conversations coordinator), so a
     // send must be blocked client-side before it ever reaches `api.tasks.create` — otherwise a sandbox
@@ -890,15 +898,31 @@ describe('taskTrackerSceneLogic', () => {
     it('picks up a seed set before mount and prefills without submitting when autoSubmit is false', async () => {
         const seedLogic = composerSeedLogic()
         seedLogic.mount()
-        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false })
+        const contextItems = [{ type: 'skill', key: 'example-skill' }]
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
 
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.newTaskData.description).toBe('analyze churn')
+        expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
         expect(seedLogic.values.seed).toBeNull()
         // No submit: submitting opens an optimistic activeCreation, prefill-only leaves it null.
         expect(logic.values.activeCreation).toBeNull()
+
+        seedLogic.actions.setSeed({ prompt: 'unrelated request', autoSubmit: false })
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        logic.actions.setNewTaskData({ description: 'different request' })
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
+
+        seedLogic.actions.setSeed({ prompt: 'analyze churn', autoSubmit: false, contextItems })
+        logic.actions.setNewTaskData({ description: 'analyze churn' })
+        expect(logic.values.newTaskData.seedContextItems).toEqual(contextItems)
+        logic.unmount()
+        logic.mount()
+        expect(logic.values.newTaskData.seedContextItems).toBeUndefined()
 
         seedLogic.unmount()
     })

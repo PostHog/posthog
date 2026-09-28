@@ -118,6 +118,7 @@ describe('FeatureFlagStaleBanner', () => {
     })
 
     afterEach(() => {
+        setCleanupActionAvailable(false)
         cleanup()
     })
 
@@ -335,6 +336,9 @@ describe('FeatureFlagStaleBanner', () => {
 
     describe('Review cleanup with AI action', () => {
         it('is hidden while the internal release flag is off', async () => {
+            enabledFeaturesLogic.actions.setFeatureFlags([FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
+                [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+            })
             useMocks(endpointMocks())
             const logic = mountAndRender()
             await settle(logic)
@@ -361,7 +365,7 @@ describe('FeatureFlagStaleBanner', () => {
 
             const button = document.querySelector<HTMLButtonElement>(REVIEW_CLEANUP_SELECTOR)
             expect(button).toBeInTheDocument()
-            expect(button).toBeEnabled()
+            expect(button).toHaveAttribute('aria-disabled', 'false')
 
             act(() => {
                 button?.click()

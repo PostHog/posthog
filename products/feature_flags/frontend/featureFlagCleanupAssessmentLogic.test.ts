@@ -1,15 +1,14 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import {
-    FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
-    FEATURE_FLAG_CLEANUP_SKILL,
-    FEATURE_FLAG_CLEANUP_SKILL_CHIP_CONTEXT_ITEM,
-} from 'scenes/feature-flags/featureFlagAiContext'
+import { FEATURE_FLAG_CLEANUP_SKILL } from 'scenes/feature-flags/featureFlagAiContext'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { maxMocks } from 'scenes/max/testUtils'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -23,12 +22,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import {
-    attachedContextItemKey,
-    attachedContextLogic,
-    composerSeedLogic,
-    runnerPanelLogic,
-} from 'products/posthog_ai/frontend/api/logics'
+import { attachedContextLogic, composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { featureFlagCleanupAssessmentLogic } from './featureFlagCleanupAssessmentLogic'
 
@@ -83,9 +77,6 @@ describe('featureFlagCleanupAssessmentLogic', () => {
         initKeaTests()
         sidePanelStateLogic.mount()
         sidePanelStateLogic.actions.setSidePanelAvailable(true)
-        // Mounted independently (outliving `logic`) so the unmount test below proves this logic's own
-        // `beforeUnmount` deregisters its entry, rather than the whole store resetting because `logic`
-        // happened to be its last consumer.
         attachedContextLogic.mount()
         // The side panel holds the seed store mounted while the runner chunk loads, so a pending seed can
         // outlive this logic. Mounting it here models that.
@@ -96,6 +87,7 @@ describe('featureFlagCleanupAssessmentLogic', () => {
     })
 
     afterEach(() => {
+        setCleanupAvailable(false)
         logic?.unmount()
         attachedContextLogic.unmount()
         composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).unmount()
@@ -126,16 +118,11 @@ describe('featureFlagCleanupAssessmentLogic', () => {
         setCleanupAvailable(true)
 
         await expectLogic(logic).toMatchValues({ isCleanupAvailable: false })
-
-        // `lib/logic/featureFlagLogic`'s flags survive `initKeaTests()`'s reset (posthog-js replays its
-        // cached decide response on the next `posthog.init()`), so leaving them on here would leak into
-        // whichever test runs next.
-        setCleanupAvailable(false)
     })
 
     it('does nothing when started while unavailable', async () => {
         await expectLogic(logic, () => {
-            logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
+            logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
         }).toFinishAllListeners()
 
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
@@ -147,45 +134,40 @@ describe('featureFlagCleanupAssessmentLogic', () => {
             setCleanupAvailable(true)
         })
 
-        it('opens the side panel on a freshly seeded, auto-submitted request', async () => {
+        it.each([
+            { approved: true, autoSubmit: true },
+            { approved: false, autoSubmit: false },
+        ])(
+            'sets autoSubmit to $autoSubmit when AI data processing approval is $approved',
+            async ({ approved, autoSubmit }) => {
+                organizationLogic.actions.loadCurrentOrganizationSuccess({
+                    ...MOCK_DEFAULT_ORGANIZATION,
+                    is_ai_data_processing_approved: approved,
+                })
+                await expectLogic(logic, () => {
+                    logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
+                }).toFinishAllListeners()
+
+                expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
+                expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+                expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).toMatchObject({
+                    prompt: 'Assess this feature flag for cleanup.',
+                    autoSubmit,
+                })
+            }
+        )
+
+        it('carries the cleanup skill and saved flag identity only in the request seed', async () => {
             await expectLogic(logic, () => {
-                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
+                logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
             }).toFinishAllListeners()
 
-            expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
-            expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
-            expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).toEqual({
-                prompt: 'Assess this feature flag for cleanup.',
-                autoSubmit: true,
-            })
-        })
-
-        it("attaches the cleanup skill and the saved flag identity as this request's own context", async () => {
-            await expectLogic(logic, () => {
-                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
-            }).toFinishAllListeners()
-
-            const items = attachedContextLogic.values.contextItems
+            const items = composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed?.contextItems ?? []
             expect(items).toContainEqual(expect.objectContaining({ type: 'skill', key: FEATURE_FLAG_CLEANUP_SKILL }))
             const target = items.find((item) => item.type === 'feature_flag_cleanup_target')
             expect(JSON.parse(target?.value ?? '')).toEqual({ project_id: PROJECT_ID, id: FLAG_ID, key: 'stale-flag' })
-        })
-
-        it('re-attaches the skill chip and its instruction even if they were dismissed in an earlier conversation', async () => {
-            // A dismissal is keyed by a shared group with no expiry, so closing the chip once would
-            // otherwise silently strip the assessment-only instruction from every later click.
-            attachedContextLogic.actions.dismissContext(
-                attachedContextItemKey(FEATURE_FLAG_CLEANUP_SKILL_CHIP_CONTEXT_ITEM),
-                FEATURE_FLAG_CLEANUP_DISMISS_GROUP
-            )
-
-            await expectLogic(logic, () => {
-                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
-            }).toFinishAllListeners()
-
-            const items = attachedContextLogic.values.contextItems
-            expect(items).toContainEqual(expect.objectContaining({ type: 'skill', key: FEATURE_FLAG_CLEANUP_SKILL }))
             expect(items).toContainEqual(expect.objectContaining({ type: 'instructions' }))
+            expect(attachedContextLogic.values.contextItems).toHaveLength(0)
         })
 
         it('does not resume whatever the panel was already showing', async () => {
@@ -193,7 +175,7 @@ describe('featureFlagCleanupAssessmentLogic', () => {
             runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setHistoryExpanded(true)
 
             await expectLogic(logic, () => {
-                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
+                logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
             }).toFinishAllListeners()
 
             expect(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).values.activeCreation).toBeNull()
@@ -202,8 +184,8 @@ describe('featureFlagCleanupAssessmentLogic', () => {
 
         it('ignores a repeat click instead of starting a second assessment', async () => {
             await expectLogic(logic, () => {
-                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
-                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
+                logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
+                logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
             }).toFinishAllListeners()
 
             // Filtered rather than a raw call count: opening the side panel fires its own "sidebar
@@ -214,44 +196,39 @@ describe('featureFlagCleanupAssessmentLogic', () => {
             expect(clicks).toHaveLength(1)
         })
 
-        it('detaches the request context and cancels its pending seed on unmount, so neither reaches a later conversation', async () => {
+        it('cancels its pending seed on unmount so it cannot reach a later conversation', async () => {
             await expectLogic(logic, () => {
-                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
+                logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
             }).toFinishAllListeners()
-            expect(attachedContextLogic.values.contextItems).not.toHaveLength(0)
+            expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).not.toBeNull()
 
             logic.unmount()
 
-            expect(attachedContextLogic.values.contextItems).toHaveLength(0)
             expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).toBeNull()
         })
 
         it.each([
-            { sent: 'the cleanup target', sendsTarget: true, remaining: 0 },
-            { sent: 'only unrelated context', sendsTarget: false, remaining: 3 },
-        ])(
-            'leaves $remaining request context items after a message carrying $sent is sent',
-            async ({ sendsTarget, remaining }) => {
-                await expectLogic(logic, () => {
-                    logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
-                }).toFinishAllListeners()
-                const target = attachedContextLogic.values.contextItems.find(
-                    (item) => item.type === 'feature_flag_cleanup_target'
-                )
-                const unrelatedKey = 'feature_flag:some-other-flag'
+            { leave: 'close', action: () => sidePanelStateLogic.actions.closeSidePanel() },
+            { leave: 'switch tabs', action: () => sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support) },
+        ])('cancels a pending seed and allows another assessment after $leave', async ({ action }) => {
+            await expectLogic(logic, () => {
+                logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
+            }).toFinishAllListeners()
 
-                attachedContextLogic.actions.markContextSent(
-                    'task-1',
-                    sendsTarget && target ? [unrelatedKey, attachedContextItemKey(target)] : [unrelatedKey]
-                )
+            action()
 
-                expect(attachedContextLogic.values.contextItems).toHaveLength(remaining)
-            }
-        )
+            expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).toBeNull()
+            expect(logic.values.assessmentStarted).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
+            }).toFinishAllListeners()
+            expect(composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).values.seed).not.toBeNull()
+        })
 
         it("leaves another producer's newer seed in place on unmount", async () => {
             await expectLogic(logic, () => {
-                logic.actions.startAssessment(FEATURE_FLAG, PROJECT_ID)
+                logic.actions.startAssessment(FEATURE_FLAG.key, PROJECT_ID)
             }).toFinishAllListeners()
             const otherSeed = { prompt: 'Something else', autoSubmit: false }
             composerSeedLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setSeed(otherSeed)

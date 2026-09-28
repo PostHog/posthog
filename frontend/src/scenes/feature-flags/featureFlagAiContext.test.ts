@@ -11,7 +11,6 @@ import {
 import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/utils/posthogContextBlock'
 
 import {
-    FEATURE_FLAG_CLEANUP_DISMISS_GROUP,
     FEATURE_FLAG_CLEANUP_SKILL,
     featureFlagCleanupAssessmentContextItems,
     featureFlagContextItems,
@@ -140,7 +139,7 @@ describe('featureFlagAiContext', () => {
     })
 
     describe('featureFlagCleanupAssessmentContextItems', () => {
-        it('points the agent at the cleanup skill with a visible chip', () => {
+        it('includes the cleanup skill for the agent', () => {
             const items = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123)
 
             expect(items).toContainEqual(expect.objectContaining({ type: 'skill', key: FEATURE_FLAG_CLEANUP_SKILL }))
@@ -189,12 +188,6 @@ describe('featureFlagAiContext', () => {
             const trustedBlock = block.match(/<posthog_trusted_context>[\s\S]*?<\/posthog_trusted_context>/)?.[0] ?? ''
             expect(trustedBlock).not.toContain(baseFeatureFlag.key)
             expect(block).toContain(baseFeatureFlag.key)
-        })
-
-        it('shares one dismiss group, so closing the chip detaches the instruction and the saved identity too', () => {
-            const items = featureFlagCleanupAssessmentContextItems(baseFeatureFlag, 123)
-
-            expect(items.every((item) => item.dismissGroup === FEATURE_FLAG_CLEANUP_DISMISS_GROUP)).toBe(true)
         })
     })
 

@@ -9,8 +9,6 @@ import { endWithPunctation } from 'lib/utils/strings'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 
-import { FeatureFlagType } from '~/types'
-
 import { featureFlagCleanupAssessmentLogic } from './featureFlagCleanupAssessmentLogic'
 import { formatPercentage } from './FractionalRolloutWarning'
 import type { FeatureFlagRolloutSummaryApi } from './generated/api.schemas'
@@ -64,16 +62,16 @@ function rolloutSentence(
  * returns null before any flag is confirmed stale, and hooks can't run conditionally in one component.
  */
 function ReviewCleanupWithAiButton({
-    featureFlag,
+    flagId,
+    flagKey,
     currentProjectId,
 }: {
-    featureFlag: FeatureFlagType & { id: number }
+    flagId: number
+    flagKey: string
     currentProjectId: number | null
 }): JSX.Element | null {
-    const { isCleanupAvailable, assessmentStarted } = useValues(
-        featureFlagCleanupAssessmentLogic({ id: featureFlag.id })
-    )
-    const { startAssessment } = useActions(featureFlagCleanupAssessmentLogic({ id: featureFlag.id }))
+    const { isCleanupAvailable, assessmentStarted } = useValues(featureFlagCleanupAssessmentLogic({ id: flagId }))
+    const { startAssessment } = useActions(featureFlagCleanupAssessmentLogic({ id: flagId }))
 
     if (!isCleanupAvailable) {
         return null
@@ -86,7 +84,7 @@ function ReviewCleanupWithAiButton({
             icon={<IconSparkles />}
             data-attr="feature-flag-stale-banner-review-cleanup"
             disabledReason={assessmentStarted ? 'Assessment started. Continue in PostHog AI.' : undefined}
-            onClick={() => startAssessment(featureFlag, currentProjectId)}
+            onClick={() => startAssessment(flagKey, currentProjectId)}
         >
             Review cleanup with AI
         </LemonButton>
@@ -137,7 +135,8 @@ export function FeatureFlagStaleBanner(): JSX.Element | null {
                         View usage
                     </LemonButton>
                     <ReviewCleanupWithAiButton
-                        featureFlag={featureFlag as FeatureFlagType & { id: number }}
+                        flagId={featureFlag.id}
+                        flagKey={featureFlag.key}
                         currentProjectId={currentProjectId}
                     />
                 </div>
