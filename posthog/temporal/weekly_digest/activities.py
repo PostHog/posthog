@@ -413,9 +413,9 @@ TTL_THRESHOLD = 10  # days
 
 
 @_retry_while_clickhouse_busy
-def _expiring_session_counts(input: GenerateDigestDataBatchInput) -> list[tuple[int, int]]:
+def _expiring_session_counts(input: GenerateDigestDataBatchInput) -> dict[int, int]:
     tag_queries(product=Product.INTERNAL, feature=Feature.DIGEST)
-    return sync_execute(
+    rows = sync_execute(
         SessionReplayEvents.count_soon_to_expire_sessions_by_team_query(),
         {
             "team_id_start": input.team_id_range.start,
@@ -425,6 +425,7 @@ def _expiring_session_counts(input: GenerateDigestDataBatchInput) -> list[tuple[
         },
         workload=Workload.OFFLINE,
     )
+    return {team_id: int(count) for team_id, count in rows}
 
 
 def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
@@ -432,15 +433,15 @@ def _generate_recording_lookup(input: GenerateDigestDataBatchInput) -> None:
     logger.info("Generating Replay recording count batch")
 
     eligible_team_ids = _eligible_team_ids(input)
-    rows = _expiring_session_counts(input)
+    counts_by_team = _expiring_session_counts(input)
 
     # Teams without expiring recordings get no key; aggregation defaults the count to zero.
     payload_by_team: dict[int, str] = {}
     recording_count = 0
-    for team_id, count in rows:
+    for team_id, count in counts_by_team.items():
         if team_id not in eligible_team_ids:
             continue
-        expiring_recordings = RecordingCount(recording_count=int(count))
+        expiring_recordings = RecordingCount(recording_count=count)
         payload_by_team[team_id] = expiring_recordings.model_dump_json()
         recording_count += expiring_recordings.recording_count
 
