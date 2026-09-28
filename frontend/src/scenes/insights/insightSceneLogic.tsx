@@ -18,7 +18,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { InsightEventSource, eventUsageLogic, sanitizeQuery } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -321,7 +321,6 @@ export type insightSceneLogicType = MakeLogicType<
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect(() => ({
-        logic: [eventUsageLogic],
         values: [
             teamLogic,
             ['currentTeam', 'currentTeamId'],

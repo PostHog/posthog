@@ -45,7 +45,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
-import { DashboardEventSource, eventUsageLogic, sanitizeDashboard } from 'lib/utils/eventUsageLogic'
+import {
+    DashboardEventSource,
+    dashboardViewedProperties,
+    eventUsageLogic,
+    sanitizeDashboard,
+    sanitizeQuery,
+} from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -159,6 +165,32 @@ import {
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
+
+function reportDashboardTileRefreshed(
+    dashboardId: number,
+    tile: DashboardTile,
+    filters: Record<string, any>,
+    variables: Record<string, any>,
+    refreshDurationMs: number,
+    individualRefresh: boolean
+): void {
+    const insight = tile.insight
+    const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
+
+    posthog.capture('dashboard insight refreshed', {
+        dashboard_id: dashboardId,
+        insight_id: insight?.id,
+        insight_short_id: insight?.short_id,
+        was_cached: tile.is_cached,
+        last_refreshed: insight?.last_refresh?.toString(),
+        refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
+        filters,
+        variables,
+        refresh_duration_ms: refreshDurationMs,
+        individual_refresh: individualRefresh,
+        ...sanitizedQuery,
+    })
+}
 
 export interface DashboardLogicProps {
     id: number
@@ -706,6 +738,15 @@ export interface dashboardLogicActions {
     }
     reportDashboardViewed: () => {
         value: true
+    }
+    reportDashboardViewedEvent: (
+        dashboard: DashboardType,
+        lastRefreshed: Dayjs | null,
+        delay?: number
+    ) => {
+        dashboard: DashboardType
+        delay: number | undefined
+        lastRefreshed: Dayjs | null
     }
     reportInsightsViewed: (insights: InsightModel[]) => {
         insights: InsightModel<Node<Record<string, any>>>[]
@@ -1326,6 +1367,8 @@ function exitFilterEditModeWhenSaved(
     }
 }
 
+let dashboardViewedTimeout: ReturnType<typeof setTimeout> | undefined
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -1556,6 +1599,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
+        reportDashboardViewedEvent: (dashboard: DashboardType, lastRefreshed: Dayjs | null, delay?: number) => ({
+            dashboard,
+            lastRefreshed,
+            delay,
+        }),
         reportInsightsViewed: (insights: InsightModel[]) => ({ insights }),
 
         /**
@@ -4159,7 +4207,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tile.filters_overrides
                 )
 
-                eventUsageLogic.actions.reportDashboardTileRefreshed(
+                reportDashboardTileRefreshed(
                     dashboardId,
                     tile,
                     urlFilters,
@@ -4277,7 +4325,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 if (refreshedInsight.is_cached) {
                                     tilesRefreshedCachedCount++
                                 }
-                                eventUsageLogic.actions.reportDashboardTileRefreshed(
+                                reportDashboardTileRefreshed(
                                     dashboardId,
                                     tile,
                                     urlFilters,
@@ -4734,12 +4782,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        reportDashboardViewedEvent: ({ dashboard, lastRefreshed, delay }) => {
+            clearTimeout(dashboardViewedTimeout)
+            const captureDashboardView = (): void => {
+                const properties = dashboardViewedProperties(dashboard, lastRefreshed, userLogic.values.user?.uuid)
+                const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
+                posthog.capture(eventName, { ...properties, source: 'web' })
+            }
+            if (delay) {
+                captureDashboardView()
+            } else {
+                dashboardViewedTimeout = setTimeout(captureDashboardView, 500) // Debounce to avoid noisy events from continuous navigation
+            }
+        },
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
             // and "values.dashboard" will then fail
             const { dashboard, lastDashboardRefresh, tiles } = values
             if (dashboard) {
-                eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh)
+                actions.reportDashboardViewedEvent(dashboard, lastDashboardRefresh)
 
                 const insights = tiles.map((t) => t.insight).filter((i): i is InsightModel => !!i)
                 actions.reportInsightsViewed(insights)
@@ -4750,7 +4811,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     router.values.location.pathname === urls.projectHomepage() ||
                     router.values.location.pathname.startsWith(urls.sharedDashboard(''))
                 ) {
-                    eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh, 10)
+                    actions.reportDashboardViewedEvent(dashboard, lastDashboardRefresh, 10)
                 }
             } else {
                 // dashboard has not loaded yet, report after API request is completed

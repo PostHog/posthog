@@ -39,7 +39,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { stringifyWithBigInts } from 'lib/utils/json'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
@@ -143,6 +142,18 @@ import {
     isSchedulePaused,
 } from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
+
+function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
+    posthog.capture('failed to create feature flag with cohort', { detail, code })
+}
+
+function reportFeatureFlagCopyFailure(error: string): void {
+    posthog.capture('feature flag copy failure', { error })
+}
+
+function reportFeatureFlagScheduleSuccess(): void {
+    posthog.capture('feature flag scheduled')
+}
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
 
@@ -3166,7 +3177,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
-                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                        reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     } else if (isAccessDeniedError(error)) {
                         // Mirror the load path's access-denied handling instead of the generic
                         // "Save feature flag failed: ..." toast. The global loaders handler
@@ -3210,7 +3221,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
-                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                        reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
                     }
                     throw error
                 }
@@ -3767,7 +3778,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 lemonToast.success('Paired schedules created')
             }
             resetScheduleForm()
-            eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+            reportFeatureFlagScheduleSuccess()
         },
         showDependentFlagsConfirmation: sharedListeners.showDependentFlagsConfirmation,
         enrichUsageDashboard: async (_, breakpoint) => {
@@ -4210,12 +4221,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             projectName ?? 'the destination project'
                         }; the copy will apply once approved.`
                     )
-                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
+                    reportFeatureFlagCopyFailure(failure.error_message ?? 'Approval pending')
                 } else {
                     const errorMessage =
                         failure?.error_message ?? stringifyWithBigInts(featureFlagCopy?.failed ?? featureFlagCopy)
                     lemonToast.error(`Error while copying feature flag: ${errorMessage}`)
-                    eventUsageLogic.actions.reportFeatureFlagCopyFailure(errorMessage)
+                    reportFeatureFlagCopyFailure(errorMessage)
                 }
             }
 
@@ -4266,7 +4277,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setCronExpression(null)
                 actions.setEndDate(null)
                 actions.loadScheduledChanges()
-                eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
+                reportFeatureFlagScheduleSuccess()
             }
         },
         setScheduledChangeOperation: ({ changeType }) => {
