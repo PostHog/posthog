@@ -261,6 +261,7 @@ export const sessionRecordingCollectionsLogic = kea<sessionRecordingCollectionsL
         builtInPlaylists: {
             __default: [] as SessionRecordingPlaylistType[],
             loadBuiltInPlaylists: async () => {
+                // nosemgrep: prefer-codegen-api-namespaced-replay
                 const response = await api.recordings.listPlaylists(
                     toParams({ type: 'collection', collection_type: 'synthetic', limit: 100 })
                 )
