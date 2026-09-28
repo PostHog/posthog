@@ -174,11 +174,14 @@ class HoistedColumn:
     it. A value a user needs as a join key or a group-by column is unusable in that form, so the
     source lifts it into a column of its own. The nested field stays, because it carries more than
     the hoisted key.
+
+    Each path is a chain of object keys and list indexes. The column takes the value at the first
+    path that has one, because Meta puts the same value in different places for different kinds of
+    object.
     """
 
-    source_field: str
-    key: str
     column: str
+    paths: tuple[tuple[str | int, ...], ...]
 
 
 # The Insights `level` and its grain column, which heads that level's primary key and field list.
@@ -250,7 +253,7 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "partition_keys": ["created_time"],
         # The Ad node returns its creative as a nested object. Without a scalar id there is no join
         # from an ad to `ad_creatives`, where the destination URL and the URL tags live.
-        "hoisted_columns": (HoistedColumn(source_field="creative", key="id", column="creative_id"),),
+        "hoisted_columns": (HoistedColumn(column="creative_id", paths=(("creative", "id"),)),),
     },
     MetaAdsResource.AdStats: {
         "primary_keys": ["ad_id", "account_id", "date_start"],
@@ -507,6 +510,20 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "degrees_of_freedom_spec",
             "effective_authorization_category",
         ],
+        # Each kind of creative keeps its destination in a different field, so a user who wants
+        # spend by landing page otherwise has to unpack JSON. `ad_stats_by_link_url` does not
+        # cover this, because Meta reports the `link_url_asset` breakdown for asset feed ads only.
+        "hoisted_columns": (
+            HoistedColumn(
+                column="landing_page_url",
+                paths=(
+                    ("link_url",),
+                    ("object_story_spec", "link_data", "link"),
+                    ("object_story_spec", "video_data", "call_to_action", "value", "link"),
+                    ("asset_feed_spec", "link_urls", 0, "website_url"),
+                ),
+            ),
+        ),
     },
     # `hash` rather than `id` as the key: Meta documents it as AdImage's default field, and the
     # `id` it returns is just the account and hash joined.
@@ -624,8 +641,8 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         # `link_url_asset` arrives as `{"id": ..., "website_url": ...}`. The URL is what the table
         # exists for, and the asset id is its stable identity, so both become columns.
         hoisted_columns=(
-            HoistedColumn(source_field="link_url_asset", key="website_url", column="link_url"),
-            HoistedColumn(source_field="link_url_asset", key="id", column="link_url_asset_id"),
+            HoistedColumn(column="link_url", paths=(("link_url_asset", "website_url"),)),
+            HoistedColumn(column="link_url_asset_id", paths=(("link_url_asset", "id"),)),
         ),
     ),
 }

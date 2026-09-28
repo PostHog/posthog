@@ -942,11 +942,23 @@ def _fetch_single_object(url: str, params: dict, access_token: str) -> collectio
     yield [response.json()]
 
 
+def _value_at_path(row: dict, path: tuple[str | int, ...]) -> typing.Any:
+    value: typing.Any = row
+    for step in path:
+        if isinstance(step, int) and isinstance(value, list) and 0 <= step < len(value):
+            value = value[step]
+        elif isinstance(step, str) and isinstance(value, dict):
+            value = value.get(step)
+        else:
+            return None
+    return value
+
+
 def _hoisted_values(row: dict, hoisted_columns: tuple[HoistedColumn, ...]) -> dict:
     values = {}
     for hoisted in hoisted_columns:
-        nested = row.get(hoisted.source_field)
-        values[hoisted.column] = nested.get(hoisted.key) if isinstance(nested, dict) else None
+        candidates = (_value_at_path(row, path) for path in hoisted.paths)
+        values[hoisted.column] = next((value for value in candidates if value not in (None, "")), None)
     return values
 
 

@@ -1954,7 +1954,7 @@ class TestBreakdownStatsSchemas:
         # it, because the JSON string the object is stored as makes the merge key depend on Meta's
         # key ordering.
         keyed = set(schema.primary_keys) | {
-            hoisted.source_field for hoisted in schema.hoisted_columns if hoisted.column in schema.primary_keys
+            hoisted.paths[0][0] for hoisted in schema.hoisted_columns if hoisted.column in schema.primary_keys
         }
 
         # Without the dimensions in the key, every combination for a campaign/day collapses onto
@@ -2124,6 +2124,42 @@ class TestHoistedColumns:
                 MetaAdsResource.AdStatsByLinkUrl,
                 {"ad_id": "ad-1", "link_url_asset": {"id": "asset-1", "website_url": "https://example.com/pricing"}},
                 {"link_url": "https://example.com/pricing", "link_url_asset_id": "asset-1"},
+            ),
+            (
+                MetaAdsResource.AdCreatives,
+                {"id": "creative-1", "link_url": "https://example.com/a"},
+                {"landing_page_url": "https://example.com/a"},
+            ),
+            (
+                MetaAdsResource.AdCreatives,
+                {
+                    "id": "creative-1",
+                    "link_url": "",
+                    "object_story_spec": {"link_data": {"link": "https://example.com/b"}},
+                },
+                {"landing_page_url": "https://example.com/b"},
+            ),
+            (
+                MetaAdsResource.AdCreatives,
+                {
+                    "id": "creative-1",
+                    "object_story_spec": {
+                        "video_data": {
+                            "call_to_action": {"type": "SHOP_NOW", "value": {"link": "https://example.com/c"}}
+                        }
+                    },
+                },
+                {"landing_page_url": "https://example.com/c"},
+            ),
+            (
+                MetaAdsResource.AdCreatives,
+                {"id": "creative-1", "asset_feed_spec": {"link_urls": [{"website_url": "https://example.com/d"}]}},
+                {"landing_page_url": "https://example.com/d"},
+            ),
+            (
+                MetaAdsResource.AdCreatives,
+                {"id": "creative-1", "asset_feed_spec": {"link_urls": []}},
+                {"landing_page_url": None},
             ),
         ],
     )

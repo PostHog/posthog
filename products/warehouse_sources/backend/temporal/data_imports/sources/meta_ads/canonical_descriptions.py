@@ -226,6 +226,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "asset_feed_spec": "Asset combinations used for dynamic creative.",
             "degrees_of_freedom_spec": "Which automatic creative transformations are enabled.",
             "effective_authorization_category": "Whether the ad is categorized as political or issue advertising.",
+            "landing_page_url": (
+                "The landing page URL the creative sends people to. It is the first value found in "
+                "link_url, the link ad link, the video call to action link, or the first asset feed link URL. "
+                "Join through ads.creative_id to ad_stats to get spend by landing page for all ads."
+            ),
         },
     },
     MetaAdsResource.AdImages: {
@@ -341,8 +346,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     MetaAdsResource.AdStatsByLinkUrl: {
         "description": (
             "Daily ad Insights split by the landing page each ad sent people to. "
-            "Meta builds this split from creative assets. An ad that Meta reports no landing page "
-            "asset for has no row here, so the total spend can be lower than in ad_stats. "
+            "Meta builds this split from creative assets and reports it only for asset feed ads "
+            "(dynamic creative and Advantage+ creative). Other ads have no row here, so the total "
+            "spend is usually much lower than in ad_stats. For spend by landing page across all ads, "
+            "join ad_stats to ads and ad_creatives and use ad_creatives.landing_page_url. "
             "Meta does not report unique metrics such as reach and frequency with creative asset "
             "breakdowns, so this table omits them."
         ),
