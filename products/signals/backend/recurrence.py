@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from products.signals.backend.artefact_schemas import FIXED_DISMISSAL_REASONS, Dismissal
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_links import incoming_links
+from products.signals.backend.typed_report_links import incoming_links
 
 
 def fixed_dismissal_at(report: SignalReport) -> datetime | None:

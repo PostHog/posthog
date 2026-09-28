@@ -22,7 +22,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportPullRequest,
 )
-from products.signals.backend.report_links import incoming_links, outgoing_links
+from products.signals.backend.typed_report_links import incoming_links, outgoing_links
 
 logger = structlog.get_logger(__name__)
 

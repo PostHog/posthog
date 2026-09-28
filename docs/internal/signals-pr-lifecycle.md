@@ -11,6 +11,7 @@ Suppressed reports remain suppressed when another PR is attached.
 A report that is `part_of` another report is a step in a plan, and the plan completes from its steps.
 When every live step of a plan is closed, the plan takes their verdict: resolved if at least one step resolved, suppressed if they all were.
 A plan with any step still open is left alone, and a deleted step counts neither way.
+Reopening a step does not reopen a completed plan.
 Deleting a step also checks the plan again.
 A plan that becomes ready checks its own steps, in case they closed while the plan was still in research.
 The check locks each plan before it reads and updates its state.

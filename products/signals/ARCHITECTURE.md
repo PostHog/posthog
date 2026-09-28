@@ -1434,7 +1434,7 @@ Preserved: canonical scouts and the `authoring-scouts` companion, identified by 
 
 A `report_link` artefact is one directed row on the report the sentence starts from: "this report `kind` that report". Five kinds: `depends_on`, `part_of`, `follow_up_of`, `duplicate_of`, `recurrence_of`. Nothing is mirrored onto the target, because the direction is the payload, and writing the reverse row would assert the opposite relationship. `SignalReportArtefact` owns the write invariants (no self-link, one team, no cycle within a kind, checked under a per-team advisory lock), and they run on the common `add_log` path so every surface gets them. The type is unwritable through the artefact API: the pipeline and the scout tools are its only authors.
 
-`backend/report_links.py` is the read side, and every reader goes through it. Link reads use the writer database to avoid replica delay.
+`backend/typed_report_links.py` is the read side, and every reader goes through it. Link reads use the writer database to avoid replica delay.
 
 - `outgoing_links` is a seek on `(report, type)`: what this report says about others.
 - `incoming_links` is a team-scoped scan, because `content` is a `TextField` and no row is mirrored. Candidates are narrowed with `content__contains` on the target's UUID and then confirmed by parsing, so a free-text `reason` that quotes a UUID is not an edge to it. A deleted source report is dropped by default; the recurrence chain is the one reader that asks for them, because it walks _through_ deleted intermediates to find the live successor. If the scan ever shows up in query timings, the fix is a materialised target column or a JSON index, not a mirror row.

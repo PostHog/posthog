@@ -59,12 +59,6 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.report_links import (
-    duplicate_chain,
-    has_open_or_merged_pull_request,
-    incoming_links,
-    outgoing_links,
-)
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.scout_authorship import resolve_touching_scout_skills
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
@@ -87,6 +81,12 @@ from products.signals.backend.task_run_artefacts import (
     record_implementation_task,
 )
 from products.signals.backend.tracker_issues import create_tracker_issue_for_report
+from products.signals.backend.typed_report_links import (
+    duplicate_chain,
+    has_open_or_merged_pull_request,
+    incoming_links,
+    outgoing_links,
+)
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.usage import task_run_usage_limited
 

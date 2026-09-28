@@ -8,7 +8,7 @@ from posthog.models import Organization, Team
 from products.signals.backend.artefact_schemas import ReportLink
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
-from products.signals.backend.report_links import (
+from products.signals.backend.typed_report_links import (
     duplicate_chain,
     duplicate_root,
     has_open_or_merged_pull_request,

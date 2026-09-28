@@ -53,11 +53,6 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_unresolved,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.report_links import (
-    ReportEdge,
-    linked_reports as fetch_linked_reports,
-    outgoing_links,
-)
 from products.signals.backend.report_metrics import ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.supersession import research_implementation_context
@@ -67,6 +62,11 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.typed_report_links import (
+    ReportEdge,
+    linked_reports as fetch_linked_reports,
+    outgoing_links,
+)
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 

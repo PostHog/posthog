@@ -18,8 +18,8 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.plan_rollup import _rolled_up_status, roll_up_plan_parents
 from products.signals.backend.pull_requests import update_pull_request_state
-from products.signals.backend.report_links import outgoing_links
 from products.signals.backend.temporal.grouping import _link_check_follow_up
+from products.signals.backend.typed_report_links import outgoing_links
 
 
 class TestPlanRollup(BaseTest):

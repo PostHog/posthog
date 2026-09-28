@@ -1742,11 +1742,11 @@ class SignalReportArtefact(UUIDModel):
         """Count the link after it commits, from the one write path every producer shares.
 
         Scheduled on commit so a rolled-back write is never counted, and imported lazily to avoid a
-        models <-> report_links import cycle.
+        models <-> typed_report_links import cycle.
         """
 
         def _run() -> None:
-            from products.signals.backend.report_links import ReportEdge, capture_report_linked
+            from products.signals.backend.typed_report_links import ReportEdge, capture_report_linked
 
             capture_report_linked(
                 team_id=artefact.team_id,
