@@ -565,7 +565,10 @@ def _can_read_task_run_summary(
     if include_agent_state:
         return True
     parent = task if task is not None else run.task
-    return parent.origin_product != Task.OriginProduct.WORKFLOW or parent.created_by_id == user_id
+    # A missing viewer never matches, even when the creator was deleted and created_by_id is null.
+    return parent.origin_product != Task.OriginProduct.WORKFLOW or (
+        user_id is not None and parent.created_by_id == user_id
+    )
 
 
 def _task_run_detail_to_dto(
@@ -6688,7 +6691,9 @@ def get_task_summaries(
     summaries: list[contracts.TaskSummaryDTO] = []
     for task in tasks:
         raw = getattr(task, "_latest_run", None)
-        can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or task.created_by_id == user_id
+        can_read_summary = task.origin_product != Task.OriginProduct.WORKFLOW or (
+            user_id is not None and task.created_by_id == user_id
+        )
         latest = _latest_run_summary(raw, getattr(task, "_latest_pr_run", None), can_read_summary=can_read_summary)
         summaries.append(
             contracts.TaskSummaryDTO(
