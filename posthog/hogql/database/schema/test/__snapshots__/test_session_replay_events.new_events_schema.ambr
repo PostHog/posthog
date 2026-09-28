@@ -5,7 +5,7 @@
   FROM session_replay_events
   JOIN
     (SELECT events.event AS event,
-            ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '') AS `$session_id`
+            events.properties.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 99999), equals(raw_session_replay_events__events.event, '$pageview'))
@@ -30,7 +30,7 @@
   FROM session_replay_events
   JOIN
     (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`))))) AS `properties___$current_url`,
-            ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '') AS `$session_id`
+            events.properties.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(like(raw_session_replay_events__events.`properties___$current_url`, '%example.com%'), 0))
@@ -54,7 +54,7 @@
   SELECT DISTINCT session_replay_events.session_id AS session_id
   FROM session_replay_events
   WHERE and(equals(session_replay_events.team_id, 99999), globalIn(session_replay_events.session_id,
-                                                                     (SELECT ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '') AS `$session_id`
+                                                                     (SELECT events.properties.`$session_id` AS `$session_id`
                                                                       FROM events_json AS events
                                                                       WHERE and(equals(events.team_id, 99999), ifNull(like(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`))))), '%example.com%'), 0)))))
   ORDER BY session_replay_events.session_id ASC
@@ -79,7 +79,7 @@
   FROM session_replay_events
   JOIN
     (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$current_url`)), if(isNull(nullIf(toString(events.properties.`$current_url`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$current_url`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$current_url`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$current_url`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$current_url`), '[]'), '{}'), toString(events.properties.`$current_url`))))) AS `properties___$current_url`,
-            ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '') AS `$session_id`
+            events.properties.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE equals(session_replay_events.team_id, 99999)
@@ -105,7 +105,7 @@
   FROM session_replay_events
   JOIN
     (SELECT if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^person_property)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^person_property)), if(isNull(nullIf(toString(events.person_properties.person_property), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.person_property, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.person_property, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.person_property), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.person_property, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.person_property, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.person_property, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.person_property), '[]'), '{}'), toString(events.person_properties.person_property))))) AS poe___properties___person_property,
-            ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '') AS `$session_id`
+            events.properties.`$session_id` AS `$session_id`
      FROM events_json AS events PREWHERE greaterOrEquals(events.timestamp, minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(90)))
      WHERE equals(events.team_id, 99999)) AS raw_session_replay_events__events ON equals(session_replay_events.session_id, raw_session_replay_events__events.`$session_id`)
   WHERE and(equals(session_replay_events.team_id, 99999), ifNull(equals(ifNull(raw_session_replay_events__events.poe___properties___person_property, 'false'), 'true'), 0))

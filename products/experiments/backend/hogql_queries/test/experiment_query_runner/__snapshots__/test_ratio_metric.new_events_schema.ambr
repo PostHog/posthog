@@ -7,7 +7,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -185,7 +185,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -278,7 +278,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -383,7 +383,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -488,7 +488,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id,
             argMin(coalesce(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$browser`)), if(isNull(nullIf(toString(events.properties.`$browser`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$browser`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$browser`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$browser`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$browser`), '[]'), '{}'), toString(events.properties.`$browser`)))))), '$$_posthog_breakdown_null_$$'), toTimeZone(events.timestamp, 'UTC')) AS breakdown_value_1
      FROM events_json AS events
      LEFT OUTER JOIN
@@ -601,7 +601,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -693,7 +693,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -720,7 +720,7 @@
        denominator_events AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
-            ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '') AS value
+            events.properties.`$session_id` AS value
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -785,7 +785,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -877,7 +877,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -969,7 +969,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1061,7 +1061,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

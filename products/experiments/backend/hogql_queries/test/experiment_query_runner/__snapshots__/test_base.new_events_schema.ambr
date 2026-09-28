@@ -7,7 +7,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -69,7 +69,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -126,17 +126,17 @@
 # name: TestExperimentQueryRunner.test_query_runner_group_aggregation_mean_metric[new_events_schema]
   '''
   WITH exposures AS
-    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), '')) AS entity_id,
+    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`) AS entity_id,
             if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email)))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']), notEmpty(if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), ''))))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email)))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']), notEmpty(if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`)))
      GROUP BY entity_id),
        metric_events AS
-    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), '')) AS entity_id,
+    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(1, 'Float64'), 0) AS value
      FROM events_json AS events
@@ -174,17 +174,17 @@
 # name: TestExperimentQueryRunner.test_query_runner_group_aggregation_mean_property_sum_metric[new_events_schema]
   '''
   WITH exposures AS
-    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), '')) AS entity_id,
+    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`) AS entity_id,
             if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email)))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']), notEmpty(if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), ''))))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 12:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-15 12:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email)))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']), notEmpty(if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`)))
      GROUP BY entity_id),
        metric_events AS
-    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), '')) AS entity_id,
+    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             coalesce(accurateCastOrNull(events.properties.amount, 'Float64'), 0) AS value
      FROM events_json AS events
@@ -227,7 +227,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -289,7 +289,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -351,7 +351,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -413,7 +413,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -475,7 +475,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -537,7 +537,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -599,7 +599,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -661,7 +661,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -723,7 +723,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -785,7 +785,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -847,7 +847,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -909,7 +909,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -971,7 +971,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1033,7 +1033,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1095,7 +1095,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1157,7 +1157,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1219,7 +1219,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1281,7 +1281,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1343,7 +1343,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1405,7 +1405,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1467,7 +1467,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1529,7 +1529,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1591,7 +1591,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1653,7 +1653,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1718,7 +1718,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1780,7 +1780,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1845,7 +1845,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1907,7 +1907,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -1923,7 +1923,7 @@
         FROM groups
         WHERE and(equals(groups.team_id, 99999), equals(index, 0))
         GROUP BY groups.group_type_index,
-                 groups.group_key) AS events__group_0 ON equals(ifNull(dynamicElement(events.properties.`$group_0`, 'String'), ''), events__group_0.key)
+                 groups.group_key) AS events__group_0 ON equals(events.properties.`$group_0`, events__group_0.key)
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-31 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), ifNull(equals(events__group_0.properties___name, 'Test Group'), 0), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']))
      GROUP BY entity_id),
        metric_events AS
@@ -1977,7 +1977,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2039,7 +2039,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2101,7 +2101,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2163,7 +2163,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2225,7 +2225,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2287,7 +2287,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2349,7 +2349,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2406,17 +2406,17 @@
 # name: TestExperimentQueryRunner.test_query_runner_with_unique_group_metric[new_events_schema]
   '''
   WITH exposures AS
-    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), '')) AS entity_id,
+    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`) AS entity_id,
             if(greater(uniqExact(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`)))))), 1), '$multiple', any(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))))) AS variant,
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
-     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email)))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']), notEmpty(if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), ''))))
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2020-01-10 00:00:00', 'UTC'))), and(equals(events.event, '$feature_flag_called'), ifNull(equals(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag`)), if(isNull(nullIf(toString(events.properties.`$feature_flag`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag`), '[]'), '{}'), toString(events.properties.`$feature_flag`))))), 'test-experiment'), 0)), ifNull(notILike(toString(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.person_properties.^email)), if(isNull(nullIf(toString(events.person_properties.email), '')), NULL, if(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.person_properties.email, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.person_properties.email), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.person_properties.email, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.person_properties.email), '[]'), '{}'), toString(events.person_properties.email)))))), '%@posthog.com%'), 1), in(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$feature_flag_response`)), if(isNull(nullIf(toString(events.properties.`$feature_flag_response`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$feature_flag_response`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$feature_flag_response`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$feature_flag_response`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$feature_flag_response`), '[]'), '{}'), toString(events.properties.`$feature_flag_response`))))), ['control', 'test']), notEmpty(if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`)))
      GROUP BY entity_id),
        metric_events AS
-    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', ifNull(dynamicElement(events.properties.`$group_0`, 'String'), '')) AS entity_id,
+    (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.properties.`$group_0`) AS entity_id,
             toTimeZone(events.timestamp, 'UTC') AS timestamp,
             1 AS value
      FROM events_json AS events
@@ -2459,7 +2459,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -2521,7 +2521,7 @@
             min(toTimeZone(events.timestamp, 'UTC')) AS first_exposure_time,
             max(toTimeZone(events.timestamp, 'UTC')) AS last_exposure_time,
             argMin(events.uuid, toTimeZone(events.timestamp, 'UTC')) AS exposure_event_uuid,
-            argMin(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), ''), toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
+            argMin(events.properties.`$session_id`, toTimeZone(events.timestamp, 'UTC')) AS exposure_session_id
      FROM events_json AS events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

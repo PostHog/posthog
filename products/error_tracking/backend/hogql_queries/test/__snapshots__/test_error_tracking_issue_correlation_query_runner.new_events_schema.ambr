@@ -17,7 +17,7 @@
            WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
            GROUP BY fp_hash
            HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$exception_fingerprint`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$exception_fingerprint`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`)))))), events__fingerprint_issue_state.fp_hash)
-        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '')), isNotNull(events__fingerprint_issue_state.issue_id), equals(events.event, '$exception'))
+        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(events.properties.`$session_id`), isNotNull(events__fingerprint_issue_state.issue_id), equals(events.event, '$exception'))
         GROUP BY events__fingerprint_issue_state.issue_id))
   SELECT event AS event,
   
@@ -41,7 +41,7 @@
             arrayMap(x -> if(and(isNotNull(x), isNull(earliest_success_event)), 1, 0), earliest_exceptions) AS exception_only,
             arrayMap(x -> if(and(isNull(x), isNull(earliest_success_event)), 1, 0), earliest_exceptions) AS neither
      FROM
-       (SELECT ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '') AS `$session_id`,
+       (SELECT events.properties.`$session_id` AS `$session_id`,
                ['$pageview'] AS events,
                minForEach(arrayMap(x -> if(ifNull(equals(events.event, x), isNull(events.event)
                                                   and isNull(x)), toNullable(toTimeZone(events.timestamp, 'UTC')), NULL), ['$pageview'])) AS earliest_success_events,
@@ -57,8 +57,8 @@
            WHERE equals(error_tracking_fingerprint_issue_state.team_id, 99999)
            GROUP BY fp_hash
            HAVING equals(argMax(error_tracking_fingerprint_issue_state.is_deleted, error_tracking_fingerprint_issue_state.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__fingerprint_issue_state ON equals(cityHash64(if(notEquals(JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), '{}'), JSONStripEmptyStringsAndNulls(toJSONString(events.properties.^`$exception_fingerprint`)), if(isNull(nullIf(toString(events.properties.`$exception_fingerprint`), '')), NULL, if(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'DateTime'), concat(ifNull(toString(replaceOne(substring(toString(accurateCastOrNull(events.properties.`$exception_fingerprint`, 'DateTime64(9, \'UTC\')')), 1, 19), ' ', 'T')), ''), ifNull(toString(substring(toString(events.properties.`$exception_fingerprint`), 20, 10)), ''), 'Z'), if(or(startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Array'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Map'), startsWith(dynamicType(accurateCast(events.properties.`$exception_fingerprint`, 'Dynamic')), 'Tuple')), nullIf(nullIf(toJSONString(events.properties.`$exception_fingerprint`), '[]'), '{}'), toString(events.properties.`$exception_fingerprint`)))))), events__fingerprint_issue_state.fp_hash)
-        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '')))
-        GROUP BY ifNull(dynamicElement(events.properties.`$session_id`, 'String'), '')) ARRAY
+        WHERE and(equals(events.team_id, 99999), greater(events.timestamp, minus(now64(6, 'UTC'), toIntervalHour(6))), notEmpty(events.properties.`$session_id`))
+        GROUP BY events.properties.`$session_id`) ARRAY
      JOIN events AS event,
                     earliest_success_events AS earliest_success_event)
   GROUP BY event
