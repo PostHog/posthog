@@ -65,7 +65,7 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             session_id="s1b",
             distinct_id="user_one",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
 
         assert funnels_query.funnelsFilter
@@ -118,7 +118,7 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             session_id="s1a",
             distinct_id="user_one",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
 
         assert funnels_query.funnelsFilter
@@ -169,7 +169,7 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             session_id="s1c",
             distinct_id="user_one",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
 
         results = get_actors(
@@ -282,7 +282,7 @@ class TestFunnelTrendsActors(ClickhouseTestMixin, APIBaseTest):
             session_id="s1a",
             distinct_id="user_one",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
 
         results = get_actors(

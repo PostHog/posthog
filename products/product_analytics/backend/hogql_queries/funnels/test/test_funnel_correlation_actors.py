@@ -289,7 +289,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
             session_id="s2",
             distinct_id="user_1",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
 
         # Success filter
@@ -391,7 +391,7 @@ class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
             session_id="s2",
             distinct_id="user_1",
             first_timestamp=timestamp,
-            last_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=10),
         )
 
         # Success filter
