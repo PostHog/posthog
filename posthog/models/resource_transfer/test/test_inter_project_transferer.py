@@ -582,6 +582,25 @@ class TestGetSuggestedSubstitutions(BaseTest):
 
         assert (("Insight", source_insight.pk), ("Insight", dest_insight.pk)) in result
 
+    def test_same_named_source_insights_do_not_share_a_suggested_destination(self) -> None:
+        dest_team = self._create_destination_team()
+        dashboard = Dashboard.objects.create(team=self.team, name="My dashboard")
+        first_insight = Insight.objects.create(team=self.team, name="Shared name")
+        second_insight = Insight.objects.create(team=self.team, name="Shared name")
+        DashboardTile.objects.create(dashboard=dashboard, insight=first_insight)
+        DashboardTile.objects.create(dashboard=dashboard, insight=second_insight)
+        dest_insight = Insight.objects.create(team=dest_team, name="Shared name")
+
+        dag = self._build_dag(dashboard)
+        result = get_suggested_substitutions(dag, dest_team)
+
+        insight_suggestions = [(s, d) for s, d in result if s[0] == "Insight"]
+        assert len(insight_suggestions) == 1
+        assert insight_suggestions[0][1] == ("Insight", dest_insight.pk)
+
+        duplicate_resource_to_new_team(dashboard, dest_team, substitutions=result, created_by=self.user)
+        assert DashboardTile.objects.filter(dashboard__team=dest_team).count() == 2
+
     def test_transfer_record_takes_priority_over_name_match(self) -> None:
         dest_team = self._create_destination_team()
         source_insight = Insight.objects.create(team=self.team, name="Shared name")
