@@ -288,32 +288,40 @@ Django Admin should display and filter by request type, `created_by_staff`, acto
 
 Application code fails closed when the dedicated credentials are absent.
 
-### 4. Product API PR (next)
+### 4. Product API (completed)
 
-- Add preview, create, list, and detail endpoints.
-- Add permission and tenant-scoping checks.
-- Add idempotent submission.
-- Add payload-size, rate, and active-request limits.
-- Regenerate OpenAPI clients.
+- Added preview, create, list, and detail endpoints (#104278).
+- Added feature-flag, permission, and tenant-scoping checks.
+- Added idempotent submission with a client-generated `submission_id`.
+- Added query and variable payload limits, separate preview and creation rate limits, and a five-active-request limit.
+- Forced product-created requests to use the query-backed request type, manual approval, and deferred execution.
+- Generated typed OpenAPI, frontend, and MCP schemas for the API.
 
-### 5. HogQL table PR
+### 5. HogQL table (completed)
 
-- Register the team-scoped, read-only `data_deletion_requests` HogQL table.
-- Expose only product-created `hogql_event_removal` requests.
-- Define explicit customer-safe columns and omit operational metadata.
-- Apply the same destructive-feature permission used by the API.
+- Registered the team-scoped, read-only `data_deletion_requests` HogQL table (#102961).
+- Exposed only product-created `hogql_event_removal` requests.
+- Defined explicit customer-safe columns and omitted operational metadata.
+- Restricted access to organization administrators and members with the explicit deletion permission.
 
-### 6. Frontend PR
+### 6. Restricted API rollout (next)
+
+- Enable `self-service-data-deletion` for an internal test project.
+- Exercise preview, create, list, and detail through the API.
+- Approve and queue a small request, then verify the weekend deletion and completion flow.
+- Confirm that disabling the feature flag stops new submissions without changing existing requests or queued rows.
+- Monitor query resource use, queue growth, failures, and deletion latency during the test.
+
+### 7. Frontend PR
 
 - Add the SQL editor menu action and confirmation dialog.
 - Add the deletion request status surface.
 - Add feature-flag and permission gates.
 - Document the customer workflow.
 
-### 7. Operational rollout
+### 8. Broader operational rollout
 
-- Enable the approval, pickup, weekend deletion, and verification automation.
-- Start with manual approval and a restricted cohort.
+- Keep manual approval while expanding from the internal test project to a restricted customer cohort.
 - Monitor query resource use, queue growth, failure rates, and deletion latency.
 - Define rollback by disabling submission and pickup while preserving queued audit records.
 - Expand eligibility and auto-approval only after observing the initial workload.
@@ -378,20 +386,14 @@ Operational documentation must cover credential provisioning, resource limits, r
 
 ## Open questions
 
-1. Which product should own the backend and frontend implementation?
-2. Should the HogQL table expose all self-service requests for the team or only requests visible to the querying user?
-3. Which project role receives the deletion permission?
-4. Do all self-service requests require manual approval for the first release?
-5. What preview count or query-cost thresholds permit automatic approval?
-6. Should the API accept only `HogQLQuery`, or every query node that eventually compiles to one UUID column?
-7. Does the current compiler expose a safe typed representation for wrapping a compiled query in `INSERT ... SELECT`?
-8. Which regular HogQL resources should the dedicated executor principal be able to read?
-9. How should self-hosted deployments provision or fall back when the dedicated principal is unavailable?
-10. Does the queue dictionary need an explicit `GROUP BY team_id, uuid` for retry duplicates?
-11. How long should completed provenance rows remain available before the existing TTL removes them?
-12. Does event deletion also need to remove or rebuild derived data outside the legacy and native-JSON event tables?
-13. What customer-visible cancellation behavior is safe before UUID queueing begins and after it completes?
-14. What per-user rate, per-team rate, active-request limit, payload-size limit, and retention period should apply?
+1. Which product should own the frontend implementation and long-term API maintenance?
+2. What preview count or query-cost thresholds should permit automatic approval after the manual-approval rollout?
+3. Which regular HogQL resources should the dedicated executor principal be able to read as the supported query surface expands?
+4. Does the queue dictionary need an explicit `GROUP BY team_id, uuid` for retry duplicates?
+5. How long should completed provenance rows remain available before the existing TTL removes them?
+6. Does event deletion also need to remove or rebuild derived data outside the legacy and native-JSON event tables?
+
+Cancellation is not part of the initial API. The workflow has no cancellable state, and queue insertion starts execution. Once rows are queued, the API cannot safely promise that cancellation will prevent deletion.
 
 ## Definition of done
 
