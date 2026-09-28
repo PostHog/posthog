@@ -238,6 +238,8 @@ export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
  */
 export const accountViewsCreateBodyNameMax = 400
 
+export const accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
+
 export const accountViewsCreateBodyContentOneContentMax = 1
 
 export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
@@ -259,6 +261,7 @@ export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
                                 nodeId: zod.string().describe('Stable identifier for this document.'),
                                 markdown: zod
                                     .string()
+                                    .max(accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax)
                                     .describe('Component-only Markdown stored by the account view editor.'),
                             })
                             .describe('Markdown notebook attributes.'),
@@ -275,6 +278,8 @@ export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
  * @summary Update an account view
  */
 export const accountViewsPartialUpdateBodyNameMax = 400
+
+export const accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
 
 export const accountViewsPartialUpdateBodyContentOneContentMax = 1
 
@@ -301,6 +306,7 @@ export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 nodeId: zod.string().describe('Stable identifier for this document.'),
                                 markdown: zod
                                     .string()
+                                    .max(accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax)
                                     .describe('Component-only Markdown stored by the account view editor.'),
                             })
                             .describe('Markdown notebook attributes.'),
@@ -317,7 +323,7 @@ export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('\* `private` - Personal')
         .optional()
         .describe('Views can only be private.\n\n\* `private` - Personal'),
-    version: zod.number().min(1).optional().describe('Version returned by the last read.'),
+    version: zod.number().min(1).describe('Version returned by the last read.'),
 })
 
 export const accountsCreateBodyNameMax = 400

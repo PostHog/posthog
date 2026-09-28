@@ -589,7 +589,10 @@ export const AccountViewMarkdownNodeTypeEnumApi = {
 export interface AccountViewMarkdownAttributesApi {
     /** Stable identifier for this document. */
     nodeId: string
-    /** Component-only Markdown stored by the account view editor. */
+    /**
+     * Component-only Markdown stored by the account view editor.
+     * @maxLength 262144
+     */
     markdown: string
 }
 
@@ -664,7 +667,7 @@ export const AccountViewUpdateVisibilityEnumApi = {
     Private: 'private',
 } as const
 
-export interface PatchedAccountViewUpdateApi {
+export interface AccountViewUpdateApi {
     /**
      * New view name. Omit to keep the current name.
      * @maxLength 400
@@ -680,7 +683,7 @@ export interface PatchedAccountViewUpdateApi {
      * Version returned by the last read.
      * @minimum 1
      */
-    version?: number
+    version: number
 }
 
 /**

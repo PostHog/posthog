@@ -1529,7 +1529,10 @@ export namespace Schemas {
     export interface AccountViewMarkdownAttributes {
       /** Stable identifier for this document. */
       nodeId: string;
-      /** Component-only Markdown stored by the account view editor. */
+      /**
+         * Component-only Markdown stored by the account view editor.
+         * @maxLength 262144
+         */
       markdown: string;
     }
 
@@ -1603,6 +1606,25 @@ export namespace Schemas {
     export const AccountViewUpdateVisibilityEnum = {
       Private: 'private',
     } as const;
+
+    export interface AccountViewUpdate {
+      /**
+         * New view name. Omit to keep the current name.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Replacement account view components. Omit to keep current content. */
+      content?: AccountViewContent;
+      /** Views can only be private.
+       *
+       * * `private` - Personal */
+      visibility?: AccountViewUpdateVisibilityEnum;
+      /**
+         * Version returned by the last read.
+         * @minimum 1
+         */
+      version: number;
+    }
 
     export type BounceRatePageViewMode = typeof BounceRatePageViewMode[keyof typeof BounceRatePageViewMode];
 
@@ -71732,25 +71754,6 @@ export namespace Schemas {
       is_single_holder?: boolean;
       /** Whether customer analytics can take control of this relationship per account. Rows under a controlled relationship can't be deleted. On an account where control has started, only a person can change the relationship and an empty relationship is a deliberate decision. Set by project operators, not through this API. */
       readonly is_controlled?: boolean;
-    }
-
-    export interface PatchedAccountViewUpdate {
-      /**
-         * New view name. Omit to keep the current name.
-         * @maxLength 400
-         */
-      name?: string;
-      /** Replacement account view components. Omit to keep current content. */
-      content?: AccountViewContent;
-      /** Views can only be private.
-       *
-       * * `private` - Personal */
-      visibility?: AccountViewUpdateVisibilityEnum;
-      /**
-         * Version returned by the last read.
-         * @minimum 1
-         */
-      version?: number;
     }
 
     /**

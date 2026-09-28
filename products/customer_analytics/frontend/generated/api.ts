@@ -26,6 +26,7 @@ import type {
     AccountTrackRulesRunsListParams,
     AccountViewApi,
     AccountViewCreateApi,
+    AccountViewUpdateApi,
     AccountViewsDestroyParams,
     AccountsByExternalIdRetrieveParams,
     AccountsEmailThreadMessagesListParams,
@@ -112,7 +113,6 @@ import type {
     PaginatedMeetingListApi,
     PatchedAccountApi,
     PatchedAccountRelationshipDefinitionApi,
-    PatchedAccountViewUpdateApi,
     PatchedCustomPropertyDefinitionApi,
     PatchedCustomPropertySourceUpdateApi,
     PatchedCustomerJourneyApi,
@@ -529,14 +529,14 @@ export const getAccountViewsPartialUpdateUrl = (projectId: string, id: string) =
 export const accountViewsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedAccountViewUpdateApi?: PatchedAccountViewUpdateApi,
+    accountViewUpdateApi: AccountViewUpdateApi,
     options?: RequestInit
 ): Promise<AccountViewApi> => {
     return apiMutator<AccountViewApi>(getAccountViewsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedAccountViewUpdateApi),
+        body: JSON.stringify(accountViewUpdateApi),
     })
 }
 
