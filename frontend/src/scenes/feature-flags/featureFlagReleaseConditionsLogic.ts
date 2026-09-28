@@ -750,6 +750,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             const sourceSortKey = values.filters.groups[index]?.sort_key
             const valueForSourceCondition = sourceSortKey ? values.affectedCounts[sourceSortKey] : undefined
             actions.setAffectedCount(newGroup.sort_key, valueForSourceCondition)
+            actions.setTotalCount(newGroup.sort_key, sourceSortKey ? values.totalCounts[sourceSortKey] : undefined)
         },
         updateConditionSet: async ({ index, newProperties }, breakpoint) => {
             const group: FeatureFlagGroupTypeWithSortKey | undefined = values.filters.groups[index]

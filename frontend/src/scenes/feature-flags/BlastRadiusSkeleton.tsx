@@ -12,14 +12,14 @@ export interface BlastRadiusSkeletonProps {
 export function BlastRadiusSkeleton({ targetName }: BlastRadiusSkeletonProps): JSX.Element {
     return (
         <div role="status" aria-label={`Calculating affected ${targetName}`} className="flex flex-col">
-            <div className="h-lh flex items-center">
+            <div className="h-lh flex items-center" aria-hidden>
                 <LemonSkeleton className="h-3 w-40" />
             </div>
-            <div className="h-lh flex items-center">
+            <div className="h-lh flex items-center" aria-hidden>
                 <LemonSkeleton className="h-3 w-52" />
             </div>
             {/* Keep mt-1 in sync with the top margin of MatchingActorsLink, so that both states have the same height */}
-            <div className="h-lh flex items-center mt-1">
+            <div className="h-lh flex items-center mt-1" aria-hidden>
                 <LemonSkeleton className="h-3 w-32" />
             </div>
         </div>

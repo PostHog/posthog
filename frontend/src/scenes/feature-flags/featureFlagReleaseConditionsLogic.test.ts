@@ -409,6 +409,33 @@ describe('the feature flag release conditions logic', () => {
                 })
         })
 
+        it('copies both counts of the source condition when duplicating a condition set', async () => {
+            jest.spyOn(api, 'create').mockResolvedValue({ affected: 500, total: 1000 })
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'duplicate-counts-test',
+                filters: generateFeatureFlagFilters([
+                    { properties: [], rollout_percentage: 50, variant: null, sort_key: 'A' },
+                ]),
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+
+            await expectLogic(logic, () => {
+                nextUuid = 'DUP'
+                logic.actions.duplicateConditionSet(0)
+            })
+                .toDispatchActions(['setAffectedCount', 'setTotalCount'])
+                .toMatchValues({
+                    affectedCounts: { A: 500, DUP: 500 },
+                    totalCounts: { A: 1000, DUP: 1000 },
+                })
+        })
+
         it('uses explicit sortKey when provided to addConditionSet', async () => {
             jest.spyOn(api, 'create')
                 .mockReturnValueOnce(Promise.resolve({ affected: 500, total: 1000 }))
