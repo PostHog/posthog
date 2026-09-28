@@ -1710,18 +1710,34 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, HypothesisDjangoTestCa
                 )
             ], use_new_events_schema
 
-        restricted_context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True)
-        restricted_context.restricted_properties = {
-            RestrictedProperty(name="$set", property_type=PropertyDefinition.Type.EVENT)
-        }
-        restricted = execute_hogql_query(
-            "SELECT properties.$set.email, JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set'), "
-            "JSONLength(properties, '$set'), JSONExtractKeys(properties, '$set'), properties.$set_once.initial_referrer "
-            f"FROM events WHERE uuid = '{event_uuid}'",
-            team=self.team,
-            context=restricted_context,
-        )
-        assert restricted.results == [(None, "", 0, 0, [], "https://example.com")]
+        for restricted_name, restricted_query, expected in (
+            (
+                "$set",
+                "SELECT properties.$set.email, JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set'), "
+                "JSONLength(properties, '$set'), JSONExtractKeys(properties, '$set'), "
+                "properties.$set_once.initial_referrer",
+                (None, "", 0, 0, [], "https://example.com"),
+            ),
+            (
+                "$set.plan",
+                "SELECT properties.$set.email, JSONExtractString(properties, '$set', 'email'), "
+                "JSONExtractRaw(properties, '$set'), JSONHas(properties, '$set', 'plan'), "
+                "JSONLength(properties, '$set'), properties.$set.plan.tier",
+                ("user@example.com", "user@example.com", '{"email":"user@example.com"}', 0, 1, None),
+            ),
+        ):
+            restricted_context = HogQLContext(
+                team_id=self.team.pk, enable_select_queries=True, use_new_events_schema=True
+            )
+            restricted_context.restricted_properties = {
+                RestrictedProperty(name=restricted_name, property_type=PropertyDefinition.Type.EVENT)
+            }
+            restricted = execute_hogql_query(
+                f"{restricted_query} FROM events WHERE uuid = '{event_uuid}'",
+                team=self.team,
+                context=restricted_context,
+            )
+            assert restricted.results == [expected], restricted_name
 
 
 # ── Timezone index pruning tests ──────────────────────────────────────────────
