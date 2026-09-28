@@ -45,6 +45,7 @@ import { Container } from "inversify";
 import { ANALYTICS_TRACKER } from "../../../shell/analytics";
 import { openExternalUrl } from "../../../shell/openExternal";
 import { ANONYMOUS_AUTH_STATE, useAuthStore } from "../../auth/store";
+import { useObjectSheetStore } from "../../posthog-objects/objectSheetStore";
 import { evidencePreviewQueryKey } from "../evidencePreview";
 import {
   EvidenceHoverCard,
@@ -95,6 +96,7 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
   useAuthStore.setState({ authState: ANONYMOUS_AUTH_STATE });
+  useObjectSheetStore.setState({ sheetEnabled: false, object: null });
   queryClient.clear();
   const actions = useDraftStore.getState().actions;
   actions.setDraft("task-1", null);
@@ -118,10 +120,12 @@ describe("EvidenceRefChip", () => {
     { kind: "report", taskId: null, destination: "report" },
     { kind: "insight", taskId: "task-1", destination: "tab" },
     { kind: "insight", taskId: null, destination: "external" },
+    { kind: "insight", taskId: null, destination: "sheet" },
   ] as const)(
     "opens $kind in $destination with task context $taskId",
     async ({ kind, taskId, destination }) => {
       signIn();
+      useObjectSheetStore.setState({ sheetEnabled: destination === "sheet" });
       const openObjectTab = vi
         .spyOn(usePanelLayoutStore.getState(), "openPostHogObjectTab")
         .mockImplementation(() => {});
@@ -160,6 +164,14 @@ describe("EvidenceRefChip", () => {
         });
         expect(mocks.openReport).not.toHaveBeenCalled();
         expect(openExternalUrl).not.toHaveBeenCalled();
+      } else if (destination === "sheet") {
+        expect(useObjectSheetStore.getState().object).toEqual({
+          kind,
+          id: "reference-1",
+          name: "Linked reference",
+        });
+        expect(openExternalUrl).not.toHaveBeenCalled();
+        expect(openObjectTab).not.toHaveBeenCalled();
       } else {
         expect(openExternalUrl).toHaveBeenCalledWith(
           "https://us.posthog.com/project/2/insights/reference-1",

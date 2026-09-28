@@ -23,3 +23,9 @@ export function toWebAppLocation(
     hash,
   };
 }
+
+/** The web app path of a PostHog URL such as `https://us.posthog.com/project/2/insights/abc`. */
+export function webAppPathFromUrl(url: string): string {
+  const { pathname, search, hash } = new URL(url);
+  return `${pathname}${search}${hash}`;
+}

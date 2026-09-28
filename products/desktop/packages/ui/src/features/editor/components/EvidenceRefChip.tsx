@@ -4,6 +4,7 @@ import { isPostHogObjectKind } from "@posthog/core/message-editor/content";
 import { Button } from "@posthog/quill";
 import { getCloudUrlFromRegion } from "@posthog/shared";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
+import { useObjectSheetStore } from "@posthog/ui/features/posthog-objects/objectSheetStore";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   createContext,
@@ -503,6 +504,16 @@ function EvidenceRefChipContent({
     if (taskId) {
       openPostHogObjectTab(taskId, {
         kind: target.kind,
+        id: target.id,
+        name: typeof children === "string" ? children : target.id,
+      });
+      setOpen(false);
+      return;
+    }
+    const sheet = useObjectSheetStore.getState();
+    if (objectKind && sheet.sheetEnabled) {
+      sheet.openObject({
+        kind: objectKind,
         id: target.id,
         name: typeof children === "string" ? children : target.id,
       });

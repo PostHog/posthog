@@ -30,6 +30,7 @@ import { useChannelsWorld } from "@posthog/ui/features/canvas/hooks/useChannelsW
 import { useRailSurface } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useShareLinkInterceptor } from "@posthog/ui/features/canvas/hooks/useShareLinkInterceptor";
 import { useShellOwnsHeader } from "@posthog/ui/features/canvas/hooks/useShellOwnsHeader";
+import { useTodayAskLibraryLayout } from "@posthog/ui/features/canvas/hooks/useTodayAskLibraryLayout";
 import { usePostHogWebFeedbackStore } from "@posthog/ui/features/canvas/stores/posthogWebFeedbackStore";
 import { CommandMenu } from "@posthog/ui/features/command/CommandMenu";
 import { GlobalFilePicker } from "@posthog/ui/features/command/GlobalFilePicker";
@@ -43,6 +44,7 @@ import { useFeedbackStore } from "@posthog/ui/features/feedback/feedbackStore";
 import { useInboxDeepLink } from "@posthog/ui/features/inbox/hooks/useInboxDeepLink";
 import { useIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { useLoopDeepLink } from "@posthog/ui/features/loops/hooks/useLoopDeepLink";
+import { PostHogObjectSheet } from "@posthog/ui/features/posthog-objects/PostHogObjectSheet";
 import { useScoutDeepLink } from "@posthog/ui/features/scouts/hooks/useScoutDeepLink";
 import { useSetupDiscovery } from "@posthog/ui/features/setup/useSetupDiscovery";
 import {
@@ -201,6 +203,7 @@ function RootLayout() {
   // The new channels layout has exactly one gate: its feature flag (no
   // sidebar toggle). When on it subsumes the channels alpha entirely.
   const channelsLayout = useChannelsLayout();
+  const todayAskLibraryLayout = useTodayAskLibraryLayout();
   const { hasSidebar } = useRailSurface();
   // When the sidebar is collapsed (Cmd+B) the title bar's left block shrinks to
   // fit its own controls so the tab strip flushes left with the content pane.
@@ -501,6 +504,7 @@ function RootLayout() {
         <RemoteBranchCheckoutDialog />
         <ExistingWorktreeDialog />
         <CanvasConnectorPermissionDialog />
+        {todayAskLibraryLayout && <PostHogObjectSheet />}
         <HedgehogMode />
       </Flex>
     </BrowserTabsDndProvider>

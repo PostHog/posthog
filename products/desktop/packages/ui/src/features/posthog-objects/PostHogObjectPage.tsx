@@ -33,6 +33,7 @@ import {
 } from "@posthog/ui/features/inbox/components/detail/ReportChartCard";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
+import { openUrlInLibrary } from "@posthog/ui/router/navigationBridge";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
   getObjectKind,
@@ -41,6 +42,7 @@ import {
 import { EditFlagInTaskPopover } from "./EditFlagInTaskPopover";
 import { ExperimentResultsSummary } from "./ExperimentResultsSummary";
 import { FlagAudienceCard } from "./FlagAudienceCard";
+import { useObjectSheetStore } from "./objectSheetStore";
 import { PostHogObjectDetails } from "./PostHogObjectDetails";
 
 const CHART_ERROR_MESSAGE =
@@ -255,6 +257,8 @@ export interface PostHogObjectViewProps {
   occurrenceCount?: number;
   state: "loading" | "error" | "missing" | "ready";
   preview: EvidenceCardData | null;
+  /** Opens `url` in Library instead of the browser. */
+  onOpenInLibrary?: (url: string) => void;
 }
 
 /** Pure page body; `PostHogObjectPage` resolves the preview and URL. */
@@ -267,6 +271,7 @@ export function PostHogObjectPageView({
   occurrenceCount,
   state,
   preview,
+  onOpenInLibrary,
 }: PostHogObjectViewProps) {
   const object = getObjectKind(objectKind);
   const ObjectIcon = object.icon;
@@ -324,16 +329,26 @@ export function PostHogObjectPageView({
             {/* A hogql reference's id is the SQL itself, not an identifier
                 worth copying; the chart card already shows the query. */}
             {objectKind !== "hogql" && <IdChip id={objectId} />}
-            {url && (
-              <Button
-                variant="outline"
-                size="sm"
-                data-attr="posthog-object-open-in-posthog"
-                onClick={() => openExternalUrl(url)}
-              >
-                Open in PostHog ↗
-              </Button>
-            )}
+            {url &&
+              (onOpenInLibrary ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-attr="posthog-object-open-in-library"
+                  onClick={() => onOpenInLibrary(url)}
+                >
+                  Open in Library
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  data-attr="posthog-object-open-in-posthog"
+                  onClick={() => openExternalUrl(url)}
+                >
+                  Open in PostHog ↗
+                </Button>
+              ))}
           </div>
         </header>
 
@@ -454,6 +469,9 @@ export function PostHogObjectPage({
     metadata.object_kind,
     query.data?.resolvedId ?? metadata.object_id,
   );
+  const libraryAvailable = useObjectSheetStore(
+    (state) => state.libraryAvailable,
+  );
   const state = query.isPending
     ? "loading"
     : query.isError
@@ -472,6 +490,7 @@ export function PostHogObjectPage({
       occurrenceCount={metadata.occurrence_count}
       state={state}
       preview={query.data ?? null}
+      onOpenInLibrary={libraryAvailable ? openUrlInLibrary : undefined}
     />
   );
 }
