@@ -42,7 +42,7 @@ export function OfflineOverviewTrend(props: OfflineOverviewTrendLogicProps & { t
                             periods={[
                                 {
                                     key: 'overview',
-                                    label: 'Completed experiments',
+                                    label: 'Experiments',
                                     points: trend.page.results,
                                     dateFrom: props.dateFrom,
                                     dateTo: props.dateTo,
@@ -57,12 +57,13 @@ export function OfflineOverviewTrend(props: OfflineOverviewTrendLogicProps & { t
                             }
                         />
                     ) : (
-                        <p className="text-muted my-4">No completed experiments with this score in this period.</p>
+                        <p className="text-muted my-4">No experiments with this score match these filters.</p>
                     )}
                     <p className="text-xs text-muted mb-0">{getOfflineHistoryCoverage(trend.page, props.timezone)}</p>
                     <LemonButton
-                        size="small"
-                        type="secondary"
+                        size="xsmall"
+                        type="tertiary"
+                        className="self-start"
                         to={
                             combineUrl(urls.aiObservabilityOfflineScorerHistory(props.scorerId), {
                                 ...props.filters,

@@ -5,7 +5,6 @@ import {
     LemonBanner,
     LemonButton,
     LemonInput,
-    LemonLabel,
     LemonSelect,
     LemonSkeleton,
     LemonTable,
@@ -20,8 +19,9 @@ import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import type { OfflineExperimentReadApi } from '../generated/api.schemas'
+import { OfflineExperimentsEmptyState } from './OfflineExperimentsEmptyState'
 import { offlineExperimentsLogic, type OfflineExperimentsLogicProps } from './offlineExperimentsLogic'
-import { OFFLINE_CONTEXT_FILTERS, OFFLINE_TREND_CONTEXT_FILTERS, offlineRunSourceLabel } from './offlineOverviewState'
+import { offlineRunSourceLabel } from './offlineOverviewState'
 import { OfflineOverviewTrend } from './OfflineOverviewTrend'
 import { OfflineScoreChooser } from './OfflineScoreChooser'
 
@@ -33,15 +33,13 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         experimentsError,
         filters,
         scorerIds,
-        trendDates,
+        hasExperiments,
         trendFilters,
-        trendRange,
+        dateRange,
         cursorStack,
         refreshKey,
     } = useValues(logic)
-    const { setFilters, setTrendFilters, setTrendDates, openChooser, nextPage, previousPage, refresh } =
-        useActions(logic)
-    const hasFilters = Object.keys(filters).length > 0
+    const { setFilters, openChooser, nextPage, previousPage, refresh } = useActions(logic)
     const columns: LemonTableColumns<OfflineExperimentReadApi> = [
         {
             title: 'Experiment',
@@ -121,85 +119,73 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
         },
     ]
 
+    if (hasExperiments === null && !experimentsError) {
+        return <LemonSkeleton className="h-80" />
+    }
+    if (hasExperiments === false && !experimentsLoading && !experimentsError) {
+        return <OfflineExperimentsEmptyState />
+    }
+
     return (
         <div className="@container space-y-6 min-w-0">
+            <div aria-label="Experiment filters" className="flex flex-wrap items-center gap-2">
+                <DateFilter
+                    dateFrom={filters.date_from || '-30d'}
+                    dateTo={filters.date_to || null}
+                    onChange={(dateFrom, dateTo) =>
+                        setFilters({ date_from: dateFrom || '-30d', date_to: dateTo || undefined })
+                    }
+                    showCustom
+                    showCustomRelativeRange
+                />
+                <LemonSelect
+                    value={filters.run_source || ''}
+                    onChange={(run_source) => setFilters({ run_source })}
+                    data-attr="offline-experiments-source-filter"
+                    options={[
+                        { value: '', label: 'All sources' },
+                        { value: 'ci', label: 'CI' },
+                        { value: 'local', label: 'Local' },
+                        { value: 'scheduled', label: 'Scheduled' },
+                        { value: 'not_specified', label: 'Not specified' },
+                    ]}
+                />
+                <LemonSelect
+                    value={filters.statuses || ''}
+                    onChange={(statuses) => setFilters({ statuses })}
+                    data-attr="offline-experiments-status-filter"
+                    options={[
+                        { value: '', label: 'All upload states' },
+                        { value: 'uploading', label: 'Uploading' },
+                        { value: 'completed', label: 'Completed' },
+                        { value: 'failed', label: 'Failed' },
+                    ]}
+                />
+                <LemonButton
+                    type="secondary"
+                    icon={<IconRefresh />}
+                    onClick={refresh}
+                    loading={experimentsLoading}
+                    data-attr="offline-experiments-refresh"
+                    className="ml-auto"
+                >
+                    Refresh
+                </LemonButton>
+            </div>
             <section aria-label="Score trends" className="space-y-3">
                 <div className="flex flex-wrap justify-between items-center gap-2">
                     <div>
                         <h2 className="mb-0">Score trends</h2>
                         <p className="text-muted text-xs mb-0">
-                            Completed experiments. Each point keeps its scorer version and sample coverage.
+                            Scores across the selected experiments. Uploading and failed runs may have partial results.
                         </p>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                        <DateFilter
-                            dateFrom={trendDates.dateFrom}
-                            dateTo={trendDates.dateTo}
-                            onChange={setTrendDates}
-                            showCustom
-                            showCustomRelativeRange
-                        />
-                        <LemonButton type="secondary" onClick={openChooser} data-attr="offline-choose-scores">
-                            Choose scores
-                        </LemonButton>
-                    </div>
+                    <LemonButton type="secondary" size="small" onClick={openChooser} data-attr="offline-choose-scores">
+                        Choose scores
+                    </LemonButton>
                 </div>
-                <details>
-                    <summary className="cursor-pointer text-sm">
-                        {`Filter trends${Object.keys(trendFilters).length ? ` (${Object.keys(trendFilters).length} active)` : ''}`}
-                    </summary>
-                    <div className="grid grid-cols-1 @min-[40rem]:grid-cols-2 @min-[64rem]:grid-cols-3 gap-3 mt-3">
-                        <div>
-                            <LemonLabel htmlFor="offline-trend-run-source">Run source</LemonLabel>
-                            <LemonSelect
-                                id="offline-trend-run-source"
-                                value={trendFilters.run_source || ''}
-                                onChange={(run_source) => setTrendFilters({ run_source })}
-                                fullWidth
-                                options={[
-                                    { value: '', label: 'All sources' },
-                                    { value: 'ci', label: 'CI' },
-                                    { value: 'local', label: 'Local' },
-                                    { value: 'scheduled', label: 'Scheduled' },
-                                    { value: 'not_specified', label: 'Not specified' },
-                                ]}
-                            />
-                        </div>
-                        {OFFLINE_TREND_CONTEXT_FILTERS.map(([key, label]) => (
-                            <div key={key}>
-                                <LemonLabel htmlFor={`offline-trend-${key}`}>{label}</LemonLabel>
-                                <LemonInput
-                                    id={`offline-trend-${key}`}
-                                    value={trendFilters[key] || ''}
-                                    onChange={(value) => setTrendFilters({ [key]: value })}
-                                    placeholder="Exact value"
-                                    maxLength={255}
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </details>
-                {Object.keys(trendFilters).length > 0 && (
-                    <div className="flex flex-wrap gap-1" aria-label="Active trend filters">
-                        {trendFilters.run_source && (
-                            <LemonTag closable onClose={() => setTrendFilters({ run_source: undefined })}>
-                                {`Run source: ${offlineRunSourceLabel(trendFilters.run_source)}`}
-                            </LemonTag>
-                        )}
-                        {OFFLINE_TREND_CONTEXT_FILTERS.filter(([key]) => trendFilters[key]).map(([key, label]) => (
-                            <LemonTag
-                                key={key}
-                                closable
-                                onClose={() => setTrendFilters({ [key]: undefined })}
-                                className="max-w-full"
-                            >
-                                <span className="truncate">{`${label}: ${trendFilters[key]}`}</span>
-                            </LemonTag>
-                        ))}
-                    </div>
-                )}
-                {!trendRange ? (
-                    <LemonBanner type="error">Choose a valid date range for the score trends.</LemonBanner>
+                {!dateRange ? (
+                    <LemonBanner type="error">Choose a valid date range.</LemonBanner>
                 ) : scorerIds === null ? (
                     <LemonSkeleton className="h-40" />
                 ) : scorerIds.length > 0 ? (
@@ -210,8 +196,8 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                                 teamId={props.teamId}
                                 timezone={props.timezone}
                                 scorerId={scorerId}
-                                dateFrom={trendRange.dateFrom}
-                                dateTo={trendRange.dateTo}
+                                dateFrom={dateRange.dateFrom}
+                                dateTo={dateRange.dateTo}
                                 refreshKey={refreshKey}
                                 filters={trendFilters}
                             />
@@ -226,86 +212,14 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
             <section aria-label="Recent experiments" className="space-y-3">
                 <div className="flex flex-wrap justify-between items-center gap-2">
                     <h2 className="mb-0">Recent experiments</h2>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconRefresh />}
-                        onClick={refresh}
-                        loading={experimentsLoading}
-                        data-attr="offline-experiments-refresh"
-                    >
-                        Refresh
-                    </LemonButton>
-                </div>
-                <div className="flex flex-wrap gap-2">
                     <LemonInput
                         type="search"
                         prefix={<IconSearch />}
                         value={filters.search || ''}
                         onChange={(search) => setFilters({ search })}
                         placeholder="Search experiments"
-                        className="flex-1 min-w-48"
-                    />
-                    <DateFilter
-                        dateFrom={filters.date_from || 'all'}
-                        dateTo={filters.date_to || null}
-                        onChange={(dateFrom, dateTo) =>
-                            setFilters({
-                                date_from: dateFrom === 'all' ? undefined : dateFrom || undefined,
-                                date_to: dateTo || undefined,
-                            })
-                        }
-                        showCustom
-                        showCustomRelativeRange
-                    />
-                    <LemonSelect
-                        value={filters.statuses || ''}
-                        onChange={(statuses) => setFilters({ statuses })}
-                        options={[
-                            { value: '', label: 'All upload states' },
-                            { value: 'uploading', label: 'Uploading' },
-                            { value: 'completed', label: 'Completed' },
-                            { value: 'failed', label: 'Failed' },
-                        ]}
-                    />
-                    <LemonSelect
-                        value={filters.run_source || ''}
-                        onChange={(run_source) => setFilters({ run_source })}
-                        options={[
-                            { value: '', label: 'All sources' },
-                            { value: 'ci', label: 'CI' },
-                            { value: 'local', label: 'Local' },
-                            { value: 'scheduled', label: 'Scheduled' },
-                            { value: 'not_specified', label: 'Not specified' },
-                        ]}
                     />
                 </div>
-                <details>
-                    <summary className="cursor-pointer text-sm">{`Filters${OFFLINE_CONTEXT_FILTERS.some(([key]) => filters[key]) ? ` (${OFFLINE_CONTEXT_FILTERS.filter(([key]) => filters[key]).length} active)` : ''}`}</summary>
-                    <div className="grid grid-cols-1 @min-[40rem]:grid-cols-2 @min-[64rem]:grid-cols-3 gap-3 mt-3">
-                        {OFFLINE_CONTEXT_FILTERS.map(([key, label]) => (
-                            <div key={key}>
-                                <LemonLabel htmlFor={`offline-filter-${key}`}>{label}</LemonLabel>
-                                <LemonInput
-                                    id={`offline-filter-${key}`}
-                                    value={filters[key] || ''}
-                                    onChange={(value) => setFilters({ [key]: value })}
-                                    placeholder="Exact value"
-                                />
-                            </div>
-                        ))}
-                    </div>
-                </details>
-                {OFFLINE_CONTEXT_FILTERS.some(([key]) => filters[key]) && (
-                    <div className="flex flex-wrap gap-1">
-                        {OFFLINE_CONTEXT_FILTERS.filter(([key]) => filters[key]).map(([key, label]) => (
-                            <LemonTag
-                                key={key}
-                                closable
-                                onClose={() => setFilters({ [key]: undefined })}
-                            >{`${label}: ${filters[key]}`}</LemonTag>
-                        ))}
-                    </div>
-                )}
                 {experimentsError ? (
                     <LemonBanner type="error" action={{ children: 'Retry', onClick: refresh }}>
                         {experimentsError}
@@ -317,25 +231,7 @@ export function OfflineExperimentsOverview(props: OfflineExperimentsLogicProps):
                         rowKey="id"
                         loading={experimentsLoading || experiments === null}
                         tableLayout="fixed"
-                        emptyState={
-                            hasFilters ? (
-                                'No experiments match these filters.'
-                            ) : (
-                                <div className="py-4 space-y-3 max-w-lg mx-auto">
-                                    <h3>No offline experiments yet</h3>
-                                    <p>
-                                        Create a scorer and copy its version ID. Upload your experiment, items, and
-                                        results with the offline evaluations API, then mark the upload as completed.
-                                    </p>
-                                    <p className="text-muted">
-                                        Run evaluations with your own tools and send their results here.
-                                    </p>
-                                    <LemonButton type="primary" to={urls.aiObservabilityScorers()}>
-                                        Manage scorers
-                                    </LemonButton>
-                                </div>
-                            )
-                        }
+                        emptyState="No experiments match these filters."
                     />
                 )}
                 {experiments && !experimentsError && (

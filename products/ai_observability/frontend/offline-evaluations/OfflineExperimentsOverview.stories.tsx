@@ -18,6 +18,11 @@ const meta: Meta<typeof OfflineExperimentsOverview> = {
         featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS],
     },
     decorators: [
+        (Story) => (
+            <div className="@container/main-content">
+                <Story />
+            </div>
+        ),
         mswDecorator({
             get: {
                 '/api/projects/:team/ai_observability/offline_experiments/': {
@@ -44,7 +49,7 @@ export const RecentExperiments: Story = {}
 export const Narrow: Story = {
     decorators: [
         (Story) => (
-            <div className="w-[520px]">
+            <div className="@container/main-content w-[520px]">
                 <Story />
             </div>
         ),
@@ -53,7 +58,7 @@ export const Narrow: Story = {
 export const FilteredTrends: Story = {
     ...Narrow,
     parameters: {
-        pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=${overviewScorers[0].id}&suite_key=latest-experiments&trend_run_source=ci&trend_suite_key=answer-quality&trend_dataset_source=local&trend_dataset_identifier=sample-questions&trend_dataset_revision_identifier=revision-2`,
+        pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=${overviewScorers[0].id}&date_from=-7d&run_source=ci&statuses=completed`,
     },
 }
 export const Empty: Story = {
@@ -66,6 +71,23 @@ export const Empty: Story = {
                     next_cursor: null,
                     results: [],
                 },
+            },
+        }),
+    ],
+}
+export const EmptyNarrow: Story = {
+    ...Empty,
+    decorators: [Empty.decorators, Narrow.decorators].flat().filter((decorator) => !!decorator),
+}
+export const NoMatchingExperiments: Story = {
+    parameters: { pageUrl: `${urls.aiObservabilityOfflineEvaluations()}?scores=&run_source=local` },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team/ai_observability/offline_experiments/': ({ request }) =>
+                    new URL(request.url).searchParams.get('run_source')
+                        ? { count: 0, next_cursor: null, results: [] }
+                        : { count: 8, next_cursor: null, results: overviewExperiments },
             },
         }),
     ],

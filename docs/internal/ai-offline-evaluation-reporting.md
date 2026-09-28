@@ -218,13 +218,15 @@ Opening those resources requires their own permissions.
 ## Inspecting offline results
 
 Open **Evaluations → Offline experiments** to see the newest experiments and chosen score trends.
-The recent experiment list starts with all execution dates and upload states. Its filters are independent of the chart date range.
+A shared time range, run source, and upload state filter applies to both the score charts and the experiment list.
+The overview starts with the last 30 days and all upload states. Uploading and failed runs can show partial score summaries.
+Projects without experiments show setup steps; a filter with no matching experiments keeps the overview available.
 Datasets, suites, and traces are optional context and are not required to display an experiment.
 
 **Choose scores** selects and orders recurring scorer definitions above the experiment list.
 These choices are stored in local storage, scoped to the user and exact project/environment, and persist in that browser.
 Shared URL selections and dates take precedence for that view without replacing saved choices until the user saves a customization.
-Charts default to the last 30 days of completed experiments and support other presets, custom ranges, and all time.
+The shared date picker supports presets, custom ranges, and all time.
 History pages are bounded; coverage labels show how many matching points are loaded.
 Different scorer versions retain their pinned configurations and are not averaged together.
 

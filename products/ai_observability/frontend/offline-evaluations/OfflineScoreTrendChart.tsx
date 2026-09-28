@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { ScatterChart, TooltipSurface } from '@posthog/quill-charts'
+import { ScatterChart, TooltipFooter, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
@@ -68,28 +68,65 @@ export function OfflineScoreTrendChart({
                                     }
                                     const { experiment, summary } = meta.point
                                     return (
-                                        <TooltipSurface>
-                                            <div className="font-semibold">{experiment.name}</div>
-                                            <div>{`${meta.period} · v${summary.scorer.version} · ${experiment.status}`}</div>
-                                            <div>
-                                                {dayjs(experiment.started_at)
-                                                    .tz(timezone)
-                                                    .format('MMM D, YYYY HH:mm:ss')}
+                                        <TooltipSurface data-attr="offline-score-trend-tooltip">
+                                            <div className="font-semibold text-sm break-words">{experiment.name}</div>
+                                            <div className="opacity-70 mt-0.5">
+                                                {`${dayjs(experiment.started_at).tz(timezone).format('MMM D, YYYY HH:mm:ss')} (${timezone})`}
                                             </div>
-                                            <div>{`${meta.metric}: ${meta.percentage ? `${formatOfflineNumericScore(point.y * 100)}%` : formatOfflineNumericScore(point.y)}`}</div>
-                                            <div>{`${summary.status_counts.ok} successful · ${summary.result_count - summary.status_counts.ok} other outcomes · ${summary.missing_result_count} missing`}</div>
-                                            <div>{`${summary.distinct_case_count} distinct cases · ${summary.trial_item_count} trial items`}</div>
-                                            <div>{`${experiment.run_source || 'Source not specified'}${experiment.suite_key ? ` · ${experiment.suite_key}` : ''}`}</div>
-                                            {[
-                                                experiment.application_version,
-                                                experiment.model_version,
-                                                experiment.prompt_version,
-                                                experiment.dataset_revision_identifier,
-                                            ]
-                                                .filter(Boolean)
-                                                .map((value, index) => (
-                                                    <div key={index}>{value}</div>
-                                                ))}
+                                            <div className="mt-2 pt-2 border-t border-current/25">
+                                                <div className="flex items-center gap-2 font-medium">
+                                                    <TooltipSwatch color={point.color} />
+                                                    <span className="break-words">{`${summary.scorer.name} · v${summary.scorer.version}`}</span>
+                                                </div>
+                                                <div className="flex items-baseline justify-between gap-4 mt-1">
+                                                    <span className="opacity-70">{meta.metric}</span>
+                                                    <strong className="text-lg tabular-nums">
+                                                        {meta.percentage
+                                                            ? `${formatOfflineNumericScore(point.y * 100)}%`
+                                                            : formatOfflineNumericScore(point.y)}
+                                                    </strong>
+                                                </div>
+                                                {periods.length > 1 && <div className="opacity-70">{meta.period}</div>}
+                                            </div>
+                                            <div className="mt-2 pt-2 border-t border-current/25">
+                                                <div className="font-medium mb-1">Result coverage</div>
+                                                <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 mb-0">
+                                                    <dt className="opacity-70">Successful</dt>
+                                                    <dd className="text-right tabular-nums mb-0">
+                                                        {summary.status_counts.ok}
+                                                    </dd>
+                                                    <dt className="opacity-70">Other outcomes</dt>
+                                                    <dd className="text-right tabular-nums mb-0">
+                                                        {summary.result_count - summary.status_counts.ok}
+                                                    </dd>
+                                                    <dt className="opacity-70">Missing</dt>
+                                                    <dd className="text-right tabular-nums mb-0">
+                                                        {summary.missing_result_count}
+                                                    </dd>
+                                                </dl>
+                                                <div className="opacity-70 mt-1">{`${summary.distinct_case_count} distinct cases · ${summary.trial_item_count} trial items`}</div>
+                                            </div>
+                                            <div className="mt-2 pt-2 border-t border-current/25">
+                                                <dl className="grid grid-cols-2 gap-x-4 gap-y-0.5 mb-0">
+                                                    {[
+                                                        ['Source', experiment.run_source || 'Not specified'],
+                                                        ['Upload state', experiment.status],
+                                                        ['Suite', experiment.suite_key],
+                                                        ['Application', experiment.application_version],
+                                                        ['Model', experiment.model_version],
+                                                        ['Prompt', experiment.prompt_version],
+                                                        ['Dataset revision', experiment.dataset_revision_identifier],
+                                                    ]
+                                                        .filter(([, value]) => value)
+                                                        .map(([label, value]) => (
+                                                            <div key={label} className="contents">
+                                                                <dt className="opacity-70">{label}</dt>
+                                                                <dd className="text-right break-words mb-0">{value}</dd>
+                                                            </div>
+                                                        ))}
+                                                </dl>
+                                            </div>
+                                            {onPointClick && <TooltipFooter>Click to inspect experiment</TooltipFooter>}
                                         </TooltipSurface>
                                     )
                                 }}

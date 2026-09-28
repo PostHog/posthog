@@ -5,7 +5,11 @@ import { objectsEqual } from 'lib/utils/objects'
 
 import * as api from '../generated/api'
 import type { OfflineHistoryPageApi, ScoreDefinitionApi } from '../generated/api.schemas'
-import { withOfflineTrendReadLimit, type OfflineOverviewTrendFilters } from './offlineOverviewState'
+import {
+    OFFLINE_ALL_UPLOAD_STATES,
+    withOfflineTrendReadLimit,
+    type OfflineOverviewTrendFilters,
+} from './offlineOverviewState'
 
 export interface OfflineOverviewTrendLogicProps {
     teamId: number
@@ -88,7 +92,7 @@ export const offlineOverviewTrendLogic = kea<offlineOverviewTrendLogicType>([
                                     ...props.filters,
                                     date_from: props.dateFrom,
                                     date_to: props.dateTo,
-                                    statuses: 'completed',
+                                    statuses: props.filters?.statuses || OFFLINE_ALL_UPLOAD_STATES,
                                     limit: 100,
                                 }
                             )

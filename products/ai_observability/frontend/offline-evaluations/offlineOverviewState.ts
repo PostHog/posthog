@@ -3,42 +3,18 @@ import type {
     AiObservabilityOfflineScorersHistoryListParams,
 } from '../generated/api.schemas'
 
-export type OfflineExperimentFilters = Omit<AiObservabilityOfflineExperimentsListParams, 'cursor' | 'limit'>
-
-export const OFFLINE_TREND_CONTEXT_FILTERS = [
-    ['suite_key', 'Suite'],
-    ['dataset_source', 'Dataset source'],
-    ['dataset_identifier', 'Dataset identifier'],
-    ['dataset_revision_identifier', 'Dataset revision'],
-] as const
+export type OfflineExperimentFilters = Pick<
+    AiObservabilityOfflineExperimentsListParams,
+    'search' | 'statuses' | 'run_source' | 'date_from' | 'date_to'
+>
 
 export type OfflineOverviewTrendFilters = Pick<
     AiObservabilityOfflineScorersHistoryListParams,
-    'run_source' | (typeof OFFLINE_TREND_CONTEXT_FILTERS)[number][0]
+    'run_source' | 'statuses'
 >
 
-const TREND_FILTER_KEYS = ['run_source', ...OFFLINE_TREND_CONTEXT_FILTERS.map(([key]) => key)] as const
-
-export const OFFLINE_CONTEXT_FILTERS = [
-    ['suite_key', 'Suite'],
-    ['dataset_source', 'Dataset source'],
-    ['dataset_identifier', 'Dataset identifier'],
-    ['dataset_revision_identifier', 'Dataset revision'],
-    ['application_version', 'Application version'],
-    ['model_version', 'Model version'],
-    ['prompt_version', 'Prompt version'],
-    ['scorer_definition_id', 'Scorer definition ID'],
-    ['scorer_version_ids', 'Scorer version IDs'],
-] as const
-
-const FILTER_KEYS = [
-    'search',
-    'statuses',
-    'run_source',
-    'date_from',
-    'date_to',
-    ...OFFLINE_CONTEXT_FILTERS.map(([key]) => key),
-] as const
+export const OFFLINE_ALL_UPLOAD_STATES = 'completed,uploading,failed'
+const FILTER_KEYS = ['search', 'statuses', 'run_source', 'date_from', 'date_to'] as const
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export function parseOfflineScorerIds(value: unknown): string[] | null {
@@ -81,9 +57,16 @@ export function saveOfflineScorerPreferences(userId: number, teamId: number, sco
 }
 
 export function offlineFiltersFromUrl(search: Record<string, unknown>): OfflineExperimentFilters {
+    // Keep shared links from the separate trend controls usable with the unified filters.
+    const shared: Record<string, unknown> = {
+        ...search,
+        date_from: search.date_from ?? search.trend_from,
+        date_to: search.date_to ?? search.trend_to,
+        run_source: search.run_source ?? search.trend_run_source,
+    }
     return Object.fromEntries(
         FILTER_KEYS.flatMap((key) => {
-            const value = search[key]
+            const value = shared[key]
             return typeof value === 'string' && value ? [[key, value]] : []
         })
     )
@@ -105,24 +88,6 @@ export function offlineCursorStackFromUrl(search: Record<string, unknown>): stri
 
 export function cleanOfflineFilters(filters: OfflineExperimentFilters): OfflineExperimentFilters {
     return offlineFiltersFromUrl(filters)
-}
-
-export function offlineTrendFiltersToUrl(filters: OfflineOverviewTrendFilters): Record<string, string> {
-    return Object.fromEntries(
-        TREND_FILTER_KEYS.flatMap((key) => {
-            const value = filters[key]
-            return typeof value === 'string' && value ? [[`trend_${key}`, value]] : []
-        })
-    )
-}
-
-export function offlineTrendFiltersFromUrl(search: Record<string, unknown>): OfflineOverviewTrendFilters {
-    return Object.fromEntries(
-        TREND_FILTER_KEYS.flatMap((key) => {
-            const value = search[`trend_${key}`]
-            return typeof value === 'string' && value ? [[key, value]] : []
-        })
-    )
 }
 
 export function offlineRunSourceLabel(source: string | null): string {

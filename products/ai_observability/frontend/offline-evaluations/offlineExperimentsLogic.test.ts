@@ -59,62 +59,52 @@ describe('offlineExperimentsLogic', () => {
         expect(readOfflineScorerPreferences(props.userId, props.teamId)).toEqual([])
     })
 
-    it('keeps trend filters separate from list pagination and preferences, and restores both filters on Back', async () => {
+    it('shares the date window, source, and upload state while preserving pagination on Back', async () => {
         const saved = [overviewScorers[0].id]
         saveOfflineScorerPreferences(props.userId, props.teamId, saved)
         router.actions.push(urls.aiObservabilityOfflineEvaluations(), {
             scores: '',
             date_from: '-24h',
             run_source: 'local',
-            suite_key: 'list-suite',
+            statuses: 'uploading',
         })
         const logic = offlineExperimentsLogic(props)
         logic.mount()
         await jest.advanceTimersByTimeAsync(150)
-        const initialRange = list.mock.calls.at(-1)?.[1]
-        const initialTrendRange = logic.values.trendRange
-        logic.actions.nextPage('cursor-2')
-        await jest.advanceTimersByTimeAsync(150)
+        const initialRange = logic.values.dateRange
+        expect(list.mock.calls.at(-1)?.[1]).toMatchObject({
+            date_from: initialRange?.dateFrom,
+            date_to: initialRange?.dateTo,
+            run_source: 'local',
+            statuses: 'uploading',
+        })
+        expect(logic.values.trendFilters).toEqual({ run_source: 'local', statuses: 'uploading' })
 
         jest.setSystemTime(new Date('2026-09-28T15:00:00Z'))
-        const trendFilters = {
-            run_source: 'ci',
-            suite_key: 'trend-suite',
-            dataset_source: 'local',
-            dataset_identifier: 'sample-set',
-            dataset_revision_identifier: 'revision-2',
-        }
-        logic.actions.setTrendFilters(trendFilters)
+        logic.actions.nextPage('cursor-2')
         await jest.advanceTimersByTimeAsync(150)
-        expect(list).toHaveBeenCalledTimes(2)
-        expect(logic.values.cursorStack).toEqual(['cursor-2'])
-        expect(logic.values.trendRange).toEqual(initialTrendRange)
-        expect(readOfflineScorerPreferences(props.userId, props.teamId)).toEqual(saved)
-        expect(router.values.searchParams).toMatchObject({
-            run_source: 'local',
-            suite_key: 'list-suite',
-            trend_run_source: 'ci',
-            trend_suite_key: 'trend-suite',
-            trend_dataset_source: 'local',
-            trend_dataset_identifier: 'sample-set',
-            trend_dataset_revision_identifier: 'revision-2',
+        expect(logic.values.dateRange).toEqual(initialRange)
+        expect(list.mock.calls.at(-1)?.[1]).toMatchObject({
+            date_from: initialRange?.dateFrom,
+            date_to: initialRange?.dateTo,
+            cursor: 'cursor-2',
         })
         const listUrl = combineUrl(router.values.location.pathname, router.values.searchParams)
         const listSearch = { ...router.values.searchParams }
 
-        logic.actions.setTrendDates('-7d', null)
-        logic.actions.setTrendFilters({ suite_key: undefined })
-        expect(router.values.searchParams.trend_suite_key).toBeUndefined()
-        logic.actions.nextPage('cursor-3')
+        logic.actions.setFilters({ date_from: '-7d', run_source: 'ci', statuses: 'failed' })
         await jest.advanceTimersByTimeAsync(150)
+        expect(logic.values.cursorStack).toEqual([])
+        expect(logic.values.trendFilters).toEqual({ run_source: 'ci', statuses: 'failed' })
         expect(list.mock.calls.at(-1)?.[1]).toMatchObject({
-            date_from: initialRange?.date_from,
-            date_to: initialRange?.date_to,
-            cursor: 'cursor-3',
-            run_source: 'local',
-            suite_key: 'list-suite',
+            date_from: logic.values.dateRange?.dateFrom,
+            date_to: logic.values.dateRange?.dateTo,
+            run_source: 'ci',
+            statuses: 'failed',
         })
-        expect(list.mock.calls.at(-1)?.[1]?.dataset_identifier).toBeUndefined()
+        expect(list.mock.calls.at(-1)?.[1]?.cursor).toBeUndefined()
+        expect(router.values.searchParams.cursor_stack).toBeUndefined()
+        expect(readOfflineScorerPreferences(props.userId, props.teamId)).toEqual(saved)
 
         router.actions.push(urls.aiObservabilityOfflineEvaluationExperiment(overviewExperiments[0].id))
         router.actions.locationChanged({
@@ -128,19 +118,42 @@ describe('offlineExperimentsLogic', () => {
         })
         await jest.advanceTimersByTimeAsync(150)
         expect(logic.values.cursorStack).toEqual(['cursor-2'])
-        expect(logic.values.trendFilters).toEqual(trendFilters)
+        expect(logic.values.dateRange).toEqual(initialRange)
+        expect(logic.values.trendFilters).toEqual({ run_source: 'local', statuses: 'uploading' })
         expect(list.mock.calls.at(-1)?.[1]).toMatchObject({
-            date_from: initialRange?.date_from,
-            date_to: initialRange?.date_to,
+            date_from: initialRange?.dateFrom,
+            date_to: initialRange?.dateTo,
             cursor: 'cursor-2',
+            run_source: 'local',
+            statuses: 'uploading',
         })
+    })
 
-        logic.actions.setFilters({ run_source: 'ci' })
+    it.each([true, false])(
+        'distinguishes no matching experiments from a new project (has history: %s)',
+        async (hasHistory) => {
+            const emptyPage: OfflineExperimentPageApi = { results: [], count: 0, next_cursor: null }
+            list.mockResolvedValueOnce(emptyPage).mockResolvedValueOnce(hasHistory ? page : emptyPage)
+            const logic = offlineExperimentsLogic(props)
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(150)
+
+            expect(logic.values.experiments).toEqual(emptyPage)
+            expect(logic.values.hasExperiments).toBe(hasHistory)
+            expect(list).toHaveBeenLastCalledWith(String(props.teamId), { limit: 1 })
+        }
+    )
+
+    it('keeps onboarding hidden when the project presence check fails', async () => {
+        list.mockResolvedValueOnce({ results: [], count: 0, next_cursor: null }).mockRejectedValueOnce(
+            new Error('Unavailable')
+        )
+        const logic = offlineExperimentsLogic(props)
+        logic.mount()
         await jest.advanceTimersByTimeAsync(150)
-        expect(logic.values.cursorStack).toEqual([])
-        expect(list.mock.calls.at(-1)?.[1]?.cursor).toBeUndefined()
-        expect(router.values.searchParams.cursor_stack).toBeUndefined()
-        expect(logic.values.trendFilters).toEqual(trendFilters)
+
+        expect(logic.values.hasExperiments).toBeNull()
+        expect(logic.values.experimentsError).not.toBeNull()
     })
 
     it('drops a stale failed list request after a newer filtered page succeeds', async () => {
@@ -163,19 +176,22 @@ describe('offlineExperimentsLogic', () => {
         expect(logic.values.experimentsLoading).toBe(false)
     })
 
-    it('reports invalid list dates without issuing a request and keeps invalid trend dates independent', async () => {
+    it('rejects invalid shared dates without loading experiments or charts', async () => {
         router.actions.push(urls.aiObservabilityOfflineEvaluations(), { scores: '', date_from: 'invalid-date' })
         const logic = offlineExperimentsLogic(props)
         logic.mount()
         await jest.advanceTimersByTimeAsync(150)
         expect(list).not.toHaveBeenCalled()
         expect(logic.values.experimentsError).toBe('Choose a valid experiment date range.')
+        expect(logic.values.dateRange).toBeNull()
+        expect(logic.values.hasExperiments).toBeNull()
 
-        logic.actions.setFilters({ date_from: undefined })
-        logic.actions.setTrendDates('invalid-date', null)
+        logic.actions.setFilters({ date_from: '-30d' })
         await jest.advanceTimersByTimeAsync(150)
         expect(logic.values.experiments).toEqual(page)
         expect(logic.values.experimentsError).toBeNull()
-        expect(logic.values.trendRange).toBeNull()
+        expect(logic.values.dateRange).not.toBeNull()
+        expect(logic.values.trendFilters).toEqual({ statuses: 'completed,uploading,failed' })
+        expect(logic.values.hasExperiments).toBe(true)
     })
 })

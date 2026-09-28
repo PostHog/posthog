@@ -70,18 +70,18 @@ describe('offlineOverviewTrendLogic', () => {
         expect(history).toHaveBeenLastCalledWith(
             '997',
             props.scorerId,
-            expect.objectContaining({ date_from: '2026-09-20T00:00:00Z', statuses: 'completed' })
+            expect.objectContaining({ date_from: '2026-09-20T00:00:00Z', statuses: 'completed,uploading,failed' })
         )
         expect(logic.values.trend?.page).toEqual(page)
         expect(logic.values.trendError).toBe(false)
         expect(logic.values.trendLoading).toBe(false)
     })
 
-    it('reloads a changed trend cohort within the same frozen date range', async () => {
+    it('reloads a shared source and upload state within the same frozen date range', async () => {
         const logic = offlineOverviewTrendLogic({ ...props, filters: { run_source: 'local' } })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        const filters = { run_source: 'ci', suite_key: 'trend-suite', dataset_identifier: 'sample-set' }
+        const filters = { run_source: 'ci', statuses: 'failed' }
         offlineOverviewTrendLogic({ ...props, filters })
         await expectLogic(logic).toFinishAllListeners()
 
@@ -90,7 +90,6 @@ describe('offlineOverviewTrendLogic', () => {
             ...filters,
             date_from: props.dateFrom,
             date_to: props.dateTo,
-            statuses: 'completed',
             limit: 100,
         })
     })

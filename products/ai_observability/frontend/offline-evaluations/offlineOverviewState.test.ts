@@ -39,6 +39,24 @@ describe('offline overview preferences', () => {
                 model_version: ['bad'],
                 statuses: '',
             })
-        ).toEqual({ search: 'check', suite_key: 'a' })
+        ).toEqual({ search: 'check' })
+    })
+
+    it.each([
+        [{}, { date_from: '-7d', date_to: '2026-09-28', run_source: 'ci' }],
+        [
+            { date_from: '-30d', date_to: '2026-09-20', run_source: 'local' },
+            { date_from: '-30d', date_to: '2026-09-20', run_source: 'local' },
+        ],
+    ])('migrates legacy trend links without overriding shared filters: %j', (shared, expected) => {
+        expect(
+            offlineFiltersFromUrl({
+                trend_from: '-7d',
+                trend_to: '2026-09-28',
+                trend_run_source: 'ci',
+                trend_suite_key: 'old-suite',
+                ...shared,
+            })
+        ).toEqual(expected)
     })
 })
