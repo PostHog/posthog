@@ -10,7 +10,7 @@
 //! 2. Keeping snapshot_data as serde_json::Value (already parsed)
 //! 3. Serializing directly to the final CapturedEvent format without intermediate steps
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use chrono::DateTime;
 use common_ingestion_warnings::{WarningEmitter, CAPTURE_REPLAY};
@@ -361,22 +361,24 @@ struct SessionEvents {
 /// first event without one gets its own group, which the caller rejects.
 fn group_by_session_id(events: Vec<RawRecording>) -> Vec<SessionEvents> {
     let mut groups: Vec<SessionEvents> = Vec::new();
+    // The client controls how many distinct ids a request holds, so look groups
+    // up by key instead of scanning them for each event.
+    let mut index_by_session_id: HashMap<Option<String>, usize> = HashMap::new();
     let mut current: Option<usize> = None;
 
     for mut event in events {
         let session_id = event.properties.session_id.take();
-        let index = match (&session_id, current) {
-            (None, Some(index)) => index,
-            _ => match groups.iter().position(|g| g.session_id == session_id) {
-                Some(index) => index,
-                None => {
+        let index = match current {
+            Some(index) if session_id.is_none() || groups[index].session_id == session_id => index,
+            _ => *index_by_session_id
+                .entry(session_id.as_ref().map(Value::to_string))
+                .or_insert_with(|| {
                     groups.push(SessionEvents {
                         session_id,
                         events: Vec::new(),
                     });
                     groups.len() - 1
-                }
-            },
+                }),
         };
         groups[index].events.push(event);
         current = Some(index);
