@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { IconSearch } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 
@@ -35,6 +37,9 @@ export function WatchFeedTab(): JSX.Element {
         feedItems,
         feedItemsLoading,
         feedFailed,
+        feedPage,
+        loadingMore,
+        loadMoreFailed,
         dateFrom,
         dateTo,
         scannerTypeFilter,
@@ -52,12 +57,43 @@ export function WatchFeedTab(): JSX.Element {
         setSearch,
         clearFeedFilters,
         loadFeed,
+        loadMoreFeed,
     } = useActions(watchFeedLogic)
     const { scanners: allScanners } = useValues(visionScannersListLogic)
     const scannerOptions = allScanners.map((scanner) => ({
         value: scanner.id,
         label: scanner.name || '(untitled)',
     }))
+
+    const hasMoreRef = useRef(feedPage?.hasMore ?? false)
+    hasMoreRef.current = feedPage?.hasMore ?? false
+    const loadingRef = useRef(feedItemsLoading)
+    loadingRef.current = feedItemsLoading
+    // A callback ref, not an effect: the sentinel only enters the DOM once the first page has landed
+    // with hasMore true, which is after a mount-only effect would have found nothing to observe.
+    const observerRef = useRef<IntersectionObserver | null>(null)
+    const sentinelRef = useCallback(
+        (el: HTMLDivElement | null) => {
+            observerRef.current?.disconnect()
+            observerRef.current = null
+            if (!el) {
+                return
+            }
+            const observer = new IntersectionObserver(
+                (entries) => {
+                    if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingRef.current) {
+                        loadMoreFeed()
+                    }
+                },
+                // Generous prefetch margin so the next page lands before the reader hits the bottom.
+                { rootMargin: '1000px' }
+            )
+            observer.observe(el)
+            observerRef.current = observer
+        },
+        [loadMoreFeed]
+    )
+    useEffect(() => () => observerRef.current?.disconnect(), [])
 
     const items = feedItems ?? []
     // Only the scanner picker narrows *which* scanners are in scope; the others narrow within them.
@@ -180,6 +216,19 @@ export function WatchFeedTab(): JSX.Element {
                             )}
                         </div>
                     ) : null}
+                    {items.length > 0 && feedPage?.hasMore && !loadMoreFailed && (
+                        <div ref={sentinelRef} className="flex justify-center py-2" data-attr="vision-watch-feed-more">
+                            {loadingMore && <Spinner />}
+                        </div>
+                    )}
+                    {loadMoreFailed && (
+                        <div className="flex items-center justify-center gap-2 text-sm text-secondary py-2">
+                            <span>Couldn't load more clips.</span>
+                            <LemonButton size="small" type="secondary" onClick={() => loadMoreFeed()}>
+                                Try again
+                            </LemonButton>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

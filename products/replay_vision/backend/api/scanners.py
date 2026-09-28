@@ -1478,9 +1478,20 @@ class WatchFeedQuerySerializer(serializers.Serializer):
         min_value=1,
         max_value=WATCH_FEED_MAX_LIMIT,
         help_text=(
-            f"Ceiling on feed items to return, at most {WATCH_FEED_MAX_LIMIT}. The feed is bounded, not "
-            "paginated, and routinely returns far fewer: a window is not padded to this number with "
-            "clips that carry no finding."
+            f"Ceiling on feed items to return per page, at most {WATCH_FEED_MAX_LIMIT}. Pair with `offset` "
+            "to page deeper into the ranked window. A page routinely carries fewer: a window is not padded "
+            "to this number with clips that carry no finding."
+        ),
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=WATCH_FEED_CANDIDATE_CAP,
+        help_text=(
+            "Number of ranked items to skip, for paging deeper into the window. Pass `next_offset` from the "
+            "previous page, along with the `date_from` and `date_to` it echoed, so the window — and with it "
+            "the ranking — stays fixed across pages."
         ),
     )
 
@@ -1598,6 +1609,29 @@ class WatchFeedResponseSerializer(serializers.Serializer):
             "none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, "
             "so a quiet window answers with a handful of rows rather than a full page of newest clips."
         ),
+    )
+    has_more = serializers.BooleanField(
+        help_text="Whether ranked items remain past this page. Request them with `offset=next_offset`."
+    )
+    next_offset = serializers.IntegerField(
+        help_text=(
+            "Offset of the first item after this page. Counts positions in the ranked list rather than "
+            "returned rows (a row deleted mid-request drops out of `results` but still holds its position), "
+            "so pass it through verbatim."
+        )
+    )
+    date_from = serializers.DateTimeField(
+        help_text=(
+            "Start of the window this page was ranked over, resolved to an absolute time. Pass it back as "
+            "`date_from` on the next page so a relative bound like `-7d` doesn't drift between requests."
+        )
+    )
+    date_to = serializers.DateTimeField(
+        help_text=(
+            "End of the window this page was ranked over — the serve time when the request omitted `date_to`. "
+            "Pass it back as `date_to` on the next page so observations created in the meantime don't "
+            "reshuffle the ranking under the reader."
+        )
     )
 
 
@@ -2207,7 +2241,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         throttle_classes=[ReplayVisionWatchFeedBurstRateThrottle, ReplayVisionWatchFeedSustainedRateThrottle],
     )
     def watch_feed(self, request: Request, **kwargs: Any) -> Response:
-        """Succeeded observations in the window worth watching, ranked — feeds the What to watch tab."""
+        """Succeeded observations in the window worth watching, ranked and paged — feeds the What to watch tab."""
         query = WatchFeedQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params = query.validated_data
@@ -2250,9 +2284,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             scanner_id__in=allowed_ids,
             status=ObservationStatus.SUCCEEDED,
             created_at__gte=date_from,
+            # Bounded above even when the caller omitted date_to: the response echoes this resolved window,
+            # and the next page reproduces the same candidate set only if this page was cut at it too.
+            created_at__lte=window_end,
         )
-        if date_to is not None:
-            candidates = candidates.filter(created_at__lte=date_to)
         if params.get("scanner_type"):
             candidates = candidates.filter(scanner_snapshot__scanner_type=params["scanner_type"])
         if params.get("search"):
@@ -2284,7 +2319,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             .values("id", "scanner_id", "created_at", "scanner_result", "feed_viewed")
             .order_by("-created_at", "-id")[:WATCH_FEED_CANDIDATE_CAP]
         )
-        ranked = rank_watch_feed_candidates(candidate_rows)[: params["limit"]]
+        ranked_all = rank_watch_feed_candidates(candidate_rows)
+        offset = params["offset"]
+        ranked = ranked_all[offset : offset + params["limit"]]
         reasons_by_id = {entry.observation_id: entry.reason for entry in ranked}
         rows = {
             row.id: row
@@ -2305,7 +2342,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             for entry in ranked
             if entry.observation_id in rows
         ]
-        return Response({"results": results})
+        return Response(
+            {
+                "results": results,
+                "has_more": offset + len(ranked) < len(ranked_all),
+                "next_offset": offset + len(ranked),
+                "date_from": date_from.isoformat(),
+                "date_to": window_end.isoformat(),
+            }
+        )
 
     @extend_schema(
         request=ObserveRequestSerializer,

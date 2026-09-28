@@ -2732,6 +2732,14 @@ export interface WatchFeedItemApi {
 export interface WatchFeedResponseApi {
     /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
     results: WatchFeedItemApi[]
+    /** Whether ranked items remain past this page. Request them with `offset=next_offset`. */
+    has_more: boolean
+    /** Offset of the first item after this page. Counts positions in the ranked list rather than returned rows (a row deleted mid-request drops out of `results` but still holds its position), so pass it through verbatim. */
+    next_offset: number
+    /** Start of the window this page was ranked over, resolved to an absolute time. Pass it back as `date_from` on the next page so a relative bound like `-7d` doesn't drift between requests. */
+    date_from: string
+    /** End of the window this page was ranked over — the serve time when the request omitted `date_to`. Pass it back as `date_to` on the next page so observations created in the meantime don't reshuffle the ranking under the reader. */
+    date_to: string
 }
 
 export type VisionAlertsListParams = {
@@ -3253,11 +3261,17 @@ export type VisionScannersWatchFeedRetrieveParams = {
      */
     date_to?: string
     /**
-     * Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.
+     * Ceiling on feed items to return per page, at most 50. Pair with `offset` to page deeper into the ranked window. A page routinely carries fewer: a window is not padded to this number with clips that carry no finding.
      * @minimum 1
      * @maximum 50
      */
     limit?: number
+    /**
+     * Number of ranked items to skip, for paging deeper into the window. Pass `next_offset` from the previous page, along with the `date_from` and `date_to` it echoed, so the window — and with it the ranking — stays fixed across pages.
+     * @minimum 0
+     * @maximum 1000
+     */
+    offset?: number
     /**
      * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
      * @minLength 1

@@ -21,8 +21,16 @@ describe('watchFeedLogic', () => {
         reason: { kind: reasonKind },
     })
 
+    const page = (results: Record<string, any>[], hasMore: boolean, nextOffset: number): Record<string, any> => ({
+        results,
+        has_more: hasMore,
+        next_offset: nextOffset,
+        date_from: '2026-05-05T00:00:00+00:00',
+        date_to: '2026-05-12T00:00:00+00:00',
+    })
+
     beforeEach(() => {
-        feedSpy = jest.fn(() => [200, { results: [item('o1', 'signal_emitted'), item('o2', 'recent')] }])
+        feedSpy = jest.fn(() => [200, page([item('o1', 'signal_emitted'), item('o2', 'recent')], false, 2)])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/watch_feed/': feedSpy,
@@ -133,11 +141,91 @@ describe('watchFeedLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadFeed', 'loadFeedFailure'])
             .toMatchValues({ feedFailed: true, feedItems: null })
-        feedSpy.mockImplementation(() => [200, { results: [] }])
+        feedSpy.mockImplementation(() => [200, page([], false, 0)])
         await expectLogic(logic, () => {
             logic.actions.loadFeed()
         })
             .toDispatchActions(['loadFeedSuccess'])
             .toMatchValues({ feedFailed: false, feedItems: [] })
+    })
+
+    it('pages deeper with the pinned window and appends without duplicates', async () => {
+        feedSpy.mockImplementation((req: any) => {
+            const offset = new URL(req.request.url).searchParams.get('offset')
+            return offset
+                ? // o2 comes back again: its viewed state changed between pages and re-ranked it across
+                  // the boundary, which the append must absorb rather than show the card twice.
+                  [200, page([item('o2', 'recent'), item('o3', 'friction')], false, 4)]
+                : [200, page([item('o1', 'signal_emitted'), item('o2', 'recent')], true, 2)]
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+        expect(logic.values.feedPage).toEqual({
+            hasMore: true,
+            nextOffset: 2,
+            dateFrom: '2026-05-05T00:00:00+00:00',
+            dateTo: '2026-05-12T00:00:00+00:00',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadMoreFeed()
+        })
+            .toDispatchActions(['loadMoreFeed', 'loadMoreFeedSuccess'])
+            .toFinishAllListeners()
+        const params = new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams
+        expect(params.get('offset')).toBe('2')
+        expect(params.get('date_from')).toBe('2026-05-05T00:00:00+00:00')
+        expect(params.get('date_to')).toBe('2026-05-12T00:00:00+00:00')
+        expect((logic.values.feedItems ?? []).map((i) => i.observation.id)).toEqual(['o1', 'o2', 'o3'])
+        expect(logic.values.feedPage?.hasMore).toBe(false)
+    })
+
+    it('a filter change resets paging and requests a fresh unpinned window', async () => {
+        feedSpy.mockImplementation((req: any) => {
+            const offset = new URL(req.request.url).searchParams.get('offset')
+            return offset
+                ? [200, page([item('o3', 'friction')], false, 4)]
+                : [200, page([item('o1', 'signal_emitted'), item('o2', 'recent')], true, 2)]
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.loadMoreFeed()
+        })
+            .toDispatchActions(['loadMoreFeedSuccess'])
+            .toFinishAllListeners()
+        expect(logic.values.feedItems).toHaveLength(3)
+
+        await expectLogic(logic, () => {
+            logic.actions.setScannerTypeFilter('monitor')
+        })
+            .toDispatchActions(['loadFeed', 'loadFeedSuccess'])
+            .toFinishAllListeners()
+        const params = new URL(feedSpy.mock.calls.at(-1)[0].request.url).searchParams
+        expect(params.get('offset')).toBeNull()
+        expect(params.get('date_from')).toBe('-7d')
+        expect(logic.values.feedItems).toHaveLength(2)
+        expect(logic.values.feedPage?.hasMore).toBe(true)
+    })
+
+    it('a failed page keeps the feed and stops the sentinel until retried', async () => {
+        feedSpy.mockImplementation((req: any) => {
+            const offset = new URL(req.request.url).searchParams.get('offset')
+            return offset
+                ? [500, { detail: 'nope' }]
+                : [200, page([item('o1', 'signal_emitted'), item('o2', 'recent')], true, 2)]
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadFeedSuccess']).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadMoreFeed()
+        })
+            .toDispatchActions(['loadMoreFeed', 'loadMoreFeedFailure'])
+            .toFinishAllListeners()
+        expect(logic.values.feedItems).toHaveLength(2)
+        expect(logic.values.loadMoreFailed).toBe(true)
+        expect(logic.values.feedFailed).toBe(false)
+        expect(logic.values.loadingMore).toBe(false)
     })
 })
