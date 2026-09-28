@@ -1,3 +1,4 @@
+import json
 import uuid
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
+from products.signals.backend.scout_harness.rubrics import default_criteria, save_rubric
 from products.signals.backend.scout_harness.runner import _finalize_run_row
 from products.signals.backend.scout_harness.tools.emit import _record_emit
 
@@ -193,6 +195,27 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         ActivityLog.objects.filter(scope="SignalScoutConfig").delete()
         SignalScoutConfig.all_teams.filter(pk=config.pk).update(last_run_at=timezone.now())
         assert not ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id)).exists()
+
+    def test_rubric_contents_are_masked_in_activity_log(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        criteria = default_criteria()
+        save_rubric(self.team.id, str(config.id), revision=0, criteria=criteria)
+        save_rubric(self.team.id, str(config.id), revision=1, criteria=criteria[:1])
+
+        details = [
+            row.detail
+            for row in ActivityLog.objects.filter(
+                scope="SignalScoutConfig", item_id=str(config.id), activity="updated"
+            ).order_by("created_at")
+        ]
+        rubric_changes = [
+            (change["action"], change["before"], change["after"])
+            for detail in details
+            for change in detail["changes"]
+            if change["field"] == "rubrics"
+        ]
+        assert rubric_changes == [("created", None, "masked"), ("changed", "masked", "masked")]
+        assert criteria[0].title not in json.dumps(details)
 
     def _make_task_run(self) -> "TaskRun":
         """Minimal Task + TaskRun pair scoped to this test's team."""

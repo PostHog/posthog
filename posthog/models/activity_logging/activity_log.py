@@ -345,6 +345,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
+    # readable through activity_log:read. Record that the rubrics changed, never their contents.
+    "SignalScoutConfig": ["rubrics"],
 }
 
 field_name_overrides: dict[AuditableScope, dict[str, str]] = {
