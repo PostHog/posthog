@@ -217,37 +217,49 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 
-    it('moves to the draft URL when a launch from /broadcasts/new stops at the audience limit', async () => {
-        useMocks({
-            get: {
-                '/api/projects/:team_id/integrations/': {
-                    results: [{ id: 1, kind: 'email', config: { verified: true } }],
-                    count: 1,
+    it.each([
+        { stop: 'the audience is over the batch limit', affected: 60000, editedElsewhere: false, step: 'recipients' },
+        { stop: 'the draft was edited elsewhere', affected: 10, editedElsewhere: true, step: 'review' },
+    ])(
+        'moves to the draft URL when a launch from /broadcasts/new stops because $stop',
+        async ({ affected, editedElsewhere, step }) => {
+            latest = savedBroadcast({
+                name: '',
+                subject: 'Edited by the assistant',
+                updatedAt: editedElsewhere ? '2026-09-24T10:00:09Z' : '2026-09-24T10:00:00Z',
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/': {
+                        results: [{ id: 1, kind: 'email', config: { verified: true } }],
+                        count: 1,
+                    },
                 },
-            },
-            post: {
-                '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
-                    200,
-                    { affected: 60000, total: 60000, limit: 50000, dedupe_key: 'email', confirm_token: 'token' },
-                ],
-            },
-        })
-        router.actions.push('/broadcasts/new')
-        logic.actions.setEmail({
-            ...DEFAULT_BROADCAST_EMAIL,
-            from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
-            subject: 'Launch over the limit',
-            html: '<p>Hi</p>',
-        })
-        releaseCreate()
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
+                        200,
+                        { affected, total: affected, limit: 50000, dedupe_key: 'email', confirm_token: 'token' },
+                    ],
+                },
+            })
+            router.actions.push('/broadcasts/new')
+            logic.actions.setEmail({
+                ...DEFAULT_BROADCAST_EMAIL,
+                from: { ...DEFAULT_BROADCAST_EMAIL.from, integrationId: 1 },
+                subject: 'Launch over the limit',
+                html: '<p>Hi</p>',
+            })
+            releaseCreate()
 
-        await expectLogic(logic, () => {
-            logic.actions.launchBroadcast()
-        }).toDispatchActions(['saveBroadcastFinished', 'launchBroadcastFinished', 'showSavedDraftUrl'])
+            logic.actions.setStep('review')
+            await expectLogic(logic, () => {
+                logic.actions.launchBroadcast()
+            }).toDispatchActions(['saveBroadcastFinished', 'launchBroadcastFinished', 'showSavedDraftUrl'])
 
-        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
-        expect(router.values.searchParams).toEqual({ step: 'recipients' })
-    })
+            expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+            expect(router.values.searchParams).toEqual({ step })
+        }
+    )
 
     it('resumes a saved draft on the step in its URL and drops the step from the URL', async () => {
         latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })

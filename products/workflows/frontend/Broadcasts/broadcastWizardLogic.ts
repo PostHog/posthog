@@ -1292,6 +1292,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     lemonToast.info(
                         'This email changed while you were editing it. Review the latest version, then launch.'
                     )
+                    actions.showSavedDraftUrl()
                     return
                 }
                 if (activated && broadcastId) {
