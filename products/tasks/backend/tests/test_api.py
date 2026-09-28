@@ -2253,6 +2253,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.REVIEW_HOG,),
             (Task.OriginProduct.SLACK,),
             (Task.OriginProduct.SPACE_SETUP,),
+            (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -6349,8 +6350,9 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
             team=self.team,
             task=task,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"task_summary": "Private workflow context"},
+            state={"task_summary": "Private workflow context", "task_tags": ["private-tag"]},
         )
+        expected_tags = ["private-tag"] if is_owner else []
 
         summaries_response = self.post_summaries([str(task.id)])
         detail_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
@@ -6360,6 +6362,16 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         self.assertEqual(payload["latest_run"]["task_summary"], expected_summary)
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
         self.assertEqual(detail_response.json()["task_summary"], expected_summary)
+        self.assertEqual(detail_response.json()["task_tags"], expected_tags)
+
+        set_output_response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"note": "done"}},
+            format="json",
+        )
+        self.assertEqual(set_output_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(set_output_response.json()["task_summary"], expected_summary)
+        self.assertEqual(set_output_response.json()["task_tags"], expected_tags)
 
         for basic in ("true", "false"):
             with self.subTest(basic=basic):
@@ -6486,21 +6498,40 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"prior_run_summary": "Reading the existing code"},
+            state={"prior_run_summary": "Reading the existing code", "prior_run_tags": ["research"]},
         )
         client = self._sandbox_oauth_client(task.id)
 
         initial = client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
         updated = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
-            {"summary": "Writing the fix"},
+            {"summary": "Writing the fix", "tags": ["bug-fix", "feature-flags", "bug-fix"]},
+            format="json",
+        )
+        summary_only = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": "Opening the PR"},
             format="json",
         )
 
         self.assertEqual(initial.status_code, status.HTTP_200_OK)
         self.assertEqual(initial.json()["task_summary"], "Reading the existing code")
+        self.assertEqual(initial.json()["task_tags"], ["research"])
         self.assertEqual(updated.status_code, status.HTTP_200_OK)
         self.assertEqual(updated.json()["task_summary"], "Writing the fix")
+        self.assertEqual(updated.json()["task_tags"], ["bug-fix", "feature-flags"])
+        self.assertEqual(summary_only.status_code, status.HTTP_200_OK)
+        self.assertEqual(summary_only.json()["task_summary"], "Opening the PR")
+        self.assertEqual(summary_only.json()["task_tags"], ["bug-fix", "feature-flags"])
+
+        cleared = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": "Opening the PR", "tags": []},
+            format="json",
+        )
+
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertEqual(cleared.json()["task_tags"], [])
 
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
@@ -6817,6 +6848,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "analysis_target_custom_image_name": "real-image",
                 "task_summary": "Current summary",
                 "prior_run_summary": "Prior summary",
+                "task_tags": ["current-tag"],
+                "prior_run_tags": ["prior-tag"],
                 "interaction_origin": "slack",
                 "slack_actor_user_id": self.user.id,
                 "run_source": "manual",
@@ -6903,6 +6936,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_custom_image_name": "attacker-image",
                     "task_summary": "Forged summary",
                     "prior_run_summary": "Forged prior summary",
+                    "task_tags": ["forged-tag"],
+                    "prior_run_tags": ["forged-prior-tag"],
                     "interaction_origin": "desktop",
                     "slack_actor_user_id": credential_target.id,
                     "run_source": "signal_report",
@@ -6966,6 +7001,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["task_summary"] == "Current summary"
         assert run.state["prior_run_summary"] == "Prior summary"
+        assert run.state["task_tags"] == ["current-tag"]
+        assert run.state["prior_run_tags"] == ["prior-tag"]
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["run_source"] == "manual"
@@ -7017,6 +7054,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "analysis_target_custom_image_name",
                     "task_summary",
                     "prior_run_summary",
+                    "task_tags",
+                    "prior_run_tags",
                     "interaction_origin",
                     "slack_actor_user_id",
                     "run_source",
@@ -7067,6 +7106,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["analysis_target_custom_image_name"] == "real-image"
         assert run.state["task_summary"] == "Current summary"
         assert run.state["prior_run_summary"] == "Prior summary"
+        assert run.state["task_tags"] == ["current-tag"]
+        assert run.state["prior_run_tags"] == ["prior-tag"]
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["run_source"] == "manual"
@@ -7536,23 +7577,32 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("over_the_cap", "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 1)),
-            ("not_a_string", {"state": "halfway"}),
+            ("over_the_cap", {"summary": "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 1)}),
+            ("not_a_string", {"summary": {"state": "halfway"}}),
+            ("tag_not_a_slug", {"summary": "Reading", "tags": ["Feature Flags"]}),
+            ("tag_with_padding", {"summary": "Reading", "tags": [" bug-fix "]}),
+            ("tag_with_trailing_newline", {"summary": "Reading", "tags": ["bug-fix\n"]}),
+            ("tag_over_the_cap", {"summary": "Reading", "tags": ["x" * (tasks_facade.TASK_RUN_TAG_MAX_CHARS + 1)]}),
+            (
+                "too_many_tags",
+                {"summary": "Reading", "tags": [f"tag-{i}" for i in range(tasks_facade.TASK_RUN_TAGS_MAX_COUNT + 1)]},
+            ),
         ]
     )
-    def test_set_summary_rejects_an_unusable_summary(self, _name, summary):
+    def test_set_summary_rejects_an_unusable_summary(self, _name, payload):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
-            {"summary": summary},
+            payload,
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         run.refresh_from_db()
         self.assertIsNone(run.task_summary)
+        self.assertEqual(run.task_tags, [])
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_task_summary_does_not_collide_with_structured_summary_output(self, mock_signal_workflow_completion):
