@@ -20,6 +20,7 @@ logger = structlog.get_logger(__name__)
 
 JEV_MODEL = "posthog/hogference/jevk5-fp8-0.2"
 # The CDP worker waits inline for the answer, so a slow gateway must not hold its consumer loop for long.
+# Keep it below CLASSIFY_TIMEOUT_MS in nodejs/src/cdp/async-functions/classify.ts so the worker receives the 503.
 TIMEOUT_SECONDS = 5.0
 _QUESTION_ID = "category"
 
