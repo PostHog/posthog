@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -10,12 +11,17 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly import fastly
 from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fastly import (
     FASTLY_BASE_URL,
+    ORIGIN_INSPECTOR_PAGE_LIMIT,
     FastlyPaginationError,
     FastlyResumeConfig,
     FastlyRetryableError,
     _active_version_number,
+    _as_epoch_seconds,
+    _bucket_timeline,
     _build_url,
     _ensure_service_id,
+    _flatten_json_api,
+    _flatten_origin_inspector,
     _flatten_usage_metrics,
     _next_cursor,
     _next_page_url,
@@ -186,9 +192,22 @@ class TestFetchRetries:
         assert session.get.call_count == 5
 
 
-def _collect(endpoint: str, manager: _FakeResumableManager, pages: dict[str, Any]) -> list[dict]:
+def _http_error(status_code: int) -> requests.HTTPError:
+    response = MagicMock()
+    response.status_code = status_code
+    return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+
+def _collect(
+    endpoint: str,
+    manager: _FakeResumableManager,
+    pages: dict[str, Any],
+    incremental_start: int | None = None,
+) -> list[dict]:
     def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
         payload = pages[url]
+        if isinstance(payload, Exception):
+            raise payload
         if isinstance(payload, tuple):
             body, next_url = payload
             return _fake_response(body, next_url)
@@ -204,6 +223,7 @@ def _collect(endpoint: str, manager: _FakeResumableManager, pages: dict[str, Any
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,  # type: ignore[arg-type]
+            incremental_start=incremental_start,
         ):
             rows.extend(batch)
     return rows
@@ -574,7 +594,286 @@ class TestFastlySourceResponse:
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
         )
+        if FASTLY_ENDPOINTS[endpoint].partition_key is None:
+            assert response.partition_mode is None
+            assert response.partition_keys is None
+            return
+
         assert response.partition_mode == "datetime"
         assert response.partition_keys is not None
         # A partition key that moves rewrites every partition on each sync.
         assert not any(key.startswith(("updated", "last_", "deleted")) for key in response.partition_keys)
+
+    @parameterized.expand(
+        [
+            ("epoch_int", 1_700_000_000, 1_700_000_000),
+            ("epoch_float", 1_700_000_000.9, 1_700_000_000),
+            ("datetime", datetime(2026, 9, 1, tzinfo=UTC), 1_788_220_800),
+            ("unusable", "2026-09-01", None),
+        ]
+    )
+    def test_watermark_is_normalised_to_unix_seconds(self, _name: str, value: Any, expected: int | None) -> None:
+        assert _as_epoch_seconds(value) == expected
+
+    def test_full_refresh_sends_no_watermark(self) -> None:
+        # The watermark is only read when the run is actually incremental; a full refresh has to ask
+        # for the API's own default window instead of resending the last cursor.
+        seen: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
+            seen.append(url)
+            return _fake_response({"data": {}})
+
+        response = fastly_source(
+            api_key="token",
+            endpoint="historical_stats",
+            logger=MagicMock(),
+            resumable_source_manager=MagicMock(),
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=1_700_000_000,
+        )
+        with (
+            patch.object(fastly, "_fetch", side_effect=fake_fetch),
+            patch.object(fastly, "make_tracked_session", return_value=MagicMock()),
+        ):
+            list(cast(Iterable[Any], response.items()))
+
+        assert seen == [f"{FASTLY_BASE_URL}/stats?by=day"]
+
+
+class TestGetRowsPlainList:
+    @parameterized.expand(
+        [
+            # /datacenters answers with a bare array rather than the usual `{"data": [...]}` wrapper.
+            ("array", [{"code": "IAD"}, {"code": "SYD"}], [{"code": "IAD"}, {"code": "SYD"}]),
+            ("error_object", {"msg": "nope"}, []),
+        ]
+    )
+    def test_unpaginated_array_is_yielded_as_one_batch(self, _name: str, payload: Any, expected: list) -> None:
+        pages = {f"{FASTLY_BASE_URL}/datacenters": payload}
+        assert _collect("pops", _FakeResumableManager(), pages) == expected
+
+
+class TestFlattenJsonApi:
+    @parameterized.expand(
+        [
+            (
+                "full_resource",
+                {
+                    "id": "SA1",
+                    "type": "service_authorization",
+                    "attributes": {"permission": "full", "created_at": "2026-09-01T00:00:00Z"},
+                    "relationships": {
+                        "service": {"data": {"id": "S1", "type": "service"}},
+                        "user": {"data": {"id": "U1", "type": "user"}},
+                    },
+                },
+                {
+                    "id": "SA1",
+                    "type": "service_authorization",
+                    "permission": "full",
+                    "created_at": "2026-09-01T00:00:00Z",
+                    "service_id": "S1",
+                    "user_id": "U1",
+                },
+            ),
+            ("no_attributes_or_relationships", {"id": "SA1"}, {"id": "SA1"}),
+            # A relationship can come back empty once the related object is deleted.
+            ("empty_relationship", {"id": "SA1", "relationships": {"user": {"data": None}}}, {"id": "SA1"}),
+        ]
+    )
+    def test_lifts_attributes_and_relationship_ids_into_the_row(self, _name: str, item: dict, expected: dict) -> None:
+        assert _flatten_json_api(item) == expected
+
+
+class TestGetRowsJsonApiList:
+    def test_flattens_rows_and_follows_the_body_link(self) -> None:
+        first = f"{FASTLY_BASE_URL}/service-authorizations?page[size]=100"
+        second = f"{FASTLY_BASE_URL}/service-authorizations?page[number]=2&page[size]=100"
+        pages = {
+            # Fastly returns the next page as a path, which has to resolve against the API host.
+            first: {
+                "data": [{"id": "SA1", "relationships": {"service": {"data": {"id": "S1"}}}}],
+                "links": {"next": "/service-authorizations?page[number]=2&page[size]=100"},
+            },
+            second: {"data": [{"id": "SA2", "attributes": {"permission": "read_only"}}], "links": {}},
+        }
+        manager = _FakeResumableManager()
+        rows = _collect("service_authorizations", manager, pages)
+
+        assert rows == [{"id": "SA1", "service_id": "S1"}, {"id": "SA2", "permission": "read_only"}]
+        assert [state.next_url for state in manager.saved] == [second]
+
+    def test_resumes_from_the_saved_page_url(self) -> None:
+        second = f"{FASTLY_BASE_URL}/service-authorizations?page[number]=2&page[size]=100"
+        pages = {second: {"data": [{"id": "SA2"}], "links": {}}}
+        manager = _FakeResumableManager(FastlyResumeConfig(next_url=second))
+        assert _collect("service_authorizations", manager, pages) == [{"id": "SA2"}]
+
+    def test_repeated_next_link_stops_instead_of_looping(self) -> None:
+        first = f"{FASTLY_BASE_URL}/service-authorizations?page[size]=100"
+        pages = {first: {"data": [{"id": "SA1"}], "links": {"next": "/service-authorizations?page[size]=100"}}}
+        with pytest.raises(FastlyPaginationError):
+            _collect("service_authorizations", _FakeResumableManager(), pages)
+
+
+class TestGetRowsStatsList:
+    def test_unpacks_the_per_service_map_into_rows(self) -> None:
+        pages = {
+            f"{FASTLY_BASE_URL}/stats?by=day": {
+                "data": {
+                    "S1": [{"start_time": 100, "requests": 5}],
+                    # Fastly already stamps `service_id` on most rows; both shapes have to key.
+                    "S2": [{"service_id": "S2", "start_time": 100, "requests": 7}],
+                }
+            }
+        }
+        rows = _collect("historical_stats", _FakeResumableManager(), pages)
+
+        assert rows == [
+            {"service_id": "S1", "start_time": 100, "requests": 5},
+            {"service_id": "S2", "start_time": 100, "requests": 7},
+        ]
+
+    def test_incremental_run_sends_the_watermark_as_from(self) -> None:
+        pages = {
+            f"{FASTLY_BASE_URL}/stats?by=day&from=1700000000": {"data": {"S1": [{"start_time": 1700086400}]}},
+        }
+        rows = _collect("historical_stats", _FakeResumableManager(), pages, incremental_start=1_700_000_000)
+        assert rows == [{"start_time": 1700086400, "service_id": "S1"}]
+
+    @parameterized.expand([("not_a_dict", {"data": []}), ("no_data", {"status": "error"})])
+    def test_unusable_payloads_yield_nothing(self, _name: str, payload: dict) -> None:
+        assert _collect("historical_stats", _FakeResumableManager(), {f"{FASTLY_BASE_URL}/stats?by=day": payload}) == []
+
+
+class TestBucketTimeline:
+    @parameterized.expand(
+        [
+            ("day", {"start": "2026-09-01T00:00:00Z", "downsample": "day"}, (1_788_220_800, 86400)),
+            ("hour", {"start": "2026-09-01T00:00:00Z", "downsample": "hour"}, (1_788_220_800, 3600)),
+            # A start without a zone is UTC, as every absolute time in the Fastly metrics APIs is.
+            ("naive_start_is_utc", {"start": "2026-09-01T00:00:00", "downsample": "day"}, (1_788_220_800, 86400)),
+            ("unknown_downsample", {"start": "2026-09-01T00:00:00Z", "downsample": "fortnight"}, None),
+            ("missing_start", {"downsample": "day"}, None),
+            ("unparseable_start", {"start": "whenever", "downsample": "day"}, None),
+        ]
+    )
+    def test_bucket_timeline(self, _name: str, meta: dict, expected: tuple[int, int] | None) -> None:
+        assert _bucket_timeline(meta) == expected
+
+
+class TestFlattenOriginInspector:
+    def test_derives_each_bucket_timestamp_from_its_index(self) -> None:
+        # Origin Inspector puts no timestamp on a value, so the bucket is the value's position
+        # counted forward from `meta.start`.
+        payload = {
+            "meta": {"start": "2026-09-01T00:00:00Z", "downsample": "day"},
+            "data": [
+                {
+                    "dimensions": {"host": "origin.example.com"},
+                    "values": [{"responses": 1}, {"responses": 2}, {"responses": 3}],
+                }
+            ],
+        }
+        rows = _flatten_origin_inspector(payload, "S1")
+
+        assert [row["start_time"] for row in rows] == [1_788_220_800, 1_788_307_200, 1_788_393_600]
+        assert all(row["service_id"] == "S1" and row["host"] == "origin.example.com" for row in rows)
+        assert [row["responses"] for row in rows] == [1, 2, 3]
+
+    @parameterized.expand(
+        [
+            ("no_meta", {"data": [{"dimensions": {}, "values": [{"responses": 1}]}]}),
+            ("no_data", {"meta": {"start": "2026-09-01T00:00:00Z", "downsample": "day"}}),
+            (
+                "values_not_a_list",
+                {
+                    "meta": {"start": "2026-09-01T00:00:00Z", "downsample": "day"},
+                    "data": [{"dimensions": {}, "values": None}],
+                },
+            ),
+        ]
+    )
+    def test_unusable_payloads_yield_no_rows(self, _name: str, payload: dict) -> None:
+        assert _flatten_origin_inspector(payload, "S1") == []
+
+
+class TestGetRowsOriginInspector:
+    def _url(self, service_id: str, cursor: str | None = None, start: int | None = None) -> str:
+        params: dict[str, Any] = {
+            "downsample": "day",
+            "group_by": "host",
+            "limit": ORIGIN_INSPECTOR_PAGE_LIMIT,
+        }
+        if start is not None:
+            params["start"] = start
+        if cursor is not None:
+            params["cursor"] = cursor
+        return _build_url(f"{FASTLY_BASE_URL}/metrics/origins/services/{service_id}", params)
+
+    def test_fans_out_over_services_and_follows_the_cursor(self) -> None:
+        meta = {"start": "2026-09-01T00:00:00Z", "downsample": "day"}
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
+            self._url("S1"): {
+                "meta": {**meta, "next_cursor": "CUR2"},
+                "data": [{"dimensions": {"host": "a"}, "values": [{"responses": 1}]}],
+            },
+            self._url("S1", cursor="CUR2"): {
+                "meta": meta,
+                "data": [{"dimensions": {"host": "b"}, "values": [{"responses": 2}]}],
+            },
+            self._url("S2"): {
+                "meta": meta,
+                "data": [{"dimensions": {"host": "c"}, "values": [{"responses": 3}]}],
+            },
+        }
+        manager = _FakeResumableManager()
+        rows = _collect("origin_inspector", manager, pages)
+
+        assert [(row["service_id"], row["host"]) for row in rows] == [("S1", "a"), ("S1", "b"), ("S2", "c")]
+        assert [state.service_id for state in manager.saved] == ["S1", "S2"]
+
+    @parameterized.expand([("forbidden", 403), ("not_found", 404)])
+    def test_service_without_the_origin_inspector_upgrade_is_skipped(self, _name: str, status_code: int) -> None:
+        # Only some services carry the paid upgrade; the rest must not fail the whole table.
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
+            self._url("S1"): _http_error(status_code),
+            self._url("S2"): {
+                "meta": {"start": "2026-09-01T00:00:00Z", "downsample": "day"},
+                "data": [{"dimensions": {"host": "c"}, "values": [{"responses": 3}]}],
+            },
+        }
+        rows = _collect("origin_inspector", _FakeResumableManager(), pages)
+        assert [row["service_id"] for row in rows] == ["S2"]
+
+    def test_other_errors_still_fail_the_sync(self) -> None:
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
+            self._url("S1"): _http_error(401),
+        }
+        with pytest.raises(requests.HTTPError):
+            _collect("origin_inspector", _FakeResumableManager(), pages)
+
+    def test_incremental_run_sends_the_watermark_as_start(self) -> None:
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
+            self._url("S1", start=1_700_000_000): {
+                "meta": {"start": "2026-09-01T00:00:00Z", "downsample": "day"},
+                "data": [{"dimensions": {"host": "a"}, "values": [{"responses": 1}]}],
+            },
+        }
+        rows = _collect("origin_inspector", _FakeResumableManager(), pages, incremental_start=1_700_000_000)
+        assert [row["host"] for row in rows] == ["a"]
+
+    def test_repeated_cursor_stops_instead_of_looping(self) -> None:
+        meta = {"start": "2026-09-01T00:00:00Z", "downsample": "day", "next_cursor": "CUR2"}
+        pages = {
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
+            self._url("S1"): {"meta": meta, "data": []},
+            self._url("S1", cursor="CUR2"): {"meta": meta, "data": []},
+        }
+        with pytest.raises(FastlyPaginationError):
+            _collect("origin_inspector", _FakeResumableManager(), pages)

@@ -3014,23 +3014,23 @@ Note: The reference exposes roughly 140 list endpoints across ATS, attendance, c
 
 ## Fastly — **thin**
 
-Today (11): `acl_entries`, `billing_usage_metrics`, `current_user`, `dictionary_items`, `invoices`, `service_acls`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
+Today (15): `acl_entries`, `billing_usage_metrics`, `current_user`, `dictionary_items`, `historical_stats`, `invoices`, `origin_inspector`, `pops`, `service_acls`, `service_authorizations`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
 
 Diffed against: <https://www.fastly.com/documentation/reference/api/>
 
-- [ ] `metrics-stats/historical-stats (/stats, /stats/service/{id})` — per-service historical traffic, cache hit ratio, bandwidth and errors - Fastly's headline metric and the main reason to warehouse this data (high)
+- [x] `metrics-stats/historical-stats (/stats, /stats/service/{id})` — per-service historical traffic, cache hit ratio, bandwidth and errors - Fastly's headline metric and the main reason to warehouse this data (high)
 - [x] `account/billing-usage-metrics` — usage and spend per product and service over time (high)
 - [x] `dictionaries/dictionary-item` — lookup table - the actual key/value rows inside the service_dictionaries we already sync (high)
 - [x] `acls/acl-entry` — lookup table - the IP entries inside the service_acls we already sync (high)
 - [x] `account/invoices` — billed amounts per period for cost reporting (high)
-- [ ] `metrics-stats/origin-inspector` — origin-level latency, status and byte breakdowns (medium)
+- [x] `metrics-stats/origin-inspector` — origin-level latency, status and byte breakdowns (medium)
 - [ ] `metrics-stats/domain-inspector` — per-domain request and error breakdowns, the natural dimension for service_domains (medium)
 - [ ] `account/events` — account audit event log - who changed what and when (medium)
 - [ ] `account/customer (and its users list)` — lookup resolving customer ids on services and users; today only current_user is synced (medium)
-- [ ] `account/service-authorization` — user-to-service permission membership table (medium)
-- [ ] `utils/pops` — lookup resolving POP/datacenter codes that appear in stats and inspector breakdowns (medium)
+- [x] `account/service-authorization` — user-to-service permission membership table (medium)
+- [x] `utils/pops` — lookup resolving POP/datacenter codes that appear in stats and inspector breakdowns (medium)
 
-Note: Coverage is service configuration objects plus the account/billing family; none of the metrics-stats family is exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
+Note: Coverage is service configuration objects, the account/billing family, and the historical stats and Origin Inspector halves of metrics-stats; the domain inspector and bots halves are not exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
 
 ## Featurebase — **thin**
 

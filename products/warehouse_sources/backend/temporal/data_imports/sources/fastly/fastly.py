@@ -1,9 +1,10 @@
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urljoin
 
 import requests
+from dateutil import parser as date_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -32,6 +33,27 @@ INVOICE_PAGE_LIMIT = 200
 # The usage metrics API rejects a window longer than three months, so ask for the three ending now.
 USAGE_METRICS_MONTHS = 3
 
+# `/service-authorizations` is JSON:API and pages with `page[size]`, capped at 100.
+SERVICE_AUTHORIZATION_PAGE_SIZE = 100
+
+# Origin Inspector caps `limit` (timeseries per page) at 200.
+ORIGIN_INSPECTOR_PAGE_LIMIT = 200
+
+# Both metrics families are read in whole days. Day buckets close around 2am the following day, and
+# a day is the coarsest bucket, so it keeps the row count proportionate to a warehouse table.
+METRICS_DOWNSAMPLE = "day"
+
+# Origin Inspector groups its timeseries by origin host, which is the breakdown the table is for.
+ORIGIN_INSPECTOR_GROUP_BY = "host"
+
+# Length in seconds of each bucket Fastly's metrics APIs report, by downsample name.
+BUCKET_SECONDS: dict[str, int] = {"minute": 60, "hour": 60 * 60, "day": 24 * 60 * 60}
+
+# A service without the Origin Inspector upgrade cannot serve its origin metrics. Fastly's docs do
+# not pin down which status that is, so treat both refusals as "not enabled here" and move on rather
+# than failing every other service's rows with it.
+ORIGIN_INSPECTOR_UNAVAILABLE_STATUSES = frozenset({403, 404})
+
 
 class FastlyRetryableError(Exception):
     pass
@@ -58,10 +80,10 @@ def _get_headers(api_key: str) -> dict[str, str]:
     return {"Fastly-Key": api_key, "Accept": "application/json"}
 
 
-def _build_url(base_url: str, params: dict[str, Any]) -> str:
+def _build_url(base_url: str, params: dict[str, Any], safe: str = "") -> str:
     if not params:
         return base_url
-    return f"{base_url}?{urlencode(params)}"
+    return f"{base_url}?{urlencode(params, safe=safe)}"
 
 
 @retry(
@@ -91,6 +113,23 @@ def _fetch(
         response.raise_for_status()
 
     return response
+
+
+def _fetch_optional(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    ignore_statuses: frozenset[int],
+) -> requests.Response | None:
+    """Fetch a URL, returning None when the API refuses it with one of `ignore_statuses`."""
+    try:
+        return _fetch(session, url, headers, logger)
+    except requests.HTTPError as error:
+        status = error.response.status_code if error.response is not None else None
+        if status in ignore_statuses:
+            return None
+        raise
 
 
 def _next_page_url(response: requests.Response) -> str | None:
@@ -183,6 +222,100 @@ def _flatten_usage_metrics(payload: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _as_epoch_seconds(value: Any) -> int | None:
+    """Normalise a watermark into the Unix seconds the `from` / `start` params take."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, datetime):
+        return int(value.timestamp())
+    if isinstance(value, int | float):
+        return int(value)
+    return None
+
+
+def _flatten_json_api(item: dict[str, Any]) -> dict[str, Any]:
+    """Lift a JSON:API resource's `attributes` into the row root and each `relationships` member down
+    to a `<name>_id` column, so the row reads like every other Fastly table."""
+    row = {key: value for key, value in item.items() if key not in ("attributes", "relationships")}
+
+    attributes = item.get("attributes")
+    if isinstance(attributes, dict):
+        row.update(attributes)
+
+    relationships = item.get("relationships")
+    if isinstance(relationships, dict):
+        for name, relationship in relationships.items():
+            related = relationship.get("data") if isinstance(relationship, dict) else None
+            if isinstance(related, dict):
+                row[f"{name}_id"] = related.get("id")
+
+    return row
+
+
+def _next_body_link(payload: dict[str, Any]) -> str | None:
+    """Read the next page from a JSON:API `links` object. Fastly returns a path there rather than an
+    absolute URL, so resolve it against the API host."""
+    links = payload.get("links")
+    if not isinstance(links, dict):
+        return None
+    next_link = links.get("next")
+    if not isinstance(next_link, str) or not next_link:
+        return None
+    return urljoin(FASTLY_BASE_URL, next_link)
+
+
+def _bucket_timeline(meta: dict[str, Any]) -> tuple[int, int] | None:
+    """Resolve (first bucket start, bucket length) in seconds for an Origin Inspector page.
+
+    The API returns one `values` entry per time bucket but puts no timestamp on the entry, so the
+    bucket a value belongs to is its index counted forward from `meta.start`."""
+    downsample = meta.get("downsample")
+    bucket_seconds = BUCKET_SECONDS.get(downsample) if isinstance(downsample, str) else None
+    start = meta.get("start")
+    if bucket_seconds is None or not isinstance(start, str):
+        return None
+
+    try:
+        parsed = date_parser.parse(start)
+    except (ValueError, OverflowError):
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return int(parsed.timestamp()), bucket_seconds
+
+
+def _flatten_origin_inspector(payload: dict[str, Any], service_id: str) -> list[dict[str, Any]]:
+    """Turn an Origin Inspector page into one row per (timeseries, time bucket)."""
+    meta = payload.get("meta")
+    timeline = _bucket_timeline(meta) if isinstance(meta, dict) else None
+    if timeline is None:
+        return []
+    bucket_start, bucket_seconds = timeline
+
+    rows: list[dict[str, Any]] = []
+    for entry in payload.get("data") or []:
+        if not isinstance(entry, dict):
+            continue
+        dimensions = entry.get("dimensions")
+        dimensions = dimensions if isinstance(dimensions, dict) else {}
+        values = entry.get("values")
+        if not isinstance(values, list):
+            continue
+        for index, value in enumerate(values):
+            if not isinstance(value, dict):
+                continue
+            rows.append(
+                {
+                    **dimensions,
+                    **value,
+                    "service_id": service_id,
+                    "start_time": bucket_start + index * bucket_seconds,
+                }
+            )
+    return rows
+
+
 def _iter_services(
     session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
 ) -> Iterator[dict[str, Any]]:
@@ -227,6 +360,131 @@ def _get_object_rows(
         yield [data]
     elif isinstance(data, list) and data:
         yield data
+
+
+def _get_plain_list_rows(
+    session: requests.Session, config: FastlyEndpointConfig, headers: dict[str, str], logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    response = _fetch(session, f"{FASTLY_BASE_URL}{config.path}", headers, logger)
+    data = response.json()
+    rows = [row for row in data if isinstance(row, dict)] if isinstance(data, list) else []
+    if rows:
+        yield rows
+
+
+def _get_json_api_rows(
+    session: requests.Session,
+    config: FastlyEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[FastlyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.next_url:
+        url = resume.next_url
+        logger.debug(f"Fastly: resuming {config.name} from URL: {url}")
+    else:
+        # Fastly documents its JSON:API pagination params with literal brackets, so send them
+        # unencoded rather than as %5B / %5D.
+        url = _build_url(f"{FASTLY_BASE_URL}{config.path}", {"page[size]": SERVICE_AUTHORIZATION_PAGE_SIZE}, safe="[]")
+
+    while True:
+        response = _fetch(session, url, headers, logger)
+        payload = response.json()
+        if not isinstance(payload, dict):
+            return
+
+        data = payload.get("data")
+        rows = [_flatten_json_api(item) for item in data if isinstance(item, dict)] if isinstance(data, list) else []
+        if rows:
+            yield rows
+
+        next_url = _next_body_link(payload)
+        if not next_url:
+            return
+        if next_url == url:
+            raise FastlyPaginationError(f"Fastly returned an unchanged next page link for {url}")
+        # Saved AFTER yielding so a crash re-yields the last page rather than skipping it.
+        resumable_source_manager.save_state(FastlyResumeConfig(next_url=next_url))
+        url = next_url
+
+
+def _get_stats_rows(
+    session: requests.Session,
+    config: FastlyEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    incremental_start: int | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read `/stats`, which answers for every service in one unpaginated response keyed by service id.
+
+    With no `from`, Fastly defaults the window to the last month, so a full refresh takes that and an
+    incremental run takes everything since its watermark."""
+    params: dict[str, Any] = {"by": METRICS_DOWNSAMPLE}
+    if incremental_start is not None:
+        params["from"] = incremental_start
+
+    response = _fetch(session, _build_url(f"{FASTLY_BASE_URL}{config.path}", params), headers, logger)
+    payload = response.json()
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return
+
+    for service_id, service_rows in data.items():
+        if not isinstance(service_rows, list):
+            continue
+        rows = [_ensure_service_id(row, service_id) for row in service_rows if isinstance(row, dict)]
+        if rows:
+            yield rows
+
+
+def _get_origin_inspector_rows(
+    session: requests.Session,
+    config: FastlyEndpointConfig,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[FastlyResumeConfig],
+    incremental_start: int | None,
+) -> Iterator[list[dict[str, Any]]]:
+    params: dict[str, Any] = {
+        "downsample": METRICS_DOWNSAMPLE,
+        "group_by": ORIGIN_INSPECTOR_GROUP_BY,
+        "limit": ORIGIN_INSPECTOR_PAGE_LIMIT,
+    }
+    if incremental_start is not None:
+        params["start"] = incremental_start
+
+    for service_id in _iter_services_from_bookmark(session, config, headers, logger, resumable_source_manager):
+        url_base = f"{FASTLY_BASE_URL}{config.path.format(service_id=service_id)}"
+        cursor: str | None = None
+
+        while True:
+            page_params = {**params, "cursor": cursor} if cursor else params
+            response = _fetch_optional(
+                session,
+                _build_url(url_base, page_params),
+                headers,
+                logger,
+                ORIGIN_INSPECTOR_UNAVAILABLE_STATUSES,
+            )
+            if response is None:
+                logger.debug(f"Fastly: service {service_id} cannot serve origin metrics, skipping")
+                break
+
+            payload = response.json()
+            if not isinstance(payload, dict):
+                break
+
+            rows = _flatten_origin_inspector(payload, service_id)
+            if rows:
+                yield rows
+
+            next_cursor = _next_cursor(payload)
+            if not next_cursor:
+                break
+            if next_cursor == cursor:
+                raise FastlyPaginationError(f"Fastly returned an unchanged cursor for {url_base}")
+            cursor = next_cursor
 
 
 def _get_service_list_rows(
@@ -429,6 +687,7 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[FastlyResumeConfig],
+    incremental_start: int | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = FASTLY_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
@@ -438,6 +697,16 @@ def get_rows(
 
     if config.kind == "object":
         yield from _get_object_rows(session, config, headers, logger)
+    elif config.kind == "plain_list":
+        yield from _get_plain_list_rows(session, config, headers, logger)
+    elif config.kind == "json_api_list":
+        yield from _get_json_api_rows(session, config, headers, logger, resumable_source_manager)
+    elif config.kind == "stats_list":
+        yield from _get_stats_rows(session, config, headers, logger, incremental_start)
+    elif config.kind == "origin_inspector":
+        yield from _get_origin_inspector_rows(
+            session, config, headers, logger, resumable_source_manager, incremental_start
+        )
     elif config.kind == "service_list":
         yield from _get_service_list_rows(session, headers, logger, resumable_source_manager)
     elif config.kind == "version_resource_child":
@@ -455,8 +724,11 @@ def fastly_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[FastlyResumeConfig],
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = FASTLY_ENDPOINTS[endpoint]
+    incremental_start = _as_epoch_seconds(db_incremental_field_last_value) if should_use_incremental_field else None
 
     return SourceResponse(
         name=endpoint,
@@ -465,6 +737,7 @@ def fastly_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            incremental_start=incremental_start,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
@@ -472,6 +745,9 @@ def fastly_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
+        # The metrics endpoints report buckets ascending within a service but walk the services one
+        # after another, so the table as a whole arrives unordered.
+        sort_mode=None if config.incremental_fields else "asc",
     )
 
 
