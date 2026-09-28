@@ -53,21 +53,24 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
     def create(self, validated_data: dict[str, Any], *args: Any, **kwargs: Any) -> FileSystemShortcut:
         request = self.context["request"]
         team = self.context["get_team"]()
-        # Place new shortcuts at the end of the user's current order so they don't jump
-        # ahead of items the user has explicitly reordered.
-        last_order = (
-            FileSystemShortcut.objects.filter(team=team, user=request.user)
-            .order_by("-order")
-            .values_list("order", flat=True)
-            .first()
-        )
-        validated_data.setdefault("order", (last_order or 0) + 1)
-        file_system_shortcut = FileSystemShortcut.objects.create(
-            team=team,
-            user=request.user,
-            surface=self.context.get("file_system_surface", DEFAULT_SURFACE),
-            **validated_data,
-        )
+        with transaction.atomic():
+            # Two stars added at once would otherwise read the same last order and share it.
+            lock_user_shortcuts(team.pk, request.user.pk)
+            # Place new shortcuts at the end of the user's current order so they don't jump
+            # ahead of items the user has explicitly reordered.
+            last_order = (
+                FileSystemShortcut.objects.filter(team=team, user=request.user)
+                .order_by("-order")
+                .values_list("order", flat=True)
+                .first()
+            )
+            validated_data.setdefault("order", (last_order or 0) + 1)
+            file_system_shortcut = FileSystemShortcut.objects.create(
+                team=team,
+                user=request.user,
+                surface=self.context.get("file_system_surface", DEFAULT_SURFACE),
+                **validated_data,
+            )
         return file_system_shortcut
 
 
