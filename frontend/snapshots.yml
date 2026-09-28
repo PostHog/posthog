@@ -5556,6 +5556,22 @@ snapshots:
         hash: v1.k794b7964.f9059da612f8cb309c1100982a7352bf0c010c585701ed9f703ed1962da1a8b2.4Wbe0lwcRKZju4mbcJDVTwzvT2DtSSqF1VwdFStAA5o
     logs-logsretentionperiodpicker--stored-custom-months-without-paid-retention--light:
         hash: v1.k794b7964.d8d79824779beb9150246c932e4f2b756133d02aca4ca269271b98d0e9082480.PCD7I0jw8Fis5NRmUgRrjvUpwz5Dap-BO1UKMSJu5Ns
+    marketing-analytics-add-source--dismissed-everywhere--dark:
+        hash: v1.k794b7964.f23fe271dbeafe8d745237090a5a115e167653cdb000e74a3245efd986450ff0.ymRCgme2xTcwSDlK8Mjxj_zM6bDHbYjLGl0ncGYQfuo
+    marketing-analytics-add-source--dismissed-everywhere--light:
+        hash: v1.k794b7964.12d8d6d7eae501b0994d4df904e55fcead99c2754c093f2566f1ff7a67e4c106.bG0Lzy9eInVPGg_qrd0_QbxO0cFb3p5lasyED9iwE_I
+    marketing-analytics-add-source--new-sources--dark:
+        hash: v1.k794b7964.705f97d369b1d9ad70b9276f45ecb9c46d637d117257ba42c7787fcab02ec5f6.RrWX7Yl8HSHJ0loJUUU58364Daew7QTlYI88OLS-U20
+    marketing-analytics-add-source--new-sources--light:
+        hash: v1.k794b7964.5fa1307763c5b2c1d15d9da94126801e790cdb76e0d0de4e7afcd9cd27bc4c50.vlfBEVR6C5WxdqBMZe2QoAmr_I-A-oivfeAPBPrwLzc
+    marketing-analytics-add-source--open-menu--dark:
+        hash: v1.k794b7964.72c67ad4702a042b6eb027ad30e6cafca8c414be1b22cdb28b7a62ae16a0d684.NS37A7XjVATW1ezz9bQ0Jra_r4iL_F3eYCgggWr0FYU
+    marketing-analytics-add-source--open-menu--light:
+        hash: v1.k794b7964.a0f071a6ec0fd5fe906994d405ec2dbb9338f52e8a09cbe1e574b6a2301150b6.65yXO6LAE3bw8Rqg_BLEQoZZxPW_yEyWh4ipVUFvxV0
+    marketing-analytics-add-source--sources-disabled--dark:
+        hash: v1.k794b7964.6ab679994aa458fc15fd650db178bf805d878d726265ad51e3502d9029e63903.z12MB5eLM0VM1Bs8-v2_5d5HH5VaDT25r8GuqvBC4ds
+    marketing-analytics-add-source--sources-disabled--light:
+        hash: v1.k794b7964.a40f8610ed453a1401dbbc1fb3bb921eeb3f55656138dc3e26b4751f6e38b7e8.0Ura8ZyXPrrQdqAbS1DDqkmoEZMPWEe4Y5EcDqQ39Xk
     marketing-analytics-customer-acquisition-cards--configuration-loading--dark:
         hash: v1.k794b7964.4e3295796230b8ccc9ce5cb239d9ffe000af9d00324d31584d3fa6fde8550fe9.04jR2iHz7Mn5n3Z6KmK4yt-R520UGYL9im_4Icykhxk
     marketing-analytics-customer-acquisition-cards--configuration-loading--light:
