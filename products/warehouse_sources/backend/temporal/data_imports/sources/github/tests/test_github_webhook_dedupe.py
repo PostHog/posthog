@@ -73,13 +73,20 @@ def test_drops_rows_with_null_id() -> None:
     assert rows == []
 
 
-def test_equal_version_keys_keep_later_arrival() -> None:
-    # GitHub's second-coarse updated_at can be identical for a fast in_progress -> completed
-    # transition; the later-arriving completed event must win, so a strict > would freeze the row.
+@pytest.mark.parametrize(
+    "arrival_order",
+    [
+        ["in_progress", "completed"],
+        # Webhooks arrive out of order: a skipped run's in_progress event can land after its completed one.
+        ["completed", "in_progress"],
+        ["completed", "queued"],
+    ],
+)
+def test_equal_version_keys_keep_furthest_status(arrival_order: list[str]) -> None:
     table = pa.table(
         {
             "id": [1, 1],
-            "status": ["in_progress", "completed"],
+            "status": arrival_order,
             "updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
         }
     )
