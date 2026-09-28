@@ -92,7 +92,13 @@ Per-event additions: `$mcp_error_status` (upstream HTTP status), `$mcp_error_cod
 which keys the caller actually sent), and exec-mode calls carry `$mcp_exec_verb` (which dispatcher
 verb ran) and `$mcp_exec_target_tool` (the tool that `info`/`schema`/`call` named). Those four are
 stamped in `tool-executor.ts` but are **not registered in `posthog/taxonomy/taxonomy.py`**, so they
-have no descriptions in the property picker — they still query fine. `execute-sql` calls additionally emit a separate `$ai_generation` event
+have no descriptions in the property picker — they still query fine.
+A `learn` call also carries `exec_learn_kind` (`search`, `load`, `list` for `learn skills` and a bare `learn`, `describe`, `guide`),
+stamped before the availability check so a rejected skill command still records its form, plus
+the raw `exec_search_query` for `search` (and for a `load` that searches inside the skill with `-s`) and `exec_learn_target` (the qualified skill) for `load`.
+A successful call carries `mcp_result_empty: true` when the handler returned zero rows, and
+`mcp_discovery_hint` (`empty_state` or `related_capability`) when the response builder appended a
+hint footer (`services/mcp/src/lib/discovery-hints.ts`). `execute-sql` calls additionally emit a separate `$ai_generation` event
 carrying `$ai_trace_id`, `$ai_input`, `$ai_output_choices`, and `$ai_latency`.
 
 ## Exec-mode properties

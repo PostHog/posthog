@@ -87,7 +87,8 @@ The same staging carries the person-overrides squash, which is not a deletion bu
 Skipping one of those tables is worse than under-deleting: the overrides that record the correct `person_id` are gone in the next op, so the divergence is permanent.
 `sharded_events_json` is deliberately not in the list, so the squash never dispatches to the events cluster.
 A row a merge stranded there keeps the absorbed `person_id` until its partition ages out, and nothing later can recover the mapping.
-`SQUASH_TARGETS` is deliberately its own list rather than `PERSONAL_DATA_TARGETS`, so registering a table for deletion does not silently enroll it in the squash as well.
+`SQUASH_TARGETS` is derived from the `accepts_person_id_rewrite` capability rather than kept as a second hand-written list, so a target registered for deletion and then forgotten by the squash is not expressible.
+Leaving one out stays possible, and `PERSON_ID_REWRITE_EXEMPT` is where that decision gets written down.
 `posthog/dags/common/staged_dictionary.py` holds the piece both jobs share.
 
 ## Covered tables
@@ -239,10 +240,10 @@ Keeping the fork downstream of person resolution is the contract, tracked on #81
 
 Write-time parity is not sufficient on its own, because a later merge moves the person the sweep looks for.
 After person A merges into B, a deletion of B is queued under B's uuid, so any row still carrying A matches nothing and survives with its event `properties` and its stale `person_id` until the TTL drops the part.
-`sharded_flag_evaluations` is a squash target as well as a deletion target for that reason: it is in `SQUASH_TARGETS` in `posthog/dags/person_overrides.py`, and `person_id` is not in its sort key, so it takes the same `ALTER UPDATE` `sharded_events` takes.
-A table missing from `SQUASH_TARGETS` strands its rows permanently, because the squash deletes the overrides that recorded the mapping right after applying them.
-That is the accepted cost for `sharded_events_json`, which is excluded on purpose.
-Rows a merge stranded before `sharded_flag_evaluations` joined the list age out with their partition.
+`sharded_flag_evaluations` is a squash target as well as a deletion target for that reason: it sets `accepts_person_id_rewrite`, and `person_id` is not in its sort key, so it takes the same `ALTER UPDATE` `sharded_events` takes.
+A target that leaves the capability unset strands its rows permanently, because the squash deletes the overrides that recorded the mapping right after applying them.
+That is the accepted cost for `sharded_events_json`, which is exempt on purpose.
+Rows a merge stranded before `sharded_flag_evaluations` joined the squash age out with their partition.
 
 ## Related, and deliberately unchanged
 
@@ -253,10 +254,11 @@ Rows a merge stranded before `sharded_flag_evaluations` joined the list age out 
 ## Adding a table
 
 Register it in `PERSONAL_DATA_TARGETS`, with capability flags reflecting what its schema can actually take and what the sweep code actually implements: `accepts_property_rewrite` needs the rewrite machinery to reach the table, not just assignable columns; `stores_person_properties` needs the table's `person_properties` column to actually hold reachable data, not just exist in the schema; see `FLAG_EVALUATIONS` for a table where those diverged.
+Set `accepts_person_id_rewrite` unless you mean to leave the table out of the squash, which needs `person_id` outside the table's sorting and partition keys; skipping it is what stranded `flag_evaluations` rows on a merged-away person (#93035).
+A table you do leave out goes in `PERSON_ID_REWRITE_EXEMPT` with the reason, the way `sharded_events_json` does.
 If it is not going to be swept, add it to `TTL_ONLY_TABLES` with the window you are accepting.
 If its storage lives on a cluster other than the one the deletion jobs connect to, give it a `cluster_setting` naming that cluster and mark it `optional`; see "Reach" and "Dispatching" above for which sweeps then reach it and which refuse.
-If a merge can move the `person_id` it stamps, add it to `SQUASH_TARGETS` in `posthog/dags/person_overrides.py` as well; registering it for deletion does not enroll it.
-The squash applies an `ALTER UPDATE`, so the column has to sit outside the table's sort key; see the person_id parity section above.
 
 `posthog/clickhouse/test/test_deletion_coverage.py` fails on any storage table that declares `person_properties` and appears in neither deletion list, so that decision has to be made rather than skipped.
-Nothing yet forces the `SQUASH_TARGETS` decision.
+It fails the same way on a registered target that neither sets `accepts_person_id_rewrite` nor appears in `PERSON_ID_REWRITE_EXEMPT`, and on a squash target carrying `person_id` in its sorting or partition key.
+It also fails on a `PERSON_ID_REWRITE_EXEMPT` entry that names a squash target or a table no target registers, so the list holds only exemptions that are still in force.

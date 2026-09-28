@@ -40,7 +40,10 @@ describe('AiIngestionPipeline', () => {
     let mockEventFilterManager: { getFilter: jest.Mock }
     let mockCookielessManager: jest.Mocked<CookielessManager>
     let mockHogTransformer: jest.Mocked<
-        Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
+        Pick<
+            HogTransformer,
+            'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchHogFunctionsForTeams'
+        >
     >
     let mockPersonRepository: jest.Mocked<PersonReadRepository>
     let mockGroupTypeManager: jest.Mocked<ReadOnlyGroupTypeManager>
@@ -105,6 +108,7 @@ describe('AiIngestionPipeline', () => {
 
         mockTeamManager = {
             getTeamByToken: jest.fn().mockResolvedValue(team),
+            getTeamsByTokens: jest.fn().mockResolvedValue({}),
             getTeam: jest.fn().mockResolvedValue(team),
         } as unknown as jest.Mocked<TeamManager>
 
@@ -124,8 +128,12 @@ describe('AiIngestionPipeline', () => {
                 .fn()
                 .mockImplementation((event) => Promise.resolve({ event, invocationResults: [] })),
             processInvocationResults: jest.fn().mockResolvedValue(undefined),
+            prefetchHogFunctionsForTeams: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<
-            Pick<HogTransformer, 'transformEventAndProduceMessages' | 'processInvocationResults'>
+            Pick<
+                HogTransformer,
+                'transformEventAndProduceMessages' | 'processInvocationResults' | 'prefetchHogFunctionsForTeams'
+            >
         >
 
         mockPersonRepository = {
@@ -163,6 +171,8 @@ describe('AiIngestionPipeline', () => {
                 [APP_METRICS_OUTPUT]: single(APP_METRICS_OUTPUT, 'clickhouse_app_metrics2_test'),
             }),
             teamManager: mockTeamManager,
+            teamsPrefetchEnabled: true,
+            hogFunctionsPrefetchEnabled: true,
             eventIngestionRestrictionManager: mockEventIngestionRestrictionManager,
             eventFilterManager: mockEventFilterManager as any,
             cookielessManager: mockCookielessManager,

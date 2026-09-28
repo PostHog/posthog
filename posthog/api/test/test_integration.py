@@ -78,7 +78,8 @@ from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.slack.channels import is_shared_channel
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.batch_exports.backend.models import BatchExport, BatchExportDestination
+from products.batch_exports.backend.facade import testing as batch_exports_testing
+from products.batch_exports.backend.facade.contracts import DestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
@@ -618,7 +619,7 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_integration_from_domain(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -650,7 +651,7 @@ class TestEmailIntegration:
             org_team_ids=[self.team.id],
         )
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_returns_ses_result(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -709,7 +710,7 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_updates_integration(self, mock_ses_provider_class):
         mock_client = MagicMock()
         mock_ses_provider_class.return_value = mock_client
@@ -746,7 +747,7 @@ class TestEmailIntegration:
             "provider": "ses",
         }
 
-    @patch("posthog.models.integration.email.SESProvider")
+    @patch("products.workflows.backend.providers.SESProvider")
     def test_email_verify_updates_all_other_integrations_with_same_domain(self, mock_ses_provider_class, settings):
         settings.SES_ACCESS_KEY_ID = "test_access_key"
         settings.SES_SECRET_ACCESS_KEY = "test_secret_key"
@@ -6868,10 +6869,13 @@ class TestIntegrationDeletionHogFunctionGuard:
         assert Integration.objects.filter(id=self.integration.id).exists()
 
     def test_destroy_blocked_message_includes_batch_exports(self, client: HttpClient):
-        dest = BatchExportDestination.objects.create(
-            config={}, type=BatchExportDestination.Destination.AWS_S3, integration=self.integration
+        batch_exports_testing.create_batch_export(
+            self.team.id,
+            name="Test batch export",
+            destination_type=DestinationType.AWS_S3,
+            destination_config={},
+            integration_id=self.integration.id,
         )
-        BatchExport.objects.create(name="Test batch export", destination=dest, team=self.team, interval="hour")
 
         response = self._delete(client)
 

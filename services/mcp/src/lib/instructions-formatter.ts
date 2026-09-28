@@ -8,6 +8,8 @@ import {
     type ToolInfo,
 } from '@/lib/instructions'
 import { formatPrompt } from '@/lib/utils'
+import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
+import ACTIVITY_HISTORY_SQL from '@/templates/sections/activity-history-sql.md'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
 import ANALYSIS_ARTIFACTS from '@/templates/sections/analysis-artifacts.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
@@ -136,6 +138,16 @@ export class InstructionsFormatter {
         return [ANALYSIS_ARTIFACTS, ...(ctx.notebookCellsEnabled ? [NOTEBOOK_PYTHON] : [])]
     }
 
+    private activityHistorySections(ctx: InstructionsContext): string[] {
+        if (!ctx.tools?.some(({ name }) => name === 'advanced-activity-logs-list')) {
+            return []
+        }
+        return [
+            ACTIVITY_HISTORY,
+            ...(ctx.tools.some(({ name }) => name === 'execute-sql') ? [ACTIVITY_HISTORY_SQL] : []),
+        ]
+    }
+
     /** Build the system prompt for tools-mode clients (each tool registered separately). */
     buildToolsInstructions(ctx: InstructionsContext): string {
         return this.compose(
@@ -148,6 +160,7 @@ export class InstructionsFormatter {
                 SCHEMA_WORKFLOW,
                 CATALOG_TRUST_DISCOVERY,
                 ...this.artifactSections(ctx),
+                ...this.activityHistorySections(ctx),
                 ...envContextSections(ctx),
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -227,6 +240,7 @@ export class InstructionsFormatter {
                         SCHEMA_WORKFLOW,
                         CATALOG_TRUST_DISCOVERY,
                         ...this.artifactSections(ctx),
+                        ...this.activityHistorySections(ctx),
                         EXAMPLES,
                     ],
                     ctx,
@@ -302,6 +316,7 @@ export class InstructionsFormatter {
                 // URL patterns live behind `learn urls` to protect the schema budget;
                 // with learn unavailable there is no topic to load, so stay inline.
                 ...(learnSection ? [] : [URL_PATTERNS]),
+                ...(learnSection ? [] : this.activityHistorySections(ctx)),
             ],
             renderCtx,
             {
@@ -335,6 +350,7 @@ export class InstructionsFormatter {
             SCHEMA_WORKFLOW,
             CATALOG_TRUST_DISCOVERY,
             ...this.artifactSections(ctx),
+            ...this.activityHistorySections(ctx),
             ...envContextSections(ctx),
             URL_PATTERNS,
             AGENT_FEEDBACK,
