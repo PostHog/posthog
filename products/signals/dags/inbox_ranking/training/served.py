@@ -181,7 +181,9 @@ def served_metadata(pool: pd.DataFrame, scores: pd.DataFrame) -> dict[str, dagst
     threshold."""
     covered = scores["report_id"].nunique() if not scores.empty else 0
     versions: Sequence[tuple[Any, int]] = (
-        list(scores.groupby(["model_name", "model_version"]).size().items()) if not scores.empty else []
+        [(key, len(group)) for key, group in scores.groupby(["model_name", "model_version"])]
+        if not scores.empty
+        else []
     )
     missing = scores[scores["classification_threshold"].isna()] if not scores.empty else scores
     return {

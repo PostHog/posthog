@@ -2595,8 +2595,10 @@ def test_the_serving_prefix_layout_is_stable():
 
 
 def _served_event(report_id: str, at: str, **properties: Any) -> tuple[pd.Timestamp, dict[str, Any]]:
+    timestamp = pd.Timestamp(at)
+    assert isinstance(timestamp, pd.Timestamp)
     return (
-        pd.Timestamp(at),
+        timestamp,
         {"report_id": report_id, "team_id": 2, "status": "scored", "roles": [SERVED_ROLE], **properties},
     )
 
