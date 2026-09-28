@@ -1502,7 +1502,7 @@ async def maybe_autostart_implementation_task(
 
     base_branch = team_config.base_branch_for(repository) if team_config else None
     stack_base_branch = await database_sync_to_async(dependency_head_branch, thread_sensitive=False)(
-        team_id=team_id, report_id=report_id
+        team_id=team_id, report_id=report_id, repository=repository
     )
     if stack_base_branch:
         base_branch = stack_base_branch

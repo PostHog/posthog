@@ -20,6 +20,8 @@ import structlog
 from asgiref.sync import async_to_sync
 from pydantic import ValidationError
 
+from posthog.models.github_integration_base import GitHubIntegrationBase
+
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     ARTEFACT_CONTENT_SCHEMAS,
@@ -138,12 +140,18 @@ def create_layer_reports(
     return child_ids
 
 
-def dependency_head_branch(*, team_id: int, report_id: str) -> str | None:
+def _pull_request_repository(url: str) -> str | None:
+    parsed = GitHubIntegrationBase.parse_pull_request_url(url)
+    return parsed.repository.lower() if parsed else None
+
+
+def dependency_head_branch(*, team_id: int, report_id: str, repository: str) -> str | None:
     """The head branch this report's pull request stacks on, or None to use the default base.
 
     A layer stacks on its oldest `depends_on` target. The branch is the one auto-start generated
     for that target's run, which is also the head of the pull request the run opened. A target with
     no open pull request has no branch to stack on: a merged one is already on the default branch.
+    A target whose pull request is in another repository has no branch in `repository` either.
     """
     edges = outgoing_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.DEPENDS_ON,))
     if not edges:
@@ -151,7 +159,9 @@ def dependency_head_branch(*, team_id: int, report_id: str) -> str | None:
     target_id = edges[0].target_id
 
     prs = fetch_implementation_prs_for_reports([target_id], team_id=team_id, using="default").get(target_id, [])
-    if not any(pr.state in _STACKABLE_PR_STATES for pr in prs):
+    if not any(
+        pr.state in _STACKABLE_PR_STATES and _pull_request_repository(pr.url) == repository.lower() for pr in prs
+    ):
         return None
     # Read from the `task_run` rows directly: the unified task view prefers the older gate row for
     # the same task, and that row carries no branch.

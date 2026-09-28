@@ -124,12 +124,12 @@ class TestStackPlan(BaseTest):
                 team_id=self.team.id, report_id=report_id, task_id=str(task.id), automation_branch=branch
             )
 
-    def _attach_pull_request(self, report_id: str, number: int, state: str) -> None:
+    def _attach_pull_request(self, report_id: str, number: int, state: str, repository: str = "example/repo") -> None:
         pr = SignalReportPullRequest.objects.create(
             team_id=self.team.id,
-            repository="example/repo",
+            repository=repository,
             number=number,
-            url=f"https://github.com/example/repo/pull/{number}",
+            url=f"https://github.com/{repository}/pull/{number}",
             state=state,
         )
         link = SignalReportArtefact.add_log(
@@ -205,15 +205,35 @@ class TestStackPlan(BaseTest):
 
     @parameterized.expand(
         [
-            ("open_dependency_is_the_base", SignalReportPullRequest.State.OPEN, "posthog-self-driving/schema-abc123"),
-            ("draft_dependency_is_the_base", SignalReportPullRequest.State.DRAFT, "posthog-self-driving/schema-abc123"),
-            ("merged_dependency_uses_the_default_base", SignalReportPullRequest.State.MERGED, None),
+            (
+                "open_dependency_is_the_base",
+                SignalReportPullRequest.State.OPEN,
+                "example/repo",
+                "posthog-self-driving/schema-abc123",
+            ),
+            (
+                "draft_dependency_is_the_base",
+                SignalReportPullRequest.State.DRAFT,
+                "example/repo",
+                "posthog-self-driving/schema-abc123",
+            ),
+            ("merged_dependency_uses_the_default_base", SignalReportPullRequest.State.MERGED, "example/repo", None),
+            (
+                "dependency_in_another_repository_uses_the_default_base",
+                SignalReportPullRequest.State.OPEN,
+                "other/repo",
+                None,
+            ),
         ]
     )
-    def test_a_layer_stacks_on_its_dependency_head_branch(self, _name: str, state: str, expected: str | None):
+    def test_a_layer_stacks_on_its_dependency_head_branch(
+        self, _name: str, state: str, pr_repository: str, expected: str | None
+    ):
         child_ids = self._create_layers()
         self._start_run(child_ids[0], "posthog-self-driving/schema-abc123")
-        self._attach_pull_request(child_ids[0], 1, state)
+        self._attach_pull_request(child_ids[0], 1, state, repository=pr_repository)
 
-        assert dependency_head_branch(team_id=self.team.id, report_id=child_ids[1]) == expected
-        assert dependency_head_branch(team_id=self.team.id, report_id=child_ids[0]) is None
+        assert (
+            dependency_head_branch(team_id=self.team.id, report_id=child_ids[1], repository="Example/Repo") == expected
+        )
+        assert dependency_head_branch(team_id=self.team.id, report_id=child_ids[0], repository="example/repo") is None
