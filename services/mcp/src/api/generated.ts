@@ -7524,6 +7524,8 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsItem {
       changeFromPreviousPct?: number | null;
+      /** Attribution key before the cost row replaces the campaign's display name. */
+      conversionMatchKey?: string | null;
       hasComparison?: boolean | null;
       isIncreaseBad?: boolean | null;
       key: string;

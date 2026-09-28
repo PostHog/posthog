@@ -35130,6 +35130,10 @@
                 "changeFromPreviousPct": {
                     "type": "number"
                 },
+                "conversionMatchKey": {
+                    "description": "Attribution key before the cost row replaces the campaign's display name.",
+                    "type": ["string", "null"]
+                },
                 "hasComparison": {
                     "type": "boolean"
                 },

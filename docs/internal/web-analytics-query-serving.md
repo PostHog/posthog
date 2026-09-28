@@ -189,6 +189,11 @@ Errors outside the query path, such as configuration failures, may have no query
 
 ## Campaign breakdown columns
 
+Campaign mappings apply before each goal aggregates conversions.
+Aliases mapped to the same campaign ID or name share one row per source, so the cost join does not duplicate spend and unique-person goals do not count the same person twice.
+The campaign cell's `conversionMatchKey` preserves the attribution key when the cost source supplies a different display name.
+Comparison mode keeps the current period's attribution key.
+
 Marketing analytics saves campaign column selection, sorting, and pinned columns in browser storage for each project.
 A fresh visit restores those preferences without saving query results or draft conversion goals.
 Explicit column options in a shared URL take precedence over saved preferences, including links to Ad performance.

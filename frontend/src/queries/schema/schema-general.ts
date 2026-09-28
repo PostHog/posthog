@@ -7738,6 +7738,8 @@ export interface MarketingAnalyticsTableQuery extends Omit<
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
     hasComparison?: boolean
+    /** Attribution key before the cost row replaces the campaign's display name. */
+    conversionMatchKey?: string | null
 }
 
 export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResponseBase {

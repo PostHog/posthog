@@ -85,7 +85,7 @@ def build_campaign_display_normalization_expr(
     ('spring-sale-2026' -> 'Spring Sale 2026'), case-insensitively and scoped to the integration
     whose sources the touchpoint arrived on.
 
-    This is the *display* subset of what `ConversionGoalsAggregator._apply_campaign_name_mappings`
+    This is the *display* subset of what `CampaignMapper.get_campaign_mapping_expressions`
     does. That one also maps utm_campaign onto campaign_id for sources configured to match on id,
     because it has to line the label up with a cost row; there is no cost join here, so sources with
     a `campaign_id` preference are skipped — their clean_name is an id, and the dashboard leaves the

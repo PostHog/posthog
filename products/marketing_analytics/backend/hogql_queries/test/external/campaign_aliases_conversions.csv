@@ -1,0 +1,4 @@
+user_id,event_timestamp,campaign_name,source_name,amount
+repeat-buyer,2023-01-10 12:10:00,winter-sale,google,20
+repeat-buyer,2023-01-11 12:10:00,winter_sale,google,20
+second-buyer,2023-01-11 12:10:00,winter_sale,google,20
