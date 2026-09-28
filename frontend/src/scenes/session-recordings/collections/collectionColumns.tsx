@@ -16,7 +16,7 @@ type CollectionColumn = LemonTableColumn<SessionRecordingPlaylistType, keyof Ses
 export const COLUMN_WIDTHS = {
     leading: 48,
     count: 72,
-    watched: 320,
+    watched: 384,
     watchNext: 140,
     createdBy: 160,
     lastModified: 140,
