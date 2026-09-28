@@ -4,7 +4,7 @@ import { percentage } from 'lib/utils/numbers'
 
 import type { WorkflowEmailSendingRatesApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import type { ReputationAction, ReputationActionSeverity } from './reputationActions'
+import type { ReputationAction, ReputationActionSeverity } from './actions/reputationActionTypes'
 
 export const REPUTATION_DOCS_URL = 'https://posthog.com/docs/workflows/sending-reputation'
 // pinned: the anchors below are headings on posthog.com, so renaming a heading breaks its link
@@ -28,6 +28,10 @@ export const RATE_KINDS: Record<RateKind, { event: string; events: string; findi
     bounce: { event: 'bounce', events: 'bounces', findingType: 'BOUNCE' },
     complaint: { event: 'spam complaint', events: 'spam complaints', findingType: 'COMPLAINT' },
 }
+
+// Complaints come first wherever the list walks both kinds: their lines are far lower than the
+// bounce lines.
+export const RATE_KIND_LIST: readonly RateKind[] = ['complaint', 'bounce']
 
 type ReputationActionTone = 'blocking' | ReputationActionSeverity
 

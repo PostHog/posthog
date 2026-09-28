@@ -9,13 +9,12 @@ import type { WorkflowEmailSendingRatesApi } from 'products/workflows/frontend/g
 
 import { RateCell } from './RateCell'
 import { WORKFLOW_LIMIT, workflowName } from './reputationUtils'
-import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
+import { reputationWorkflowSearchLogic } from './reputationWorkflowSearchLogic'
 
 export function ReputationWorkflowTable(): JSX.Element {
-    const { tableWorkflows, tableLoading, workflowSearchFailed, workflowSnapshots, search, searchTerm } = useValues(
-        workflowsReputationActionsLogic
-    )
-    const { setSearch } = useActions(workflowsReputationActionsLogic)
+    const { tableWorkflows, tableLoading, workflowSearchFailed, workflowSnapshots, search, searchTerm } =
+        useValues(reputationWorkflowSearchLogic)
+    const { setSearch } = useActions(reputationWorkflowSearchLogic)
 
     return (
         <div className="space-y-4">

@@ -4,16 +4,16 @@ import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 
+import { reputationActionListLogic } from './reputationActionListLogic'
 import { ReputationActionRow } from './ReputationActionRow'
 import { ReputationNothingToFixState } from './ReputationNothingToFixState'
 import { actionStyle } from './reputationUtils'
-import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
 
 const COLLAPSED_COUNT = 5
 
 export function ReputationActionList(): JSX.Element {
-    const { reputationActions, showAllActions } = useValues(workflowsReputationActionsLogic)
-    const { toggleShowAllActions } = useActions(workflowsReputationActionsLogic)
+    const { reputationActions, showAllActions } = useValues(reputationActionListLogic)
+    const { toggleShowAllActions } = useActions(reputationActionListLogic)
     // Collapse only when at least two rows would be hidden. Hiding one row saves no space over
     // showing it.
     const canCollapse = reputationActions.length > COLLAPSED_COUNT + 1

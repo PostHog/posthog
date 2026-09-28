@@ -5,11 +5,12 @@ import { LemonBanner, LemonSkeleton, LemonTabs, LemonTag } from '@posthog/lemon-
 import { pluralize } from 'lib/utils/strings'
 
 import { ReputationActionList } from './ReputationActionList'
+import { reputationActionListLogic } from './reputationActionListLogic'
 import { ReputationNoEmailState } from './ReputationNoEmailState'
 import { ReputationProviderBreakdown } from './ReputationProviderBreakdown'
+import { reputationResponseLogic } from './reputationResponseLogic'
 import { ReputationStatusStrip } from './ReputationStatusStrip'
 import { ReputationWorkflowTable } from './ReputationWorkflowTable'
-import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
 
 export function WorkflowsReputationActions(): JSX.Element {
     const {
@@ -20,10 +21,10 @@ export function WorkflowsReputationActions(): JSX.Element {
         hasSendingData,
         ispSendingHealth,
         ispWithheldDomains,
-        activeBreakdownTab,
-        providersOverLineCount,
-    } = useValues(workflowsReputationActionsLogic)
-    const { loadReputation, setActiveBreakdownTab } = useActions(workflowsReputationActionsLogic)
+    } = useValues(reputationResponseLogic)
+    const { loadReputation } = useActions(reputationResponseLogic)
+    const { activeBreakdownTab, providersOverLineCount } = useValues(reputationActionListLogic)
+    const { setActiveBreakdownTab } = useActions(reputationActionListLogic)
     const hasProviderBreakdown = ispSendingHealth.length > 0 || ispWithheldDomains.length > 0
 
     return (

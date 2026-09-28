@@ -8,8 +8,8 @@ import { humanList } from 'lib/utils/strings'
 import type { IspSendingHealthApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { RateCell } from './RateCell'
+import { reputationResponseLogic } from './reputationResponseLogic'
 import { OTHER_ISP, WINDOW_TOOLTIP, formatRate, ispDisplayName } from './reputationUtils'
-import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
 
 // AWS returning nothing for a metric is not the same as the metric being zero, and a 0.00% spam
 // complaint rate with a green tag is the most misleading thing this table could show. The API names
@@ -54,9 +54,8 @@ function IspCoverage({
 }
 
 export function ReputationProviderBreakdown(): JSX.Element {
-    const { ispSendingHealth, ispSharedDomains, ispWithheldDomains, teamReputation } = useValues(
-        workflowsReputationActionsLogic
-    )
+    const { ispSendingHealth, ispSharedDomains, ispWithheldDomains, teamReputation } =
+        useValues(reputationResponseLogic)
 
     return (
         <div className="space-y-2" data-attr="workflows-reputation-isp-breakdown">

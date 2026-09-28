@@ -5,12 +5,12 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 
-import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
+import { reputationResponseLogic } from './reputationResponseLogic'
 
 const HedgehogLifeguard = pngHoggie(lifeguardPng)
 
 export function ReputationNothingToFixState(): JSX.Element {
-    const { awsReputation, hasJudgedProviders } = useValues(workflowsReputationActionsLogic)
+    const { awsReputation, hasJudgedProviders } = useValues(reputationResponseLogic)
     return (
         <LemonCard
             hoverEffect={false}

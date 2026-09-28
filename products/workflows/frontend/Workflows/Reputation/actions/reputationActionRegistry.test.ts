@@ -1,14 +1,17 @@
 import { urls } from 'scenes/urls'
 
-import type {
-    AwsTenantFindingApi,
-    IspSendingHealthApi,
-    WorkflowEmailSendingRatesApi,
+import {
+    type AwsTenantFindingApi,
+    FindingTypeEnumApi,
+    type IspSendingHealthApi,
+    type WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import { ReputationAction, ReputationActionInputs, buildReputationActions } from './reputationActions'
-import { workflowRates } from './reputationFixtures'
-import { CHANNEL_SETUP_DOCS_URL, LOWER_RATES_DOCS_URL } from './reputationUtils'
+import { workflowRates } from '../reputationFixtures'
+import { CHANNEL_SETUP_DOCS_URL, LOWER_RATES_DOCS_URL } from '../reputationUtils'
+import type { ReputationActionInputs } from './reputationActionContext'
+import { buildReputationActions } from './reputationActionRegistry'
+import type { ReputationAction, ReputationPageControls } from './reputationActionTypes'
 
 function workflow(
     id: string,
@@ -93,14 +96,22 @@ describe('buildReputationActions', () => {
         expect(actions.map(({ key, severity }) => ({ key, severity }))).toEqual(expected)
     })
 
+    // Clicks an on-page button against a recording page, so a case names where the click lands.
+    function clickTarget(onClick: (page: ReputationPageControls) => void): string {
+        const landed: string[] = []
+        onClick({
+            openSupportForm: () => landed.push('support form'),
+            showBreakdown: (tab) => landed.push(`${tab} tab`),
+        })
+        return landed.join(', ')
+    }
+
     function targets(action: ReputationAction | undefined): { button?: string; docs?: string } | undefined {
         if (!action) {
             return undefined
         }
         const cta = action.cta
-        const button =
-            cta &&
-            ('supportMessage' in cta ? 'support form' : 'breakdownTab' in cta ? `${cta.breakdownTab} tab` : cta.to)
+        const button = cta && ('to' in cta ? cta.to : clickTarget(cta.onClick))
         return { button, docs: action.docsLink?.to }
     }
     const openWorkflow = (id: string): string => `${urls.workflow(id, 'workflow')}?node=trigger_node`
@@ -207,6 +218,12 @@ describe('buildReputationActions', () => {
         const action = buildReputationActions({ ...BASE, ...overrides }).find((item) => item.key === key)
 
         expect(targets(action)).toEqual(expected)
+    })
+
+    it.each(Object.values(FindingTypeEnumApi))('shows exactly one row for a %s finding', (findingType) => {
+        const actions = buildReputationActions({ ...BASE, ...flagged(finding(findingType, 'LOW')) })
+
+        expect(actions.map(({ key }) => key)).toEqual([`finding:${findingType}`])
     })
 
     it('says when a provider row counts email from other projects', () => {

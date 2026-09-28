@@ -8,8 +8,8 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { AwsTenantReputationHealthEnumApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { reputationResponseLogic } from './reputationResponseLogic'
 import { REPUTATION_DOCS_URL, SENDING_TIERS_DOCS_URL, WINDOW_TOOLTIP, formatRate } from './reputationUtils'
-import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
 
 const HEALTH_TAG: Record<AwsTenantReputationHealthEnumApi, { label: string; type: LemonTagType }> = {
     healthy: { label: 'Healthy', type: 'success' },
@@ -47,9 +47,7 @@ function AllowanceUsage({ label, used, cap }: { label: string; used: number; cap
 }
 
 export function ReputationStatusStrip(): JSX.Element {
-    const { awsReputation, teamReputation, sendingAllowance, ispSendingHealth } = useValues(
-        workflowsReputationActionsLogic
-    )
+    const { awsReputation, teamReputation, sendingAllowance, ispSendingHealth } = useValues(reputationResponseLogic)
 
     return (
         <LemonCard

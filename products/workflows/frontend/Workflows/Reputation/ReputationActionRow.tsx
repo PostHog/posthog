@@ -3,56 +3,12 @@ import { useActions } from 'kea'
 
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { supportLogic } from 'lib/components/Support/supportLogic'
-
-import type { ReputationAction, ReputationBreakdownTab } from './reputationActions'
+import type { ReputationAction } from './actions/reputationActionTypes'
+import { reputationActionListLogic } from './reputationActionListLogic'
 import { actionStyle } from './reputationUtils'
-import { workflowsReputationActionsLogic } from './workflowsReputationActionsLogic'
-
-// One width for every row's button, so the buttons line up in a column down the list.
-const BUTTON_CLASS = 'w-36'
-
-function ContactSupportButton({ message, dataAttr }: { message: string; dataAttr: string }): JSX.Element {
-    const { openSupportForm } = useActions(supportLogic)
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            center
-            className={BUTTON_CLASS}
-            onClick={() => openSupportForm({ kind: 'support', message })}
-            data-attr={dataAttr}
-        >
-            Contact support
-        </LemonButton>
-    )
-}
-
-function BreakdownButton({
-    label,
-    tab,
-    dataAttr,
-}: {
-    label: string
-    tab: ReputationBreakdownTab
-    dataAttr: string
-}): JSX.Element {
-    const { showBreakdown } = useActions(workflowsReputationActionsLogic)
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            center
-            className={BUTTON_CLASS}
-            onClick={() => showBreakdown(tab)}
-            data-attr={dataAttr}
-        >
-            {label}
-        </LemonButton>
-    )
-}
 
 export function ReputationActionRow({ action, position }: { action: ReputationAction; position: number }): JSX.Element {
+    const { runActionCta } = useActions(reputationActionListLogic)
     const style = actionStyle(action)
     // pinned: autocapture data-attr, so renaming it breaks click insights built on it
     const dataAttr = `workflows-reputation-action-${action.kind}`
@@ -91,22 +47,18 @@ export function ReputationActionRow({ action, position }: { action: ReputationAc
             </div>
             {cta && (
                 <div className="flex justify-end shrink-0">
-                    {'supportMessage' in cta ? (
-                        <ContactSupportButton message={cta.supportMessage} dataAttr={dataAttr} />
-                    ) : 'breakdownTab' in cta ? (
-                        <BreakdownButton label={cta.label} tab={cta.breakdownTab} dataAttr={dataAttr} />
-                    ) : (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            center
-                            className={BUTTON_CLASS}
-                            to={cta.to}
-                            data-attr={dataAttr}
-                        >
-                            {cta.label}
-                        </LemonButton>
-                    )}
+                    {/* One width for every row's button, so the buttons line up in a column down the list. */}
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        center
+                        className="w-36"
+                        to={'to' in cta ? cta.to : undefined}
+                        onClick={'onClick' in cta ? () => runActionCta(action.key) : undefined}
+                        data-attr={dataAttr}
+                    >
+                        {cta.label}
+                    </LemonButton>
                 </div>
             )}
         </li>
