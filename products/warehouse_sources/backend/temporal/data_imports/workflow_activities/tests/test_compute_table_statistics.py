@@ -123,6 +123,10 @@ class TestAggregateAddActionStats:
             (3, 9, "3", "9"),
             (Decimal("1.50"), Decimal("9.99"), "1.50", "9.99"),
             (dt.date(2024, 1, 1), dt.date(2025, 6, 25), "2024-01-01", "2025-06-25"),
+            # A source string column can carry a NUL byte; min_value/max_value land in a Postgres
+            # text column, which rejects it outright (DataError: "PostgreSQL text fields cannot
+            # contain NUL (0x00) bytes"). It must be stripped here, before the DB write.
+            ("ab\x00c", "z\x00", "abc", "z"),
         ],
     )
     def test_min_max_coerced_to_string(self, min_val, max_val, expected_min, expected_max) -> None:
