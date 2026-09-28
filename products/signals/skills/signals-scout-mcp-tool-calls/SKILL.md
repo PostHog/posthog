@@ -153,15 +153,32 @@ For a category with candidates clearing the bar, the call is **edit an existing 
 
 ## Measure the fix with report metrics and checks
 
-For an actionable report with a repository, attach a typed `metrics` entry and a report check under the shared report contract. Keep the measurement scoped to the category's problem tools and the source used to establish the finding.
+For an actionable report with a repository, attach a report check under the shared report contract, plus a typed `metrics` entry when the calculation fits the supported query shape.
+Keep the measurement scoped to the category's problem tools and the source used to establish the finding.
 
-- **Match the primary lens.** Use failure rate for failures, p95 `$mcp_duration_ms` for latency, response size for output bloat, or the share of the source's sessions that called the tool for session-share findings. Use a bounded event/action Trends query that preserves the calculation, following the shared metric contract.
-- **Preserve session-level calculations.** Struggle share (hammering / fail-then-retry) needs the cookbook's session aggregation. Do not replace it with a per-call rate to fit a metric tile. Put the exact bounded SQL probe in an `agent` report check and attach a supported metric only when it adds useful context. SQL probes do not fit a `metric_threshold` check.
-- **Check the outcome.** Attach a `metric_threshold` report check referencing the metric and a concrete goal; include the measured baseline in its rationale and allow deploy and soak time before validation. For example, check that failure rate falls to the project baseline, or session share returns towards its prior-window share. Use an `agent` check when confirming the fix needs investigation beyond one number. Follow the shared check contract for creation and deduplication.
-- **Give the implementation task a local probe.** Describe the fastest reproduction against a dev MCP server or the affected handler's unit tests in the report summary.
-- **Protect the measurement.** The metric must move because calls succeed: no masking errors, hiding retries, swallowing exceptions, loosening validation, or changing the `$mcp_tool_call` instrumentation. Session share must fall because agents stop unnecessary calls, not because a tool was renamed, hidden, or removed.
-- **Protect source evidence.** Public PR evidence uses synthetic/local reproductions and publishable aggregates only. Raw telemetry, error messages, intent strings, customer identifiers, and private usage figures stay out of PRs and images.
-- **Explain intent.** When intent coverage clears the bar, summarize in the report what agents were trying to do, so the fix addresses usage as well as the schema.
+- **Match the primary lens.**
+  Use failure rate for failures, p95 `$mcp_duration_ms` for latency, response size for output bloat, or the share of the source's sessions that called the tool for session-share findings.
+  Use a bounded event/action Trends query that preserves the calculation, following the shared metric contract.
+- **Preserve session-level calculations.**
+  Struggle share (hammering / fail-then-retry) needs the cookbook's session aggregation.
+  Do not replace it with a per-call rate to fit a metric tile.
+  Put the exact bounded SQL probe in an `agent` report check and attach a supported metric only when it adds useful context.
+  SQL probes do not fit a `metric_threshold` check.
+- **Check the outcome.**
+  When a supported metric settles the outcome, attach a `metric_threshold` report check referencing that metric and a concrete goal; include the measured baseline in its rationale and allow deploy and soak time before validation.
+  For example, check that failure rate falls to the project baseline, or session share returns towards its prior-window share.
+  Otherwise, use an `agent` check for the SQL-based outcome or any claim that needs investigation beyond one number.
+  Follow the shared check contract for creation and deduplication.
+- **Give the implementation task a local probe.**
+  Describe the fastest reproduction against a dev MCP server or the affected handler's unit tests in the report summary.
+- **Protect the measurement.**
+  The metric must move because calls succeed: no masking errors, hiding retries, swallowing exceptions, loosening validation, or changing the `$mcp_tool_call` instrumentation.
+  Session share must fall because agents stop unnecessary calls, not because a tool was renamed, hidden, or removed.
+- **Protect source evidence.**
+  Public PR evidence uses synthetic/local reproductions and publishable aggregates only.
+  Raw telemetry, error messages, intent strings, customer identifiers, and private usage figures stay out of PRs and images.
+- **Explain intent.**
+  When intent coverage clears the bar, summarize in the report what agents were trying to do, so the fix addresses usage as well as the schema.
 
 The cadence math is deliberate: the daily schedule + one report per category + autostart's one-implementation-task-per-report gate means each owning team receives at most one autonomous fix PR per day, aimed at its category's worst measurable problem.
 A category whose live report already has an implementation task in flight gets an **edit** with fresh numbers, never a second actionable report.
