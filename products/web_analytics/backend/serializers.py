@@ -86,7 +86,7 @@ class DigestMetadataSerializer(serializers.Serializer):
     data_status = serializers.ChoiceField(
         choices=DigestDataStatus.choices,
         help_text=(
-            "How to read the headline numbers. 'ok': the period has web sessions. "
+            "How to read the headline numbers. 'ok': the headline has pageviews or sessions in the period. "
             "'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them "
             "contain a $pageview or $screen event from a non-test account. Query the sessions table directly to "
             "count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, "

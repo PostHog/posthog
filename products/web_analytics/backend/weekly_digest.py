@@ -51,6 +51,8 @@ DIGEST_METRIC_NOTES = [
     "so it can be higher.",
     "Visitors, pageviews, sessions, bounce rate, session duration, top pages and top sources exclude events from "
     "test accounts, as set in the project's test account filters. Goal conversions include them.",
+    "Sessions, bounce rate and session duration count only sessions that start in the period. Pageviews can be "
+    "above zero while sessions are zero, when every pageview belongs to a session that started earlier.",
     "The period starts at the start of the day `days` days ago and ends now, in the project timezone.",
 ]
 
