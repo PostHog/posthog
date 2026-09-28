@@ -2037,8 +2037,10 @@ def app_store_connect_source(
         # full refreshes merged on a unique key, so asc fits everything.
         sort_mode="asc",
         on_success=(
-            lambda: record_snapshot_owed(False, None)
-            if snapshot_owed_fulfilled[0] and record_snapshot_owed is not None
-            else None
+            lambda: (
+                record_snapshot_owed(False, None)
+                if snapshot_owed_fulfilled[0] and record_snapshot_owed is not None
+                else None
+            )
         ),
     )
