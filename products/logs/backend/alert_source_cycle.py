@@ -22,6 +22,7 @@ from uuid import UUID
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts.backend.facade.contracts import (
@@ -145,6 +146,15 @@ def _snapshot(check: PlatformAlertCheck, prior_breached: tuple[bool, ...]) -> Al
 
 
 Decision = tuple[PlatformAlertOutcome, AlertDeliveryPreview | None]
+
+
+@frozen
+class _Triage:
+    """What a batch splits into before any query runs."""
+
+    decided: list[Decision]
+    evaluable: list[PlatformAlertCheck]
+    muted_ids: frozenset[UUID]
 
 
 def _record_check_metrics(
@@ -350,9 +360,7 @@ def _evaluate_cohort(
     return decided
 
 
-def _triage(
-    checks: Sequence[PlatformAlertCheck], *, now: datetime, tz_name: str
-) -> tuple[list[Decision], list[PlatformAlertCheck], frozenset[UUID]]:
+def _triage(checks: Sequence[PlatformAlertCheck], *, now: datetime, tz_name: str) -> _Triage:
     """Splits a batch into the checks a query can answer, the ones already decided, and the muted.
 
     A skip is a decision, not an omission. Dropping one records nothing, so its due time stays
@@ -384,7 +392,7 @@ def _triage(
         if _is_in_quiet_hours(check, now, tz_name):
             muted_ids.add(check.id)
         evaluable.append(check)
-    return decided, evaluable, frozenset(muted_ids)
+    return _Triage(decided=decided, evaluable=evaluable, muted_ids=frozenset(muted_ids))
 
 
 def _collect(decided: Sequence[Decision], team_id: int, slot: str, started_at: float) -> SourceBatchEvaluation:
@@ -432,10 +440,11 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
     if team is None:
         return SourceBatchEvaluation(outcomes=(), previews=())
 
-    decided, evaluable, muted_ids = _triage(checks, now=cutoff, tz_name=team.timezone)
-    if not evaluable:
+    triage = _triage(checks, now=cutoff, tz_name=team.timezone)
+    if not triage.evaluable:
         # Returns before the checkpoint query below, which nothing left would use.
-        return _collect(decided, team_id, slot, started_at)
+        return _collect(triage.decided, team_id, slot, started_at)
+    decided = list(triage.decided)
 
     # One checkpoint for the pass, matching the production discovery activity. A failure falls
     # back to wall-clock rather than ending the batch.
@@ -446,7 +455,7 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
         checkpoint = None
 
     cohorts: dict[tuple, list[PlatformAlertCheck]] = {}
-    for check in evaluable:
+    for check in triage.evaluable:
         cohorts.setdefault(_cohort_key(check, checkpoint, cutoff), []).append(check)
 
     if len(cohorts) > MAX_COHORTS_PER_CYCLE:
@@ -473,7 +482,9 @@ def evaluate_logs_batch(team_id: int, slot: str, cutoff: datetime) -> SourceBatc
             unqueried += len(chunk)
             continue
         decided.extend(
-            _evaluate_cohort(team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds, muted_ids=muted_ids)
+            _evaluate_cohort(
+                team, chunk, cohort_key, now=cutoff, query_seconds=query_seconds, muted_ids=triage.muted_ids
+            )
         )
 
     if unqueried:
