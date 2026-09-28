@@ -1135,7 +1135,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-materialize-features": {
-        "description": "Run your features.sql server-side against the labeled training population and write the train/holdout feature and label parquet files directly into your sandbox. Returns the local paths (train_features_path, train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list — the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it whenever you change features.sql.",
+        "description": "Run your features.sql server-side against the labeled training population and write the train/holdout feature and label parquet files directly into your sandbox. Returns the local paths (train_features_path, train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list — the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it whenever you change features.sql. Works only for a run that autoresearch-train-create opened in a PostHog sandbox; an agent training outside PostHog pulls its data with execute-sql instead.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Materialize training features to the sandbox",

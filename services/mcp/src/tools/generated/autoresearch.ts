@@ -318,7 +318,14 @@ const autoresearchSuggestionsRespond = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/suggestions/${encodeURIComponent(String(params.id))}/respond/`,
             body,
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'pipeline',
+            'status',
+            'agent_response',
+            'linked_iteration_ids',
+        ]) as typeof result
+        return filtered
     },
 })
 

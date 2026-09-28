@@ -102,7 +102,8 @@ tools:
             train_labels_path, holdout_features_path, holdout_labels_path), row counts, and the feature column list —
             the feature rows never pass through your context and there is NO 500-row cap. Then pd.read_parquet the
             returned paths and iterate in Python. Use this to pull training data instead of execute-sql, and re-call it
-            whenever you change features.sql.
+            whenever you change features.sql. Works only for a run that autoresearch-train-create opened in a PostHog
+            sandbox; an agent training outside PostHog pulls its data with execute-sql instead.
         feature_flag: autoresearch
     autoresearch-models-list:
         operation: autoresearch_models_list
@@ -343,6 +344,13 @@ tools:
             already advances a suggestion to 'acted_on'; use this tool to add the narrative or to mark a suggestion
             picked_up/dismissed without a dedicated iteration.
         feature_flag: autoresearch
+        response:
+            include:
+                - id
+                - pipeline
+                - status
+                - agent_response
+                - linked_iteration_ids
     autoresearch-suggestions-retrieve:
         operation: autoresearch_suggestions_retrieve
         enabled: false

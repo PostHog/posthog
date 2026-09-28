@@ -18,7 +18,7 @@ Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/
 
 `autoresearch-training-runs-iterations-create`, `-materialize-features`, `-artifacts-upload-create`, `-artifacts-get-create`, `-artifacts-retrieve`, `-complete-create`, `-history`.
 
-**Bring-your-own agents** — an agent that trains outside PostHog (for example on a laptop) calls `autoresearch-training-runs-create` to open a run, then the agent-facing tools above. A sandbox request to open a run is refused.
+**Bring-your-own agents** — an agent that trains outside PostHog (for example on a laptop) calls `autoresearch-training-runs-create` to open a run, then the agent-facing tools above except `-materialize-features`, which writes into a PostHog sandbox; it pulls data with `execute-sql` instead. A sandbox request to open a run is refused.
 
 **User-facing** — creating and inspecting pipelines: `autoresearch-resolve-template-create`, `-validate-create`, `-create`, `-train-create`, `-list`, `-retrieve`, `-training-runs-list`, `-suggestions-create`.
 
