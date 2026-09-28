@@ -25,11 +25,12 @@ let nextInitPromise: Promise<unknown> = Promise.resolve({
   commands: [],
   models: [],
 });
+let nextSetModel: () => Promise<void> = () => Promise.resolve();
 
 function makeQueryHandle(): SdkQueryHandle {
   return {
     interrupt: vi.fn().mockResolvedValue(undefined),
-    setModel: vi.fn().mockResolvedValue(undefined),
+    setModel: vi.fn().mockImplementation(() => nextSetModel()),
     setMcpServers: vi.fn().mockResolvedValue(undefined),
     applyFlagSettings: vi.fn().mockResolvedValue(undefined),
     supportedCommands: vi.fn().mockResolvedValue([]),
@@ -145,6 +146,7 @@ describe("ClaudeAcpAgent session creation", () => {
       commands: [],
       models: [],
     });
+    nextSetModel = () => Promise.resolve();
     createLocalToolsMcpServer.mockClear();
     // No gateway: fetchGatewayModels returns [] and the requested model is
     // kept as a custom option — mirrors the gateway-outage failure mode.
@@ -529,6 +531,113 @@ describe("ClaudeAcpAgent session creation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it.each([
+    {
+      name: "a new session whose model switch never answers",
+      kind: "new",
+      setModel: () => new Promise<void>(() => {}),
+      error: "Session model switch timed out after 30000ms",
+    },
+    {
+      name: "a resumed session whose model switch never answers",
+      kind: "resume",
+      setModel: () => new Promise<void>(() => {}),
+      error: "Session model switch timed out after 30000ms",
+    },
+    {
+      name: "a new session whose model switch fails",
+      kind: "new",
+      setModel: () => Promise.reject(new Error("set model boom")),
+      error: "Session model switch failed: set model boom",
+    },
+  ] as const)(
+    "rejects and closes the query for $name",
+    async ({ kind, setModel, error }) => {
+      vi.useFakeTimers();
+      try {
+        nextSetModel = setModel;
+        const agent = makeAgent();
+        const errorSpy = vi.spyOn(agent.logger, "error");
+        const params = {
+          sessionId: "0197a000-0000-7000-8000-0000000000fe",
+          cwd,
+          mcpServers: [],
+          _meta: { taskRunId: `run-set-model-${kind}` },
+        };
+
+        const promise =
+          kind === "new"
+            ? agent.newSession(params)
+            : agent.resumeSession(params);
+        promise.catch(() => {});
+
+        await vi.waitFor(() => {
+          expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1);
+        });
+        await vi.advanceTimersByTimeAsync(30_001);
+
+        await expect(promise).rejects.toThrow(error);
+        expect(createdQueryOptions[0]?.abortController?.signal.aborted).toBe(
+          true,
+        );
+        expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+          "Session configuration failed",
+          expect.objectContaining({
+            startupStep: "model switch",
+            errorDetail: expect.objectContaining({ message: error }),
+          }),
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it("preserves RequestError metadata when naming a rejected startup control", async () => {
+    const requestError = new RequestError(42, "set model boom", {
+      source: "sdk",
+    });
+    nextSetModel = () => Promise.reject(requestError);
+    const agent = makeAgent();
+
+    const error = await agent
+      .resumeSession({
+        sessionId: "0197a000-0000-7000-8000-0000000000fc",
+        cwd,
+        mcpServers: [],
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBe(requestError);
+    expect(error).toMatchObject({
+      code: 42,
+      data: { source: "sdk" },
+      message: "Session model switch failed: set model boom",
+    });
+  });
+
+  it("starts a fresh query when retrying failed session configuration", async () => {
+    nextSetModel = () => Promise.reject(new Error("set model boom"));
+    const agent = makeAgent();
+    const params = {
+      sessionId: "0197a000-0000-7000-8000-0000000000fd",
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-set-model-retry" },
+    };
+
+    await expect(agent.resumeSession(params)).rejects.toThrow(
+      "Session model switch failed: set model boom",
+    );
+
+    nextSetModel = () => Promise.resolve();
+    await expect(agent.resumeSession(params)).resolves.toMatchObject({
+      sessionId: params.sessionId,
+    });
+    expect(createdQueries).toHaveLength(2);
   });
 
   it("closes the query and rethrows when resume init fails", async () => {

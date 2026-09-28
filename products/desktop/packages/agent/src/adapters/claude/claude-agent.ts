@@ -2928,6 +2928,33 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     }
   }
 
+  private async awaitStartupControl(
+    step: "model switch" | "effort update" | "fast mode update",
+    control: Promise<void>,
+    errorData: Record<string, unknown>,
+  ): Promise<void> {
+    let result: { result: "success"; value: void } | { result: "timeout" };
+    try {
+      result = await withTimeout(control, SESSION_VALIDATION_TIMEOUT_MS);
+    } catch (error) {
+      if (error instanceof Error) {
+        error.message = `Session ${step} failed: ${error.message}`;
+        throw error;
+      }
+      throw new RequestError(-32603, `Session ${step} failed`, {
+        ...errorData,
+        error,
+      });
+    }
+    if (result.result === "timeout") {
+      throw new RequestError(
+        -32603,
+        `Session ${step} timed out after ${SESSION_VALIDATION_TIMEOUT_MS}ms`,
+        errorData,
+      );
+    }
+  }
+
   // Backs the `finish` local tool: marks the task run terminal so the Temporal
   // workflow tears the sandbox down. Only wired when we have both the run
   // identifiers and a PostHog API config, i.e. a real cloud run.
@@ -3376,33 +3403,70 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         ? CONTEXT_WINDOW_200K_TOKENS
         : this.getContextWindowForModel(resolvedModelId);
 
-    if (isResume || resolvedModelId !== options.model) {
-      await this.session.query.setModel(resolvedModelId);
-    }
+    const startupErrorData = { sessionId, taskId, taskRunId: meta?.taskRunId };
+    let startupStep:
+      | "model switch"
+      | "effort update"
+      | "fast mode update"
+      | undefined;
+    try {
+      if (isResume || resolvedModelId !== options.model) {
+        startupStep = "model switch";
+        await this.awaitStartupControl(
+          startupStep,
+          this.session.query.setModel(resolvedModelId),
+          startupErrorData,
+        );
+      }
 
-    // Keep thinking enabled by default for effort-capable models (see
-    // DEFAULT_EFFORT).
-    const resolvedEffort = resolveEffortForModel(resolvedModelId, effort);
-    // Ultracode re-applies even when the requested effort stands: the flag
-    // only reaches the session through applyFlagSettings.
-    if (
-      resolvedEffort &&
-      (resolvedEffort !== effort || resolvedEffort === "ultracode")
-    ) {
-      this.session.effort = resolvedEffort;
-      this.session.queryOptions.effort = toSdkEffort(resolvedEffort);
-      await this.session.query.applyFlagSettings(
-        toEffortFlagSettings(resolvedEffort),
-      );
-    }
+      // Keep thinking enabled by default for effort-capable models (see
+      // DEFAULT_EFFORT).
+      const resolvedEffort = resolveEffortForModel(resolvedModelId, effort);
+      // Ultracode re-applies even when the requested effort stands: the flag
+      // only reaches the session through applyFlagSettings.
+      if (
+        resolvedEffort &&
+        (resolvedEffort !== effort || resolvedEffort === "ultracode")
+      ) {
+        this.session.effort = resolvedEffort;
+        this.session.queryOptions.effort = toSdkEffort(resolvedEffort);
+        startupStep = "effort update";
+        await this.awaitStartupControl(
+          startupStep,
+          this.session.query.applyFlagSettings(
+            toEffortFlagSettings(resolvedEffort),
+          ),
+          startupErrorData,
+        );
+      }
 
-    if (supports1MContext(resolvedModelId) && meta?.contextWindow !== "200k") {
-      options.betas = [CONTEXT_WINDOW_1M_BETA];
-    }
+      if (
+        supports1MContext(resolvedModelId) &&
+        meta?.contextWindow !== "200k"
+      ) {
+        options.betas = [CONTEXT_WINDOW_1M_BETA];
+      }
 
-    if (meta?.fastMode && supportsFastMode(resolvedModelId)) {
-      this.session.fastModeEnabled = true;
-      await this.session.query.applyFlagSettings({ fastMode: true });
+      if (meta?.fastMode && supportsFastMode(resolvedModelId)) {
+        this.session.fastModeEnabled = true;
+        startupStep = "fast mode update";
+        await this.awaitStartupControl(
+          startupStep,
+          this.session.query.applyFlagSettings({ fastMode: true }),
+          startupErrorData,
+        );
+      }
+    } catch (err) {
+      settingsManager.dispose();
+      this.terminateQuery(q, abortController);
+      session.queryClosed = true;
+      startupLogger.error("Session configuration failed", {
+        ...startupErrorData,
+        modelId: resolvedModelId,
+        startupStep,
+        errorDetail: serializeError(err),
+      });
+      throw err;
     }
 
     const availableModes = getAvailableModes();
@@ -3527,7 +3591,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private getExistingSessionState(
     sessionId: string,
   ): NewSessionResponse | null {
-    if (!this.hasSession(sessionId) || !this.session) return null;
+    if (
+      !this.hasSession(sessionId) ||
+      !this.session ||
+      this.session.queryClosed
+    ) {
+      return null;
+    }
 
     const availableModes = getAvailableModes();
     const modes: SessionModeState = {
