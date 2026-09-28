@@ -318,6 +318,10 @@ Compare its version and rollout against what step 6 used to choose the retained 
   rather than leave them standing, and restart from step 2 with the new definition, repeating its reads
   and exclusions. Do this even when step 6's own pre-edit check ran and matched — that confirmed one moment, not this one.
 
+This read must come right before the push or PR call.
+If you ask the user to authorize publication after it, or anything else pauses publication,
+fetch the definition again when publication resumes, and compare it the same way.
+
 Default to one draft PR per flag, so each review and rollback stays bounded.
 Start each flag's branch from the base branch, not from the tip the previous flag left behind:
 a branch cut from the previous flag's branch makes the next PR carry both flags.
@@ -471,7 +475,8 @@ Agent steps:
   keep the generic isEnabled helper the removal orphaned, and note it for the report
 - Run the checkout tests and the linter; both pass
 - Ask whether to open a PR: "The cleanup is ready and the tests pass. Open a draft PR?"
-- The user agrees, so open one draft PR:
+- The user agrees. Re-read the flag right before publishing: same version, still 100% boolean
+- Open one draft PR:
   "chore(feature-flags): remove old-checkout-flow"
 - Report:
 
