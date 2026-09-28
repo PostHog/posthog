@@ -880,6 +880,15 @@ pub struct Config {
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "30")]
     pub team_negative_cache_ttl_seconds: u64,
 
+    // In-memory memo of whether a team's flag definitions, keyed by ETag, hold a
+    // billable flag, so a /flags/definitions 304 is billed without a payload read.
+    // The TTL bounds how long a wrong answer can last, so it is tunable without a deploy.
+    #[envconfig(from = "DEFINITIONS_BILLABLE_CACHE_CAPACITY", default = "100000")]
+    pub definitions_billable_cache_capacity: u64,
+
+    #[envconfig(from = "DEFINITIONS_BILLABLE_CACHE_TTL_SECONDS", default = "3600")]
+    pub definitions_billable_cache_ttl_seconds: u64,
+
     // Write an S3 hit back into Redis so the next reader for that key is served by Redis
     // instead of paying another S3 read. Applies to the team metadata and remote config
     // hypercaches, which have no in-process cache in front of them. 0 disables.
@@ -941,6 +950,12 @@ pub struct Config {
     pub usage_ingestion_teams: TeamIdCollection,
     #[envconfig(from = "USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
     pub usage_ingestion_timeout_ms: u64,
+
+    // Teams whose /flags/definitions 304 responses are billed. Empty disables it, so
+    // 304 billing rolls out per team once customers have been told, and rolls back
+    // with a config change instead of a revert.
+    #[envconfig(from = "FLAG_DEFINITIONS_NOT_MODIFIED_BILLING_TEAMS", default = "")]
+    pub flag_definitions_not_modified_billing_teams: TeamIdCollection,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -1169,6 +1184,8 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 30,
+            definitions_billable_cache_capacity: 100_000,
+            definitions_billable_cache_ttl_seconds: 3_600,
             hypercache_read_repair_ttl_seconds: 600,
             skip_pg_team_fallback: FlexBool(false),
             service_mode: ServiceMode::All,
@@ -1184,6 +1201,7 @@ impl Config {
             usage_ingestion_tls: false,
             usage_ingestion_teams: TeamIdCollection::None,
             usage_ingestion_timeout_ms: 5_000,
+            flag_definitions_not_modified_billing_teams: TeamIdCollection::All,
         }
     }
 
