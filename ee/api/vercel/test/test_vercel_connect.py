@@ -796,7 +796,7 @@ class TestVercelConnectComplete(VercelConnectTestBase):
         assert isinstance(exception, VercelImportError)
         assert properties["status_code"] == import_result.status_code
         assert properties["installation_id"] == CACHED_SESSION_DATA["installation_id"]
-        assert properties["resource_id"].isdigit()
+        assert properties["resource_id"] == mock_client.import_resource.call_args.kwargs["resource_id"]
 
 
 @override_settings(VERCEL_CLIENT_INTEGRATION_ID="client_id", VERCEL_CLIENT_INTEGRATION_SECRET="secret")
