@@ -468,8 +468,8 @@ def _deliver_investigation_outcome(
     - inconclusive → fall back to the alert's configured policy
     - unknown / null verdict → notify (safest default)
 
-    A check that was not held back (the alert does not gate, or the gate was turned off
-    mid-investigation) already notified. It gets a follow-up only when the verdict changed,
+    A check that was not held back (the alert did not gate when the check fired) already
+    notified. It gets a follow-up only when the verdict changed,
     because the change is the news; an unchanged verdict would repeat what the user already
     read. A change to a false positive is a correction of a message the user already has,
     so it is sent rather than suppressed.

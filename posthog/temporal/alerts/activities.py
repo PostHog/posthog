@@ -765,7 +765,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             investigation = decide_investigation(alert, alert_check)
             if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
                 should_start_investigation = True
-                should_gate_notification = bool(alert.investigation_gates_notifications)
+                should_gate_notification = should_notify and bool(alert.investigation_gates_notifications)
             elif should_notify and carried_verdict_suppresses(alert, investigation):
                 # Marked so the safety net does not force-send it and the UI shows why it was held.
                 AlertCheck.objects.filter(id=alert_check.id).update(notification_suppressed_by_agent=True)
