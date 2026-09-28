@@ -2,7 +2,7 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
 import { useAdapterSubscription } from "@posthog/ui/features/settings/adapterSubscription";
-import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
+import { SettingsCard } from "@posthog/ui/features/settings/components/SettingsCard";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/settings/subscriptionActions";
@@ -112,14 +112,14 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
   })();
 
   return (
-    <SettingsCardRow
-      stacked
-      label="Claude subscription"
-      description="Choose where to use your Claude plan. Model use counts toward your plan limits."
-    >
-      <div className="flex flex-col gap-5 pt-2">
+    <div className="flex flex-col gap-2">
+      <p className="m-0 px-0.5 text-muted-foreground text-xs">
+        Choose where to use your Claude plan. Model use counts toward your plan
+        limits.
+      </p>
+      <SettingsCard>
         {subscription.flagEnabled ? (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 px-3.5 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium text-xs">Local tasks</span>
               <Switch
@@ -166,12 +166,14 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
           </div>
         ) : null}
         {subscription.cloudFlagEnabled ? (
-          <ClaudeCloudTokenSection
-            cloudSubscriptionOn={cloudSubscriptionOn}
-            onCreateToken={() => setAuthAction("setup-token")}
-          />
+          <div className="px-3.5 py-3">
+            <ClaudeCloudTokenSection
+              cloudSubscriptionOn={cloudSubscriptionOn}
+              onCreateToken={() => setAuthAction("setup-token")}
+            />
+          </div>
         ) : null}
-      </div>
+      </SettingsCard>
       {authAction ? (
         <ClaudeAuthTerminalDialog
           action={authAction}
@@ -179,6 +181,6 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
           onFinished={refreshStatus}
         />
       ) : null}
-    </SettingsCardRow>
+    </div>
   );
 }

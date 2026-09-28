@@ -5,7 +5,10 @@ import {
   applyModelAccess,
   useAdapterSubscription,
 } from "@posthog/ui/features/settings/adapterSubscription";
-import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
+import {
+  SettingsCard,
+  SettingsCardRow,
+} from "@posthog/ui/features/settings/components/SettingsCard";
 import { CodexCloudSection } from "@posthog/ui/features/settings/sections/CodexCloudSection";
 import { useSettingsPageStore } from "@posthog/ui/features/settings/stores/settingsPageStore";
 import { SUBSCRIPTION_LOGIN_ACTION } from "@posthog/ui/features/settings/subscriptionActions";
@@ -159,68 +162,73 @@ export function CodexSubscriptionSettings(): ReactElement | null {
   if (!subscription.cloudFlagEnabled) {
     if (!loggedIn) {
       return (
-        <SettingsCardRow
-          label="ChatGPT account"
-          description={
-            awaitingLogin
-              ? "Finish signing in with your browser. This updates automatically"
-              : "Connect to run local and worktree Codex sessions on your ChatGPT plan"
-          }
-        >
-          <Button
-            variant="outline"
-            size="sm"
-            loading={connecting}
-            disabled={connecting}
-            onClick={() => login.mutate()}
+        <SettingsCard>
+          <SettingsCardRow
+            label="ChatGPT account"
+            description={
+              awaitingLogin
+                ? "Finish signing in with your browser. This updates automatically"
+                : "Connect to run local and worktree Codex sessions on your ChatGPT plan"
+            }
           >
-            {connecting
-              ? "Opening browser..."
-              : awaitingLogin
-                ? "Try again"
-                : "Connect ChatGPT account"}
-          </Button>
-        </SettingsCardRow>
+            <Button
+              variant="outline"
+              size="sm"
+              loading={connecting}
+              disabled={connecting}
+              onClick={() => login.mutate()}
+            >
+              {connecting
+                ? "Opening browser..."
+                : awaitingLogin
+                  ? "Try again"
+                  : "Connect ChatGPT account"}
+            </Button>
+          </SettingsCardRow>
+        </SettingsCard>
       );
     }
 
     return (
-      <SettingsCardRow
-        label="Use your ChatGPT subscription"
-        description={
-          <span className="flex flex-col gap-1">
-            <span>
-              Local and worktree Codex sessions run on your ChatGPT plan instead
-              of PostHog credits. Cloud tasks always use PostHog credits
+      <SettingsCard>
+        <SettingsCardRow
+          label="Use your ChatGPT subscription"
+          description={
+            <span className="flex flex-col gap-1">
+              <span>
+                Local and worktree Codex sessions run on your ChatGPT plan
+                instead of PostHog credits. Cloud tasks always use PostHog
+                credits
+              </span>
+              <ConnectedAccount
+                status={status}
+                signingOut={signOut.isPending}
+                onSignOut={() => signOut.mutate()}
+              />
             </span>
-            <ConnectedAccount
-              status={status}
-              signingOut={signOut.isPending}
-              onSignOut={() => signOut.mutate()}
-            />
-          </span>
-        }
-      >
-        <Switch
-          size="sm"
-          checked={subscription.subscriptionOn}
-          onCheckedChange={(checked) =>
-            subscription.setSubscriptionOn(checked === true)
           }
-        />
-      </SettingsCardRow>
+        >
+          <Switch
+            size="sm"
+            checked={subscription.subscriptionOn}
+            onCheckedChange={(checked) =>
+              subscription.setSubscriptionOn(checked === true)
+            }
+          />
+        </SettingsCardRow>
+      </SettingsCard>
     );
   }
 
   return (
-    <SettingsCardRow
-      stacked
-      label="ChatGPT subscription"
-      description="Choose where to use your ChatGPT plan. Model use counts toward your plan limits."
-    >
-      <div className="flex flex-col gap-5 pt-2">
+    <div className="flex flex-col gap-2">
+      <p className="m-0 px-0.5 text-muted-foreground text-xs">
+        Choose where to use your ChatGPT plan. Model use counts toward your plan
+        limits.
+      </p>
+      <SettingsCard>
         {subscription.flagEnabled ? (
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 px-3.5 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="font-medium text-xs">Local tasks</span>
               {loggedIn ? (
@@ -257,10 +265,12 @@ export function CodexSubscriptionSettings(): ReactElement | null {
             ) : null}
           </div>
         ) : null}
-        <CodexCloudSection
-          cloudSubscriptionOn={subscription.cloudSubscriptionOn}
-        />
-      </div>
-    </SettingsCardRow>
+        <div className="px-3.5 py-3">
+          <CodexCloudSection
+            cloudSubscriptionOn={subscription.cloudSubscriptionOn}
+          />
+        </div>
+      </SettingsCard>
+    </div>
   );
 }
