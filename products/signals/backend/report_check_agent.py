@@ -338,7 +338,11 @@ def run_agent_check(check: SignalReportCheck, *, now: datetime | None = None) ->
             )
             return "deferred"
         record_check_verdict(
-            check, CheckVerdict(outcome="errored", explanation=f"{check.title}: {refusal.detail}"), now=now
+            check,
+            CheckVerdict(outcome="errored", explanation=f"{check.title}: {refusal.detail}"),
+            now=now,
+            skill_name=skill_name,
+            refusal_reason=refusal.reason,
         )
         return "errored"
 
