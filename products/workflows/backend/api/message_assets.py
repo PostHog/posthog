@@ -352,6 +352,7 @@ def with_new_tab_link_target(html: str) -> str:
         base.attrib.pop("target", None)
     for link in document.iter("a", "area"):
         link.set("target", "_blank")
+        link.set("rel", "noopener noreferrer")
     head = document.find("head")
     if head is None:
         head = lxml_html.Element("head")
