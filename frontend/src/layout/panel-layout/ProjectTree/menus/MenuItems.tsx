@@ -80,7 +80,7 @@ export function MenuItems({
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
     const { deleteGroupType } = useActions(groupAnalyticsConfigLogic)
-    const { enabledToolPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
+    const { enabledProductPaths: customProductsSelectedPaths } = useValues(customProductsLogic)
     const { dockOpen, terminalEnabled } = useValues(terminalDockLogic)
     const { openInTerminal } = useActions(terminalDockLogic)
     const { location } = useValues(router)
@@ -102,7 +102,7 @@ export function MenuItems({
     } = useActions(projectTreeLogic(projectTreeLogicProps))
     const { openMoveToModal } = useActions(moveToLogic)
     const { openLinkToModal } = useActions(linkToLogic)
-    const { setToolEnabled } = useActions(customProductsLogic)
+    const { setProductEnabled } = useActions(customProductsLogic)
 
     const { resetPanelLayout } = useActions(panelLayoutLogic)
 
@@ -334,7 +334,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        setToolEnabled(item.record!.path as string, false)
+                        setProductEnabled(item.record!.path as string, false)
                     }}
                 >
                     <ButtonPrimitive menuItem>Remove from sidebar panel</ButtonPrimitive>
@@ -346,7 +346,7 @@ export function MenuItems({
                     asChild
                     onClick={(e) => {
                         e.stopPropagation()
-                        setToolEnabled(item.record!.path as string, true)
+                        setProductEnabled(item.record!.path as string, true)
                     }}
                 >
                     <ButtonPrimitive menuItem>Add to sidebar panel</ButtonPrimitive>

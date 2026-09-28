@@ -35753,6 +35753,18 @@ export namespace Schemas {
       idempotent_replay: boolean;
     }
 
+    export interface EmojiSuggestion {
+      /** The suggested emoji character. */
+      emoji: string;
+      /** The emoji's English name. */
+      label: string;
+    }
+
+    export interface EmojiSearchResponse {
+      /** Related emojis, or an empty list. */
+      suggestions: EmojiSuggestion[];
+    }
+
     export interface EndExperiment {
       /** The conclusion of the experiment.
        *
@@ -37183,7 +37195,7 @@ export namespace Schemas {
          */
       name?: string | null;
       /**
-         * Issue description.
+         * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
          * @nullable
          */
       description?: string | null;
@@ -37389,7 +37401,7 @@ export namespace Schemas {
          */
       name?: string | null;
       /**
-         * Issue description.
+         * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
          * @nullable
          */
       description?: string | null;
@@ -37635,7 +37647,7 @@ export namespace Schemas {
        * * `DESC` - DESC */
       orderDirection?: OrderDirectionEnum;
       /**
-         * Page size.
+         * Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.
          * @minimum 1
          * @maximum 100
          */
@@ -37646,7 +37658,7 @@ export namespace Schemas {
          */
       offset?: number;
       /**
-         * Number of volume buckets. Defaults to 0 for compact aggregate counts.
+         * Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
          * @minimum 0
          * @maximum 200
          */
@@ -38197,6 +38209,12 @@ export namespace Schemas {
          * @nullable
          */
       content_hash?: string | null;
+      /**
+         * Optional byte count of the content about to be uploaded. When given, the upload response also carries a presigned PUT signed for exactly this length, which S3-compatible stores without presigned POST support (such as Cloudflare R2) accept.
+         * @minimum 0
+         * @nullable
+         */
+      content_length?: number | null;
     }
 
     export interface ErrorTrackingSymbolSetBulkCheckUpload {
@@ -38263,6 +38281,10 @@ export namespace Schemas {
       presigned_url: ErrorTrackingSymbolSetPresignedPost;
       /** Presigned POST against the standard S3 endpoint, present only when the primary URL uses transfer acceleration. For clients whose network blocks the accelerated endpoint. */
       fallback_presigned_url?: ErrorTrackingSymbolSetPresignedPost;
+      /** Presigned PUT for the upload, present only when the request declared `content_length`. Send the raw bytes with a matching `Content-Length` header. Prefer this over `presigned_url`: presigned POST is an AWS extension that some S3-compatible stores reject. */
+      presigned_put_url?: string;
+      /** Presigned PUT against the standard S3 endpoint, present only when the primary PUT uses transfer acceleration. */
+      fallback_presigned_put_url?: string;
     }
 
     /**
@@ -39373,6 +39395,28 @@ export namespace Schemas {
       pipelines: IngestionPipelineEnum[];
     }
 
+    export interface EventMatch {
+      /** The event name to select, such as $autocapture. */
+      name: string;
+      /** The event's display name, such as Autocapture. */
+      display_name: string;
+      /** How likely the search means this event, from 0 to 1. */
+      probability: number;
+    }
+
+    export interface EventMatchRequest {
+      /**
+         * What the person typed into the events list search box, which matched no event name.
+         * @maxLength 200
+         */
+      query: string;
+    }
+
+    export interface EventMatchResponse {
+      /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
+      matches: EventMatch[];
+    }
+
     /**
      * * `DateTime` - DateTime
      * * `String` - String
@@ -40394,8 +40438,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
@@ -42334,8 +42386,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
@@ -52215,7 +52275,7 @@ export namespace Schemas {
     export interface TraceSpansQuery {
       /** Cursor for fetching the next page of results */
       after?: string | null;
-      dateRange: DateRange;
+      dateRange?: DateRange | null;
       /** Omit the per-span `attributes` map from results to keep payloads compact */
       excludeAttributes?: boolean | null;
       filterGroup?: PropertyGroupFilter | null;
@@ -62024,6 +62084,8 @@ export namespace Schemas {
       results: ObservationSearchResult[];
       /** True when more matches may exist beyond `results`, so the response is a top slice rather than everything that matched. */
       truncated: boolean;
+      /** True when a relevance model reordered the top results after the embedding match. False when the results are in embedding distance order, for example because the model did not answer in time. */
+      reranked: boolean;
     }
 
     /**
@@ -73107,8 +73169,16 @@ export namespace Schemas {
          * @nullable
          */
       repository?: string | null;
-      primary_metrics_ordered_uuids?: unknown;
-      secondary_metrics_ordered_uuids?: unknown;
+      /**
+         * Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      primary_metrics_ordered_uuids?: string[] | null;
+      /**
+         * Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.
+         * @nullable
+         */
+      secondary_metrics_ordered_uuids?: string[] | null;
       only_count_matured_users?: boolean;
       /** When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
@@ -89785,6 +89855,11 @@ export namespace Schemas {
          * @nullable
          */
       prompt_version: number | null;
+      /**
+         * The search as the decision model read it, with emails, URLs, paths, ids and tokens replaced by placeholders such as <url>. Null when the model did not answer.
+         * @nullable
+         */
+      model_query: string | null;
     }
 
     export interface SearchSuggestionsQuery {
@@ -97535,7 +97610,7 @@ export namespace Schemas {
     export interface TaskCommentTarget {
       /** Stable target id. */
       id: string;
-      /** Target type: task, artifact, or canvas. */
+      /** Target type: task, artifact, canvas, preview, or browser. */
       type: string;
       /** Display name of the comment target. */
       name: string;
@@ -97572,7 +97647,7 @@ export namespace Schemas {
     export interface TaskCommentDetail {
       /** Root comment id. */
       id: string;
-      /** Task, artifact, or canvas receiving the comment. */
+      /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
       target: TaskCommentTarget;
       /** Whether the comment is resolved. */
       resolved: boolean;
@@ -97588,7 +97663,7 @@ export namespace Schemas {
     export interface TaskCommentSummary {
       /** Root comment id. */
       id: string;
-      /** Task, artifact, or canvas receiving the comment. */
+      /** Task, artifact, canvas, preview, or in-app browser page receiving the comment. */
       target: TaskCommentTarget;
       /** Bounded excerpt of the root comment body. */
       content: string;
@@ -105401,7 +105476,7 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceRequest {
-      /** Date range for the query. Defaults to last 24 hours. */
+      /** Date range for the query. Omit it to search all retained spans for this trace. */
       dateRange?: _TracingDateRange;
       /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
@@ -108086,7 +108161,7 @@ export namespace Schemas {
      */
     source_comment?: string;
     /**
-     * Owning task for task, task_artifact, and desktop_canvas comment scopes.
+     * Owning task for task, task_artifact, task_preview, task_browser, and desktop_canvas comment scopes.
      */
     task_id?: string;
     };
@@ -109613,6 +109688,15 @@ export namespace Schemas {
      * Optional substring to filter values by (case-sensitive contains match).
      */
     value?: string;
+    };
+
+    export type EmojiSearchSuggestRetrieveParams = {
+    /**
+     * Search text that had no direct emoji match.
+     * @minLength 3
+     * @maxLength 64
+     */
+    query: string;
     };
 
     export type EndpointsListParams = {
