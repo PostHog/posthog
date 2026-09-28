@@ -134,7 +134,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                     </div>
                     <div className="flex flex-col justify-center items-end w-30">
                         <HedgehogBurningMoney className="w-full h-auto" />
-                        {creditOverview.status === 'pending' && creditOverview.invoice_url && creditInvoiceUrl && (
+                        {creditOverview.status === 'pending' && creditInvoiceUrl && (
                             <LemonButton
                                 type="primary"
                                 onClick={() => window.open(creditInvoiceUrl, '_blank')}

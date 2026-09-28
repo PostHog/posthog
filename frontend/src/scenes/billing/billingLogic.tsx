@@ -1375,6 +1375,21 @@ export const billingLogic = kea<billingLogicType>([
                                     invoice is paid you will be charged for usage as normal.
                                 </p>
                             </>
+                        ) : values.isExternallyBilled ? (
+                            <p>
+                                Your billing provider will collect the payment, and the credits will be applied to your
+                                account once it does.
+                                {billingUrl ? (
+                                    <>
+                                        {' '}
+                                        Please make sure your{' '}
+                                        <Link to={billingUrl} target="_blank">
+                                            payment method with your provider
+                                        </Link>{' '}
+                                        is up to date.
+                                    </>
+                                ) : null}
+                            </p>
                         ) : (
                             <>
                                 <p>
