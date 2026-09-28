@@ -38,11 +38,11 @@ export interface AccountMeetingsResult {
 // The view compares against this by reference to tell "not loaded yet" from a loaded empty result.
 export const NOT_LOADED: AccountMeetingsResult = { meetings: null, count: 0 }
 
-function cleanEmails(values: string[]): string[] {
+export function cleanEmails(values: string[]): string[] {
     return Array.from(new Set(values.map((value) => value.trim().toLowerCase()).filter(Boolean)))
 }
 
-function cleanDomains(values: string[]): string[] {
+export function cleanDomains(values: string[]): string[] {
     return cleanEmails(values.map((value) => value.replace(/^@/, '')))
 }
 

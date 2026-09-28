@@ -21,12 +21,17 @@ import { ApiError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { Breadcrumb } from '~/types'
 
+import {
+    cleanDomains,
+    cleanEmails,
+} from 'products/customer_analytics/frontend/components/Accounts/accountMeetingsLogic'
 import {
     AccountExpansionTab,
     DEFAULT_ACCOUNT_TAB,
@@ -61,6 +66,8 @@ type AccountIdFieldKey = (typeof ACCOUNT_ID_FIELDS)[number]['key']
 
 export type AccountEditFormValues = Record<AccountIdFieldKey, string> & {
     name: string
+    email_domains: string[]
+    known_emails: string[]
 }
 
 function getAccountEditFormValues(account: AccountApi | null): AccountEditFormValues {
@@ -71,6 +78,8 @@ function getAccountEditFormValues(account: AccountApi | null): AccountEditFormVa
         slack_channel_id: account?.properties?.slack_channel_id ?? '',
         sfdc_id: account?.properties?.sfdc_id ?? '',
         stripe_customer_id: account?.properties?.stripe_customer_id ?? '',
+        email_domains: account?.properties?.email_domains ?? [],
+        known_emails: account?.properties?.known_emails ?? [],
     }
 }
 
@@ -295,11 +304,23 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 const name = formValues.name.trim()
                 const currentAccount = await accountsRetrieve(projectId, values.account.id)
                 // Sending only edited fields keeps concurrent edits to the other fields.
-                const changedProperties = Object.fromEntries(
-                    changedPropertyKeys
-                        .filter((key) => key !== 'stripe_customer_id' || currentAccount.properties?.stripe_customer_id)
-                        .map((key) => [key, formValues[key].trim() || null])
+                const cleanedLists = {
+                    email_domains: cleanDomains(formValues.email_domains),
+                    known_emails: cleanEmails(formValues.known_emails),
+                }
+                const changedListKeys = (['email_domains', 'known_emails'] as const).filter(
+                    (key) => !objectsEqual(cleanedLists[key], openedValues[key])
                 )
+                const changedProperties = {
+                    ...Object.fromEntries(
+                        changedPropertyKeys
+                            .filter(
+                                (key) => key !== 'stripe_customer_id' || currentAccount.properties?.stripe_customer_id
+                            )
+                            .map((key) => [key, formValues[key].trim() || null])
+                    ),
+                    ...Object.fromEntries(changedListKeys.map((key) => [key, cleanedLists[key]])),
+                }
                 const updatedAccount = await accountsPartialUpdate(projectId, values.account.id, {
                     ...(name !== openedValues.name ? { name } : {}),
                     properties: { ...currentAccount.properties, ...changedProperties } as PatchedAccountApiProperties,
@@ -307,7 +328,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                 actions.loadAccountSuccess(updatedAccount)
                 posthog.capture(AccountsEvents.AccountEdited, {
                     name_changed: name !== openedValues.name,
-                    changed_fields: changedPropertyKeys,
+                    changed_fields: [...changedPropertyKeys, ...changedListKeys],
                 })
             },
         },

@@ -292,6 +292,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                     stripe_customer_id: 'stripe-old',
                     sfdc_id: 'salesforce-concurrent',
                     billing_id: 'billing-concurrent',
+                    known_emails: ['concurrent@example.com'],
                 },
             }
             const updatedAccount = {
@@ -311,6 +312,8 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                 slack_channel_id: 'C123',
                 sfdc_id: '',
                 stripe_customer_id: 'stripe-new',
+                email_domains: ['@Example.com ', 'example.com'],
+                known_emails: [],
             })
             logic.actions.submitAccountForm()
             await expectLogic(logic).toFinishAllListeners()
@@ -326,6 +329,8 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                     billing_id: 'billing-concurrent',
                     slack_channel_id: 'C123',
                     sfdc_id: 'salesforce-concurrent',
+                    known_emails: ['concurrent@example.com'],
+                    email_domains: ['example.com'],
                 },
             })
             expect(logic.values.accountEditorOpen).toBe(false)

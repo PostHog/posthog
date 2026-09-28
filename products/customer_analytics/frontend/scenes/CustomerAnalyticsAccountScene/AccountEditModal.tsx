@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonDivider, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -41,12 +41,10 @@ export function AccountEditModal(): JSX.Element {
             }
         >
             <Form logic={customerAnalyticsAccountSceneLogic} formKey="accountForm" enableFormOnSubmit>
-                <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-3">
                     <LemonField name="name" label="Name">
                         <LemonInput autoFocus fullWidth maxLength={400} />
                     </LemonField>
-                    <LemonDivider className="my-0" />
-                    <h3 className="mb-0">Account IDs</h3>
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                         {ACCOUNT_ID_FIELDS.filter(
                             (field) => field.key !== 'stripe_customer_id' || account?.properties?.stripe_customer_id
@@ -56,6 +54,30 @@ export function AccountEditModal(): JSX.Element {
                             </LemonField>
                         ))}
                     </div>
+                    <LemonField name="email_domains" label="Email domains">
+                        {({ value, onChange }) => (
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
+                                disableFiltering
+                                value={value}
+                                onChange={onChange}
+                                placeholder="example.com"
+                            />
+                        )}
+                    </LemonField>
+                    <LemonField name="known_emails" label="Known emails">
+                        {({ value, onChange }) => (
+                            <LemonInputSelect
+                                mode="multiple"
+                                allowCustomValues
+                                disableFiltering
+                                value={value}
+                                onChange={onChange}
+                                placeholder="jane@example.com"
+                            />
+                        )}
+                    </LemonField>
                 </div>
             </Form>
         </LemonModal>
