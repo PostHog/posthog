@@ -268,14 +268,22 @@ export function sankeyHitAt(
         if (cursor.y < Math.min(link.y0, link.y1) - halfWidth || cursor.y > Math.max(link.y0, link.y1) + halfWidth) {
             continue
         }
-        const t = solveBezierT(startX, endX, cursor.x)
-        const centerY = bezierY(link.y0, link.y1, t)
-        const distance = Math.abs(cursor.y - centerY)
+        const distance = bezierDistance(startX, endX, link.y0, link.y1, cursor)
         if (distance <= halfWidth && (!best || distance < best.distance)) {
             best = { index: i, distance }
         }
     }
     return best ? { kind: 'link', index: best.index } : null
+}
+
+function bezierDistance(x0: number, x1: number, y0: number, y1: number, cursor: { x: number; y: number }): number {
+    let best = Infinity
+    for (let step = 0; step <= 24; step++) {
+        const t = step / 24
+        const distance = Math.hypot(bezierX(x0, x1, t) - cursor.x, bezierY(y0, y1, t) - cursor.y)
+        best = Math.min(best, distance)
+    }
+    return best
 }
 
 /** x(t) of the ribbon centerline, with both control points at the horizontal midpoint. */
@@ -290,21 +298,6 @@ function bezierX(x0: number, x1: number, t: number): number {
 export function bezierY(y0: number, y1: number, t: number): number {
     const u = 1 - t
     return u * u * u * y0 + 3 * u * u * t * y0 + 3 * u * t * t * y1 + t * t * t * y1
-}
-
-/** Inverts `bezierX` for a cursor x. `x(t)` is monotonic on [0, 1], so bisection converges. */
-function solveBezierT(x0: number, x1: number, x: number): number {
-    let lo = 0
-    let hi = 1
-    for (let i = 0; i < 24; i++) {
-        const mid = (lo + hi) / 2
-        if (bezierX(x0, x1, mid) < x) {
-            lo = mid
-        } else {
-            hi = mid
-        }
-    }
-    return (lo + hi) / 2
 }
 
 /** Encodes a hit into the single `hoverIndex` the shared draw loop expects: nodes first, then
