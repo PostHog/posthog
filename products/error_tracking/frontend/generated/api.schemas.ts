@@ -1264,6 +1264,11 @@ export interface ErrorTrackingIssueDetailApi {
     sparkline?: number[]
 }
 
+export interface ErrorTrackingIssueNotFoundApi {
+    /** Why the issue could not be found, and what to try next. */
+    detail: string
+}
+
 /**
  * * `exact` - exact
  * * `is_not` - is_not

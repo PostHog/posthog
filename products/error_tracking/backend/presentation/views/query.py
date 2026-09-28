@@ -40,6 +40,7 @@ from products.error_tracking.backend.facade.query_utils import (
     compact_dict,
     extract_latest_release,
     get_page_info,
+    has_usable_issue_id,
     map_context_event_properties,
     map_event_row,
     normalize_volume_resolution,
@@ -49,12 +50,17 @@ from products.error_tracking.backend.presentation.views.query_serializers import
     ErrorTrackingIssueDetailSerializer,
     ErrorTrackingIssueEventsQueryRequestSerializer,
     ErrorTrackingIssueEventsResponseSerializer,
+    ErrorTrackingIssueNotFoundSerializer,
     ErrorTrackingIssueQueryRequestSerializer,
     ErrorTrackingIssuesListQueryRequestSerializer,
     ErrorTrackingIssuesListResponseSerializer,
 )
 
 logger = structlog.get_logger(__name__)
+
+ISSUE_NOT_FOUND_PAYLOAD = {
+    "detail": "No issue with this ID in this project. Check you are in the right project, then use an ID from the issues list."
+}
 
 
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -98,7 +104,11 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = query_facade.run_error_tracking_query(self.team, query)
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
-        results = [pick_fields(cast(dict[str, object], issue), LIST_ISSUE_FIELDS) for issue in raw_results[:limit]]
+        results = [
+            pick_fields(issue, LIST_ISSUE_FIELDS)
+            for issue in cast(list[dict[str, object]], raw_results[:limit])
+            if has_usable_issue_id(issue)
+        ]
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
@@ -109,7 +119,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         request_serializer=ErrorTrackingIssueQueryRequestSerializer,
         responses={
             200: OpenApiResponse(response=ErrorTrackingIssueDetailSerializer),
-            404: OpenApiResponse(description="Issue not found"),
+            404: OpenApiResponse(response=ErrorTrackingIssueNotFoundSerializer, description="Issue not found"),
         },
         operation_id="error_tracking_query_issue_create",
         summary="Get compact error tracking issue details",
@@ -125,8 +135,6 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if include_sparkline and volume_resolution <= 0:
             volume_resolution = 12
         issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
-        if issue_basics is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=issue_id,
@@ -145,6 +153,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         if not raw_results:
+            # The list endpoint takes issue identity from ClickHouse, so an issue only Postgres
+            # has lost is still real. Absent means both stores miss it.
+            if issue_basics is None:
+                return Response(ISSUE_NOT_FOUND_PAYLOAD, status=status.HTTP_404_NOT_FOUND)
             payload: dict[str, object] = compact_dict(
                 {
                     "id": str(issue_basics.id),
@@ -213,7 +225,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         request_serializer=ErrorTrackingIssueEventsQueryRequestSerializer,
         responses={
             200: OpenApiResponse(response=ErrorTrackingIssueEventsResponseSerializer),
-            404: OpenApiResponse(description="Issue not found"),
+            404: OpenApiResponse(response=ErrorTrackingIssueNotFoundSerializer, description="Issue not found"),
         },
         operation_id="error_tracking_query_issue_events_create",
         summary="List sampled exception events for an error tracking issue",
@@ -225,8 +237,6 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_id = str(params["issueId"])
         limit = cast(int, params.get("limit", 1))
         offset = cast(int, params.get("offset", 0))
-        if not facade_api.issue_exists_by_id(self.team.id, issue_id):
-            return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
         requested_includes = params.get("include")
         includes = (
@@ -269,6 +279,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             map_event_row(row, columns, include_stacktrace, only_app_frames, include_code_variables)
             for row in raw_results[:limit]
         ]
+        # Sampled events prove the issue exists even when the Postgres row does not. Past the first
+        # page an empty result means the end of the events, so it says nothing about the issue.
+        if not results and offset == 0 and not facade_api.issue_exists_by_id(self.team.id, issue_id):
+            return Response(ISSUE_NOT_FOUND_PAYLOAD, status=status.HTTP_404_NOT_FOUND)
         has_more, next_offset = get_page_info(data, limit, offset)
         payload: dict[str, object] = {"results": results, "hasMore": has_more, "limit": limit, "offset": offset}
         if next_offset is not None:
