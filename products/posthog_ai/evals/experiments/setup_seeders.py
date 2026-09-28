@@ -31,9 +31,12 @@ from posthog.clickhouse.client import sync_execute
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 from posthog.models.person.sql import INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_SQL
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.demo.backend.facade.api import infer_taxonomy_for_team
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
+from products.feature_flags.backend.facade.api import create_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
@@ -403,25 +406,32 @@ def _insert_events(team_id: int, events: Sequence[SeedEvent]) -> None:
         sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(rows), params, flush=False)
 
 
-def _create_running_flag(team_id: int, user_id: int, key: str) -> None:
-    FeatureFlag.objects.get_or_create(
-        team_id=team_id,
-        key=key,
-        defaults={
-            "created_by_id": user_id,
-            "name": key.replace("-", " "),
-            "filters": {
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-            "active": True,
+def _even_split_filters() -> dict[str, Any]:
+    return {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {
+            "variants": [
+                {"key": "control", "rollout_percentage": 50},
+                {"key": "test", "rollout_percentage": 50},
+            ]
         },
+    }
+
+
+def _create_flag(team_id: int, user_id: int, key: str, name: str, *, active: bool) -> FeatureFlag:
+    """Seeded flags go through the gated facade, which a repo invariant requires of every write
+    to `active` or `filters`."""
+    return create_flag(
+        {"key": key, "name": name, "filters": _even_split_filters(), "active": active},
+        team=Team.objects.get(id=team_id),
+        user=User.objects.get(id=user_id),
     )
+
+
+def _create_running_flag(team_id: int, user_id: int, key: str) -> None:
+    if FeatureFlag.objects.filter(team_id=team_id, key=key).exists():
+        return
+    _create_flag(team_id, user_id, key, key.replace("-", " "), active=True)
 
 
 def _seed_scenario(context: CustomPromptSandboxContext, key: str) -> dict[str, Any]:
@@ -508,22 +518,7 @@ def seed_shared_metric_reuse(context: CustomPromptSandboxContext) -> dict[str, A
     saved_metric("Downloads per user", "downloaded_file")
 
     for index, name in enumerate(("Share dialog copy", "Share button placement", "Link expiry default")):
-        flag = FeatureFlag.objects.create(
-            team_id=team_id,
-            created_by_id=user_id,
-            key=f"share-test-{index + 1}",
-            name=name,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": 100}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 50},
-                        {"key": "test", "rollout_percentage": 50},
-                    ]
-                },
-            },
-            active=False,
-        )
+        flag = _create_flag(team_id, user_id, f"share-test-{index + 1}", name, active=False)
         experiment = Experiment.objects.create(
             team_id=team_id,
             created_by_id=user_id,
