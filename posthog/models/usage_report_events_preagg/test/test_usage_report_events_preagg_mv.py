@@ -40,6 +40,18 @@ TEST_EVENT_TIMESTAMP = datetime(2026, 5, 5, 12, 34, 56)
 SOURCE_USAGE_REPORT_EVENTS_PREAGG_TABLE = "test_source_usage_report_events_preagg"
 
 
+pytestmark = pytest.mark.django_db
+
+
+# A SimpleTestCase never asks for a database, so nothing here triggers django_db_setup
+# (posthog/conftest.py), which is what creates the ClickHouse test database. The marker
+# points pytest-django at the test databases, and the fixture runs the setup before
+# setUpClass, which already queries ClickHouse.
+@pytest.fixture(scope="module", autouse=True)
+def _clickhouse_test_database(django_db_setup):
+    pass
+
+
 def _make_event_row(distinct_id: str, event: str, lib: str, team_id: int) -> dict:
     return {
         "uuid": str(uuid4()),

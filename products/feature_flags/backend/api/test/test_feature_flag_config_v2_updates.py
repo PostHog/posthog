@@ -599,10 +599,11 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
     @parameterized.expand(["has_encrypted_payloads", "is_remote_configuration"])
     def test_unsupported_flag_families_are_not_admitted(self, field: str) -> None:
         # Not in the admitted family, so the write falls back to the closed path rather
-        # than gaining a v2 route through it.
+        # than gaining a v2 route through it. encrypted_payloads_require_remote_config ties the
+        # two markers, so the encrypted row carries the remote configuration marker too.
         flag = self.flag(
             has_encrypted_payloads=field == "has_encrypted_payloads",
-            is_remote_configuration=field == "is_remote_configuration",
+            is_remote_configuration=True,
         )
         response = self.patch_flag(flag, {"version": 3, "filters": config(targeted())})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
