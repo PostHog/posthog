@@ -800,7 +800,7 @@ export const errorTrackingQueryIssuesListCreateBodyFilterGroupItemOperatorDefaul
 export const errorTrackingQueryIssuesListCreateBodyFilterGroupItemTypeDefault = `event`
 export const errorTrackingQueryIssuesListCreateBodyOrderByDefault = `occurrences`
 export const errorTrackingQueryIssuesListCreateBodyOrderDirectionDefault = `DESC`
-export const errorTrackingQueryIssuesListCreateBodyLimitDefault = 25
+export const errorTrackingQueryIssuesListCreateBodyLimitDefault = 10
 export const errorTrackingQueryIssuesListCreateBodyLimitMax = 100
 
 export const errorTrackingQueryIssuesListCreateBodyOffsetDefault = 0
@@ -978,7 +978,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .min(1)
         .max(errorTrackingQueryIssuesListCreateBodyLimitMax)
         .default(errorTrackingQueryIssuesListCreateBodyLimitDefault)
-        .describe('Page size.'),
+        .describe('Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.'),
     offset: zod
         .number()
         .min(errorTrackingQueryIssuesListCreateBodyOffsetMin)
@@ -989,7 +989,9 @@ export const ErrorTrackingQueryIssuesListCreateBody = /* @__PURE__ */ zod.object
         .min(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMin)
         .max(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault)
-        .describe('Number of volume buckets. Defaults to 0 for compact aggregate counts.'),
+        .describe(
+            'Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.'
+        ),
     library: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
