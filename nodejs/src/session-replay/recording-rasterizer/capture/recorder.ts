@@ -84,14 +84,14 @@ export async function rasterizeRecording(
     let capturePage: CapturePage | null = null
     let blockCount: number | null = null
     let compressedBytes: number | null = null
+    const viewport = {
+        width: input.viewport_width || 1280,
+        height: (input.viewport_height || 720) + (input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0),
+    }
     try {
         // An abort that fired while getPage was launching Chromium predates the listener above and
         // would otherwise be silently missed; the finally below releases the page.
         signal?.throwIfAborted()
-        const viewport = {
-            width: input.viewport_width || 1280,
-            height: (input.viewport_height || 720) + (input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0),
-        }
         const playerUrl = `${cfg.siteUrl}/player`
         capturePage = await CapturePage.prepare(rawPage, viewport, playerUrl, playerHtml, cfg.captureBrowserLogs, log)
 
@@ -159,8 +159,8 @@ export async function rasterizeRecording(
             // Recording traits to find out which recordings wedge the compositor.
             log.error(
                 {
-                    viewport_width: input.viewport_width,
-                    viewport_height: input.viewport_height,
+                    viewport_width: viewport.width,
+                    viewport_height: viewport.height,
                     playback_speed: captureConfig.playbackSpeed,
                     capture_fps: captureConfig.captureFps,
                     block_count: blockCount,
