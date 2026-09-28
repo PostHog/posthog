@@ -34,6 +34,8 @@ from posthog.models.team import Team
 from posthog.rate_limit import IPThrottle
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.ai_observability.backend.prompt_references import resolve_prompt_references
+
 from ..facade.api import is_shared_interviewee_context, valid_distinct_id, valid_session_id
 from ..logic import (
     RESPONDENT_KEY_MAX_CHARS,
@@ -171,7 +173,9 @@ def _resolve_first_message_template(team: Team) -> str:
     if cached is not None:
         template = cached.get("prompt")
         if isinstance(template, str) and template.strip():
-            return template
+            resolved = resolve_prompt_references(team, template)
+            if resolved is not None:
+                return resolved
     return DEFAULT_FIRST_MESSAGE_TEMPLATE
 
 

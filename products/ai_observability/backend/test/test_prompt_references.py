@@ -1,8 +1,13 @@
+from unittest.mock import MagicMock, patch
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.ai_observability.backend import prompt_references
 from products.ai_observability.backend.prompt_references import PromptReference, parse_prompt_references
+
+RESOLVER = "products.ai_observability.backend.prompt_references"
 
 
 class TestParsePromptReferences(SimpleTestCase):
@@ -57,3 +62,38 @@ class TestParsePromptReferences(SimpleTestCase):
     )
     def test_parse(self, _name: str, text: str, expected: list[PromptReference]) -> None:
         assert parse_prompt_references(text) == expected
+
+
+class TestResolvePromptReferences(SimpleTestCase):
+    def setUp(self) -> None:
+        self.team = MagicMock()
+
+    def test_returns_content_unchanged_when_no_references(self) -> None:
+        with patch(f"{RESOLVER}.get_prompt_by_name_from_cache") as cache:
+            result = prompt_references.resolve_prompt_references(self.team, "plain prompt, no tags")
+        assert result == "plain prompt, no tags"
+        cache.assert_not_called()
+
+    @patch(f"{RESOLVER}.prompt_partials_enabled", return_value=False)
+    def test_passes_through_raw_tags_when_flag_off(self, _flag: MagicMock) -> None:
+        content = "before @@@prompt:name=foo|label=live@@@ after"
+        with patch(f"{RESOLVER}.get_prompt_by_name_from_cache") as cache:
+            result = prompt_references.resolve_prompt_references(self.team, content)
+        assert result == content
+        cache.assert_not_called()
+
+    @patch(f"{RESOLVER}.prompt_partials_enabled", return_value=True)
+    @patch(f"{RESOLVER}.get_prompt_by_name_from_cache")
+    def test_splices_referenced_content_when_flag_on(self, cache: MagicMock, _flag: MagicMock) -> None:
+        cache.return_value = {"prompt": "CHILD", "version": 2}
+        result = prompt_references.resolve_prompt_references(self.team, "before @@@prompt:name=foo|label=live@@@ after")
+        assert result == "before CHILD after"
+
+    @patch(f"{RESOLVER}.prompt_partials_enabled", return_value=True)
+    @patch(f"{RESOLVER}.get_prompt_by_name_from_cache")
+    def test_returns_none_when_reference_unresolvable(self, cache: MagicMock, _flag: MagicMock) -> None:
+        # A referenced prompt that holds a tag of its own can't be spliced in; the caller
+        # must fall back to its default rather than send a raw tag to the model.
+        cache.return_value = {"prompt": "nested @@@prompt:name=bar|label=live@@@", "version": 1}
+        result = prompt_references.resolve_prompt_references(self.team, "before @@@prompt:name=foo|label=live@@@ after")
+        assert result is None
