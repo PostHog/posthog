@@ -312,7 +312,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                 slack_channel_id: 'C123',
                 sfdc_id: '',
                 stripe_customer_id: 'stripe-new',
-                email_domains: ['@Example.com ', 'example.com'],
+                email_domains: [' @Example.com', 'example.com'],
                 known_emails: [],
             })
             logic.actions.submitAccountForm()

@@ -3,5 +3,5 @@ export function cleanEmails(values: string[]): string[] {
 }
 
 export function cleanDomains(values: string[]): string[] {
-    return cleanEmails(values.map((value) => value.replace(/^@/, '')))
+    return cleanEmails(values.map((value) => value.trim().replace(/^@/, '')))
 }
