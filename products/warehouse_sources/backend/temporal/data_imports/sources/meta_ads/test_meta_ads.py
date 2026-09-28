@@ -2153,12 +2153,15 @@ class TestHoistedColumns:
             ),
             (
                 MetaAdsResource.AdCreatives,
-                {"id": "creative-1", "asset_feed_spec": {"link_urls": [{"website_url": "https://example.com/d"}]}},
-                {"landing_page_url": "https://example.com/d"},
-            ),
-            (
-                MetaAdsResource.AdCreatives,
-                {"id": "creative-1", "asset_feed_spec": {"link_urls": []}},
+                {
+                    "id": "creative-1",
+                    "asset_feed_spec": {
+                        "link_urls": [
+                            {"website_url": "https://example.com/d"},
+                            {"website_url": "https://example.com/e"},
+                        ]
+                    },
+                },
                 {"landing_page_url": None},
             ),
         ],

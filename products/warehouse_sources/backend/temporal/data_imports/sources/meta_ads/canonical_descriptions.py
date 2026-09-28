@@ -228,8 +228,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "effective_authorization_category": "Whether the ad is categorized as political or issue advertising.",
             "landing_page_url": (
                 "The landing page URL the creative sends people to. It is the first value found in "
-                "link_url, the link ad link, the video call to action link, or the first asset feed link URL. "
-                "Join through ads.creative_id to ad_stats to get spend by landing page for all ads."
+                "link_url, the link ad link, or the video call to action link. "
+                "Join through ads.creative_id to ad_stats to get spend by landing page. "
+                "Asset feed ads can send people to several URLs, so this column can be empty for them. "
+                "Use ad_stats_by_link_url for their spend by landing page."
             ),
         },
     },
@@ -348,7 +350,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "Daily ad Insights split by the landing page each ad sent people to. "
             "Meta builds this split from creative assets and reports it only for asset feed ads "
             "(dynamic creative and Advantage+ creative). Other ads have no row here, so the total "
-            "spend is usually much lower than in ad_stats. For spend by landing page across all ads, "
+            "spend is usually much lower than in ad_stats. For spend by landing page of other ads, "
             "join ad_stats to ads and ad_creatives and use ad_creatives.landing_page_url. "
             "Meta does not report unique metrics such as reach and frequency with creative asset "
             "breakdowns, so this table omits them."

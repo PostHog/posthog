@@ -175,13 +175,13 @@ class HoistedColumn:
     source lifts it into a column of its own. The nested field stays, because it carries more than
     the hoisted key.
 
-    Each path is a chain of object keys and list indexes. The column takes the value at the first
+    Each path is a chain of object keys. The column takes the value at the first
     path that has one, because Meta puts the same value in different places for different kinds of
     object.
     """
 
     column: str
-    paths: tuple[tuple[str | int, ...], ...]
+    paths: tuple[tuple[str, ...], ...]
 
 
 # The Insights `level` and its grain column, which heads that level's primary key and field list.
@@ -513,6 +513,8 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         # Each kind of creative keeps its destination in a different field, so a user who wants
         # spend by landing page otherwise has to unpack JSON. `ad_stats_by_link_url` does not
         # cover this, because Meta reports the `link_url_asset` breakdown for asset feed ads only.
+        # `asset_feed_spec.link_urls` is not read: an asset feed ad can send people to several
+        # URLs, and one URL per creative would give the ad's full spend to one of them.
         "hoisted_columns": (
             HoistedColumn(
                 column="landing_page_url",
@@ -520,7 +522,6 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
                     ("link_url",),
                     ("object_story_spec", "link_data", "link"),
                     ("object_story_spec", "video_data", "call_to_action", "value", "link"),
-                    ("asset_feed_spec", "link_urls", 0, "website_url"),
                 ),
             ),
         ),

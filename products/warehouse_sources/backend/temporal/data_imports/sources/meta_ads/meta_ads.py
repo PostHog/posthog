@@ -942,15 +942,12 @@ def _fetch_single_object(url: str, params: dict, access_token: str) -> collectio
     yield [response.json()]
 
 
-def _value_at_path(row: dict, path: tuple[str | int, ...]) -> typing.Any:
+def _value_at_path(row: dict, path: tuple[str, ...]) -> typing.Any:
     value: typing.Any = row
-    for step in path:
-        if isinstance(step, int) and isinstance(value, list) and 0 <= step < len(value):
-            value = value[step]
-        elif isinstance(step, str) and isinstance(value, dict):
-            value = value.get(step)
-        else:
+    for key in path:
+        if not isinstance(value, dict):
             return None
+        value = value.get(key)
     return value
 
 
