@@ -8,16 +8,10 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from django.db import transaction
-from django.db.models import Q
-from django.utils import timezone
+from django.db.models import Exists, OuterRef, Q
 
 from products.alerts.backend.facade.contracts import PlatformAlertCheck, PlatformAlertOutcome, PlatformAlertUpsert
-from products.alerts.backend.facade.scheduling import (
-    advance_next_check_at,
-    compute_shard_offset_seconds,
-    parse_blocked_windows_tuples,
-    scan_next_unblocked_utc,
-)
+from products.alerts.backend.facade.scheduling import advance_next_check_at, compute_shard_offset_seconds
 from products.alerts.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 
@@ -56,12 +50,38 @@ def _alerts_for_write(team_id: int, configurations: Sequence[PlatformAlertConfig
     return existing
 
 
+def suppressed() -> Exists:
+    """Configurations a runtime state holds back.
+
+    BROKEN only. A mute holds an announcement rather than a check, so a snoozed alert is
+    discovered and evaluated like any other and its state keeps tracking reality.
+
+    The state lives on `PlatformAlert`, so discovery and the batch read both reach for this
+    rather than each writing the predicate out. If the two disagreed, a broken alert would be
+    dispatched by one and dropped by the other, every tick, in silence.
+
+    Excluded as one `Exists` rather than as a lookup across the relation. Django splits an
+    excluded multi-valued lookup into a subquery per leaf, which lets the conditions match
+    different alert rows once a source writes a real grouping key, and buries them where
+    Postgres cannot lift them into an anti-join.
+    """
+    # `unscoped` because the subquery runs without ambient scope in both callers, and it is
+    # correlated to a configuration the outer query has already scoped, so the foreign key keeps
+    # it inside that team.
+    return Exists(
+        PlatformAlert.objects.unscoped().filter(
+            configuration=OuterRef("pk"), grouping_key="", state=PlatformAlert.State.BROKEN
+        )
+    )
+
+
 def due_checks(team_id: int, source_kind: str, slot: str, cutoff: datetime) -> tuple[PlatformAlertCheck, ...]:
     """Every configuration in one batch key, with its runtime state, ready to evaluate."""
     configurations = list(
         PlatformAlertConfiguration.objects.for_team(team_id)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
+        .exclude(suppressed())
         # Ordered so a retried attempt keeps the same alerts under any downstream cap.
         .order_by("id")
     )
@@ -106,15 +126,14 @@ def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:
     return (next_check_at or cutoff).replace(second=0, microsecond=0).isoformat()
 
 
-def record_outcomes(
-    team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime, *, team_timezone: str
-) -> int:
+def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
     Two statements rather than two per alert, in one transaction, so a crash between them cannot
     leave an alert marked as notified while its schedule still says the check is due. The schedule
-    advances the way the source's own stack advances it: sharded across the cadence so a fleet does
-    not converge on one minute, then pushed past any blocked window.
+    advances the way the source's own stack advances it, sharded across the cadence so a fleet does
+    not converge on one minute. A schedule restriction does not move it, because a restricted check
+    still runs and only its announcement is held.
 
     Safe to run twice on the same batch. An attempt that commits leaves every configuration due
     after `now`, and a replay of that attempt skips those rows rather than advancing them a second
@@ -144,17 +163,13 @@ def record_outcomes(
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
                 configuration.enabled = False
-            next_check_at = advance_next_check_at(
+            configuration.next_check_at = advance_next_check_at(
                 configuration.next_check_at,
                 configuration.check_interval_minutes,
                 now,
                 shard_offset_seconds=compute_shard_offset_seconds(
                     configuration.id, configuration.check_interval_minutes
                 ),
-            )
-            windows = parse_blocked_windows_tuples(configuration.schedule_restriction)
-            configuration.next_check_at = (
-                scan_next_unblocked_utc(next_check_at, team_timezone, windows) or next_check_at
             )
 
         PlatformAlert.objects.for_team(team_id).bulk_update(list(alerts.values()), ["state", "last_notified_at"])
@@ -190,11 +205,7 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             },
         )
         alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
-        # Logs-style evaluation honors `snooze_until` only while the state is SNOOZED.
-        if upsert.snooze_until is not None and upsert.snooze_until > timezone.now():
-            alert.state = PlatformAlert.State.SNOOZED
-        elif alert.state == PlatformAlert.State.SNOOZED:
-            alert.state = PlatformAlert.State.NOT_FIRING
+        # State is left alone because a muted alert keeps tracking reality.
         alert.snooze_until = upsert.snooze_until
-        alert.save(update_fields=["state", "snooze_until"])
+        alert.save(update_fields=["snooze_until"])
     return created
