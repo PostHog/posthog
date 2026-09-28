@@ -30,6 +30,7 @@ class PosthogJwtAudience(Enum):
     TASKS_CREATE = "posthog:tasks:create"
     CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
+    WORKFLOW_CLASSIFY = "posthog:workflows:classify"
     CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
     SECURITY_HUB_RULES = "posthog:security_hub:rules"
