@@ -1263,6 +1263,23 @@ describe('featureFlagLogic', () => {
             await expectLogic(logic).toFinishAllListeners().toMatchValues({ activeTab: FeatureFlagsTab.HISTORY })
         })
 
+        it('offers the testing tab from a ?tab=testing deep link only once the flag has an id', async () => {
+            logic.unmount()
+            router.actions.push(`${urls.featureFlag(1)}?tab=testing`)
+
+            logic = featureFlagLogic({ id: 1 })
+            logic.mount()
+
+            // The NEW_FLAG placeholder has no id, and the testing logic needs one as its key
+            expect(logic.values.featureFlag.id).toBeFalsy()
+            expect(logic.values.availableTabs).not.toContain(FeatureFlagsTab.TESTING)
+            expect(logic.values.activeTab).toEqual(FeatureFlagsTab.OVERVIEW)
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ selectedTab: FeatureFlagsTab.TESTING, activeTab: FeatureFlagsTab.TESTING })
+        })
+
         it('clamps a deep link to a tab the flag does not offer', async () => {
             useMocks({
                 get: {

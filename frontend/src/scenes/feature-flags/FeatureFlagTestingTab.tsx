@@ -1,6 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonCalendarSelectInput, LemonLabel, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCalendarSelectInput,
+    LemonLabel,
+    LemonSkeleton,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable/PropertiesTable'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -68,7 +75,21 @@ function FlagResultValue({ value }: { value: TestResult['result'] }): JSX.Elemen
 }
 
 export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
-    const logic = featureFlagTestingLogic({ flagId: featureFlag.id! })
+    // The testing logic is keyed by flag id, so it cannot mount before the flag loads
+    if (!featureFlag.id) {
+        return <LemonSkeleton className="h-32 w-full" />
+    }
+    return <FeatureFlagTestingTabContent featureFlag={featureFlag} flagId={featureFlag.id} />
+}
+
+function FeatureFlagTestingTabContent({
+    featureFlag,
+    flagId,
+}: {
+    featureFlag: FeatureFlagType
+    flagId: number
+}): JSX.Element {
+    const logic = featureFlagTestingLogic({ flagId })
 
     const {
         testFormData: formData,
@@ -109,9 +130,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
         if (hasMultipleDistinctIds) {
             // Evaluate every merged distinct ID in one go so their variants can be
             // compared side by side, rather than re-running the tool per ID.
-            testAllDistinctIds({ flagId: featureFlag.id!, distinctIds: personDistinctIds, formData })
+            testAllDistinctIds({ flagId, distinctIds: personDistinctIds, formData })
         } else {
-            testFlagEvaluation({ flagId: featureFlag.id!, formData })
+            testFlagEvaluation({ flagId, formData })
         }
     }
 
