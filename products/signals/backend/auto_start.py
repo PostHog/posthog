@@ -481,6 +481,7 @@ def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, stee
                 "notes_attached": steering.notes_attached,
                 "scratchpad_available": steering.scratchpad_available,
                 "memory_protocol": steering.memory_protocol,
+                "nudge_rendered": steering.nudge_rendered,
             },
             groups=groups(team.organization, team),
         )
