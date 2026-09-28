@@ -6543,6 +6543,26 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_only_the_task_bound_sandbox_reads_a_product_private_task(self):
+        private_task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Question",
+            description="Answer from business knowledge",
+            origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE,
+        )
+        other_task = self.create_task()
+        own_sandbox = self._sandbox_oauth_client(private_task.id)
+        other_sandbox = self._sandbox_oauth_client(other_task.id, client_id=POSTHOG_AI_APP_CLIENT_ID_DEV)
+        url = f"/api/projects/@current/tasks/{private_task.id}/"
+
+        own = own_sandbox.get(url)
+
+        self.assertEqual(own.status_code, status.HTTP_200_OK)
+        self.assertEqual(own.json()["description"], "Answer from business knowledge")
+        self.assertEqual(other_sandbox.get(url).status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(self.client.get(url).status_code, status.HTTP_404_NOT_FOUND)
+
     @parameterized.expand(
         [
             # Both caller-controlled output writers have to enforce this: the dedicated set_output

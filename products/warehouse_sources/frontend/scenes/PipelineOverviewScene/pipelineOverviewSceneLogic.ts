@@ -39,12 +39,13 @@ import type { ExternalDataDestinationApi } from 'products/warehouse_sources/fron
 export type PipelineStatsWindow = 1 | 7 | 30
 
 /**
- * `data_health_issues` and `completed_activity` both answer for the whole warehouse, which
- * includes materialized views and batch exports. This scene is about imports and the
- * destinations they write to, so those are filtered out here rather than shown as pipelines
- * the reader cannot act on from this page.
+ * `data_health_issues` and `completed_activity` both answer for the whole warehouse. Only these
+ * two types are imports. The endpoint's `destination` type is a batch export or a CDP
+ * destination, not a warehouse destination, and `materialized_view` and `transformation` belong
+ * to other products. A warehouse destination that fails does surface here, as an
+ * `external_data_sync` issue whose error carries the destination's name.
  */
-const SYNC_ISSUE_TYPES = ['external_data_sync', 'source', 'destination']
+const SYNC_ISSUE_TYPES = ['external_data_sync', 'source']
 
 /** `app_source` the import pipeline emits its metrics under. */
 const WAREHOUSE_APP_SOURCE = 'warehouse_source_sync'
