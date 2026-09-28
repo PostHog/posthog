@@ -660,6 +660,11 @@ def _canonical_operational_scouts() -> frozenset[str]:
         return frozenset()
 
 
+def canonical_operational_scout_names() -> frozenset[str]:
+    """Names of every canonical scout that declares `scout-role: operational`."""
+    return _canonical_operational_scouts()
+
+
 def is_operational_scout(skill_name: str) -> bool:
     """Whether the canonical scout of this name watches the self-driving system itself.
 

@@ -1,11 +1,13 @@
 import re
 import uuid
+from urllib.parse import unquote
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import requests
 from boto3 import resource
 from botocore.client import Config
 from botocore.exceptions import ClientError
@@ -24,6 +26,7 @@ from posthog.storage.object_storage import (
     UnavailableStorage,
     copy_objects,
     get_presigned_post,
+    get_presigned_put,
     get_presigned_url,
     health_check,
     is_usable_endpoint,
@@ -49,7 +52,7 @@ class TestStorage(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_does_not_create_client_if_storage_is_disabled(self, patched_s3_client) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             assert not health_check()
@@ -111,6 +114,40 @@ class TestStorage(APIBaseTest):
                 r"^http://localhost:\d+/posthog",
                 presigned_url["url"],
             )
+
+    def test_can_upload_through_a_presigned_put_url(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_can_generate_presigned_put_url/{uuid.uuid4()}"
+
+            presigned_url = get_presigned_put(file_name)
+            assert presigned_url is not None
+            # A PUT addresses the object itself, where a POST addresses the bucket root.
+            assert re.match(rf"^http://localhost:\d+/posthog/{re.escape(file_name)}\?", presigned_url)
+
+            response = requests.put(presigned_url, data=b"my content")
+
+            assert response.status_code == 200, response.text
+            assert read(file_name) == "my content"
+
+    def test_presigned_put_url_rejects_a_body_of_another_length(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            file_name = f"{TEST_BUCKET}/test_presigned_put_signs_length/{uuid.uuid4()}"
+            content = b"my content"
+
+            presigned_url = get_presigned_put(file_name, content_length=len(content))
+            assert presigned_url is not None
+            # A signed `content-length` is the only size condition a presigned PUT can carry, and
+            # it replaces the `content-length-range` a POST policy holds.
+            signed_headers = re.search(r"X-Amz-SignedHeaders=([^&]+)", presigned_url)
+            assert signed_headers is not None
+            assert "content-length" in unquote(signed_headers.group(1)).split(";")
+
+            oversized = requests.put(presigned_url, data=content + b" and more")
+
+            assert oversized.status_code >= 400
+            assert read(file_name, missing_ok=True) is None
+            assert requests.put(presigned_url, data=content).status_code == 200
+            assert read(file_name) == "my content"
 
     def test_can_list_objects_with_prefix(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
@@ -278,7 +315,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert is_usable_endpoint(endpoint) is expected
 
     @patch("posthog.storage.object_storage.capture_exception")
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_bad_public_endpoint_does_not_crash_read_path(self, patched_client, patched_capture) -> None:
         # A bad public endpoint must never raise out of the factory — readers route through it.
         with self.settings(
@@ -296,7 +333,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         patched_capture.assert_called_once()
 
     @patch("posthog.storage.object_storage.capture_exception")
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_boto_failure_building_presigned_client_degrades(self, patched_client, patched_capture) -> None:
         internal_client = MagicMock()
         patched_client.side_effect = [internal_client, ValueError("Invalid endpoint")]
@@ -313,7 +350,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert storage.presigned_client is internal_client
         patched_capture.assert_called_once()
 
-    @patch("posthog.storage.object_storage.client")
+    @patch("boto3.client")
     def test_valid_public_endpoint_builds_separate_presigned_client(self, patched_client) -> None:
         internal_client = MagicMock()
         presigned_client = MagicMock()
