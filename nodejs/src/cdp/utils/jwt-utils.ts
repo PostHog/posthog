@@ -8,6 +8,7 @@ export enum PosthogJwtAudience {
     WORKFLOWS_CANCEL_BATCH = 'posthog:workflows:cancel_batch',
     WORKFLOWS_STEP_RESUME = 'posthog:workflows:step_resume',
     CUSTOMER_TASKS_CREATE = 'posthog:customer-tasks:create',
+    CUSTOMER_TASKS_REPORT = 'posthog:customer-tasks:report',
     TASKS_CREATE = 'posthog:tasks:create',
     WORKFLOW_SCOUT_RUN = 'posthog:workflows:scout_run',
     // Must match PosthogJwtAudience.CONVERSATIONS_TICKETS in posthog/jwt.py exactly.

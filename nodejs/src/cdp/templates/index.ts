@@ -30,6 +30,7 @@ import { template as posthogUpdateTicketTemplate } from './_destinations/posthog
 import { template as posthogCreateAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-create-account.template'
 import { template as posthogCreateCustomerTaskTemplate } from './_destinations/posthog_customer_analytics/posthog-create-customer-task.template'
 import { template as posthogGetAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-get-account.template'
+import { template as posthogReportCustomerTaskTemplate } from './_destinations/posthog_customer_analytics/posthog-report-customer-task.template'
 import { template as posthogTagAccountTemplate } from './_destinations/posthog_customer_analytics/posthog-tag-account.template'
 import { template as posthogUpdateAccountPropertyTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-property.template'
 import { template as posthogUpdateAccountRelationshipsTemplate } from './_destinations/posthog_customer_analytics/posthog-update-account-relationships.template'
@@ -109,6 +110,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     posthogRunScoutTemplate,
     posthogCreateAccountTemplate,
     posthogCreateCustomerTaskTemplate,
+    posthogReportCustomerTaskTemplate,
     posthogGetAccountTemplate,
     posthogTagAccountTemplate,
     posthogUpdateAccountRelationshipsTemplate,
