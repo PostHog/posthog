@@ -1728,11 +1728,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         updatedDashboard.persisted_filters = latestDashboard.persisted_filters
                         updatedDashboard.persisted_variables = latestDashboard.persisted_variables
                         if (scope === 'colors' && breakdownColorsChanged) {
+                            const autoCount = breakdownColorsToSave.filter((color) => color.source === 'auto').length
                             posthog.capture('dashboard breakdown colors saved', {
                                 dashboard_id: values.dashboard?.id,
                                 dashboard: sanitizeDashboard(values.dashboard),
-                                manual_count: breakdownColorsToSave.filter((c) => c.source !== 'auto').length,
-                                auto_count: breakdownColorsToSave.filter((c) => c.source === 'auto').length,
+                                manual_count: breakdownColorsToSave.length - autoCount,
+                                auto_count: autoCount,
                                 breakdown_types: Array.from(
                                     new Set(breakdownColorsToSave.map((c) => String(c.breakdownType)))
                                 ),
