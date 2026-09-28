@@ -598,8 +598,9 @@ export interface AccessControlFilterWarning {
 /**
  * `no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds
  * where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.
+ * `repeated_cte`: UNION ALL presentation branches reference the same events-reading CTE.
  */
-export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join'
+export type QueryScanFindingKind = 'no_event_filter' | 'no_start_date' | 'persons_join' | 'repeated_cte'
 
 /** Where the change that fixes a finding goes. `insight_date_range` is the range a SQL insight takes through `{filters}`. */
 export type QueryScanFixLocation = 'query' | 'subquery' | 'view' | 'insight_date_range' | 'dashboard_date_filter'

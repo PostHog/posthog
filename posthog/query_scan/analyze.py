@@ -140,6 +140,20 @@ def _findings_for_plan(
     view_name = tree.view_name if tree is not None else None
     findings: list[QueryScanWarning] = []
 
+    if is_sql and tree is not None and tree.repeated_cte_branches >= 2 and len(plan.events_reads()) >= 2:
+        findings.append(
+            build_warning(
+                kind=QueryScanFindingKind.REPEATED_CTE,
+                query_kind=query_kind,
+                evidence=(
+                    f"{tree.repeated_cte_branches} UNION ALL branches reference the same events-reading CTE. "
+                    f"The EXPLAIN plan contains {len(plan.events_reads())} events reads; "
+                    "this is a rewrite candidate, not a measured saving."
+                ),
+                subquery_index=subquery_index,
+            )
+        )
+
     # "All time" reaches the plan as a bound at the project's first event, so only the setting
     # says the person chose no start date; it applies to the outer query, not its subqueries. It is
     # one click to change, so it is reported at any size.

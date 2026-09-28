@@ -87,6 +87,23 @@ def analyze_fixture(
 
 
 class TestAnalyze(SimpleTestCase):
+    @parameterized.expand([(2, "HogQLQuery", True), (1, "HogQLQuery", False), (2, "TrendsQuery", False)])
+    def test_repeated_cte_requires_multiple_plan_reads(self, reads: int, query_kind: str, expected: bool) -> None:
+        result = analyze_fixture(
+            join_plan(*(events_read_node(_BOTH_BOUNDS, ["timestamp"]) for _ in range(reads))),
+            query_kind=query_kind,
+            event_filter=_USABLE_EVENT_FILTER,
+            tree=TreeFacts(repeated_cte_branches=2, view_name="v_active"),
+        )
+        warnings = [finding for finding in result.findings if finding.kind == "repeated_cte"]
+        self.assertEqual(len(warnings), int(expected))
+        if expected:
+            self.assertTrue(warnings[0].actionable)
+            self.assertEqual(warnings[0].fix_location, "query")
+            self.assertIn("2 UNION ALL branches", warnings[0].evidence)
+            self.assertIn("ARRAY JOIN", warnings[0].message)
+            self.assertIn("empty", warnings[0].fix)
+
     @parameterized.expand(
         [
             # event gate: the read is a large share of the range, so the missing event filter is flagged

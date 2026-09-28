@@ -67,6 +67,7 @@ class TreeFacts:
     # Every events read carries a lower bound and one of them compares `timestamp` to a subquery, so a
     # read the plan shows with no start is that bound: the scan takes it out before it asks for the plan.
     start_date_hidden_from_plan: bool = False
+    repeated_cte_branches: int = 0
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -77,6 +78,7 @@ class TreeFacts:
             "groups_by_event": self.groups_by_event,
             "counts_any_event": self.counts_any_event,
             "view_name": self.view_name,
+            "repeated_cte_branches": self.repeated_cte_branches,
         }
 
     @classmethod
@@ -85,6 +87,7 @@ class TreeFacts:
         if not isinstance(payload, dict):
             return None
         view_name = payload.get("view_name")
+        repeated = payload.get("repeated_cte_branches")
         return cls(
             timestamp_bound=payload.get("timestamp_bound") is True,
             property_filter=payload.get("property_filter") is True,
@@ -93,6 +96,7 @@ class TreeFacts:
             counts_any_event=payload.get("counts_any_event") is True,
             view_name=view_name if isinstance(view_name, str) and view_name else None,
             start_date_hidden_from_plan=payload.get("start_date_hidden_from_plan") is True,
+            repeated_cte_branches=repeated if type(repeated) is int and repeated >= 2 else 0,
         )
 
 
@@ -130,7 +134,93 @@ def tree_facts(tree: ast.AST, reads: list[EventsRead] | None = None) -> TreeFact
         counts_any_event=bool(unfiltered) and all(read.counts_any_event for read in unfiltered),
         view_name=next(iter(view_names)) if len(view_names) == 1 else None,
         start_date_hidden_from_plan=not unbounded and any(read.subquery_bound for read in facts),
+        repeated_cte_branches=_repeated_cte_branches(tree, reads),
     )
+
+
+def _repeated_cte_branches(tree: ast.AST, reads: list[EventsRead]) -> int:
+    # Only CTEs defined by this query: inlined set-query views lose their view provenance.
+    initial = tree.initial_select_query if isinstance(tree, ast.SelectSetQuery) else tree
+    if not isinstance(initial, ast.SelectQuery) or not initial.ctes:
+        return 0
+    definitions = {
+        id(cte.expr.type): cte
+        for cte in initial.ctes.values()
+        if cte.cte_type == "subquery" and cte.expr.type is not None
+    }
+    finder = _RepeatedCTEBranches(definitions, {id(read.table_type) for read in reads})
+    finder.visit(tree)
+    return finder.branches
+
+
+class _RepeatedCTEBranches(TraversingVisitor):
+    def __init__(self, definitions: dict[int, ast.CTE], events_types: set[int]) -> None:
+        super().__init__()
+        self.definitions = definitions
+        self.events_types = events_types
+        self.branches = 0
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        if node.subsequent_select_queries and all(
+            branch.set_operator == "UNION ALL" for branch in node.subsequent_select_queries
+        ):
+            sources = [self._source(branch) for branch in node.select_queries()]
+            source = sources[0]
+            if source is not None and all(other is source for other in sources):
+                cte = self.definitions.get(id(source))
+                if cte is not None and not cte.materialized and not cte.recursive and self._reads_events(source, set()):
+                    self.branches = max(self.branches, len(sources))
+        super().visit_select_set_query(node)
+
+    def _source(
+        self, branch: ast.SelectQuery | ast.SelectSetQuery
+    ) -> ast.SelectQueryType | ast.SelectSetQueryType | None:
+        if not isinstance(branch, ast.SelectQuery):
+            return None
+        # Only presentation branches: predicates, joins and row slicing can justify separate reads.
+        if any(
+            value is not None and value is not False
+            for value in (
+                branch.where,
+                branch.prewhere,
+                branch.having,
+                branch.qualify,
+                branch.group_by,
+                branch.distinct,
+                branch.array_join_list,
+                branch.offset,
+                branch.limit_by,
+                branch.window_exprs,
+            )
+        ):
+            return None
+        if branch.limit is not None and branch.limit.start is not None:
+            return None
+        join = branch.select_from
+        if join is None or join.next_join is not None or join.sample is not None or join.constraint is not None:
+            return None
+        source = join.type
+        if isinstance(source, ast.CTETableAliasType):
+            source = source.cte_table_type
+        return source.select_query_type if isinstance(source, ast.CTETableType) else None
+
+    def _reads_events(self, source: ast.Type, seen: set[int]) -> bool:
+        if id(source) in seen:
+            return False
+        seen.add(id(source))
+        if id(source) in self.events_types:
+            return True
+        if isinstance(source, ast.TableAliasType | ast.ColumnAliasedTableType):
+            return self._reads_events(source.table_type, seen)
+        if isinstance(source, ast.CTETableAliasType):
+            return self._reads_events(source.cte_table_type, seen)
+        if isinstance(source, ast.CTETableType | ast.SelectQueryAliasType | ast.SelectViewType):
+            return self._reads_events(source.select_query_type, seen)
+        if isinstance(source, ast.SelectQueryType):
+            return any(self._reads_events(table, seen) for table in source.tables.values())
+        if isinstance(source, ast.SelectSetQueryType):
+            return any(self._reads_events(branch, seen) for branch in source.types)
+        return False
 
 
 def _read_facts(read: EventsRead, conditions: list[ast.Expr], parents: _ParentSelects) -> _ReadFacts:

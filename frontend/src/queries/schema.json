@@ -49134,8 +49134,8 @@
             "type": "object"
         },
         "QueryScanFindingKind": {
-            "description": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do.",
-            "enum": ["no_event_filter", "no_start_date", "persons_join"],
+            "description": "`no_event_filter`: nothing narrows the query to particular events. `no_start_date`: nothing bounds where it starts reading. `persons_join`: the join to the persons tables reads as much as the events do. `repeated_cte`: UNION ALL presentation branches reference the same events-reading CTE.",
+            "enum": ["no_event_filter", "no_start_date", "persons_join", "repeated_cte"],
             "type": "string"
         },
         "QueryScanFixLocation": {
