@@ -179,6 +179,10 @@ FINNHUB_ENDPOINTS: dict[str, FinnhubEndpointConfig] = {
         # Financial statements are only worth having with several years of history behind them.
         lookback_days=1825,
         should_sync_default=False,
+        # Known limitation: a report re-filed after a newer period has already synced (its
+        # endDate older than the saved cursor) won't be picked up by this from/to window. Fixing
+        # that needs a periodic full rescan, since a restatement can reference an arbitrarily old
+        # period; left as a documented gap rather than expanding this source's sync strategy.
         incremental_fields=[
             {
                 "label": "endDate",
@@ -205,6 +209,10 @@ FINNHUB_ENDPOINTS: dict[str, FinnhubEndpointConfig] = {
         forward_days=1,
         lookback_days=730,
         should_sync_default=False,
+        # Known limitation: Finnhub adjusts daily candles for splits, so a split can change bars
+        # older than the saved cursor. Incremental requests only start at the cursor day, so
+        # those stored bars go stale. Fixing that needs a periodic full-history refresh; left as
+        # a documented gap rather than expanding this source's sync strategy.
         incremental_fields=[
             {
                 "label": "t",
