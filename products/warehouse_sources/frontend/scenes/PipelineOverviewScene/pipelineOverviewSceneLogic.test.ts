@@ -13,10 +13,12 @@ jest.mock('products/data_warehouse/frontend/generated/api', () => ({
 
 jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
     externalDataDestinationsList: jest.fn(),
+    externalDataSourcesList: jest.fn(),
 }))
 
 jest.mock('lib/components/AppMetrics/appMetricsLogic', () => ({
     loadAppMetricsTotals: jest.fn(),
+    loadAppMetricsTimeSeries: jest.fn(),
 }))
 
 const api = jest.requireMock('products/data_warehouse/frontend/generated/api')
@@ -44,7 +46,9 @@ describe('pipelineOverviewSceneLogic', () => {
         api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({ results: [], count: 0 })
         api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({ results: [], next: null, previous: null })
         wsApi.externalDataDestinationsList.mockResolvedValue({ results: [] })
+        wsApi.externalDataSourcesList.mockResolvedValue({ results: [] })
         metrics.loadAppMetricsTotals.mockResolvedValue({})
+        metrics.loadAppMetricsTimeSeries.mockResolvedValue({ labels: [], interval: 'day', timezone: 'UTC', series: [] })
         logic = pipelineOverviewSceneLogic()
         logic.mount()
     })
@@ -150,7 +154,7 @@ describe('pipelineOverviewSceneLogic', () => {
         )
     })
 
-    it('reloads only the run counts when the window changes', async () => {
+    it('leaves the billing-period row total alone when the window changes', async () => {
         // Rows are per billing period and health is current state, so refetching them on a window
         // change would be three wasted requests per click.
         api.dataWarehouseJobStatsRetrieve.mockClear()
@@ -185,11 +189,30 @@ describe('pipelineOverviewSceneLogic', () => {
         // `dateTo` makes the query throw instead of returning rows.
         await expectLogic(logic).toFinishAllListeners()
 
-        const [request] = metrics.loadAppMetricsTotals.mock.calls[0]
+        const [request] = metrics.loadAppMetricsTimeSeries.mock.calls[0]
         expect(request.metricName).toEqual('rows_synced')
-        expect(request.breakdownBy).toEqual(['instance_id'])
+        expect(request.breakdownBy).toEqual('instance_id')
         expect(Date.parse(request.dateFrom)).not.toBeNaN()
         expect(Date.parse(request.dateTo)).not.toBeNaN()
         expect(Date.parse(request.dateFrom)).toBeLessThan(Date.parse(request.dateTo))
+    })
+
+    it('counts only the tables switched on', async () => {
+        // A source lists every schema it could offer. Counting them all would claim the pipeline
+        // runs tables nobody turned on.
+        logic.unmount()
+        wsApi.externalDataSourcesList.mockResolvedValue({
+            results: [
+                { id: 'a', schemas: [{ should_sync: true }, { should_sync: false }, { should_sync: true }] },
+                { id: 'b', schemas: [{ should_sync: true }] },
+                { id: 'c', schemas: [] },
+                { id: 'd' },
+            ],
+        })
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.syncingTableCount).toEqual(3)
     })
 })
