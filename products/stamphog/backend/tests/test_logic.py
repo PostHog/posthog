@@ -18,7 +18,7 @@ from products.stamphog.backend.logic.approval_retention import approved_diff_unc
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
-from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
+from products.stamphog.backend.logic.familiarity_facts import FamiliarityStatus, ReviewHistory, fetch_review_history
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
     StamphogGitHubClient,
@@ -288,15 +288,24 @@ class FamiliarityFactsTests(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("one_blame_fails", {"blame_error": StamphogGitHubError("502")}, True),
-            ("rate_limited", {"blame_error": GitHubRateLimitError("slow down")}, False),
-            ("history_fails", {"history_error": StamphogGitHubError("502")}, False),
+            ("one_blame_fails", {"blame_error": StamphogGitHubError("502")}, True, FamiliarityStatus.PARTIAL_BLAME),
+            ("rate_limited", {"blame_error": GitHubRateLimitError("slow down")}, False, FamiliarityStatus.RATE_LIMITED),
+            ("history_fails", {"history_error": StamphogGitHubError("502")}, False, FamiliarityStatus.HISTORY_FAILED),
+            (
+                "history_rate_limited",
+                {"history_error": GitHubRateLimitError("slow down")},
+                False,
+                FamiliarityStatus.RATE_LIMITED,
+            ),
         ]
     )
-    def test_failures_degrade_one_file_or_drop_all_facts(self, _name: str, errors: dict, facts_kept: bool) -> None:
+    def test_failures_degrade_one_file_or_drop_all_facts(
+        self, _name: str, errors: dict, facts_kept: bool, status: FamiliarityStatus
+    ) -> None:
         history = _fetch_history(_FamiliarityClient(**errors))
 
         assert history.merge_base_sha == "mb"
+        assert history.status == status
         if facts_kept:
             # The engine counts the lines of a file without blame as not owned.
             assert history.familiarity_facts is not None
@@ -314,6 +323,7 @@ class FamiliarityFactsTests(SimpleTestCase):
             client.release.set()
 
         assert history.familiarity_facts is None
+        assert history.status == FamiliarityStatus.HISTORY_TIMED_OUT
 
     def test_a_slow_blame_leaves_only_its_file_out(self) -> None:
         client = _FamiliarityClient()
@@ -328,6 +338,7 @@ class FamiliarityFactsTests(SimpleTestCase):
         assert facts is not None
         assert facts["blame"] == {}
         assert facts["path_history"] == ["c-author"]
+        assert history.status == FamiliarityStatus.PARTIAL_BLAME
 
 
 class ReviewTriggerTests(SimpleTestCase):

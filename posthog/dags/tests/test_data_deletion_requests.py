@@ -347,17 +347,24 @@ def test_hogql_event_deletion_executor_wraps_compiled_select_and_uses_dedicated_
 
 
 @pytest.mark.django_db
-def test_hogql_event_deletion_executor_rejects_multiple_columns_before_insert(team, user):
+@pytest.mark.parametrize(
+    ("query", "error"),
+    [
+        ("SELECT uuid, event FROM events", "exactly one event UUID column"),
+        ("SELECT event FROM events", "selected column must contain event UUIDs"),
+    ],
+)
+def test_hogql_event_deletion_executor_rejects_invalid_output_before_insert(team, user, query, error):
     deletion_request = HogQLEventRemovalContext(
         request_id=str(uuid4()),
         team_id=team.pk,
         created_by_id=user.pk,
-        query="SELECT uuid, event FROM events",
+        query=query,
         variables={},
     )
 
     with patch("posthog.dags.data_deletion_requests.sync_execute") as execute:
-        with pytest.raises(dagster.Failure, match="exactly one event UUID column"):
+        with pytest.raises(dagster.Failure, match=error):
             HogQLEventDeletionExecutor(deletion_request).execute()
 
     execute.assert_not_called()
@@ -2790,6 +2797,38 @@ def test_property_removal_where_omits_event_filter_when_delete_all_events():
     sql, params = _property_removal_where(_property_removal_ctx(events=[], delete_all_events=True))
     assert "event IN" not in sql
     assert "events" not in params
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "failed_step,raises",
+    [
+        (PersonDeletionStep.TOMBSTONE_POSTGRES, True),
+        (PersonDeletionStep.PUBLISH_CLICKHOUSE_TOMBSTONE, False),
+    ],
+)
+def test_delete_person_profiles_op_raises_only_when_the_person_is_still_live(failed_step, raises):
+    p_uuid = str(uuid4())
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[p_uuid],
+        person_distinct_ids=[],
+        drop_profiles=True,
+        drop_events=False,
+        drop_recordings=False,
+    )
+    with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
+        deleter.return_value = PersonProfileDeletionResult(
+            deleted_count=0 if raises else 1,
+            failures=[PersonDeletionFailure(step=failed_step, person_uuid=UUID(p_uuid), error="down")],
+        )
+        if raises:
+            with pytest.raises(dagster.Failure, match="Postgres delete failed for 1 persons"):
+                delete_person_profiles_op(build_op_context(), ctx)
+        else:
+            assert delete_person_profiles_op(build_op_context(), ctx) is ctx
 
 
 @pytest.mark.parametrize(

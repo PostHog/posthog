@@ -864,6 +864,16 @@ class TestTaskSlackPrNotification(TestCase):
         self.assertEqual(task.state["unrelated"], "keep-me")
         self.assertEqual(task.slack_notified_pr_url, "https://github.com/org/repo/pull/1")
 
+    def test_mutate_state_atomic_saves_a_nested_value_edited_in_place(self):
+        task = self._task()
+        task.state = {"offers": {"items": [1]}}
+        task.save(update_fields=["state"])
+
+        Task.mutate_state_atomic(task.id, lambda state: state["offers"]["items"].append(2))
+
+        task.refresh_from_db()
+        self.assertEqual(task.state["offers"], {"items": [1, 2]})
+
 
 class TestTaskSlug(TestCase):
     organization: ClassVar[Organization]
@@ -1459,11 +1469,19 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.status, TaskRun.Status.COMPLETED)
         self.assertIsNotNone(run.completed_at)
 
-    def test_mark_failed(self):
+    @parameterized.expand(
+        [
+            ("without_sandbox", {}, None),
+            ("modal", {"sandbox_id": "sandbox-example"}, "modal"),
+            ("hogland", {"sandbox_id": "sandbox-example", "sandbox_backend": "hogland"}, "hogland"),
+        ]
+    )
+    def test_mark_failed(self, _name: str, state: dict[str, str], expected_backend: str | None) -> None:
         run = TaskRun.objects.create(
             task=self.task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
+            state=state,
         )
 
         error_msg = "x" * 1400 + "Error: the root cause sits at the tail"
@@ -1478,6 +1496,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(len(captured), 1)
         props = captured[0].kwargs["properties"]
         self.assertEqual(props["error_type"], "stale_queued_cleanup")
+        self.assertEqual(props.get("sandbox_backend"), expected_backend)
         self.assertEqual(len(props["error_message"]), 500)
         self.assertTrue(props["error_message"].endswith("Error: the root cause sits at the tail"))
 

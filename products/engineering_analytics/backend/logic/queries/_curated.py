@@ -33,12 +33,14 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
     TrunkQuarantineSource,
+    resolve_depot_job_attempts_tables,
     resolve_github_tables,
     resolve_trunk_merge_queue_table,
     resolve_trunk_quarantined_tests_source,
 )
 from products.engineering_analytics.backend.logic.views import (
     deployments,
+    depot_ci,
     issue_events,
     job_costs,
     pull_requests,
@@ -168,6 +170,8 @@ class CuratedGitHubSource:
         self._trunk_table_resolved = False
         self._trunk_quarantine_source: TrunkQuarantineSource | None = None
         self._trunk_quarantine_resolved = False
+        self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
+        self._depot_job_attempts_resolved = False
 
     @property
     def team(self) -> Team:
@@ -216,9 +220,7 @@ class CuratedGitHubSource:
         adds the raw-string scan floor — callers must register {run_started_floor} (see
         run_started_floor_constant)."""
         query = workflow_runs.build_query(
-            self._tables.workflow_runs,
-            pull_requests_table=self._tables.pull_requests,
-            started_floor=started_floor,
+            self._runs_table(), pull_requests_table=self._tables.pull_requests, started_floor=started_floor
         )
         return f"({query})"
 
@@ -230,7 +232,26 @@ class CuratedGitHubSource:
         ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it."""
         if not self._tables.workflow_jobs:
             return None
-        return f"({workflow_jobs.build_query(self._tables.workflow_jobs, created_floor=created_floor)})"
+        return (
+            f"({workflow_jobs.build_query(self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor)})"
+        )
+
+    def _depot_job_attempts(self) -> depot_ci.DepotJobAttempts | None:
+        """The repository's synced Depot CI job attempts, or None. Resolved lazily and cached like the
+        Trunk tables, so a read that never touches CI pays no lookup."""
+        if not self._depot_job_attempts_resolved:
+            depot_tables = resolve_depot_job_attempts_tables(self._team, self._user_access_control)
+            self._depot_job_attempts_table = depot_tables.get(self.repository.casefold())
+            self._depot_job_attempts_resolved = True
+        return self._depot_job_attempts_table
+
+    def _runs_table(self) -> str:
+        return depot_ci.with_depot_runs(
+            self._tables.workflow_runs, self._depot_job_attempts(), self._tables.pull_requests
+        )
+
+    def _jobs_table(self, workflow_jobs_table: str) -> str:
+        return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts())
 
     def trunk_merge_queue_source(self) -> str | None:
         """Curated Trunk merge-queue ``SELECT`` subquery, or None when no TrunkIo source has the
@@ -381,8 +402,8 @@ class CuratedGitHubSource:
         if not self._tables.workflow_jobs:
             return None
         query = job_costs.build_query(
-            jobs_table=self._tables.workflow_jobs,
-            runs_table=self._tables.workflow_runs,
+            jobs_table=self._jobs_table(self._tables.workflow_jobs),
+            runs_table=self._runs_table(),
             include_run_columns=True,
             created_floor=created_floor,
         )

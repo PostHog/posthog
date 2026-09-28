@@ -217,6 +217,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     }
                     cache.propertiesStartTime = performance.now()
                     await breakpoint(200)
+                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                     const response = await api.get(url)
                     breakpoint()
 
