@@ -52,6 +52,10 @@ Agents compose these primitives into higher-level workflows.
 The reasoning: agents are better at composing simple tools than navigating complex ones,
 and simple tools are reusable across many workflows.
 
+For lookup tools, return an explicit normal result when absence is an expected answer (for example,
+checking whether an event's session has a recording). Keep invalid inputs, permission failures, and
+server failures as tool errors so MCP Analytics measures genuine failures rather than routine misses.
+
 ## Two MCP server versions
 
 Clients must support two main capabilities: MCPs and skills.
@@ -344,6 +348,8 @@ Product teams own their definitions and control which operations are exposed as 
    `detail_args` keys against the tool's input schema snapshot, so a wrong argument
    name fails generation instead of silently dropping the argument at runtime.
    See "UI apps" in `services/mcp/CONTRIBUTING.md` for the rules.
+
+   A custom UI app can set `resource_domains` when it loads an image, font, script, or stylesheet from an external source. Each value must be a CSP source expression. Declare only the required origin or path.
 
    #### Custom input schemas
 

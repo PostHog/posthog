@@ -63,6 +63,13 @@ macro_rules! confirmed_chunk_status {
         "'confirmed'"
     };
 }
+// Readiness waits only for the days before the boundary. A trailing chunk, the only kind that
+// carries a claim hold, is scanned after the run stamps readiness.
+macro_rules! readiness_chunk {
+    () => {
+        "claimable_after IS NULL"
+    };
+}
 
 // The kind predicate binds the caller's allowed-kind set, mirroring `runs::discover_runs`: with the
 // person gate off, discovery binds `['behavioral']` and the person path stays inert.
@@ -141,6 +148,8 @@ const CAS_RUN_RECONCILING: &str = concat!(
     "\n              SELECT 1 FROM cohort_backfill_chunks",
     "\n              WHERE run_id = $1 AND status <> ",
     confirmed_chunk_status!(),
+    " AND ",
+    readiness_chunk!(),
     "\n          )",
     "\n        RETURNING id, reconcile_dispatched_at\n"
 );
@@ -152,6 +161,8 @@ const RUNS_WITH_ALL_CHUNKS_CONFIRMED: &str = concat!(
     "\n        SELECT 1 FROM cohort_backfill_chunks",
     "\n        WHERE run_id = candidate.run_id AND status <> ",
     confirmed_chunk_status!(),
+    " AND ",
+    readiness_chunk!(),
     "\n    )\n"
 );
 
@@ -363,9 +374,10 @@ pub async fn read_planning_stamp(
 }
 
 /// CAS a seeding run into `reconciling`. Admits the transition only once planning is proven and every
-/// chunk has confirmed, freezing the chunk ledger (`claim_next`/`heartbeat`/`plan_chunks` all require
-/// `seeding`). `None` means the CAS was lost — another dispatcher won, chunks reappeared, or the run
-/// left `seeding`.
+/// chunk readiness waits for has confirmed, freezing the chunk ledger while the run reconciles:
+/// `plan_chunks` requires `seeding`, and `claim_next`/`heartbeat` require `seeding` or `trailing`,
+/// with a held chunk claimable only under `trailing`. `None` means the CAS was lost — another
+/// dispatcher won, chunks reappeared, or the run left `seeding`.
 pub async fn cas_run_reconciling(
     pool: &PgPool,
     run_id: RunId,
@@ -798,7 +810,8 @@ pub async fn load_current_shape_hashes(
     Ok(current)
 }
 
-/// Which of the candidate runs have a fully confirmed chunk ledger, in one round trip. The driver
+/// Which of the candidate runs have confirmed every chunk their readiness waits for, in one round
+/// trip. The driver
 /// ticks inside the orchestrator's poll arm ahead of its liveness heartbeat, so a per-run round trip
 /// would scale one tick's cost with the seeding backlog.
 pub async fn runs_with_all_chunks_confirmed(

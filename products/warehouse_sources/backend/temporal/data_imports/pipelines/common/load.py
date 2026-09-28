@@ -270,36 +270,20 @@ async def _run_delta_maintenance(
     delta_table_ref: "DeltaTableRef",
     is_cdc_companion: bool,
     logger: FilteringBoundLogger,
+    partition_count_fallback: int | None,
 ) -> None:
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
-        is_transient_maintenance_error,
-    )
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (  # noqa: PLC0415 — keeps the heavy deltalake dep off this module's top-level import path
         DeltaMaintenance,
     )
 
-    maintenance = DeltaMaintenance(delta_table_ref)
-    if schema.is_cdc:
-        # CDC finals land once per tick per changed schema, so unconditional compaction would run
-        # near-continuously after mostly-tiny merges. Use threshold/cadence maintenance instead:
-        # compact when fragmented, otherwise vacuum once enough commits have accrued.
-        logger.debug("Running threshold-based delta maintenance")
-        with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
-            await maintenance.run_scheduled(schema, is_cdc_companion=is_cdc_companion)
-    else:
-        logger.debug("Triggering compaction and vacuuming on delta table")
-        try:
-            with POST_LOAD_DURATION_SECONDS.labels(operation="compact").time():
-                await maintenance.compact_table()
-        except Exception as e:
-            if is_transient_maintenance_error(e):
-                # A rate-limited or connectivity blip talking to our own S3 bucket (or a concurrent
-                # maintenance pass losing a file race) isn't a bug - the next sync's maintenance pass
-                # retries the same idempotent cleanup.
-                logger.warning(f"Compaction skipped: transient infra error: {e}")
-            else:
-                capture_exception(e)
-                logger.exception(f"Compaction failed: {e}", exc_info=e)
+    # Threshold maintenance for every sync type: most final batches leave the table with nothing
+    # to compact, and an unconditional compact still lists and plans every file. Compact when
+    # fragmented, otherwise vacuum once enough commits have accrued; see DeltaMaintenance.run_scheduled.
+    logger.debug("Running threshold-based delta maintenance")
+    with POST_LOAD_DURATION_SECONDS.labels(operation="maintenance").time():
+        await DeltaMaintenance(delta_table_ref).run_scheduled(
+            schema, is_cdc_companion=is_cdc_companion, partition_count_fallback=partition_count_fallback
+        )
 
 
 async def _publish_queryable_files(
@@ -604,7 +588,7 @@ async def run_post_load_operations(
 ) -> Optional[str]:
     """
     Orchestrator that runs all post-load operations, in order:
-        1. Delta maintenance (threshold-based for CDC schemas, unconditional compaction otherwise)
+        1. Delta maintenance (compact when fragmented, otherwise vacuum on commit cadence)
         2. Prepare S3 files for querying
         3. Sync bookkeeping (last_synced_at, initial_sync_complete, desc-sort incremental finalization)
         4. Register the table (skipped for CDC companion writes and cdc_only initial loads)
@@ -660,7 +644,13 @@ async def run_post_load_operations(
         await _run_post_load_steps(job, schema, source, delta_table_ref, is_cdc_companion, logger)
         return None
 
-    await _run_delta_maintenance(schema, delta_table_ref, is_cdc_companion, logger)
+    await _run_delta_maintenance(
+        schema,
+        delta_table_ref,
+        is_cdc_companion,
+        logger,
+        partition_count_fallback=resource.partition_count if resource is not None else None,
+    )
 
     queryable_folder = await _publish_queryable_files(
         job, schema, delta_table_ref, resource_name, is_cdc_companion, logger
