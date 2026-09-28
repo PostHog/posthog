@@ -1,3 +1,5 @@
+import math
+import asyncio
 from typing import Any
 from urllib.parse import urlparse, urlunparse
 
@@ -8,6 +10,7 @@ import structlog
 import posthoganalytics
 
 from posthog.llm.gateway_client import (
+    AIGatewayConfig,
     GatewayNotConfiguredError,
     ai_gateway_headers,
     resolve_ai_gateway_config,
@@ -78,18 +81,25 @@ def carries_credentials_safely(gateway_url: str) -> bool:
     return parsed.scheme == "https" or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
 
 
-def decide(
-    request: DecisionRequest,
-    *,
-    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
-    transport: httpx.BaseTransport | None = None,
-) -> DecisionResult:
+def _gateway_config() -> AIGatewayConfig:
     config = resolve_ai_gateway_config()
     if config is None:
         raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
     if not carries_credentials_safely(config.url):
         raise GatewayNotConfiguredError("AI_GATEWAY_URL must use https unless it points at this machine")
-    headers = {"Authorization": f"Bearer {config.api_key}"}
+    return config
+
+
+def gateway_configured() -> bool:
+    try:
+        _gateway_config()
+        return True
+    except GatewayNotConfiguredError:
+        return False
+
+
+def _headers(request: DecisionRequest, api_key: str) -> dict[str, str]:
+    headers = {"Authorization": f"Bearer {api_key}"}
     headers.update(
         ai_gateway_headers(
             ai_product=request.ai_product,
@@ -99,18 +109,56 @@ def decide(
         )
         or {}
     )
+    return headers
+
+
+async def async_decide(
+    request: DecisionRequest,
+    *,
+    timeout_seconds: float,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> DecisionResult:
+    config = _gateway_config()
+    try:
+        # A read timeout resets for each chunk; cancellation bounds the whole exchange.
+        async with asyncio.timeout(timeout_seconds):
+            async with httpx.AsyncClient(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
+                response = await client.post(
+                    decision_url(config.url),
+                    json=_wire_body(request),
+                    headers=_headers(request, config.api_key),
+                    follow_redirects=False,
+                )
+    except (TimeoutError, httpx.RequestError) as error:
+        raise DecisionGatewayUnreachableError(f"decision gateway unreachable: {error.__class__.__name__}") from error
+    return _parse_response(response, request.questions)
+
+
+def decide(
+    request: DecisionRequest,
+    *,
+    timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    transport: httpx.BaseTransport | None = None,
+) -> DecisionResult:
+    config = _gateway_config()
     try:
         with httpx.Client(trust_env=False, timeout=timeout_seconds, transport=transport) as client:
-            response = client.post(decision_url(config.url), json=_wire_body(request), headers=headers)
+            response = client.post(
+                decision_url(config.url), json=_wire_body(request), headers=_headers(request, config.api_key)
+            )
     except httpx.RequestError as error:
         raise DecisionGatewayUnreachableError(f"decision gateway unreachable: {error.__class__.__name__}") from error
+    return _parse_response(response, request.questions)
+
+
+def _parse_response(response: httpx.Response, questions: dict[str, DecisionQuestion]) -> DecisionResult:
     if response.status_code != 200:
         raise DecisionGatewayError(response.status_code, response.text[:500])
     try:
         payload = response.json()
     except ValueError as error:
         raise DecisionGatewayError(200, "decision response is not JSON") from error
-    return parse_result(payload, request.questions)
+    return parse_result(payload, questions)
 
 
 def _wire_body(request: DecisionRequest) -> dict[str, Any]:
@@ -160,9 +208,13 @@ def _parse_answer(answer: Any, question_type: DecisionQuestionType) -> DecisionA
         case DecisionQuestionType.NOUL:
             return NoulAnswer(probability=answer["noul"])
         case DecisionQuestionType.CHOICE:
-            return ChoiceAnswer(
-                choice=answer["choice"], confidence=answer["confidence"], probabilities=answer["probabilities"]
-            )
+            probabilities = answer["probabilities"]
+            if not isinstance(probabilities, dict) or any(
+                type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1
+                for value in probabilities.values()
+            ):
+                raise ValueError("choice probabilities must be finite numbers between zero and one")
+            return ChoiceAnswer(choice=answer["choice"], confidence=answer["confidence"], probabilities=probabilities)
         case DecisionQuestionType.SCORE:
             return ScoreAnswer(
                 score=answer["score"], confidence=answer["confidence"], probabilities=answer["probabilities"]

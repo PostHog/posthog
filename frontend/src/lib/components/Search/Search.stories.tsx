@@ -176,7 +176,9 @@ export default meta
 type Story = StoryObj<{}>
 
 const SearchContainer = ({ children }: { children: React.ReactNode }): JSX.Element => (
-    <div className="grow w-[600px] border rounded-lg overflow-hidden bg-bg-light">{children}</div>
+    <div className="grow w-[600px] max-w-[calc(100vw-3rem)] border rounded-lg overflow-hidden bg-bg-light">
+        {children}
+    </div>
 )
 
 const SHARED_MOCKS = {
@@ -311,5 +313,60 @@ export const Searching: Story = {
                 story: 'Searching for "user": recents and products are filtered client-side instantly, server results appear below without shifting existing items.',
             },
         },
+    },
+}
+
+export const RankedCommandSearch: Story = {
+    parameters: { featureFlags: ['command-search-jev'] },
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': toPaginatedResponse(MOCK_RECENTS),
+                ...SHARED_MOCKS,
+            },
+            post: {
+                '/api/projects/:team_id/file_system/command_search/': async () => {
+                    await delay(300)
+                    return HttpResponse.json({
+                        results: [
+                            {
+                                id: 'file:checkout',
+                                name: 'Checkout funnel',
+                                description: 'insight',
+                                type: 'insight/funnels',
+                                href: '/insights/checkout',
+                                command_id: '',
+                            },
+                            {
+                                id: 'command:product-Session replay',
+                                name: 'Session replay',
+                                description: '',
+                                type: 'command',
+                                href: '',
+                                command_id: 'product-Session replay',
+                            },
+                            {
+                                id: 'file:dashboard',
+                                name: 'Checkout overview',
+                                description: 'dashboard',
+                                type: 'dashboard',
+                                href: '/dashboard/checkout',
+                                command_id: '',
+                            },
+                        ],
+                    })
+                },
+            },
+        })
+        return (
+            <SearchContainer>
+                <Search.Root logicKey="command" isActive showAskAiLink={false} defaultSearchValue="checkout">
+                    <Search.Input autoFocus />
+                    <Search.Separator />
+                    <Search.Results />
+                    <Search.Footer />
+                </Search.Root>
+            </SearchContainer>
+        )
     },
 }
