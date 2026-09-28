@@ -272,7 +272,7 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
         openEventStreamModal: true,
         closeEventStreamModal: true,
     }),
-    forms(({ props, values }) => ({
+    forms(({ actions, props, values }) => ({
         accountForm: {
             defaults: EMPTY_ACCOUNT_EDIT_FORM,
             errors: ({ name }: AccountEditFormValues) => ({
@@ -282,32 +282,31 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
                       ? 'Use 400 characters or fewer'
                       : undefined,
             }),
-            submit: async ({
-                name,
-                website_domain,
-                billing_id,
-                slack_channel_id,
-                sfdc_id,
-                stripe_customer_id,
-            }: AccountEditFormValues) => {
+            submit: async (formValues: AccountEditFormValues) => {
                 if (!props.projectId || !values.account) {
                     throw new Error('Could not determine the current project or account.')
                 }
                 const projectId = String(props.projectId)
+                const openedValues = getAccountEditFormValues(values.account)
+                const changedPropertyKeys = ACCOUNT_ID_FIELDS.map(({ key }) => key).filter(
+                    (key) => formValues[key] !== openedValues[key]
+                )
+                const name = formValues.name.trim()
                 const currentAccount = await accountsRetrieve(projectId, values.account.id)
-                const orNull = (value: string): string | null => value.trim() || null
-                await accountsPartialUpdate(projectId, values.account.id, {
-                    name: name.trim(),
-                    properties: {
-                        ...currentAccount.properties,
-                        website_domain: orNull(website_domain),
-                        billing_id: orNull(billing_id),
-                        slack_channel_id: orNull(slack_channel_id),
-                        sfdc_id: orNull(sfdc_id),
-                        ...(currentAccount.properties?.stripe_customer_id
-                            ? { stripe_customer_id: orNull(stripe_customer_id) }
-                            : {}),
-                    } as PatchedAccountApiProperties,
+                // Sending only edited fields keeps concurrent edits to the other fields.
+                const changedProperties = Object.fromEntries(
+                    changedPropertyKeys
+                        .filter((key) => key !== 'stripe_customer_id' || currentAccount.properties?.stripe_customer_id)
+                        .map((key) => [key, formValues[key].trim() || null])
+                )
+                const updatedAccount = await accountsPartialUpdate(projectId, values.account.id, {
+                    ...(name !== openedValues.name ? { name } : {}),
+                    properties: { ...currentAccount.properties, ...changedProperties } as PatchedAccountApiProperties,
+                })
+                actions.loadAccountSuccess(updatedAccount)
+                posthog.capture(AccountsEvents.AccountEdited, {
+                    name_changed: name !== openedValues.name,
+                    changed_fields: changedPropertyKeys,
                 })
             },
         },
@@ -404,10 +403,13 @@ export const customerAnalyticsAccountSceneLogic = kea<customerAnalyticsAccountSc
     listeners(({ actions, cache, props, values }) => ({
         openAccountEditor: () => {
             actions.resetAccountForm(getAccountEditFormValues(values.account))
+            posthog.capture(AccountsEvents.AccountEditorOpened)
+        },
+        openEventStreamModal: () => {
+            posthog.capture(AccountsEvents.EventStreamModalOpened)
         },
         submitAccountFormSuccess: () => {
             actions.closeAccountEditor()
-            actions.loadAccount()
         },
         submitAccountFormFailure: ({ error }) => {
             lemonToast.error("Couldn't save the account. Try again.")

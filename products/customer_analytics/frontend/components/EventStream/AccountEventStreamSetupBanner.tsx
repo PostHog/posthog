@@ -1,14 +1,30 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { eventStreamLogic } from './eventStreamLogic'
 
 export function AccountEventStreamSetupBanner(): JSX.Element | null {
-    const { eventStream, eventStreamLoading, settingsUrl } = useValues(eventStreamLogic)
+    const { eventStream, eventStreamLoading, eventStreamLoadFailed, settingsUrl } = useValues(eventStreamLogic)
+    const { loadEventStream } = useActions(eventStreamLogic)
 
     if (eventStreamLoading || eventStream?.enabled) {
         return null
+    }
+
+    if (eventStreamLoadFailed) {
+        return (
+            <LemonBanner
+                type="error"
+                action={{
+                    children: 'Try again',
+                    onClick: loadEventStream,
+                    'data-attr': 'account-event-stream-retry',
+                }}
+            >
+                Couldn't load your event stream. Try again, and if it keeps happening, contact support.
+            </LemonBanner>
+        )
     }
 
     return (

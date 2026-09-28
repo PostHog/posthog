@@ -11,7 +11,8 @@ export function AccountEventStreamMembership({
     accountId: string
     externalId: string
 }): JSX.Element {
-    const { eventStream, eventStreamLoading, membershipUpdatingIds, isAccountInStream } = useValues(eventStreamLogic)
+    const { eventStream, eventStreamLoading, eventStreamLoadFailed, membershipUpdatingIds, isAccountInStream } =
+        useValues(eventStreamLogic)
     const { setAccountMembership } = useActions(eventStreamLogic)
 
     const included = isAccountInStream(accountId)
@@ -24,11 +25,13 @@ export function AccountEventStreamMembership({
                 checked={included}
                 onChange={(checked) => setAccountMembership(accountId, checked)}
                 disabledReason={
-                    !eventStream && !eventStreamLoading
-                        ? 'Set up your event stream in settings first'
-                        : eventStreamLoading || updating
-                          ? 'Updating…'
-                          : undefined
+                    eventStreamLoadFailed && !eventStreamLoading
+                        ? "Couldn't load your event stream"
+                        : !eventStream && !eventStreamLoading
+                          ? 'Set up your event stream in settings first'
+                          : eventStreamLoading || updating
+                            ? 'Updating…'
+                            : undefined
                 }
                 label="Include in my event stream"
                 size="small"

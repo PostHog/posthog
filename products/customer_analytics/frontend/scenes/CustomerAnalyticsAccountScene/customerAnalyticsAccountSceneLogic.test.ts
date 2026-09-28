@@ -282,7 +282,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        it('saves account details without replacing external ID or unrelated properties', async () => {
+        it('saves only edited fields without replacing concurrent or unrelated properties', async () => {
             const currentAccount = {
                 ...account,
                 properties: {
@@ -290,13 +290,14 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                     usage_dashboard_link: 'https://example.com/usage',
                     metabase_link: 'https://example.com/metabase',
                     stripe_customer_id: 'stripe-old',
+                    sfdc_id: 'salesforce-concurrent',
                 },
             }
             const updatedAccount = {
                 ...currentAccount,
                 name: 'Renamed account',
             }
-            mockAccountsRetrieve.mockResolvedValueOnce(currentAccount).mockResolvedValueOnce(updatedAccount)
+            mockAccountsRetrieve.mockResolvedValueOnce(currentAccount)
             mockAccountsPartialUpdate.mockResolvedValue(updatedAccount)
 
             logic.actions.openAccountEditor()
@@ -306,7 +307,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                 website_domain: 'example.com',
                 billing_id: 'billing-1',
                 slack_channel_id: 'C123',
-                sfdc_id: 'salesforce-1',
+                sfdc_id: '',
                 stripe_customer_id: 'stripe-new',
             })
             logic.actions.submitAccountForm()
@@ -322,7 +323,7 @@ describe('customerAnalyticsAccountSceneLogic', () => {
                     website_domain: 'example.com',
                     billing_id: 'billing-1',
                     slack_channel_id: 'C123',
-                    sfdc_id: 'salesforce-1',
+                    sfdc_id: 'salesforce-concurrent',
                 },
             })
             expect(logic.values.accountEditorOpen).toBe(false)
