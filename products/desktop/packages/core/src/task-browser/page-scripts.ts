@@ -74,12 +74,13 @@ for (const element of document.querySelectorAll(INTERACTIVE + "," + TEXT)) {
     const parts = ["[" + refFor(element) + "]", role];
     const label = element.getAttribute("aria-label") || element.getAttribute("title") || element.getAttribute("alt");
     const text = clean(label || element.innerText || element.value || "", 120);
-    if (text && !(element instanceof HTMLInputElement && element.type === "password")) parts.push(JSON.stringify(text));
+    const secret = element instanceof HTMLInputElement && (element.type === "password" || isPayment(element));
+    if (text && !secret) parts.push(JSON.stringify(text));
     if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) {
       if (element.type) parts.push("type=" + element.type);
       if (element.name) parts.push("name=" + element.name);
       if (element.placeholder) parts.push("placeholder=" + JSON.stringify(clean(element.placeholder, 60)));
-      if (element.type === "password") parts.push(element.value ? "value=<hidden>" : "empty");
+      if (secret) parts.push(element.value ? "value=<hidden>" : "empty");
       else if (element.value && element.type !== "hidden") parts.push("value=" + JSON.stringify(clean(element.value, 80)));
       if (element.disabled) parts.push("disabled");
     }
