@@ -47,7 +47,9 @@ export const BillingSpendRetrieveQueryParams = () => zod.object({
     start_date: zod
         .string()
         .nullish()
-        .describe('Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.'),
+        .describe(
+            'Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
+        ),
     team_ids: zod
         .string()
         .nullish()
@@ -106,7 +108,9 @@ export const BillingUsageRetrieveQueryParams = () => zod.object({
     start_date: zod
         .string()
         .nullish()
-        .describe('Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.'),
+        .describe(
+            'Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
+        ),
     team_ids: zod
         .string()
         .nullish()
@@ -271,7 +275,9 @@ export const BillingSpendTimeseriesRetrieveQueryParams = () => zod.object({
     start_date: zod
         .string()
         .nullish()
-        .describe('Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.'),
+        .describe(
+            'Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
+        ),
     team_ids: zod
         .string()
         .nullish()
@@ -378,7 +384,9 @@ export const BillingUsageTimeseriesRetrieveQueryParams = () => zod.object({
     start_date: zod
         .string()
         .nullish()
-        .describe('Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.'),
+        .describe(
+            'Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
+        ),
     team_ids: zod
         .string()
         .nullish()

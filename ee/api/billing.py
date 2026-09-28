@@ -356,7 +356,9 @@ class BillingUsageRequestSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text="Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago.",
+        help_text=(
+            'Start date (YYYY-MM-DD, UTC), or "all" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.'
+        ),
     )
     end_date = serializers.CharField(
         required=False,

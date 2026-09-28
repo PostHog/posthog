@@ -72,7 +72,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Start date (YYYY-MM-DD, UTC). If both dates are omitted, defaults to 30 days ago."
+            "description": "Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago."
         },
         "team_ids": {
             "anyOf": [
