@@ -239,6 +239,8 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
+    ("hog_flow", "read"),
+    ("hog_flow", "write"),
     ("offline_evaluation_ingestion", "write"),
 ]
 
