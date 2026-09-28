@@ -532,6 +532,16 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class EarlierAttempts:
+    """What the earlier attempts of a job left in the queue once their unloaded batches are superseded."""
+
+    unsettled_batches: int
+    loaded_rows: int
+    # Cursor of the newest loaded batch. None when nothing loaded or that batch row carries no cursor.
+    loaded_last_value: Any
+
+
+@dataclass(frozen=True, slots=True)
 class PendingBatch:
     """A batch row fetched from the queue, ready to be processed by the consumer."""
 
@@ -1299,6 +1309,68 @@ class BatchQueue:
             },
         )
         return cursor.rowcount or 0
+
+    @staticmethod
+    def settle_earlier_attempts(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        current_run_uuid: str,
+    ) -> EarlierAttempts:
+        """Supersede every unloaded batch of the job's earlier attempts and report what they loaded.
+
+        An append retry resumes after the rows its earlier attempts loaded, so none of their other
+        batches may load later. A batch the loader is writing cannot be stopped, so it is left alone
+        and counted as unsettled, as is one that went back to the queue after this supersede. The
+        caller waits and calls again until nothing is unsettled.
+
+        Loaded batches form a prefix of each attempt, because the loader writes a run's batches in
+        order, and a later attempt starts after the earlier ones. So the newest loaded batch holds
+        the highest cursor. The final batch row repeats the last data batch, so it is not counted.
+        """
+        conn.execute(
+            _bulk_fail_dual_write_sql(
+                """b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                AND (s.job_state IS NULL OR s.job_state != 'executing')"""
+            ),
+            {
+                "job_id": job_id,
+                "current_run_uuid": current_run_uuid,
+                "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
+            },
+        )
+        earlier_batches = f"""
+            FROM {BATCH_TABLE} b
+            WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                AND b.job_id = %(job_id)s
+                AND b.run_uuid != %(current_run_uuid)s
+        """
+        parameters = {"job_id": job_id, "current_run_uuid": current_run_uuid}
+        counts = conn.execute(
+            f"""
+            SELECT
+                count(*) FILTER (WHERE b.latest_state NOT IN ('succeeded', 'failed')),
+                COALESCE(sum(b.row_count) FILTER (WHERE b.latest_state = 'succeeded' AND NOT b.is_final_batch), 0)
+            {earlier_batches}
+            """,
+            parameters,
+        ).fetchone()
+        newest_loaded = conn.execute(
+            f"""
+            SELECT b.metadata -> 'incremental_last_value'
+            {earlier_batches}
+                AND b.latest_state = 'succeeded'
+                AND NOT b.is_final_batch
+            ORDER BY b.created_at DESC, b.batch_index DESC
+            LIMIT 1
+            """,
+            parameters,
+        ).fetchone()
+        return EarlierAttempts(
+            unsettled_batches=counts[0] if counts else 0,
+            loaded_rows=int(counts[1]) if counts else 0,
+            loaded_last_value=newest_loaded[0] if newest_loaded else None,
+        )
 
     @staticmethod
     async def get_failed_runs(

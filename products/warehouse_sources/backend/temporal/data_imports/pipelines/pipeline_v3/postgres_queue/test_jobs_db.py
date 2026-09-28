@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     STATUS_VIEW,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
+    EarlierAttempts,
     PendingBatch,
     _orphaned_candidate_runs_sql,
     build_status_dual_write_sql,
@@ -1573,6 +1574,45 @@ class TestStateDualWrite:
         assert superseded == 1
         assert (await _batch_state(conn, live))[0] == "executing"
         assert (await _batch_state(conn, stalled))[0] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_settle_earlier_attempts_drops_unloaded_batches_and_reports_the_loaded_prefix(self, conn, sync_conn):
+        loaded = [
+            await _insert_batch(
+                conn,
+                batch_index=index,
+                run_uuid="run-a1",
+                job_id="job-ap",
+                row_count=rows,
+                metadata={"incremental_last_value": cursor},
+            )
+            for index, (rows, cursor) in enumerate([(100, 1_000), (50, 2_000)])
+        ]
+        executing = await _insert_batch(
+            conn, batch_index=2, run_uuid="run-a1", job_id="job-ap", metadata={"incremental_last_value": 3_000}
+        )
+        unloaded = await _insert_batch(
+            conn, batch_index=3, run_uuid="run-a1", job_id="job-ap", metadata={"incremental_last_value": 4_000}
+        )
+        current = await _insert_batch(conn, batch_index=0, run_uuid="run-a2", job_id="job-ap")
+        other_job = await _insert_batch(conn, batch_index=0, run_uuid="run-x", job_id="job-other")
+        for batch_id in loaded:
+            await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        await BatchQueue.update_status(conn, batch_id=executing, job_state="executing", attempt=1)
+
+        settled = BatchQueue.settle_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a2")
+
+        assert settled == EarlierAttempts(unsettled_batches=1, loaded_rows=150, loaded_last_value=2_000)
+        assert (await _batch_state(conn, unloaded))[0] == "failed"
+        assert (await _batch_state(conn, executing))[0] == "executing"
+        assert (await _batch_state(conn, current))[0] == "pending"
+        assert (await _batch_state(conn, other_job))[0] == "pending"
+
+        await BatchQueue.update_status(conn, batch_id=executing, job_state="succeeded", attempt=1)
+
+        settled = BatchQueue.settle_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a2")
+
+        assert settled == EarlierAttempts(unsettled_batches=0, loaded_rows=250, loaded_last_value=3_000)
 
     @pytest.mark.asyncio
     async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):

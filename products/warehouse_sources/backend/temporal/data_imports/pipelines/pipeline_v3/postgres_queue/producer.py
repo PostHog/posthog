@@ -37,7 +37,7 @@ _CONNECT_MAX_ATTEMPTS = 3
 _CONNECT_RETRY_BACKOFF_SECONDS = 0.5
 
 
-def _connect_with_retry(database_url: str) -> psycopg.Connection:
+def connect_with_retry(database_url: str) -> psycopg.Connection:
     for _ in range(_CONNECT_MAX_ATTEMPTS - 1):
         try:
             return psycopg.Connection.connect(database_url, autocommit=True)
@@ -96,7 +96,7 @@ class PostgresProducer:
         self._workflow_run_id = workflow_run_id
         self._destination_ids: list[str] = list(destination_ids or [])
 
-        self._conn = _connect_with_retry(database_url)
+        self._conn = connect_with_retry(database_url)
         self._batches_sent = 0
 
     @property
@@ -120,9 +120,13 @@ class PostgresProducer:
         data_folder: Optional[str] = None,
         schema_path: Optional[str] = None,
         cumulative_row_count: int = 0,
+        incremental_last_value: Any = None,
     ) -> None:
         """Insert a batch row into the Postgres queue."""
         metadata: dict[str, Any] = {}
+        # The cursor through this batch, which a retried append resumes after once the batch has loaded.
+        if incremental_last_value is not None:
+            metadata["incremental_last_value"] = incremental_last_value
         if data_folder is not None:
             metadata["data_folder"] = data_folder
         if schema_path is not None:

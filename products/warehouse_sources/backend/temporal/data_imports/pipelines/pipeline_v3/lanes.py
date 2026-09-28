@@ -14,7 +14,7 @@ single-table runs the loader already knows how to finish.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 from structlog.types import FilteringBoundLogger
@@ -88,13 +88,21 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: ImportJobModels,
+        retry_loaded_rows: int | None = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
         self._output_lanes = list(source_response.lanes)
 
         super().__init__(
-            source_response, logger, job_id, reset_pipeline, shutdown_monitor, resumable_source_manager, models=models
+            source_response,
+            logger,
+            job_id,
+            reset_pipeline,
+            shutdown_monitor,
+            resumable_source_manager,
+            models=models,
+            retry_loaded_rows=retry_loaded_rows,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.
@@ -222,7 +230,9 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             except Exception:
                 await self._logger.awarning("companion_job_fail_write_failed", companion_job_id=job_id, exc_info=True)
 
-    async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
+    async def _stage_batch(
+        self, pa_table: pa.Table, batch_index: int, row_count: int, *, incremental_last_value: Any = None
+    ) -> int:
         # Each lane writes the same batch to its own job. A lane that already holds these rows
         # contributes nothing for this index, which leaves a gap in its batch indexes — the claim
         # gate orders on "no earlier index still running", so gaps are harmless.
@@ -248,8 +258,12 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             writer.row_count += lane_table.num_rows
             batch_result = await asyncio.to_thread(writer.s3_batch_writer.write_batch, lane_table, batch_index)
             writer.batch_results.append(batch_result)
+            # Only the primary lane is the schema's own job, which an append retry resumes by cursor.
             writer.pg_producer.send_batch_notification(
-                batch_result, is_final_batch=False, cumulative_row_count=writer.row_count
+                batch_result,
+                is_final_batch=False,
+                cumulative_row_count=writer.row_count,
+                incremental_last_value=incremental_last_value if index == 0 else None,
             )
             # One read of a change stream is one sync however many tables it keeps.
             if lane.billable:

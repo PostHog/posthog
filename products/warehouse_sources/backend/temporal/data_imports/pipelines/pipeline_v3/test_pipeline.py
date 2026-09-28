@@ -12,6 +12,7 @@ from asgiref.sync import async_to_sync
 
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes import (
     LanedPipelineV3,
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _PIPELINE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
 _LANES = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes"
@@ -65,6 +67,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._logger = _make_logger()
     pipeline._is_incremental = False
     pipeline._reset_pipeline = False
+    pipeline._retry_loaded_rows = None
     pipeline._delta_table_ref = MagicMock(is_first_sync=True)
     pipeline._resumable_source_manager = None
     pipeline._internal_schema = MagicMock()
@@ -196,6 +199,62 @@ class TestAttemptScopedRunUuid:
             await pipeline.run()
 
         mock_reset.assert_not_called()
+
+    @pytest.mark.parametrize("retry_loaded_rows,expected_rows", [(None, 0), (250, 250)])
+    @pytest.mark.asyncio
+    async def test_retry_counts_only_rows_that_stay_loaded(
+        self, retry_loaded_rows: int | None, expected_rows: int
+    ) -> None:
+        pipeline = _make_pipeline()
+        pipeline._attempt = 2
+        pipeline._retry_loaded_rows = retry_loaded_rows
+        pipeline._job.rows_synced = 900
+
+        with (
+            patch(f"{_PIPELINE}.validate_incremental_sync"),
+            patch(f"{_PIPELINE}.persist_primary_keys", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.setup_row_tracking_with_billing_check", new_callable=AsyncMock),
+            patch(f"{_PIPELINE}.database_sync_to_async_pool", side_effect=lambda fn: AsyncMock(side_effect=fn)),
+            patch(f"{_PIPELINE}.activity") as mock_activity,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract.database_sync_to_async_pool",
+                side_effect=lambda fn: AsyncMock(side_effect=fn),
+            ),
+        ):
+            mock_activity.in_activity.return_value = False
+            pipeline._resource.items = MagicMock(return_value=iter([]))
+            pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
+
+            await pipeline.run()
+
+        assert pipeline._job.rows_synced == expected_rows
+
+
+@pytest.mark.asyncio
+class TestBatchCursor:
+    async def test_each_batch_carries_the_cursor_reached_so_far(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._schema = ExternalDataSchema(
+            sync_type="append",
+            sync_type_config={"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer},
+        )
+        pipeline._resource.sort_mode = "asc"
+        pipeline._last_incremental_field_value = None
+        pipeline._earliest_incremental_field_value = None
+
+        with (
+            patch(f"{_PIPELINE}.update_incremental_field_values", new_callable=AsyncMock) as update_cursor,
+            patch(f"{_PIPELINE}.update_row_tracking_after_batch", new_callable=AsyncMock),
+        ):
+            for batch_index, ids in enumerate([[1, 5, 3], [4, 2], [9]]):
+                update_cursor.return_value = MagicMock(
+                    last_value=max([*ids, pipeline._last_incremental_field_value or 0]), earliest_value=None
+                )
+                table = pa.table({"id": pa.array(ids, pa.int64())})
+                await pipeline._process_batch(pa_table=table, batch_index=batch_index, row_count=len(ids))
+
+        send = cast(MagicMock, pipeline._pg_producer.send_batch_notification)
+        assert [call.kwargs["incremental_last_value"] for call in send.call_args_list] == [5, 5, 9]
 
 
 class TestExtractionFailureDoesNotCleanupS3:

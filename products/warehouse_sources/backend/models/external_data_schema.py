@@ -987,7 +987,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         other's entry.
         """
         values = {
-            key: self._serialize_incremental_value(value)
+            key: self.serialize_incremental_value(value)
             for key, value in (("last_value", last_value), ("earliest_value", earliest_value))
             if value is not None
         }
@@ -1043,7 +1043,18 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
         return found
 
-    def _serialize_incremental_value(self, value: Any) -> Any:
+    def advance_incremental_field_last_value(self, last_value: Any) -> None:
+        """Move the watermark forward to `last_value` for rows that are already loaded. Never moves it back."""
+        serialized = self.serialize_incremental_value(last_value)
+
+        def mutate(config: dict[str, Any]) -> None:
+            _advance_promoted_cursor(
+                config, "incremental_field_last_value", serialized, "last", config.get("incremental_field_type")
+            )
+
+        self.sync_type_config = update_sync_type_config_keys(self.id, self.team_id, mutate=mutate)
+
+    def serialize_incremental_value(self, value: Any) -> Any:
         incremental_field_type = self.sync_type_config.get("incremental_field_type")
         if "numpy" in sys.modules:
             import numpy  # noqa: PLC0415

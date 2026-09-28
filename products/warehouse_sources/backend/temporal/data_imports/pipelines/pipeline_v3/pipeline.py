@@ -64,6 +64,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.sin
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.table_stats import record_source_item_stats
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import attempt_run_uuid
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -127,6 +128,7 @@ class PipelineV3(Generic[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: "ImportJobModels",
+        retry_loaded_rows: int | None = None,
     ) -> None:
         self._resource = source_response
         self._resource_name = source_response.name
@@ -138,6 +140,8 @@ class PipelineV3(Generic[ResumableData]):
 
         self._job = models.job
         self._reset_pipeline = reset_pipeline
+        # Set when this attempt continues after the rows earlier attempts loaded (see append_retry.py).
+        self._retry_loaded_rows = retry_loaded_rows
         self._logger = logger
         self._load_id = time.time_ns()
 
@@ -158,7 +162,7 @@ class PipelineV3(Generic[ResumableData]):
 
         attempt = current_activity_attempt()
         self._attempt = attempt
-        self._run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
+        self._run_uuid = attempt_run_uuid(self._job.workflow_run_id, attempt) if self._job.workflow_run_id else None
         self._s3_batch_writer = self._build_s3_writer(self._run_uuid)
 
         sync_type: SyncTypeLiteral = "full_refresh"
@@ -285,12 +289,19 @@ class PipelineV3(Generic[ResumableData]):
             **self._producer_args(s3_batch_writer, resource_name=resource_name, cdc_write_mode=cdc_write_mode)
         )
 
-    async def _stage_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> int:
+    async def _stage_batch(
+        self, pa_table: pa.Table, batch_index: int, row_count: int, *, incremental_last_value: Any = None
+    ) -> int:
         """Write the batch and tell the queue. Returns the rows to count towards usage."""
         batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
         self._batch_results.append(batch_result)
 
-        self._pg_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
+        self._pg_producer.send_batch_notification(
+            batch_result,
+            is_final_batch=False,
+            cumulative_row_count=row_count,
+            incremental_last_value=incremental_last_value,
+        )
         return pa_table.num_rows
 
     def _total_batches(self) -> int:
@@ -373,13 +384,18 @@ class PipelineV3(Generic[ResumableData]):
 
             # v3 stages the incremental cursor until job completion, so a retried attempt
             # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            await reset_rows_synced_if_needed(
-                self._job,
-                self._is_incremental,
-                self._reset_pipeline,
-                should_resume,
-                incremental_cursor_staged=True,
-            )
+            if self._retry_loaded_rows is None:
+                await reset_rows_synced_if_needed(
+                    self._job,
+                    self._is_incremental,
+                    self._reset_pipeline,
+                    should_resume,
+                    incremental_cursor_staged=True,
+                )
+            else:
+                # The rows earlier attempts loaded stay in the table, so the job counts them once.
+                self._job.rows_synced = self._retry_loaded_rows
+                await database_sync_to_async_pool(self._job.save)(update_fields=["rows_synced", "updated_at"])
 
             validate_incremental_sync(
                 self._is_incremental,
@@ -589,12 +605,8 @@ class PipelineV3(Generic[ResumableData]):
             pa_table, self._accumulated_pa_schema, self._logger, protected_columns=cursor_columns
         )
 
-        tracked_rows = await self._stage_batch(pa_table, batch_index, row_count)
-
-        self._internal_schema.add_pyarrow_table(pa_table)
-
-        await self._sinks.stage_chunk(batch_index, pa_table)
-
+        # Ahead of staging so the batch row carries the cursor through it. The staged cursor only
+        # promotes once the run's final batch loads, so staging it first cannot skip rows.
         incremental_values = await update_incremental_field_values(
             self._schema,
             pa_table,
@@ -607,6 +619,19 @@ class PipelineV3(Generic[ResumableData]):
         )
         self._last_incremental_field_value = incremental_values.last_value
         self._earliest_incremental_field_value = incremental_values.earliest_value
+
+        batch_last_value = (
+            self._schema.serialize_incremental_value(incremental_values.last_value)
+            if self._resource.sort_mode == "asc"
+            else None
+        )
+        tracked_rows = await self._stage_batch(
+            pa_table, batch_index, row_count, incremental_last_value=batch_last_value
+        )
+
+        self._internal_schema.add_pyarrow_table(pa_table)
+
+        await self._sinks.stage_chunk(batch_index, pa_table)
 
         await update_row_tracking_after_batch(
             str(self._job.id), self._job.team_id, self._schema.id, tracked_rows, self._logger

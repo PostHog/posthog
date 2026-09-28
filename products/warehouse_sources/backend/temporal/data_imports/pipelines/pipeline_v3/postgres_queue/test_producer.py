@@ -110,11 +110,12 @@ class TestPostgresProducerSendBatch:
         )
         batch_result = _make_batch_result(batch_index=1)
 
-        producer.send_batch_notification(batch_result)
+        producer.send_batch_notification(batch_result, incremental_last_value="2026-07-01T00:00:00")
 
         mock = _mock_conn(producer)
         params = mock.execute.call_args[0][1]
         metadata = json.loads(params["metadata"])
+        assert metadata["incremental_last_value"] == "2026-07-01T00:00:00"
         assert metadata["primary_keys"] == ["id"]
         assert metadata["partition_count"] == 4
         assert metadata["cdc_write_mode"] == "upsert"
