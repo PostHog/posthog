@@ -195,7 +195,14 @@ class QueryFailureCache:
 
 
 class WarmingQueryFailureCache(QueryFailureCache):
-    """Share failure history without extending the cooldown persisted for foreground retries."""
+    """Apply longer retry cooldowns to background cache warming.
+
+    QueryFailureCache stores the ordinary foreground deadline. This subclass shares its
+    Redis key, failure counter, recording and clearing logic, but derives the warming
+    deadline from the last failure time and count when reading. The longer deadline is
+    never persisted, so foreground retries keep their ordinary cooldown. A successful
+    calculation clears the shared history and allows both paths to retry normally.
+    """
 
     def retry_after(self, record: QueryFailureRecord) -> Optional[datetime]:
         policy = KIND_POLICIES[record.kind]
