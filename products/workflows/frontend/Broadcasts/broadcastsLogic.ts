@@ -103,12 +103,13 @@ export function canMoveToDraft(
     broadcast: StoppableBroadcast | null,
     batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
 ): boolean {
+    const neverSent = !broadcast?.schedules?.length && batchJobs?.length === 0
     return (
         broadcast?.status === 'active' &&
         // Only a send still to come can be stopped, since relaunching one that went out resends it. The
-        // wizard models a single schedule, so a relaunch would fold several into one.
-        broadcast.schedules?.length === 1 &&
-        broadcast.schedules[0].status !== 'completed' &&
+        // wizard models a single schedule, so a relaunch would fold several into one. A launch that
+        // never finished has neither a schedule nor a run, so it can go back to draft too.
+        (neverSent || (broadcast.schedules?.length === 1 && broadcast.schedules[0].status !== 'completed')) &&
         batchJobs !== null &&
         !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
@@ -149,7 +150,11 @@ export function getBroadcastStatus(
         // tells the sender another send is still pending when nothing is coming.
         return 'failed'
     }
-    // Active with no batch job yet: it's waiting on its schedule (or a manual send).
+    // Live with no run and nothing scheduled: a launch that never finished, so nothing will ever send.
+    if (details.hasPendingSchedule === false) {
+        return 'failed'
+    }
+    // Active with no batch job yet: it's waiting on its schedule.
     return 'scheduled'
 }
 

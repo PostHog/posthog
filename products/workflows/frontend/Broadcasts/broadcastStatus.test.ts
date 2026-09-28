@@ -21,6 +21,12 @@ describe('getBroadcastStatus', () => {
         ['a run that was cancelled', flow('active'), withJob('cancelled'), 'failed'],
         ['no run yet', flow('active'), { latestBatchJob: null, totals: {} }, 'scheduled'],
         [
+            'no run and no schedule to come',
+            flow('active'),
+            { latestBatchJob: null, totals: {}, hasPendingSchedule: false },
+            'failed',
+        ],
+        [
             'a recurring broadcast between runs',
             flow('active'),
             { ...withJob('completed'), hasPendingSchedule: true },

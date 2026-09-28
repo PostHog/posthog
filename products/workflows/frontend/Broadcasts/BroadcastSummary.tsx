@@ -2,7 +2,15 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconArrowLeft, IconChevronDown, IconLetter } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDialog,
+    LemonDivider,
+    LemonInput,
+    LemonTag,
+    LemonTagType,
+} from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -264,9 +272,10 @@ export function BroadcastSummary(): JSX.Element {
 
     const confirmMoveToDraft = (): void => {
         LemonDialog.open({
-            title: 'Stop this broadcast and edit it?',
-            description:
-                'The scheduled send stops and the broadcast goes back to draft. Nothing sends until you launch it again.',
+            title: pendingSchedule ? 'Stop this broadcast and edit it?' : 'Move this broadcast to draft?',
+            description: pendingSchedule
+                ? 'The scheduled send stops and the broadcast goes back to draft. Nothing sends until you launch it again.'
+                : 'The broadcast goes back to draft, so you can check it and launch it again.',
             primaryButton: {
                 children: 'Stop and edit',
                 onClick: moveToDraft,
@@ -345,6 +354,23 @@ export function BroadcastSummary(): JSX.Element {
                     ) : null}
                 </div>
 
+                {summaryStatus === 'failed' && !latestBatchJob && !batchJobsLoading ? (
+                    <LemonBanner
+                        type="warning"
+                        action={
+                            canMoveToDraft
+                                ? {
+                                      children: 'Move to draft',
+                                      onClick: confirmMoveToDraft,
+                                      'data-attr': 'broadcast-unfinished-launch-to-draft',
+                                  }
+                                : undefined
+                        }
+                    >
+                        This broadcast didn't send. Its launch didn't finish, so nothing is scheduled. Move it back to
+                        draft to launch it again.
+                    </LemonBanner>
+                ) : null}
                 <LemonTabs
                     activeKey={summaryTab}
                     onChange={setSummaryTab}
