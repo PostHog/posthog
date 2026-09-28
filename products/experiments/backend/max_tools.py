@@ -114,6 +114,11 @@ class CreateExperimentTool(MaxTool):
         if not feature_flag_key or not feature_flag_key.strip():
             return "Feature flag key cannot be empty", {"error": "invalid_flag_key"}
 
+        # The page that registered this tool (e.g. the create wizard's guide) passes where PostHog AI was
+        # opened from, so `experiment created` can attribute AI-created experiments to an entry point
+        entry_point = self.context.get("entry_point") if isinstance(self.context, dict) else None
+        analytics_properties = {"ai_entry_point": entry_point} if isinstance(entry_point, str) and entry_point else None
+
         @database_sync_to_async
         def create_experiment() -> Experiment:
             existing_experiment = Experiment.objects.filter(team=self._team, name=name, deleted=False).first()
@@ -147,6 +152,7 @@ class CreateExperimentTool(MaxTool):
                 description=description or "",
                 type=type,
                 event_source=EventSource.POSTHOG_AI,
+                analytics_properties=analytics_properties,
             )
 
         try:

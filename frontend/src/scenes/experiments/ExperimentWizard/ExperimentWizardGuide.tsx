@@ -60,7 +60,8 @@ export function ExperimentWizardGuide(): JSX.Element {
             }
             router.actions.push(urls.experiment(toolOutput.experiment_id))
         },
-        context: {},
+        // Recorded as `ai_entry_point` on `experiment created`, to attribute AI-created experiments to this button
+        context: { entry_point: 'experiment_wizard_guide' },
     })
 
     const guide = GUIDE_CONTENT[currentStep]

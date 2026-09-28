@@ -768,7 +768,8 @@ export function ExperimentsScene(): JSX.Element {
                                         }}
                                         position="bottom-right"
                                         active={true}
-                                        context={{}}
+                                        // Recorded as `ai_entry_point` on `experiment created`
+                                        context={{ entry_point: 'experiments_list' }}
                                     >
                                         <Shortcut
                                             name="NewExperiment"

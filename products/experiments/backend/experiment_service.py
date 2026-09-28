@@ -1292,6 +1292,7 @@ class ExperimentService:
         event_source: EventSource | None = None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode = "new",
+        analytics_properties: dict[str, Any] | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
         # Seed the dedup set with uuids the inline metrics must not collide with:
@@ -1448,6 +1449,7 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
         )
 
@@ -1461,6 +1463,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
         try:
@@ -1470,6 +1473,7 @@ class ExperimentService:
                 event_source=event_source,
                 allow_unknown_events=allow_unknown_events,
                 creation_mode=creation_mode,
+                analytics_properties=analytics_properties,
             )
         except Exception:
             logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
@@ -1506,6 +1510,7 @@ class ExperimentService:
         event_source: EventSource | None,
         allow_unknown_events: bool = False,
         creation_mode: ExperimentCreationMode,
+        analytics_properties: dict[str, Any] | None = None,
     ) -> None:
         request = serializer_context.get("request") if serializer_context else None
         if request is None and event_source is None:
@@ -1519,6 +1524,9 @@ class ExperimentService:
             analytics_metadata["allow_unknown_events"] = True
         if request is not None:
             analytics_metadata.update(_deprecated_fields_in_request(request))
+        # Caller-specific properties, e.g. which PostHog AI entry point created the experiment
+        if analytics_properties:
+            analytics_metadata.update(analytics_properties)
 
         report_user_action(
             self.user,

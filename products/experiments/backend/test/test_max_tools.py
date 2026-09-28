@@ -182,6 +182,30 @@ class TestCreateExperimentTool(APIBaseTest):
         assert mock_report_user_action.call_args.kwargs["team"] == self.team
         assert mock_report_user_action.call_args.kwargs["request"] is None
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    async def test_create_experiment_reports_ai_entry_point_from_page_context(
+        self, mock_report_user_action, _mock_on_commit
+    ):
+        await self._create_multivariate_flag(key="wizard-ai-flag")
+        context_manager = MagicMock()
+        context_manager.get_contextual_tools.return_value = {
+            "create_experiment": {"entry_point": "experiment_wizard_guide"}
+        }
+        tool = CreateExperimentTool(
+            team=self.team,
+            user=self.user,
+            state=AssistantState(messages=[]),
+            context_manager=context_manager,
+            config={},
+        )
+
+        await tool._arun_impl(name="Wizard AI Experiment", feature_flag_key="wizard-ai-flag")
+
+        metadata = mock_report_user_action.call_args.args[2]
+        assert metadata["source"] == EventSource.POSTHOG_AI
+        assert metadata["ai_entry_point"] == "experiment_wizard_guide"
+
     async def test_create_experiment_flag_already_used(self):
         flag = await self._create_multivariate_flag(key="used-flag")
         await Experiment.objects.acreate(
