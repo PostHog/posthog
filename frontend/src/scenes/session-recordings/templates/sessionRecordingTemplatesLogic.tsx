@@ -221,6 +221,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                         // nosemgrep: prefer-codegen-api-namespaced-replay
                         response = await api.recordings.list(query)
                     } catch {
+                        breakpoint()
                         actions.matchCountFailed()
                         return null
                     }
