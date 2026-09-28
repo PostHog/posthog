@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -5,70 +6,50 @@ from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import (
-    resume_append_retry,
+    find_append_retry_resume,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    EarlierAttempts,
+    EarlierBatch,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
-_SETTLE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry.BatchQueue.settle_earlier_attempts"
-_CONFIG_WRITE = "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"
+_NEWEST = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry.BatchQueue.newest_batch_of_earlier_attempts"
 
 
-def _schema(*, sync_type: str = "append", last_value: Any = 500) -> ExternalDataSchema:
-    config: dict[str, Any] = {"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer}
-    if last_value is not None:
-        config["incremental_field_last_value"] = last_value
-    return ExternalDataSchema(sync_type=sync_type, sync_type_config=config)
+def _earlier_batch(incremental_last_value: Any = 2_000) -> EarlierBatch:
+    return EarlierBatch(
+        id="batch-1",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        run_uuid="wfrun-1-a1",
+        batch_index=4,
+        is_final_batch=False,
+        incremental_last_value=incremental_last_value,
+    )
 
 
-def _apply_in_memory(schema: ExternalDataSchema):
-    def apply(schema_id: Any, team_id: Any, *, mutate: Any, **_: Any) -> dict[str, Any]:
-        mutate(schema.sync_type_config)
-        return schema.sync_type_config
-
-    return patch(_CONFIG_WRITE, side_effect=apply)
-
-
-def _resume(schema: ExternalDataSchema, sleep: MagicMock | None = None, **overrides: Any) -> int | None:
+def _find(sync_type: str = "append", **overrides: Any) -> EarlierBatch | None:
+    schema = ExternalDataSchema(
+        sync_type=sync_type,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": IncrementalFieldType.Integer},
+    )
     kwargs: dict[str, Any] = {
         "job_id": "job-1",
         "workflow_run_id": "wfrun-1",
         "attempt": 2,
         "source_is_resumable": False,
         "connect": MagicMock(),
-        "sleep": sleep or MagicMock(),
-        "poll_seconds": 1,
-        "timeout_seconds": 3,
         **overrides,
     }
-    return resume_append_retry(schema, **kwargs)
+    return find_append_retry_resume(schema, **kwargs)
 
 
-class TestResumeAppendRetry:
-    @pytest.mark.parametrize("watermark,expected_watermark", [(500, 3_000), (None, 3_000), (5_000, 5_000)])
-    def test_resumes_after_the_last_loaded_batch_once_no_batch_is_loading(
-        self, watermark: Any, expected_watermark: Any
-    ) -> None:
-        schema = _schema(last_value=watermark)
-        sleep = MagicMock()
-        with (
-            patch(
-                _SETTLE,
-                side_effect=[
-                    EarlierAttempts(unsettled_batches=1, loaded_rows=150, loaded_last_value=2_000),
-                    EarlierAttempts(unsettled_batches=0, loaded_rows=250, loaded_last_value=3_000),
-                ],
-            ) as settle,
-            _apply_in_memory(schema),
-        ):
-            loaded_rows = _resume(schema, sleep=sleep)
+class TestFindAppendRetryResume:
+    def test_resumes_after_the_newest_batch_an_earlier_attempt_queued(self) -> None:
+        earlier = _earlier_batch()
+        with patch(_NEWEST, return_value=earlier) as newest:
+            assert _find() == earlier
 
-        assert loaded_rows == 250
-        assert schema.sync_type_config["incremental_field_last_value"] == expected_watermark
-        assert settle.call_args.kwargs == {"job_id": "job-1", "current_run_uuid": "wfrun-1-a2"}
-        sleep.assert_called_once_with(1)
+        assert newest.call_args.kwargs == {"job_id": "job-1", "current_run_uuid": "wfrun-1-a2"}
 
     @pytest.mark.parametrize(
         "overrides,sync_type",
@@ -81,27 +62,12 @@ class TestResumeAppendRetry:
         ],
     )
     def test_leaves_runs_it_does_not_apply_to_alone(self, overrides: dict[str, Any], sync_type: str) -> None:
-        schema = _schema(sync_type=sync_type)
-        with patch(_SETTLE) as settle, _apply_in_memory(schema):
-            assert _resume(schema, **overrides) is None
+        with patch(_NEWEST) as newest:
+            assert _find(sync_type, **overrides) is None
 
-        settle.assert_not_called()
-        assert schema.sync_type_config["incremental_field_last_value"] == 500
+        newest.assert_not_called()
 
-    @pytest.mark.parametrize("loaded_rows", [0, 90])
-    def test_restarts_from_the_watermark_when_no_loaded_cursor_is_known(self, loaded_rows: int) -> None:
-        settled = EarlierAttempts(unsettled_batches=0, loaded_rows=loaded_rows, loaded_last_value=None)
-        schema = _schema()
-        with patch(_SETTLE, return_value=settled), _apply_in_memory(schema):
-            assert _resume(schema) is None
-
-        assert schema.sync_type_config["incremental_field_last_value"] == 500
-
-    def test_gives_up_when_a_batch_stays_loading(self) -> None:
-        schema = _schema()
-        still_loading = EarlierAttempts(unsettled_batches=1, loaded_rows=150, loaded_last_value=2_000)
-        with patch(_SETTLE, return_value=still_loading), _apply_in_memory(schema):
-            with pytest.raises(TimeoutError):
-                _resume(schema)
-
-        assert schema.sync_type_config["incremental_field_last_value"] == 500
+    @pytest.mark.parametrize("earlier", [None, _earlier_batch(incremental_last_value=None)])
+    def test_restarts_from_the_watermark_without_a_queued_cursor(self, earlier: EarlierBatch | None) -> None:
+        with patch(_NEWEST, return_value=earlier):
+            assert _find() is None

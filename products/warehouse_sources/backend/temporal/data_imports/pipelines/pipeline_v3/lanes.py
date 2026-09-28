@@ -28,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    EarlierBatch,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
 )
@@ -88,7 +91,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: ImportJobModels,
-        retry_loaded_rows: int | None = None,
+        resume_after: EarlierBatch | None = None,
     ) -> None:
         if not source_response.lanes:
             raise ValueError(f"{source_response.name} declares no lanes; run it on PipelineV3")
@@ -102,7 +105,7 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
             shutdown_monitor,
             resumable_source_manager,
             models=models,
-            retry_loaded_rows=retry_loaded_rows,
+            resume_after=resume_after,
         )
 
         # The base built the first lane; it shares the base's batch list so the two never disagree.

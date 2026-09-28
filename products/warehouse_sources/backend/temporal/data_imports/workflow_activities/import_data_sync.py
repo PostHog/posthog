@@ -57,7 +57,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typ
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v2.pipeline import PipelineNonDLT
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.append_retry import (
-    resume_append_retry,
+    find_append_retry_resume,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    EarlierBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import setup_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
@@ -455,9 +458,9 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
         if delta_rebuild_pending:
             await logger.adebug("Ignoring the incremental cursor: a corrupt-delta revive rebuilds the table this run")
 
-        retry_loaded_rows: int | None = None
+        resume_after: EarlierBatch | None = None
         if model.pipeline_version == ExternalDataJob.PipelineVersion.V3 and not delta_rebuild_pending:
-            retry_loaded_rows = await database_sync_to_async_pool(resume_append_retry)(
+            resume_after = await database_sync_to_async_pool(find_append_retry_resume)(
                 schema,
                 job_id=str(model.id),
                 workflow_run_id=model.workflow_run_id,
@@ -465,17 +468,20 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 source_is_resumable=SourceRegistry.is_registered(source_type)
                 and isinstance(SourceRegistry.get_source(source_type), ResumableSource),
             )
-            if retry_loaded_rows is not None:
+            if resume_after is not None:
                 await logger.ainfo(
-                    "V3 Pipeline: append retry continues after the rows earlier attempts loaded",
-                    loaded_rows=retry_loaded_rows,
+                    "V3 Pipeline: append retry continues after an earlier attempt's batches",
+                    earlier_run_uuid=resume_after.run_uuid,
+                    earlier_batch_index=resume_after.batch_index,
                 )
 
-        # A reset retry that continues keeps the cursor it moved: its first attempt already wiped the table.
-        use_stored_cursors = (reset_pipeline is not True or retry_loaded_rows is not None) and not delta_rebuild_pending
+        # A reset retry that continues keeps the earlier attempt's cursor: its first attempt already wiped the table.
+        use_stored_cursors = (reset_pipeline is not True or resume_after is not None) and not delta_rebuild_pending
         if use_stored_cursors:
             processed_incremental_last_value = process_incremental_value(
-                schema.sync_type_config.get("incremental_field_last_value"),
+                resume_after.incremental_last_value
+                if resume_after is not None
+                else schema.sync_type_config.get("incremental_field_last_value"),
                 schema.sync_type_config.get("incremental_field_type"),
             )
             processed_incremental_earliest_value = process_incremental_value(
@@ -674,7 +680,7 @@ async def _import_data_with_reporting(inputs: ImportDataActivityInputs, logger: 
                 reset_pipeline=reset_pipeline,
                 shutdown_monitor=shutdown_monitor,
                 resumable_source_manager=resumable_source_manager,
-                retry_loaded_rows=retry_loaded_rows,
+                resume_after=resume_after,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -966,7 +972,7 @@ async def _run(
     reset_pipeline: bool,
     shutdown_monitor: ShutdownMonitor,
     resumable_source_manager: ResumableSourceManager | None,
-    retry_loaded_rows: int | None = None,
+    resume_after: EarlierBatch | None = None,
 ) -> PipelineResult:
     try:
         models = await _get_models(job_inputs.run_id)
@@ -985,7 +991,7 @@ async def _run(
                 shutdown_monitor,
                 resumable_source_manager,
                 models=models,
-                retry_loaded_rows=retry_loaded_rows,
+                resume_after=resume_after,
             )
         else:
             pipeline = PipelineNonDLT(

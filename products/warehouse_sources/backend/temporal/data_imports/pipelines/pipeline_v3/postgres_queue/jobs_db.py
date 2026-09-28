@@ -532,13 +532,16 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
 
 
 @dataclass(frozen=True, slots=True)
-class EarlierAttempts:
-    """What the earlier attempts of a job left in the queue once their unloaded batches are superseded."""
+class EarlierBatch:
+    """The newest batch an earlier attempt of a job queued, which a retried append attempt continues after."""
 
-    unsettled_batches: int
-    loaded_rows: int
-    # Cursor of the newest loaded batch. None when nothing loaded or that batch row carries no cursor.
-    loaded_last_value: Any
+    id: str
+    created_at: datetime
+    run_uuid: str
+    batch_index: int
+    is_final_batch: bool
+    # The cursor through this batch. None when the batch row carries no cursor.
+    incremental_last_value: Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -1311,65 +1314,71 @@ class BatchQueue:
         return cursor.rowcount or 0
 
     @staticmethod
-    def settle_earlier_attempts(
+    def newest_batch_of_earlier_attempts(
         conn: psycopg.Connection[Any],
         *,
         job_id: str,
         current_run_uuid: str,
-    ) -> EarlierAttempts:
-        """Supersede every unloaded batch of the job's earlier attempts and report what they loaded.
+    ) -> EarlierBatch | None:
+        """The newest batch the job's earlier attempts queued, skipping runs that have a failed batch.
 
-        An append retry resumes after the rows its earlier attempts loaded, so none of their other
-        batches may load later. A batch the loader is writing cannot be stopped, so it is left alone
-        and counted as unsettled, as is one that went back to the queue after this supersede. The
-        caller waits and calls again until nothing is unsettled.
-
-        Loaded batches form a prefix of each attempt, because the loader writes a run's batches in
-        order, and a later attempt starts after the earlier ones. So the newest loaded batch holds
-        the highest cursor. The final batch row repeats the last data batch, so it is not counted.
+        The loader never claims more batches of a run with a failed batch, so a retry must not continue after one.
         """
-        conn.execute(
-            _bulk_fail_dual_write_sql(
-                """b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
-                AND (s.job_state IS NULL OR s.job_state != 'executing')"""
-            ),
-            {
-                "job_id": job_id,
-                "current_run_uuid": current_run_uuid,
-                "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
-            },
-        )
-        earlier_batches = f"""
+        row = conn.execute(
+            f"""
+            SELECT b.id, b.created_at, b.run_uuid, b.batch_index, b.is_final_batch,
+                b.metadata -> 'incremental_last_value'
             FROM {BATCH_TABLE} b
             WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                 AND b.job_id = %(job_id)s
                 AND b.run_uuid != %(current_run_uuid)s
-        """
-        parameters = {"job_id": job_id, "current_run_uuid": current_run_uuid}
-        counts = conn.execute(
-            f"""
-            SELECT
-                count(*) FILTER (WHERE b.latest_state NOT IN ('succeeded', 'failed')),
-                COALESCE(sum(b.row_count) FILTER (WHERE b.latest_state = 'succeeded' AND NOT b.is_final_batch), 0)
-            {earlier_batches}
-            """,
-            parameters,
-        ).fetchone()
-        newest_loaded = conn.execute(
-            f"""
-            SELECT b.metadata -> 'incremental_last_value'
-            {earlier_batches}
-                AND b.latest_state = 'succeeded'
-                AND NOT b.is_final_batch
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} f
+                    WHERE f.run_uuid = b.run_uuid
+                        AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                        AND f.latest_state = 'failed'
+                )
             ORDER BY b.created_at DESC, b.batch_index DESC
             LIMIT 1
             """,
-            parameters,
+            {"job_id": job_id, "current_run_uuid": current_run_uuid},
         ).fetchone()
-        return EarlierAttempts(
-            unsettled_batches=counts[0] if counts else 0,
-            loaded_rows=int(counts[1]) if counts else 0,
-            loaded_last_value=newest_loaded[0] if newest_loaded else None,
+        if row is None:
+            return None
+        return EarlierBatch(
+            id=str(row[0]),
+            created_at=row[1],
+            run_uuid=row[2],
+            batch_index=row[3],
+            is_final_batch=row[4],
+            incremental_last_value=row[5],
+        )
+
+    @staticmethod
+    def enqueue_final_batch_copy(conn: psycopg.Connection[Any], *, batch: EarlierBatch) -> None:
+        """Queue `batch` again as its run's final batch, the notification an interrupted attempt never sent.
+
+        The loader skips the write of a batch it already loaded, keyed on run and batch index, so the copy
+        only runs post-load and completes the job. Whichever of the two rows it claims first loads the data.
+        """
+        conn.execute(
+            f"""
+            INSERT INTO {BATCH_TABLE} (
+                team_id, schema_id, source_id, job_id, run_uuid,
+                batch_index, s3_path, row_count, byte_size, is_final_batch,
+                total_batches, total_rows, sync_type, cumulative_row_count,
+                resource_name, is_resume, is_first_ever_sync, metadata, destination_ids, created_at
+            )
+            SELECT
+                team_id, schema_id, source_id, job_id, run_uuid,
+                batch_index, s3_path, row_count, byte_size, TRUE,
+                batch_index + 1, cumulative_row_count, sync_type, cumulative_row_count,
+                resource_name, is_resume, is_first_ever_sync, metadata, destination_ids, now()
+            FROM {BATCH_TABLE}
+            WHERE id = %(batch_id)s AND created_at = %(created_at)s
+            """,
+            {"batch_id": batch.id, "created_at": batch.created_at},
         )
 
     @staticmethod

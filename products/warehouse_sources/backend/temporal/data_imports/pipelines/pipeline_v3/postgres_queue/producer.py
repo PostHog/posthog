@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     BatchQueue,
+    EarlierBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
@@ -124,7 +125,7 @@ class PostgresProducer:
     ) -> None:
         """Insert a batch row into the Postgres queue."""
         metadata: dict[str, Any] = {}
-        # The cursor through this batch, which a retried append resumes after once the batch has loaded.
+        # The cursor through this batch. A retried append attempt reads after the newest batch an earlier attempt queued.
         if incremental_last_value is not None:
             metadata["incremental_last_value"] = incremental_last_value
         if data_folder is not None:
@@ -225,6 +226,9 @@ class PostgresProducer:
                 batch_index=batch_result.batch_index,
                 is_final_batch=False,
             )
+
+    def enqueue_final_batch_copy(self, batch: EarlierBatch) -> None:
+        BatchQueue.enqueue_final_batch_copy(self._conn, batch=batch)
 
     def flush(self, timeout: Optional[float] = None) -> int:
         """No-op — inserts are durable on commit. Returns count of batches sent since last flush."""

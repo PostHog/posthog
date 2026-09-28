@@ -1,6 +1,7 @@
 import json
 from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import cast
 
@@ -21,6 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
     PipelineV3,
     should_coalesce_tables,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    EarlierBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
@@ -49,6 +53,17 @@ def _make_logger() -> MagicMock:
     return logger
 
 
+def _earlier_batch(*, is_final_batch: bool) -> EarlierBatch:
+    return EarlierBatch(
+        id="batch-1",
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        run_uuid="wfrun-1-a1",
+        batch_index=4,
+        is_final_batch=is_final_batch,
+        incremental_last_value=2_000,
+    )
+
+
 def _make_pipeline() -> PipelineV3:
     """Build a PipelineV3 with just enough wiring to exercise run()."""
     with patch.object(PipelineV3, "__init__", return_value=None):
@@ -70,7 +85,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._logger = _make_logger()
     pipeline._is_incremental = False
     pipeline._reset_pipeline = False
-    pipeline._retry_loaded_rows = None
+    pipeline._resume_after = None
     pipeline._delta_table_ref = MagicMock(is_first_sync=True)
     pipeline._resumable_source_manager = None
     pipeline._internal_schema = MagicMock()
@@ -94,7 +109,12 @@ def _make_pipeline() -> PipelineV3:
 
 
 class TestAttemptScopedRunUuid:
-    def test_run_uuid_includes_attempt_number(self) -> None:
+    @pytest.mark.parametrize(
+        "resume_after,expected_is_resume", [(None, False), (_earlier_batch(is_final_batch=False), True)]
+    )
+    def test_run_uuid_includes_attempt_number(
+        self, resume_after: EarlierBatch | None, expected_is_resume: bool
+    ) -> None:
         mock_job = MagicMock(
             team_id=1,
             workflow_run_id="wfrun-abc",
@@ -149,7 +169,7 @@ class TestAttemptScopedRunUuid:
             ) as mock_s3_writer_cls,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.PostgresProducer",
-            ),
+            ) as mock_producer_cls,
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.DeltaTableRef"
             ),
@@ -163,8 +183,10 @@ class TestAttemptScopedRunUuid:
                 shutdown_monitor=MagicMock(),
                 resumable_source_manager=None,
                 models=ImportJobModels(job=mock_job, schema=mock_schema, source=mock_source, table=None),
+                resume_after=resume_after,
             )
 
+        assert mock_producer_cls.call_args.kwargs["is_resume"] is expected_is_resume
         assert pipeline._attempt == 3
         mock_s3_writer_cls.assert_called_once()
         assert mock_s3_writer_cls.call_args[0][3] == "wfrun-abc-a3"
@@ -203,15 +225,28 @@ class TestAttemptScopedRunUuid:
 
         mock_reset.assert_not_called()
 
-    @pytest.mark.parametrize("retry_loaded_rows,expected_rows", [(None, 0), (250, 250)])
+    @pytest.mark.parametrize(
+        "resume_after,finishes_earlier_attempt,consumer_manages_job_status,expected_rows",
+        [
+            (None, False, False, 0),
+            (_earlier_batch(is_final_batch=False), True, True, 900),
+            (_earlier_batch(is_final_batch=True), False, True, 900),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_retry_counts_only_rows_that_stay_loaded(
-        self, retry_loaded_rows: int | None, expected_rows: int
+    async def test_a_resumed_retry_with_no_new_rows_hands_the_job_to_the_loader(
+        self,
+        resume_after: EarlierBatch | None,
+        finishes_earlier_attempt: bool,
+        consumer_manages_job_status: bool,
+        expected_rows: int,
     ) -> None:
         pipeline = _make_pipeline()
         pipeline._attempt = 2
-        pipeline._retry_loaded_rows = retry_loaded_rows
+        pipeline._resume_after = resume_after
         pipeline._job.rows_synced = 900
+        producer = cast(MagicMock, pipeline._pg_producer)
+        schema = cast(MagicMock, pipeline._schema)
 
         with (
             patch(f"{_PIPELINE}.validate_incremental_sync"),
@@ -228,9 +263,16 @@ class TestAttemptScopedRunUuid:
             pipeline._resource.items = MagicMock(return_value=iter([]))
             pipeline._batcher.should_yield.return_value = False  # type: ignore[attr-defined]
 
-            await pipeline.run()
+            result = await pipeline.run()
 
+        assert result["consumer_manages_job_status"] is consumer_manages_job_status
         assert pipeline._job.rows_synced == expected_rows
+        if finishes_earlier_attempt:
+            schema.stage_incremental_field_value.assert_called_once_with("wfrun-1-a1", 2_000)
+            producer.enqueue_final_batch_copy.assert_called_once_with(resume_after)
+        else:
+            schema.stage_incremental_field_value.assert_not_called()
+            producer.enqueue_final_batch_copy.assert_not_called()
 
 
 @pytest.mark.asyncio

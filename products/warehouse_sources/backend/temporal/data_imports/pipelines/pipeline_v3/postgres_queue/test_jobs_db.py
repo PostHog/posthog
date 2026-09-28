@@ -25,7 +25,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     STATUS_VIEW,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
-    EarlierAttempts,
     PendingBatch,
     _orphaned_candidate_runs_sql,
     build_status_dual_write_sql,
@@ -1576,43 +1575,43 @@ class TestStateDualWrite:
         assert (await _batch_state(conn, stalled))[0] == "failed"
 
     @pytest.mark.asyncio
-    async def test_settle_earlier_attempts_drops_unloaded_batches_and_reports_the_loaded_prefix(self, conn, sync_conn):
-        loaded = [
+    async def test_newest_batch_of_earlier_attempts_is_where_a_retry_resumes(self, conn, sync_conn):
+        for index, cursor in enumerate([1_000, 2_000]):
             await _insert_batch(
                 conn,
                 batch_index=index,
                 run_uuid="run-a1",
                 job_id="job-ap",
-                row_count=rows,
+                cumulative_row_count=100 * (index + 1),
                 metadata={"incremental_last_value": cursor},
             )
-            for index, (rows, cursor) in enumerate([(100, 1_000), (50, 2_000)])
-        ]
-        executing = await _insert_batch(
-            conn, batch_index=2, run_uuid="run-a1", job_id="job-ap", metadata={"incremental_last_value": 3_000}
+        failed_run = await _insert_batch(
+            conn, run_uuid="run-a2", job_id="job-ap", metadata={"incremental_last_value": 9_000}
         )
-        unloaded = await _insert_batch(
-            conn, batch_index=3, run_uuid="run-a1", job_id="job-ap", metadata={"incremental_last_value": 4_000}
+        await BatchQueue.update_status(conn, batch_id=failed_run, job_state="failed", attempt=1)
+        await _insert_batch(conn, run_uuid="run-a3", job_id="job-ap", metadata={"incremental_last_value": 8_000})
+        await _insert_batch(conn, run_uuid="run-x", job_id="job-other", metadata={"incremental_last_value": 7_000})
+
+        newest = BatchQueue.newest_batch_of_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a3")
+
+        assert newest is not None
+        assert (newest.run_uuid, newest.batch_index, newest.is_final_batch, newest.incremental_last_value) == (
+            "run-a1",
+            1,
+            False,
+            2_000,
         )
-        current = await _insert_batch(conn, batch_index=0, run_uuid="run-a2", job_id="job-ap")
-        other_job = await _insert_batch(conn, batch_index=0, run_uuid="run-x", job_id="job-other")
-        for batch_id in loaded:
-            await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
-        await BatchQueue.update_status(conn, batch_id=executing, job_state="executing", attempt=1)
 
-        settled = BatchQueue.settle_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a2")
+        BatchQueue.enqueue_final_batch_copy(sync_conn, batch=newest)
 
-        assert settled == EarlierAttempts(unsettled_batches=1, loaded_rows=150, loaded_last_value=2_000)
-        assert (await _batch_state(conn, unloaded))[0] == "failed"
-        assert (await _batch_state(conn, executing))[0] == "executing"
-        assert (await _batch_state(conn, current))[0] == "pending"
-        assert (await _batch_state(conn, other_job))[0] == "pending"
-
-        await BatchQueue.update_status(conn, batch_id=executing, job_state="succeeded", attempt=1)
-
-        settled = BatchQueue.settle_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a2")
-
-        assert settled == EarlierAttempts(unsettled_batches=0, loaded_rows=250, loaded_last_value=3_000)
+        cur = await conn.execute(
+            f"""SELECT run_uuid, batch_index, is_final_batch, total_batches, total_rows, latest_state, metadata
+            FROM {BATCH_TABLE} WHERE job_id = 'job-ap' AND is_final_batch"""
+        )
+        assert await cur.fetchall() == [("run-a1", 1, True, 2, 200, "pending", {"incremental_last_value": 2_000})]
+        after_copy = BatchQueue.newest_batch_of_earlier_attempts(sync_conn, job_id="job-ap", current_run_uuid="run-a3")
+        assert after_copy is not None
+        assert (after_copy.run_uuid, after_copy.is_final_batch) == ("run-a1", True)
 
     @pytest.mark.asyncio
     async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):

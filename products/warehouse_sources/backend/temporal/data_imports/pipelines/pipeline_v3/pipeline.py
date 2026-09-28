@@ -71,6 +71,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     get_rows_extracted_metric,
     get_run_attempt_metric,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    EarlierBatch,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
     SyncTypeLiteral,
@@ -144,7 +147,7 @@ class PipelineV3(Generic[ResumableData]):
         resumable_source_manager: ResumableSourceManager[ResumableData] | None,
         *,
         models: "ImportJobModels",
-        retry_loaded_rows: int | None = None,
+        resume_after: EarlierBatch | None = None,
     ) -> None:
         self._resource = source_response
         self._resource_name = source_response.name
@@ -156,8 +159,8 @@ class PipelineV3(Generic[ResumableData]):
 
         self._job = models.job
         self._reset_pipeline = reset_pipeline
-        # Set when this attempt continues after the rows earlier attempts loaded (see append_retry.py).
-        self._retry_loaded_rows = retry_loaded_rows
+        # Set when a retried append attempt continues after an earlier attempt's batches (see append_retry.py).
+        self._resume_after = resume_after
         self._logger = logger
         self._load_id = time.time_ns()
 
@@ -219,7 +222,7 @@ class PipelineV3(Generic[ResumableData]):
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
         self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
-        is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        is_resume = self._is_resume()
 
         self._producer_kwargs: dict[str, Any] = {
             "sync_type": sync_type,
@@ -350,6 +353,25 @@ class PipelineV3(Generic[ResumableData]):
         """
         return self._resource.cdc_write_mode == SCD2_APPEND_MODE
 
+    def _is_resume(self) -> bool:
+        if self._resume_after is not None:
+            return True
+        return self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+
+    async def _finish_earlier_attempt(self, earlier: EarlierBatch) -> None:
+        """Send the final batch an interrupted earlier attempt never sent, when this retry found no new rows.
+
+        The loader then completes the job after that attempt's batches, publishes the table and promotes the
+        cursor through them. Without it the workflow completes the job before those batches load, and the
+        next sync reads them again.
+        """
+        if earlier.is_final_batch:
+            return
+        await database_sync_to_async_pool(self._schema.stage_incremental_field_value)(
+            earlier.run_uuid, earlier.incremental_last_value
+        )
+        self._pg_producer.enqueue_final_batch_copy(earlier)
+
     def _close_producers(self) -> None:
         self._pg_producer.close()
 
@@ -360,7 +382,7 @@ class PipelineV3(Generic[ResumableData]):
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
 
-        should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        should_resume = self._is_resume()
         source_is_resumable = self._resumable_source_manager is not None
 
         if should_resume:
@@ -395,18 +417,13 @@ class PipelineV3(Generic[ResumableData]):
 
             # v3 stages the incremental cursor until job completion, so a retried attempt
             # re-extracts from batch 0 and the previous attempt's count must not be kept.
-            if self._retry_loaded_rows is None:
-                await reset_rows_synced_if_needed(
-                    self._job,
-                    self._is_incremental,
-                    self._reset_pipeline,
-                    should_resume,
-                    incremental_cursor_staged=True,
-                )
-            else:
-                # The rows earlier attempts loaded stay in the table, so the job counts them once.
-                self._job.rows_synced = self._retry_loaded_rows
-                await database_sync_to_async_pool(self._job.save)(update_fields=["rows_synced", "updated_at"])
+            await reset_rows_synced_if_needed(
+                self._job,
+                self._is_incremental,
+                self._reset_pipeline,
+                should_resume,
+                incremental_cursor_staged=True,
+            )
 
             validate_incremental_sync(
                 self._is_incremental,
@@ -543,7 +560,11 @@ class PipelineV3(Generic[ResumableData]):
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
             # See the PipelineResult docstring for the full ownership contract.
-            consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
+            if self._resume_after is not None and self._total_batches() == 0:
+                await self._finish_earlier_attempt(self._resume_after)
+                consumer_will_hear_about_this_run = True
+            else:
+                consumer_will_hear_about_this_run = self._consumer_finalizes_this_run()
 
             return {
                 "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
