@@ -98,7 +98,6 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
         leadingUnplayableMs,
         hasUnrenderableWindow,
         unrenderableWindowMs,
-        hasOversizedMutations,
         fullyLoaded,
     } = useValues(sessionRecordingPlayerLogic)
 
@@ -424,19 +423,6 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
                                                     window is on screen.{' '}
                                                 </>
                                             ) : null}
-                                            <Link to="https://posthog.com/docs/session-replay/troubleshooting">
-                                                Learn more
-                                            </Link>
-                                        </LemonBanner>
-                                    ) : null}
-                                    {hasOversizedMutations && !hidePlayerElements ? (
-                                        <LemonBanner
-                                            type="warning"
-                                            className="shrink-0"
-                                            dismissKey={`oversized-mutations-${sessionRecordingId}`}
-                                        >
-                                            Parts of this recording captured too much changing content to render.
-                                            Playback skips those sections to keep the player responsive.{' '}
                                             <Link to="https://posthog.com/docs/session-replay/troubleshooting">
                                                 Learn more
                                             </Link>

@@ -456,15 +456,18 @@ class TestPrepareReportContext(BaseTest):
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("remove_passing_rule,manual", [(False, False), (True, False), (True, True)])
+@pytest.mark.parametrize("evaluation_type", ["llm_judge", "hog"])
 async def test_prepare_activity_reads_current_reportability_and_polarity(
-    team, user, remove_passing_rule, manual
+    team, user, remove_passing_rule, manual, evaluation_type
 ) -> None:
     def _create_report() -> EvaluationReport:
         evaluation = Evaluation.objects.create(
             team=team,
             name="Detector Eval",
-            evaluation_type="llm_judge",
-            evaluation_config={"prompt": "test prompt"},
+            evaluation_type=evaluation_type,
+            evaluation_config={"source": "return target.total_latency_seconds * 1000;"}
+            if evaluation_type == "hog"
+            else {"prompt": "test prompt"},
             output_type="numeric" if remove_passing_rule else "boolean",
             output_config={"passing_rule": {"operator": "gte", "threshold": 7}}
             if remove_passing_rule
@@ -507,6 +510,9 @@ async def test_prepare_activity_reads_current_reportability_and_polarity(
     else:
         context = await prepare_report_context_activity(inputs)
         assert context.true_is_failure is True
+        assert context.evaluation_prompt == (
+            "return target.total_latency_seconds * 1000;" if evaluation_type == "hog" else "test prompt"
+        )
 
 
 class TestCountTriggeredReportChecks(BaseTest):

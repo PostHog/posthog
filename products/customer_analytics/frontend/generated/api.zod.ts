@@ -414,6 +414,15 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
 
+export const accountsPresenceListBodyAccountIdsMax = 100
+
+export const AccountsPresenceListBody = /* @__PURE__ */ zod.object({
+    account_ids: zod
+        .array(zod.uuid())
+        .max(accountsPresenceListBodyAccountIdsMax)
+        .describe('Up to 100 account IDs to read presence for.'),
+})
+
 /**
  * Run a Customer Analytics accounts table query.
  */
