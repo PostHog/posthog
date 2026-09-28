@@ -9,6 +9,7 @@ synthetic ACP log lines, no sandboxed stack.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
@@ -240,11 +241,11 @@ def test_bucketing_fits(mode: str, continuity: bool, bucketing: str, expected_pa
     assert bucketing_fits(created, mode)[0] is expected_pass
 
 
-_FUNNEL = {
+_FUNNEL: dict[str, Any] = {
     "metric_type": "funnel",
     "series": [{"kind": "EventsNode", "event": "$pageview"}, {"kind": "EventsNode", "event": "signed_up"}],
 }
-_REVENUE = {
+_REVENUE: dict[str, Any] = {
     "metric_type": "mean",
     "source": {"kind": "EventsNode", "event": "checkout_completed", "math": "sum", "math_property": "revenue"},
 }
