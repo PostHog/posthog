@@ -3518,6 +3518,8 @@ export interface MCPHarnessBreakdownItem {
     errors: integer
     error_rate_pct: number
     sessions: integer
+    /** Distinct sessions in this harness across all tools, in the same window and filters. The denominator for the tool's session share within the harness. Set only when the query has toolName. */
+    harness_sessions?: integer
 }
 
 export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
@@ -3676,6 +3678,10 @@ export interface MCPToolStatsItem {
     conversations: integer
     /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
     with_intent: integer
+    /** Calls to any tool in the same window and filters. The denominator for the tool's call share. */
+    total_calls: integer
+    /** Conversations with a call to any tool in the same window and filters. The denominator for the tool's session share. */
+    total_conversations: integer
 }
 
 export interface MCPToolStatsQueryResponse extends AnalyticsQueryResponseBase {
@@ -3729,6 +3735,8 @@ export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDa
 export interface MCPToolQualityRowItem {
     tool: string
     total_calls: integer
+    /** Calls in the previous period: the same length of time right before the window, or for a to-date range ("This month") the same part of the previous unit. */
+    previous_calls: integer
     errors: integer
     error_rate_pct: number
     p50_duration_ms: number
@@ -3738,6 +3746,15 @@ export interface MCPToolQualityRowItem {
     sessions: integer
     first_seen: string
     last_seen: string
+    /** Sort key ranking growth relative to volume, so a small tool's spike doesn't outrank a
+     * large tool's surge. Not a percentage; only meaningful for ordering. */
+    trend_score: number
+    /** Errored calls in the previous period. */
+    previous_errors: integer
+    /** p95 duration in the previous period, or null when no previous call carried a duration. */
+    previous_p95_duration_ms: number | null
+    /** Distinct sessions that called the tool in the previous period. */
+    previous_sessions: integer
 }
 
 export type MCPToolQualitySortColumn =
@@ -3749,6 +3766,7 @@ export type MCPToolQualitySortColumn =
     | 'users'
     | 'sessions'
     | 'last_seen'
+    | 'trend_score'
 
 export type MCPToolQualitySortDirection = 'ASC' | 'DESC'
 
@@ -3756,6 +3774,10 @@ export interface MCPToolQualityRowsQueryResponse extends AnalyticsQueryResponseB
     results: MCPToolQualityRowItem[]
     /** Number of tools matching the date, category, and search filters. */
     totalCount: integer
+    /** Distinct sessions with any tool call in the window, ignoring category and search filters. The denominator for each row's session share. */
+    totalSessions: integer
+    /** The same total for the previous period, the denominator for each row's previous session share. */
+    previousTotalSessions: integer
 }
 
 /** One row per effective MCP tool name, with server-side search, sorting, and pagination. */
@@ -4710,6 +4732,8 @@ export interface LogAttributesQuery extends DataNode<LogAttributesQueryResponse>
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     attributeType: string
+    /** Return only attribute keys that exactly match an entry in this list. */
+    attributeKeys?: string[]
 }
 
 export interface LogAttributeResult {
@@ -4967,7 +4991,7 @@ export type CachedLogsQueryResponse = CachedQueryResponse<LogsQueryResponse>
 
 export interface TraceSpansQuery extends DataNode<TraceSpansQueryResponse> {
     kind: NodeKind.TraceSpansQuery
-    dateRange: DateRange
+    dateRange?: DateRange
     limit?: integer
     offset?: integer
     /** Column to order by. Defaults to timestamp. `timestamp` paginates via keyset cursor (`after`); other columns via `offset`. */
@@ -5335,6 +5359,7 @@ export type FileSystemIconType =
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
     | 'marketing_analytics'
+    | 'customer_analytics'
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
@@ -5351,6 +5376,7 @@ export type FileSystemIconType =
     | 'experiment'
     | 'feature_flag'
     | 'feature_flag_off'
+    | 'data_modeling'
     | 'data_pipeline'
     | 'data_pipeline_metadata'
     | 'data_warehouse'
@@ -5408,6 +5434,24 @@ export type FileSystemIconType =
     | 'llm_clusters'
     | 'mcp_analytics'
     | 'exports'
+    | 'pulse'
+    | 'skill'
+    | 'wizard'
+    | 'data_catalog'
+    | 'warehouse_destination'
+    | 'warehouse_property'
+    | 'data_source'
+    | 'data_destination'
+    | 'data_transformation'
+    | 'event_filter'
+    | 'managed_migration'
+    | 'web_script'
+    | 'core_event'
+    | 'property_group'
+    | 'mcp_server'
+    | 'streamlit_app'
+    | 'sql_variable'
+    | 'business_knowledge'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -8395,6 +8439,8 @@ export const VALID_NATIVE_MARKETING_SOURCES = [
     'SnapchatAds',
     'PinterestAds',
     'AppleSearchAds',
+    'OpenAIAds',
+    'AmazonAds',
 ] as const
 
 export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
@@ -8576,12 +8622,32 @@ export const MARKETING_INTEGRATION_CONFIGS = {
         adsetTableName: 'ad_groups' as const,
         adsetStatsTableName: 'ad_group_report' as const,
     },
+    OpenAIAds: {
+        sourceType: 'OpenAIAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_insights',
+        defaultSources: ['openai', 'chatgpt', 'openai_ads'] as const,
+        primarySource: 'openai',
+    },
+    AmazonAds: {
+        sourceType: 'AmazonAds' as const,
+        nameField: 'name',
+        idField: 'campaign_id',
+        campaignTableName: 'sp_campaigns',
+        statsTableName: 'sp_campaign_reports',
+        defaultSources: ['amazon', 'amazon_ads'] as const,
+        primarySource: 'amazon',
+    },
 } as const
 
 export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
 
+export type AmazonAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['AmazonAds']['defaultSources'][number]
 export type AppleSearchAdsDefaultSources =
     (typeof MARKETING_INTEGRATION_CONFIGS)['AppleSearchAds']['defaultSources'][number]
+export type OpenAIAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['OpenAIAds']['defaultSources'][number]
 
 export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
 export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]
@@ -8809,15 +8875,14 @@ export interface ProductItem {
 
 export enum ProductItemCategory {
     ANALYTICS = 'Analytics',
+    DATA = 'Data',
     AI_ENGINEERING = 'AI engineering',
-    BEHAVIOR = 'Behavior',
+    PRODUCT_ENGINEERING = 'Product engineering',
     MESSAGING = 'Messaging',
-    APP_MONITORING = 'App monitoring',
-    FEATURES = 'Features',
+    MONITORING = 'Monitoring',
     TOOLS = 'Tools',
     SCHEMA = 'Schema',
-    PIPELINE = 'Pipeline',
-    METADATA = 'Metadata',
+    CDP = 'CDP',
     UNRELEASED = 'Unreleased',
 }
 
@@ -8847,11 +8912,11 @@ export interface UIVisibilityConfig {
 
 /** Collapsible sections of the main navigation sidebar. Hiding a section hides everything inside it, except always-visible items like Activity. */
 export interface SidebarSectionsConfiguration {
-    /** The "Project" section (Home and the Data/Files/Tools/Starred panel triggers). Activity stays visible even when this section is hidden. */
+    /** The "Project" section (Home and the Data/Files/Products/Starred panel triggers). Activity stays visible even when this section is hidden. */
     project?: UIVisibilityConfig
     /** The "Recents" section, listing recently viewed items. */
     recents?: UIVisibilityConfig
-    /** The "My tools" section, listing the user's selected tools. */
+    /** The "My products" section, listing the user's selected products. */
     my_tools?: UIVisibilityConfig
 }
 
@@ -8865,7 +8930,7 @@ export interface SidebarItemsConfiguration {
     data?: UIVisibilityConfig
     /** "Files" panel trigger in the Project section. */
     files?: UIVisibilityConfig
-    /** "Tools" panel trigger in the Project section. */
+    /** "Products" panel trigger in the Project section. */
     tools?: UIVisibilityConfig
     /** "Starred" panel trigger in the Project section. */
     starred?: UIVisibilityConfig

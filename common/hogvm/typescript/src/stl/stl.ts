@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
 import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
-import { getNestedValue, like } from '../utils'
+import { HogVMException, getNestedValue, like } from '../utils'
 import { md5, sha1, sha1HmacChain, sha256, sha256HmacChain } from './crypto'
 import {
     formatDateTime,
@@ -505,7 +505,7 @@ export const STL: Record<string, STLFunction> = {
     match: {
         fn: (args, _name, options) => {
             if (!options?.external?.regex?.match) {
-                throw new Error('Set options.external.regex.match for RegEx support')
+                throw new HogVMException('Set options.external.regex.match for RegEx support', 'contract')
             }
             return !args[0] || !args[1] ? false : options.external.regex.match(args[1], args[0])
         },
@@ -517,7 +517,7 @@ export const STL: Record<string, STLFunction> = {
     extractRegex: {
         fn: (args, _name, options) => {
             if (!options?.external?.regex?.extract) {
-                throw new Error('Set options.external.regex.extract for RegEx extract support')
+                throw new HogVMException('Set options.external.regex.extract for RegEx extract support', 'contract')
             }
             if (args[0] == null || args[1] == null) {
                 return ''

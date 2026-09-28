@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
@@ -376,18 +376,38 @@ class TestUpdateTaskRunStatusActivity:
             (None, "unspecified"),
         ],
     )
+    @pytest.mark.parametrize(
+        "sandbox_backend,persisted_state,expected_backend",
+        [
+            (None, {}, None),
+            ("modal", {}, "modal"),
+            ("hogland", {}, "hogland"),
+            (None, {"sandbox_id": "sandbox-example", "sandbox_backend": "hogland"}, "hogland"),
+        ],
+    )
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_failed_transition_carries_error_type_and_message_tail(
-        self, mock_capture, activity_environment, test_task_run, error_type, expected_error_type
-    ):
+        self,
+        mock_capture: MagicMock,
+        activity_environment: ActivityEnvironment,
+        test_task_run: TaskRun,
+        error_type: str | None,
+        expected_error_type: str,
+        sandbox_backend: str | None,
+        persisted_state: dict[str, str],
+        expected_backend: str | None,
+    ) -> None:
+        test_task_run.state = persisted_state
+        test_task_run.save(update_fields=["state"])
         error_message = "x" * 1400 + "TypeError: cannot read boot manifest"
         input_data = UpdateTaskRunStatusInput(
             run_id=str(test_task_run.id),
             status=TaskRun.Status.FAILED,
             error_message=error_message,
             error_type=error_type,
+            sandbox_backend=sandbox_backend,
         )
-        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(_run_update_task_run_status)(activity_environment, input_data)
 
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_failed"]
         assert len(captured) == 1
@@ -395,6 +415,7 @@ class TestUpdateTaskRunStatusActivity:
         assert props["error_type"] == expected_error_type
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("TypeError: cannot read boot manifest")
+        assert props.get("sandbox_backend") == expected_backend
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")

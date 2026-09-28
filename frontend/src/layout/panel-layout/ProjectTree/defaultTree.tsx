@@ -1,60 +1,84 @@
 import React, { CSSProperties } from 'react'
 
 import {
+    IconAIGateway,
     IconApp,
     IconApps,
+    IconArrowUpRight,
+    IconAsterisk,
     IconBook,
+    IconBrackets,
+    IconBrowser,
     IconBug,
+    IconCheckbox,
     IconCircleDashed,
     IconClock,
     IconCode,
-    IconEndpoints,
-    IconEye,
+    IconColumns,
     IconDashboard,
     IconDatabase,
+    IconDatabaseBolt,
     IconDecisionTree,
     IconDocument,
     IconDownload,
+    IconEndpoints,
     IconExternal,
+    IconEye,
     IconFeatures,
+    IconFilter,
     IconFlask,
     IconFolder,
+    IconFolderMove,
     IconFolderOpen,
     IconGear,
+    IconGraduationCap,
     IconGraph,
+    IconHeart,
     IconHome,
+    IconImage,
+    IconLightBulb,
     IconList,
     IconListCheck,
     IconListTree,
     IconLive,
-    IconAIGateway,
     IconLlmAnalytics,
     IconLlmPromptManagement,
     IconMCP,
+    IconMagicWand,
     IconMegaphone,
-    IconSend,
     IconMessage,
+    IconMicrophone,
     IconNotebook,
     IconNotification,
+    IconPencil,
     IconPeople,
+    IconPerson,
     IconPieChart,
     IconPiggyBank,
     IconPlay,
     IconPlaylist,
     IconPlug,
     IconPullRequest,
+    IconPulse,
     IconReceipt,
     IconRewindPlay,
     IconRocket,
     IconScatter,
     IconSearch,
+    IconSend,
     IconServer,
+    IconShuffle,
     IconSpotlight,
+    IconStack,
+    IconStar,
     IconStethoscope,
     IconSupport,
+    IconTableOfContents,
     IconToggle,
     IconToggleOff,
     IconToolbar,
+    IconTrending,
+    IconUpload,
     IconUser,
     IconWarning,
 } from '@posthog/icons'
@@ -67,6 +91,7 @@ import {
     IconInsightStickiness,
     IconInsightTrends,
     IconInsightUserPaths,
+    IconSelfDriving,
     IconStamphog,
 } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -107,6 +132,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     revenue_analytics_metadata: {
         icon: <IconPiggyBank />,
+        iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
     },
     marketing_settings: {
         icon: <IconMegaphone />,
@@ -115,8 +141,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconMegaphone />,
         iconColor: ['var(--color-product-marketing-analytics-light)', 'var(--color-product-marketing-analytics-dark)'],
     },
+    customer_analytics: {
+        icon: <IconHeart />,
+        iconColor: ['var(--color-product-customer-analytics-light)', 'var(--color-product-customer-analytics-dark)'],
+    },
     managed_viewsets: {
-        icon: <IconDatabase />,
+        icon: <IconColumns />,
+        iconColor: ['var(--color-product-managed-viewsets-light)', 'var(--color-product-managed-viewsets-dark)'],
     },
     web_analytics: {
         icon: <IconPieChart />,
@@ -129,6 +160,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     sql_editor: {
         icon: <IconServer />,
         iconColor: ['var(--color-product-data-warehouse-light)'],
+    },
+    data_modeling: {
+        icon: <IconStack />,
+        iconColor: ['var(--color-product-models-light)', 'var(--color-product-models-dark)'],
     },
     error_tracking: {
         icon: <IconWarning />,
@@ -158,14 +193,15 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-product-tours-light)', 'var(--color-product-product-tours-dark)'],
     },
     user_interview: {
-        icon: <IconApp />,
+        icon: <IconMicrophone />,
         iconColor: ['var(--color-product-user-interviews-light)', 'var(--color-product-user-interviews-dark)'],
     },
     home: {
         icon: <IconHome />,
     },
     task: {
-        icon: <IconBug />,
+        icon: <IconCheckbox />,
+        iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
     },
     logs: {
         icon: <IconLive />,
@@ -176,7 +212,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'],
     },
     metrics: {
-        icon: <IconGraph />,
+        icon: <IconTrending />,
         iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'],
     },
     early_access_feature: {
@@ -219,7 +255,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     broadcasts: {
         icon: <IconSend />,
-        iconColor: ['var(--color-product-workflows-light)'],
+        iconColor: ['var(--color-product-broadcasts-light)', 'var(--color-product-broadcasts-dark)'],
     },
     notebook: {
         icon: <IconNotebook />,
@@ -227,6 +263,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     live_debugger: {
         icon: <IconBug />,
+        iconColor: ['var(--color-product-live-debugger-light)', 'var(--color-product-live-debugger-dark)'],
     },
     action: {
         icon: <IconPlay />,
@@ -238,22 +275,28 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconNotification />,
     },
     annotation: {
-        icon: <IconNotification />,
+        icon: <IconPencil />,
+        iconColor: ['var(--color-product-annotations-light)', 'var(--color-product-annotations-dark)'],
     },
     event: {
         icon: <IconApps />,
     },
     event_definition: {
         icon: <IconApps />,
+        iconColor: ['var(--color-product-event-definitions-light)', 'var(--color-product-event-definitions-dark)'],
     },
     property_definition: {
-        icon: <IconApps />,
+        icon: <IconAsterisk />,
+        iconColor: [
+            'var(--color-product-property-definitions-light)',
+            'var(--color-product-property-definitions-dark)',
+        ],
     },
     ingestion_warning: {
         icon: <IconWarning />,
     },
     persons: {
-        icon: <IconPeople />,
+        icon: <IconPerson />,
     },
     user: {
         icon: <IconUser />,
@@ -315,6 +358,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     toolbar: {
         icon: <IconToolbar />,
+        iconColor: ['var(--color-product-toolbar-light)', 'var(--color-product-toolbar-dark)'],
     },
     settings: {
         icon: <IconGear />,
@@ -323,7 +367,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconStethoscope />,
     },
     inbox: {
-        icon: <IconNotification />,
+        icon: <IconSelfDriving />,
     },
     sdk_health: {
         icon: <IconCode />,
@@ -333,44 +377,123 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     llm_evaluations: {
         icon: <IconListCheck />,
-        iconColor: ['var(--color-product-llm-evaluations-light)'],
+        iconColor: ['var(--color-product-llm-evaluations-light)', 'var(--color-product-llm-evaluations-dark)'],
     },
     llm_tags: {
         icon: <IconList />,
-        iconColor: ['var(--color-product-llm-analytics-light)'],
+        iconColor: ['var(--color-product-llm-tags-light)', 'var(--color-product-llm-tags-dark)'],
     },
     llm_datasets: {
         icon: <IconDocument />,
-        iconColor: ['var(--color-product-llm-datasets-light)'],
+        iconColor: ['var(--color-product-llm-datasets-light)', 'var(--color-product-llm-datasets-dark)'],
     },
     llm_prompts: {
         icon: <IconLlmPromptManagement />,
-        iconColor: ['var(--color-product-llm-analytics-light)'],
+        iconColor: ['var(--color-product-llm-prompts-light)', 'var(--color-product-llm-prompts-dark)'],
     },
     llm_clusters: {
         icon: <IconScatter />,
-        iconColor: ['var(--color-product-llm-clusters-light)'],
+        iconColor: ['var(--color-product-llm-clusters-light)', 'var(--color-product-llm-clusters-dark)'],
     },
     llm_playground: {
         icon: <IconPlaylist />,
-        iconColor: ['var(--color-product-llm-analytics-light)'],
+        iconColor: ['var(--color-product-llm-playground-light)', 'var(--color-product-llm-playground-dark)'],
     },
     mcp_analytics: {
         icon: <IconMCP />,
-        iconColor: ['var(--color-product-llm-analytics-light)'],
+        iconColor: ['var(--color-product-mcp-analytics-light)', 'var(--color-product-mcp-analytics-dark)'],
     },
     visual_review: {
-        icon: <IconApp />,
+        icon: <IconImage />,
         iconColor: ['var(--color-product-visual-review-light)', 'var(--color-product-visual-review-dark)'],
     },
     code_review: {
         icon: <IconPullRequest />,
+        iconColor: ['var(--color-product-code-review-light)', 'var(--color-product-code-review-dark)'],
     },
     stamphog: {
         icon: <IconStamphog />,
     },
     exports: {
         icon: <IconDownload />,
+    },
+    pulse: {
+        icon: <IconPulse />,
+        iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
+    },
+    skill: {
+        icon: <IconGraduationCap />,
+        iconColor: ['var(--color-product-skills-light)', 'var(--color-product-skills-dark)'],
+    },
+    wizard: {
+        icon: <IconMagicWand />,
+        iconColor: ['var(--color-product-wizard-light)', 'var(--color-product-wizard-dark)'],
+    },
+    data_catalog: {
+        icon: <IconTableOfContents />,
+        iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
+    },
+    warehouse_destination: {
+        icon: <IconUpload />,
+        iconColor: [
+            'var(--color-product-warehouse-destinations-light)',
+            'var(--color-product-warehouse-destinations-dark)',
+        ],
+    },
+    warehouse_property: {
+        icon: <IconDatabaseBolt />,
+        iconColor: [
+            'var(--color-product-warehouse-properties-light)',
+            'var(--color-product-warehouse-properties-dark)',
+        ],
+    },
+    data_source: {
+        icon: <IconDownload />,
+        iconColor: ['var(--color-product-sources-light)', 'var(--color-product-sources-dark)'],
+    },
+    data_destination: {
+        icon: <IconArrowUpRight />,
+        iconColor: ['var(--color-product-destinations-light)', 'var(--color-product-destinations-dark)'],
+    },
+    data_transformation: {
+        icon: <IconShuffle />,
+        iconColor: ['var(--color-product-transformations-light)', 'var(--color-product-transformations-dark)'],
+    },
+    event_filter: {
+        icon: <IconFilter />,
+        iconColor: ['var(--color-product-event-filtering-light)', 'var(--color-product-event-filtering-dark)'],
+    },
+    managed_migration: {
+        icon: <IconFolderMove />,
+        iconColor: ['var(--color-product-managed-migrations-light)', 'var(--color-product-managed-migrations-dark)'],
+    },
+    web_script: {
+        icon: <IconCode />,
+        iconColor: ['var(--color-product-web-scripts-light)', 'var(--color-product-web-scripts-dark)'],
+    },
+    core_event: {
+        icon: <IconStar />,
+        iconColor: ['var(--color-product-core-events-light)', 'var(--color-product-core-events-dark)'],
+    },
+    property_group: {
+        icon: <IconFolder />,
+        iconColor: ['var(--color-product-property-groups-light)', 'var(--color-product-property-groups-dark)'],
+    },
+    mcp_server: {
+        icon: <IconPlug />,
+        iconColor: ['var(--color-product-mcp-servers-light)', 'var(--color-product-mcp-servers-dark)'],
+    },
+    streamlit_app: {
+        icon: <IconBrowser />,
+        iconColor: ['var(--color-product-data-pipeline-light)', 'var(--color-product-data-pipeline-dark)'],
+    },
+    sql_variable: {
+        icon: <IconBrackets />,
+        iconColor: ['var(--color-product-sql-variables-light)', 'var(--color-product-sql-variables-dark)'],
+    },
+    business_knowledge: {
+        icon: <IconLightBulb />,
+        iconColor: ['var(--color-product-business-knowledge-light)', 'var(--color-product-business-knowledge-dark)'],
     },
 }
 
@@ -483,6 +606,24 @@ export const getDefaultTreeData = (): FileSystemImport[] =>
     [...getTreeItemsMetadata()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+let sidebarProductsByHref: Map<string, FileSystemImport> | undefined
+
+/** The sidebar product an href points to, so a starred link to it shows that product's current name and icon. */
+export function getSidebarProduct(href: string | undefined): FileSystemImport | undefined {
+    if (!href) {
+        return undefined
+    }
+    if (!sidebarProductsByHref) {
+        sidebarProductsByHref = new Map()
+        for (const item of [...getDefaultTreeProducts(), ...getDefaultTreeData()]) {
+            if (item.href && item.iconType && !sidebarProductsByHref.has(item.href)) {
+                sidebarProductsByHref.set(item.href, item)
+            }
+        }
+    }
+    return sidebarProductsByHref.get(href)
+}
+
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 

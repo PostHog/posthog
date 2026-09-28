@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.test import override_settings
 
 from asgiref.sync import async_to_sync
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
@@ -20,6 +21,7 @@ from products.tasks.backend.constants import (
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
+    HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
@@ -59,11 +61,19 @@ FEATURE_ENABLED_TARGET = (
     "products.tasks.backend.temporal.process_task.activities."
     "get_task_processing_context.posthoganalytics.feature_enabled"
 )
+
+
 VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
 BENJAMIN_PAYLOAD_TARGET = (
     "products.tasks.backend.temporal.process_task.activities."
     "get_task_processing_context.posthoganalytics.get_feature_flag_payload"
 )
+
+
+async def _run_context(
+    activity_environment: ActivityEnvironment, input_data: GetTaskProcessingContextInput
+) -> TaskProcessingContext:
+    return await activity_environment.run(get_task_processing_context, input_data)
 
 
 @pytest.mark.parametrize(
@@ -259,6 +269,51 @@ class TestGetTaskProcessingContextActivity:
         assert result.repository == "posthog/posthog-js"
         assert result.create_pr is True
         assert result.claude_model_access == ("own-subscription" if subscription else "posthog-gateway")
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "resumed_backend,state_backend,flag_enabled,expected_backend",
+        [
+            ("modal", None, True, "modal"),
+            (None, None, True, "modal"),
+            ("hogland", "hogland", False, "hogland"),
+            (None, "hogland", False, "hogland"),
+        ],
+    )
+    def test_continued_run_keeps_attached_sandbox_backend(
+        self,
+        activity_environment: ActivityEnvironment,
+        test_task: Task,
+        resumed_backend: str | None,
+        state_backend: str | None,
+        flag_enabled: bool,
+        expected_backend: str,
+    ) -> None:
+        sandbox_id = "sandbox-example"
+        sandbox_state = {"sandbox_id": sandbox_id}
+        if state_backend is not None:
+            sandbox_state["sandbox_backend"] = state_backend
+        task_run = test_task.create_run(extra_state=sandbox_state)
+
+        with (
+            override_settings(
+                HOGLAND_API_URL="https://hogland.example", HOGLAND_API_TOKEN="hog-tok", CLOUD_DEPLOYMENT="US"
+            ),
+            patch(
+                FEATURE_ENABLED_TARGET,
+                side_effect=lambda key, **kwargs: key == HOGLAND_SANDBOX_FEATURE_FLAG and flag_enabled,
+            ),
+        ):
+            result = async_to_sync(_run_context)(
+                activity_environment,
+                GetTaskProcessingContextInput(
+                    run_id=str(task_run.id),
+                    resumed_sandbox_id=sandbox_id,
+                    resumed_sandbox_backend=resumed_backend,
+                ),
+            )
+
+        assert result.sandbox_backend == expected_backend
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize("integration_status", [None, "reauth_required", "connected"])

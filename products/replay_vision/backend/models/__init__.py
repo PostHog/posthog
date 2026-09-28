@@ -6,6 +6,7 @@ from products.replay_vision.backend.models.replay_observation_view import Replay
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import ReplayScannerPromptSuggestion
+from products.replay_vision.backend.models.team_replay_vision_config import TeamReplayVisionConfig
 from products.replay_vision.backend.models.vision_alert import (
     VisionAlertConfiguration as VisionAlertConfiguration,
     VisionAlertEvent as VisionAlertEvent,
@@ -21,4 +22,5 @@ __all__ = [
     "ReplayScanner",
     "ReplayScannerBackfill",
     "ReplayScannerPromptSuggestion",
+    "TeamReplayVisionConfig",
 ]
