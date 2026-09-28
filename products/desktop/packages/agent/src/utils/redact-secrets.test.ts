@@ -83,6 +83,12 @@ describe("redactSecrets", () => {
     },
   );
 
+  it("redacts every segment of a JWT", () => {
+    const jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhY2N0XzEifQ.c2lnbmF0dXJl";
+    expect(redactSecrets(`Bearer ${jwt} ok`)).toBe("Bearer [REDACTED] ok");
+    expect(redactSecrets(`Bearer ${jwt}. ok`)).toBe("Bearer [REDACTED]. ok");
+  });
+
   it.each(headerCases)("redacts a %s", (_shape, server, expected) => {
     expect(
       redactSecrets({

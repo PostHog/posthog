@@ -128,12 +128,15 @@ class TestCalendlyWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             ("empty_string", ""),
         ]
     )
-    def test_unconfigured_signing_key_rejects_instead_of_accepting_anything(self, _name, signing_secret):
+    def test_unconfigured_signing_key_drops_delivery(self, _name, signing_secret):
         res = self.run_function(
             self._inputs(signing_secret=signing_secret), globals=self._signed_request(secret="anything")
         )
 
-        assert res.result == {"httpResponse": {"status": 400, "body": "Signing secret not configured"}}
+        assert res.result == {
+            "httpResponse": {"status": 200, "body": "Signing secret not configured, delivery dropped"},
+            "appMetric": "missing_credential",
+        }
         self.mock_produce_to_warehouse_webhooks.assert_not_called()
 
     @parameterized.expand(

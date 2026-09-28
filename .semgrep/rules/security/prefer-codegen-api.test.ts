@@ -36,6 +36,21 @@ const i2 = await api.get<PaginatedResponse<Foo>>(`api/foo`)
 // ruleid: prefer-codegen-api
 const i3 = await api.get<CountedPaginatedResponse<ChangeRequest>>(`api/foo`)
 
+// ruleid: prefer-codegen-api
+const i4 = await api.getResponse(`api/foo`)
+
+// ruleid: prefer-codegen-api
+const i5 = await api.createResponse(`api/foo`, {})
+
+// ruleid: prefer-codegen-api
+await api.stream(`api/foo`, { onMessage })
+
+// ruleid: prefer-codegen-api
+const i6 = await api.createWithUploadProgress<Foo>(`api/foo`, formData)
+
+// ruleid: prefer-codegen-api
+const i7 = await api.loadPaginatedResults<Foo>(`api/foo`)
+
 // ok: prefer-codegen-api
 const j = await api.integrations.authorizeUrl()
 
@@ -45,5 +60,13 @@ const k = await api.dashboards.list()
 // ok: prefer-codegen-api
 const l = await legalDocumentsList(orgId)
 
-// nosemgrep: prefer-codegen-api
+// nosemgrep: prefer-codegen-api -- Follows the pagination URL the server returns.
 const m = await api.get(`api/foo`)
+
+// ruleid: prefer-codegen-api-reason
+// nosemgrep: prefer-codegen-api
+const n = await api.get(`api/foo`)
+
+// ruleid: prefer-codegen-api-reason
+/* nosemgrep: prefer-codegen-api */
+const o = await api.get(`api/foo`)

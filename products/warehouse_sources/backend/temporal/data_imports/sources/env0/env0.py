@@ -90,9 +90,10 @@ def _build_date_window_params(
 
 
 def _paginator_for(config: Env0EndpointConfig) -> BasePaginator:
-    if config.data_key:
+    if config.data_key and config.paginated:
         # Teams returns {"teams": [...], "nextPageKey": ...}; the next request sends the returned
-        # nextPageKey back as the `offset` query param.
+        # nextPageKey back as the `offset` query param. Other wrapped endpoints (organization
+        # costs, drift causes) return the whole collection in one object.
         return JSONResponseCursorPaginator(cursor_path="nextPageKey", cursor_param="offset")
     if config.paginated:
         # env0 has no top-level total; termination is a short/empty page (OffsetPaginator default).
@@ -102,26 +103,42 @@ def _paginator_for(config: Env0EndpointConfig) -> BasePaginator:
 
 def _row_transform(
     config: Env0EndpointConfig, parent_resource_name: Optional[str]
-) -> Optional[Callable[[dict[str, Any]], dict[str, Any]]]:
-    """Per-item reshape matching the old `_normalize_row`: drop huge free-text blobs and
-    secret-bearing fields, and rename the injected parent id to its documented column."""
+) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    """Per-item reshape: drop huge free-text blobs and secret-bearing fields, lift a nested object
+    into the row root, rename injected parent fields to their documented columns, and fill blank
+    primary key parts."""
     strip = set(config.strip_fields)
-    rename_to = config.inject_parent_id_field
-    injected_key = f"_{parent_resource_name}_id" if (rename_to and parent_resource_name) else None
-    if not strip and injected_key is None:
-        return None
+    flatten = config.flatten_field
+    injected = (
+        {
+            f"_{parent_resource_name}_{parent_field}": column
+            for parent_field, column in config.inject_parent_fields.items()
+        }
+        if parent_resource_name
+        else {}
+    )
+    # A NULL primary key part never matches on merge, so the row would be inserted again on every
+    # sync instead of updated. Injected columns always carry a parent value, so they are excluded.
+    nullable_key_fields = [key for key in config.primary_keys if key not in injected.values()]
 
     def _transform(row: dict[str, Any]) -> dict[str, Any]:
         out = {key: value for key, value in row.items() if key not in strip}
-        if injected_key is not None and rename_to is not None and injected_key in out:
-            out[rename_to] = out.pop(injected_key)
+        nested = out.pop(flatten, None) if flatten else None
+        if isinstance(nested, dict):
+            out = {**nested, **out}
+        for injected_key, column in injected.items():
+            if injected_key in out:
+                out[column] = out.pop(injected_key)
+        for key in nullable_key_fields:
+            if out.get(key) is None:
+                out[key] = ""
         return out
 
     return _transform
 
 
 def _organizations_parent() -> EndpointResource:
-    """Organizations list used only to resolve org ids for the organization/environment fan-out."""
+    """Organizations list used only to resolve org ids. Every fan-out chain starts here."""
     return {
         "name": "organizations",
         "endpoint": {"path": ENV0_ENDPOINTS["organizations"].path, "paginator": SinglePagePaginator()},
@@ -146,6 +163,40 @@ def _environments_parent() -> EndpointResource:
     }
 
 
+def _projects_parent() -> EndpointResource:
+    """Projects list (one request chain per organization) used only to resolve project ids for the
+    project-level fan-out."""
+    projects_config = ENV0_ENDPOINTS["projects"]
+    return {
+        "name": "projects",
+        "endpoint": {
+            "path": f"{projects_config.path}?{projects_config.org_id_param}={{org_id}}",
+            "params": {"org_id": {"type": "resolve", "resource": "organizations", "field": "id"}},
+            "paginator": SinglePagePaginator(),
+        },
+    }
+
+
+def _deployments_parent(date_window_params: dict[str, str]) -> EndpointResource:
+    """Deployments list (one request chain per environment) used only to resolve deployment ids for
+    the deployment-level fan-out. The incremental window lands here rather than on the child, so a
+    run only visits deployments that started inside it. Otherwise every sync would re-walk every
+    deployment the account has ever made."""
+    deployments_config = ENV0_ENDPOINTS["deployments"]
+    return {
+        "name": "deployments",
+        "endpoint": {
+            "path": deployments_config.path,
+            "params": {
+                "parent_id": {"type": "resolve", "resource": "environments", "field": "id"},
+                **date_window_params,
+            },
+            "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
+            "response_actions": [{"status_code": 404, "action": "ignore"}],
+        },
+    }
+
+
 def _target_resource(
     config: Env0EndpointConfig, parent_resource_name: Optional[str], extra_params: dict[str, str]
 ) -> EndpointResource:
@@ -156,41 +207,46 @@ def _target_resource(
         # lands in the query string (the resolve mechanism only substitutes into the path).
         path = f"{config.path}?{config.org_id_param}={{org_id}}"
         params["org_id"] = {"type": "resolve", "resource": "organizations", "field": "id"}
-    elif parent_resource_name == "organizations":
-        # Teams embeds the org id directly in its path (/teams/organizations/{parent_id}).
+    elif parent_resource_name is not None:
+        # The parent id is embedded directly in the path (/teams/organizations/{parent_id},
+        # /costs/projects/{parent_id}, /environments/deployments/{parent_id}/resources).
         path = config.path
-        params["parent_id"] = {"type": "resolve", "resource": "organizations", "field": "id"}
-    elif parent_resource_name == "environments":
-        path = config.path
-        params["parent_id"] = {"type": "resolve", "resource": "environments", "field": "id"}
+        params["parent_id"] = {"type": "resolve", "resource": parent_resource_name, "field": "id"}
     else:
         path = config.path
 
     endpoint: Endpoint = {"path": path, "params": params, "paginator": _paginator_for(config)}
     if config.data_key:
         endpoint["data_selector"] = config.data_key
-    if config.scope == "environment":
-        # A 404 during the per-environment fan-out means the environment was deleted mid-sync or
-        # (for costs) cost monitoring isn't configured — skip it rather than failing the sync.
+    if config.scope in ("project", "environment", "deployment"):
+        # A 404 deep in the fan-out means the parent was deleted mid-sync or (for costs) cost
+        # monitoring isn't configured, so skip it rather than failing the sync.
         endpoint["response_actions"] = [{"status_code": 404, "action": "ignore"}]
 
     resource: EndpointResource = {"name": config.name, "endpoint": endpoint}
-    if config.inject_parent_id_field and parent_resource_name:
-        resource["include_from_parent"] = ["id"]
-    transform = _row_transform(config, parent_resource_name)
-    if transform is not None:
-        resource["data_map"] = transform
+    if config.inject_parent_fields and parent_resource_name:
+        resource["include_from_parent"] = list(config.inject_parent_fields)
+    resource["data_map"] = _row_transform(config, parent_resource_name)
     return resource
 
 
 def _build_resources(config: Env0EndpointConfig, date_window_params: dict[str, str]) -> list[EndpointResource | str]:
     if config.scope == "organization":
         return [_organizations_parent(), _target_resource(config, "organizations", {})]
+    if config.scope == "project":
+        return [_organizations_parent(), _projects_parent(), _target_resource(config, "projects", {})]
     if config.scope == "environment":
         return [
             _organizations_parent(),
             _environments_parent(),
             _target_resource(config, "environments", date_window_params),
+        ]
+    if config.scope == "deployment":
+        return [
+            _organizations_parent(),
+            _environments_parent(),
+            _deployments_parent(date_window_params),
+            _target_resource(config, "deployments", {}),
         ]
     return [_target_resource(config, None, {})]
 

@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, OuterRef, QuerySet
+from django.db.models import Count, Exists, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -32,7 +32,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ProductKey, QueryStatus
+from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -519,6 +519,12 @@ class InsightFilterOverrideContext(BaseModel):
     )
 
 
+class _InsightResultWarnings(RootModel):
+    """Warnings attached to the query response that produced an insight's results."""
+
+    root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
+
+
 @extend_schema_serializer(deprecate_fields=["dashboards"])
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
@@ -577,6 +583,15 @@ class InsightSerializer(InsightBasicSerializer):
         read_only=True,
         help_text="What ClickHouse read for this insight's last slow run, with the findings of its query scan.",
     )
+    warnings = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Warnings from the run that produced these results. A `warehouse_sync` warning means the query"
+            " read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be"
+            " out of date. Reflects the sync state when the results were computed. Null for shared insights."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
@@ -623,6 +638,7 @@ class InsightSerializer(InsightBasicSerializer):
             "types",
             "resolved_date_range",
             "query_scan",
+            "warnings",
             "_create_in_folder",
             "alerts",
             "filter_override_context",
@@ -1116,6 +1132,14 @@ class InsightSerializer(InsightBasicSerializer):
             return None
         return hydrate_scan_summary(self.context["get_team"](), summary, cache_key)
 
+    @extend_schema_field(_InsightResultWarnings)  # type: ignore[arg-type]
+    def get_warnings(self, insight: Insight) -> list[dict] | None:
+        # Sync warnings name warehouse tables and sources, which a shared viewer outside the
+        # project must not see.
+        if self.context.get("is_shared"):
+            return None
+        return self.insight_result(insight).warnings
+
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if insight.alertable_query_kind is None:
@@ -1299,6 +1323,7 @@ class InsightSerializer(InsightBasicSerializer):
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
                     query_scan=cached_response.get("query_scan"),
+                    warnings=cached_response.get("warnings"),
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()
@@ -2108,7 +2133,7 @@ class InsightViewSet(
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        matching_tags = TaggedItem.objects.filter(insight_id=OuterRef("pk"), tag__name__in=tags_list)
+                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
                         queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]

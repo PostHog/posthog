@@ -29,11 +29,14 @@ import {
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightShortId, InsightModel } from '~/types'
 
+import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+
 import { BI_EDITOR_EVENTS } from './bi/biEditorAnalytics'
 import { biEditorLogic } from './bi/biEditorLogic'
 import { BIConfig, BIEditorView, BIField } from './bi/biEditorTypes'
 import { buildSqlNotebook, editorSceneLogic } from './editorSceneLogic'
 import { OutputTab } from './outputPaneLogic'
+import { SELECTION_NOT_A_QUERY } from './saveCandidateProblems'
 import {
     activeTabMatchesUrlTarget,
     getDisplayTypeToSaveInsight,
@@ -1211,10 +1214,22 @@ describe('sqlEditorLogic', () => {
                 })
         })
 
-        it('opens an unbound tab when the metric cannot be loaded', async () => {
+        it('opens another metric when the editor already holds a query', async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team_id/data_catalog/metrics/missing_metric/': [404],
+                    '/api/projects/:team_id/data_catalog/metrics/:name/': (req: any) => [
+                        200,
+                        {
+                            name: req.params.name,
+                            definition: {
+                                kind: NodeKind.HogQLQuery,
+                                query: `SELECT '${req.params.name}'`,
+                                ...(req.params.name === 'first_metric' && {
+                                    filters: { dateRange: { date_from: '-7d' } },
+                                }),
+                            },
+                        },
+                    ],
                 },
             })
 
@@ -1225,9 +1240,89 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'missing_metric' })
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'first_metric' })
+            await expectLogic(logic).toDispatchActions(['createTab', 'setSourceQuery']).toMatchValues({
+                queryInput: "SELECT 'first_metric'",
+                editingMetricName: 'first_metric',
+            })
 
-            await expectLogic(logic).toDispatchActions(['createTab']).toMatchValues({ editingMetricName: null })
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'second_metric' })
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setSourceQuery'])
+                .toMatchValues({
+                    queryInput: "SELECT 'second_metric'",
+                    editingMetricName: 'second_metric',
+                    sourceQuery: partial({ source: { kind: NodeKind.HogQLQuery, query: "SELECT 'second_metric'" } }),
+                })
+        })
+
+        it.each([
+            ['a metric that cannot be loaded', [404], null],
+            [
+                'a metric defined by an insight query',
+                [200, { name: 'my_metric', definition: { kind: NodeKind.TrendsQuery, series: [] } }],
+                null,
+            ],
+            ['a stub metric', [200, { name: 'my_metric', definition: null }], 'my_metric'],
+        ])('opens %s in an empty tab', async (_case, response, expectedMetricName) => {
+            useMocks({ get: { '/api/projects/:team_id/data_catalog/metrics/my_metric/': response } })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            logic.actions.setQueryInput('SELECT 1')
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'my_metric' })
+
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setSourceQuery'])
+                .toMatchValues({ editingMetricName: expectedMetricName, queryInput: '' })
+        })
+
+        it('keeps the latest metric when an earlier request answers last', async () => {
+            let releaseSlowMetric: () => void = () => {}
+            const slowMetricReleased = new Promise<void>((resolve) => {
+                releaseSlowMetric = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/:name/': async (req: any) => {
+                        if (req.params.name === 'slow_metric') {
+                            await slowMetricReleased
+                        }
+                        return [
+                            200,
+                            {
+                                name: req.params.name,
+                                definition: { kind: NodeKind.HogQLQuery, query: `SELECT '${req.params.name}'` },
+                            },
+                        ]
+                    },
+                },
+            })
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'slow_metric' })
+            router.actions.push(urls.sqlEditor(), { source: 'metric', edit_metric: 'fast_metric' })
+            await expectLogic(logic)
+                .toDispatchActions(['createTab', 'setSourceQuery'])
+                .toMatchValues({ editingMetricName: 'fast_metric' })
+
+            releaseSlowMetric()
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                queryInput: "SELECT 'fast_metric'",
+                editingMetricName: 'fast_metric',
+            })
         })
 
         it('does not request or bind a traversal-shaped edit_metric name', async () => {
@@ -1304,7 +1399,7 @@ describe('sqlEditorLogic', () => {
             logic.actions.saveAsMetric()
             await expectLogic(logic).toFinishAllListeners()
 
-            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual(PREFILL)
+            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toEqual({ saveTarget: 0, ...PREFILL })
             openForm.mockRestore()
         })
 
@@ -1340,6 +1435,70 @@ describe('sqlEditorLogic', () => {
             expect(createBody?.display_name).toEqual(expectedOptionalFields.display_name)
             expect(createBody?.unit).toEqual(expectedOptionalFields.unit)
             expect(logic.values.metricPrefill).toBeNull()
+        })
+
+        it('refreshes the sidebar metric list after saving a metric', async () => {
+            const savedMetrics: Record<string, any>[] = []
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/': () => [200, { results: savedMetrics, next: null }],
+                },
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        savedMetrics.push({ name: body.name, definition_kind: NodeKind.HogQLQuery })
+                        return [200, { name: body.name }]
+                    },
+                },
+            })
+            const catalogMetrics = metricsLogic()
+            catalogMetrics.mount()
+            await expectLogic(catalogMetrics, () => catalogMetrics.actions.loadMetrics()).toDispatchActions([
+                'loadMetricsSuccess',
+            ])
+            mountEditor()
+            logic.actions.setQueryInput('SELECT count() FROM events')
+
+            logic.actions.saveAsMetricSubmit(PREFILL)
+            await expectLogic(catalogMetrics).toDispatchActions(['loadMetricsSuccess'])
+
+            expect(catalogMetrics.values.allMetrics.map((metric) => metric.name)).toEqual([PREFILL.name])
+            catalogMetrics.unmount()
+        })
+    })
+
+    describe('save dialog selection guard', () => {
+        // Monaco reports a non-empty selection after a double-click, which is the editor state
+        // that let a single identifier reach the API as the query to save.
+        function createEditorWithSelection(selected: string): any {
+            return {
+                ...createMockEditor(),
+                getModel: () => ({ getValueInRange: () => selected }),
+                getSelection: () => ({ isEmpty: () => false }),
+            }
+        }
+
+        it.each([
+            ['view', (): void => logic.actions.saveAsView()],
+            ['endpoint', (): void => logic.actions.saveAsEndpoint()],
+            ['metric', (): void => logic.actions.saveAsMetric()],
+        ])('refuses to save a selected identifier as a %s', async (_target, openDialog) => {
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createEditorWithSelection('weekly_active_users'),
+            })
+            logic.mount()
+
+            openDialog()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const form = openForm.mock.calls.at(-1)?.[0] as any
+            expect(form.errors.saveTarget(form.initialValues.saveTarget, form.initialValues)).toEqual(
+                SELECTION_NOT_A_QUERY
+            )
+            openForm.mockRestore()
         })
     })
 

@@ -299,6 +299,7 @@ export interface SettingsStore {
   codexModelAccess: ModelAccess;
   claudeModelAccess: ModelAccess;
   claudeCloudSubscriptionOn: boolean;
+  codexCloudSubscriptionOn: boolean;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
   setDebugLogsCloudRuns: (enabled: boolean) => void;
@@ -308,6 +309,7 @@ export interface SettingsStore {
   setCodexModelAccess: (mode: ModelAccess) => void;
   setClaudeModelAccess: (mode: ModelAccess) => void;
   setClaudeCloudSubscriptionOn: (enabled: boolean) => void;
+  setCodexCloudSubscriptionOn: (enabled: boolean) => void;
 
   // Terminal
   terminalFont: TerminalFont;
@@ -587,6 +589,7 @@ export const useSettingsStore = create<SettingsStore>()(
       codexModelAccess: "posthog-gateway",
       claudeModelAccess: "posthog-gateway",
       claudeCloudSubscriptionOn: false,
+      codexCloudSubscriptionOn: false,
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -600,6 +603,8 @@ export const useSettingsStore = create<SettingsStore>()(
       setClaudeModelAccess: (mode) => set({ claudeModelAccess: mode }),
       setClaudeCloudSubscriptionOn: (enabled) =>
         set({ claudeCloudSubscriptionOn: enabled }),
+      setCodexCloudSubscriptionOn: (enabled) =>
+        set({ codexCloudSubscriptionOn: enabled }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -755,6 +760,7 @@ export const useSettingsStore = create<SettingsStore>()(
         codexModelAccess: state.codexModelAccess,
         claudeModelAccess: state.claudeModelAccess,
         claudeCloudSubscriptionOn: state.claudeCloudSubscriptionOn,
+        codexCloudSubscriptionOn: state.codexCloudSubscriptionOn,
 
         // Terminal
         terminalFont: state.terminalFont,

@@ -104,6 +104,7 @@ import {
   SessionConfigState,
 } from "./session-config";
 import {
+  type ChatgptAuthTokens,
   type CodexAppServerProcess,
   type CodexAppServerProcessOptions,
   spawnCodexAppServerProcess,
@@ -284,6 +285,8 @@ export interface CodexAppServerAgentOptions {
   processCallbacks?: ProcessSpawnedCallback;
   logger?: Logger;
   onStructuredOutput?: (output: Record<string, unknown>) => Promise<void>;
+  chatgptAuthTokens?: ChatgptAuthTokens;
+  refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   /** Test seam: build the JSON-RPC client (defaults to spawning the process). */
   rpcFactory?: (handlers: AppServerClientHandlers) => AppServerRpc;
 }
@@ -310,6 +313,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private readonly developerInstructions?: string;
   private readonly contextWiki?: ContextWikiEnv;
   private readonly gatewayConfigured: boolean;
+  private readonly chatgptAuthTokens?: ChatgptAuthTokens;
+  private readonly refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
+  private chatgptAuthRefreshFailure?: string;
   private threadId?: string;
   /** JSON schema constraining the final message; set per session via `_meta`. */
   private jsonSchema?: Record<string, unknown>;
@@ -380,6 +386,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.developerInstructions = options.processOptions.developerInstructions;
     this.contextWiki = options.processOptions.contextWiki;
     this.gatewayConfigured = Boolean(options.processOptions.apiBaseUrl);
+    this.chatgptAuthTokens = options.chatgptAuthTokens;
+    this.refreshChatgptAuthTokens = options.refreshChatgptAuthTokens;
 
     const handlers: AppServerClientHandlers = {
       logger: this.logger,
@@ -423,6 +431,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       capabilities: { experimentalApi: true, requestAttestation: false },
     });
     this.rpc.notify(APP_SERVER_NOTIFICATIONS.INITIALIZED, {});
+    await this.loginWithChatgptAuthTokens();
     return {
       protocolVersion: request.protocolVersion,
       agentCapabilities: {
@@ -1743,8 +1752,11 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       if (turn?.status === "failed") {
         // codex reports the terminal cause on the completion itself. Prefer it
         // over the last retry message, which can be stale or never arrived.
+        const refreshFailure = this.chatgptAuthRefreshFailure;
+        this.chatgptAuthRefreshFailure = undefined;
         const terminalCause =
-          typeof turn.error?.message === "string" ? turn.error.message : "";
+          refreshFailure ??
+          (typeof turn.error?.message === "string" ? turn.error.message : "");
         this.deferFailedTurnFinalization(
           turn?.id,
           this.turns.currentGeneration,
@@ -1780,7 +1792,11 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       if (turnId && turnId !== this.turns.activeTurnId) {
         return;
       }
-      const message = typeof error?.message === "string" ? error.message : "";
+      const refreshFailure = this.chatgptAuthRefreshFailure;
+      if (willRetry === false) this.chatgptAuthRefreshFailure = undefined;
+      const message =
+        refreshFailure ??
+        (typeof error?.message === "string" ? error.message : "");
       // Keep the newest cause even while codex retries: when the retries run out the
       // turn dies through `turn/completed`, which carries no error text of its own.
       // Bind it to the turn so a later steered turn cannot inherit this cause.
@@ -2349,10 +2365,46 @@ export class CodexAppServerAgent extends BaseAcpAgent {
    * string is rejected); richer ones (AskUserQuestion / permission profile / elicitation) go
    * to `handleServerRequest`. Whatever we return is sent back as the JSON-RPC result.
    */
+  /** Codex forces memory-only storage in this mode, so no auth file is written. */
+  private async loginWithChatgptAuthTokens(): Promise<void> {
+    if (!this.chatgptAuthTokens) return;
+    await this.rpc.request(APP_SERVER_METHODS.ACCOUNT_LOGIN_START, {
+      type: "chatgptAuthTokens",
+      accessToken: this.chatgptAuthTokens.accessToken,
+      chatgptAccountId: this.chatgptAuthTokens.chatgptAccountId,
+      chatgptPlanType: this.chatgptAuthTokens.chatgptPlanType,
+    });
+    this.logger.info("Codex signed in with the run's ChatGPT access token", {
+      hasAccountId: Boolean(this.chatgptAuthTokens.chatgptAccountId),
+      planType: this.chatgptAuthTokens.chatgptPlanType,
+    });
+  }
+
+  private async handleChatgptAuthTokensRefresh(): Promise<ChatgptAuthTokens> {
+    if (!this.refreshChatgptAuthTokens) {
+      throw new Error("No ChatGPT token refresh is configured for this run.");
+    }
+    try {
+      const tokens = await this.refreshChatgptAuthTokens();
+      // Never include the cause: a token refresh error can carry the token.
+      if (!tokens.accessToken) {
+        throw new Error("PostHog returned no ChatGPT access token.");
+      }
+      return tokens;
+    } catch (error) {
+      this.chatgptAuthRefreshFailure =
+        error instanceof Error ? error.message : String(error);
+      throw error;
+    }
+  }
+
   private async handleApproval(
     method: string,
     params: unknown,
   ): Promise<unknown> {
+    if (method === APP_SERVER_REQUESTS.CHATGPT_AUTH_TOKENS_REFRESH) {
+      return await this.handleChatgptAuthTokensRefresh();
+    }
     const richer = await handleServerRequest(method, params, this.client, {
       sessionId: this.sessionId,
       logger: this.logger,

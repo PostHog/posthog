@@ -34,8 +34,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 @SourceRegistry.register
 class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeConfig], OAuthMixin):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("v61.0", "v67.0", "v68.0")
-    default_version = "v68.0"
+    # Salesforce moves orgs onto a new release over several weeks, and an org still on the previous
+    # release answers 404 to every path of the new version. New sources are pinned to the default, so
+    # declare a release's version only once it has reached every production org.
+    supported_versions = ("v61.0", "v67.0")
+    default_version = "v67.0"
     api_docs_url = "https://developer.salesforce.com/docs/atlas.en-us.api_rest.meta/api_rest/intro_rest.htm"
 
     @property
@@ -54,6 +57,16 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             "invalid_session_id": "Your Salesforce session has expired. Please reconnect the source.",
             "400 Client Error: Bad Request for url": None,
             "403 Client Error: Forbidden for url": None,
+            # Salesforce answers 404 on every path of a release an org has not been moved to yet
+            # (see `supported_versions` above), and on an object the org does not have. Both are
+            # deterministic for the stored pin and the selected table, so retrying replays the same
+            # rejection and the raw text echoes the org's instance URL and the SOQL query back to
+            # the customer. Match the stable status text, not the volatile url that follows it.
+            "404 Client Error: Not Found for url": (
+                "Salesforce doesn't have this object, or your org doesn't support the API version "
+                "this source uses. Remove the table from the source's selected tables, or contact "
+                "support."
+            ),
             "inactive organization": None,
             # Salesforce's OAuth token endpoint returns error_description "inactive user" when the
             # user that authorized the connection has been deactivated. Retrying can't fix it —

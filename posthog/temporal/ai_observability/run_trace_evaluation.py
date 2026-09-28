@@ -88,6 +88,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.message_formatter import has_message_content
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -108,18 +109,31 @@ MAX_TRACE_EVAL_EVENTS = 500
 # much, so we cap lower to bound cost. Over budget, the formatter uniformly samples lines.
 JUDGE_TRACE_MAX_CHARS = 150_000
 
-# Written against ai_events; query_ai_events rewrites it for the events table when ai_events
-# returns nothing. HAVING makes a zero count return no rows, which both triggers the events-table
-# fallback and keeps "no events" distinguishable without a second query.
-_TRACE_EVENT_COUNT_SQL = """
+_TRACE_EVENT_NAMES = ("$ai_span", "$ai_generation", "$ai_embedding", "$ai_metric", "$ai_feedback", "$ai_trace")
+
+# The runner drops the `$ai_trace` root row from `LLMTrace.events`, so it can never contribute a
+# line to the judge transcript.
+_RENDERABLE_TRACE_EVENT_NAMES = tuple(name for name in _TRACE_EVENT_NAMES if name != "$ai_trace")
+
+
+def _event_names_clause(event_names: tuple[str, ...]) -> str:
+    return ", ".join(f"'{name}'" for name in event_names)
+
+
+def _trace_event_count_sql(event_names: tuple[str, ...]) -> str:
+    """Count query written against ai_events; query_ai_events rewrites it for the events table when
+    ai_events returns nothing. HAVING makes a zero count return no rows, which both triggers the
+    events-table fallback and keeps "no events" distinguishable without a second query."""
+    return f"""
 SELECT count() AS event_count
 FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-  AND trace_id = {trace_id}
-  AND timestamp >= {date_from}
-  AND timestamp <= {date_to}
+WHERE event IN ({_event_names_clause(event_names)})
+  AND trace_id = {{trace_id}}
+  AND timestamp >= {{date_from}}
+  AND timestamp <= {{date_to}}
 HAVING event_count > 0
 """
+
 
 _SKIP_REASONING = {
     "property_access_restricted": (
@@ -183,10 +197,16 @@ class TraceFetchOutcome:
 
 
 def _count_trace_events(
-    team: Team, trace_id: str, date_from: datetime, date_to: datetime, *, user: "User | None" = None
+    team: Team,
+    trace_id: str,
+    date_from: datetime,
+    date_to: datetime,
+    *,
+    event_names: tuple[str, ...] = _TRACE_EVENT_NAMES,
+    user: "User | None" = None,
 ) -> int:
     result = query_ai_events(
-        query=parse_select(_TRACE_EVENT_COUNT_SQL),
+        query=parse_select(_trace_event_count_sql(event_names)),
         placeholders={
             "trace_id": ast.Constant(value=trace_id),
             "date_from": ast.Constant(value=date_from),
@@ -205,7 +225,7 @@ def _count_trace_events(
 _TRACE_PAYLOAD_BYTES_SQL = f"""
 SELECT {PAYLOAD_BYTES_EXPR} AS payload_bytes
 FROM posthog.ai_events AS ai_events
-WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
+WHERE event IN ({_event_names_clause(_TRACE_EVENT_NAMES)})
   AND trace_id = {{trace_id}}
   AND timestamp >= {{date_from}}
   AND timestamp <= {{date_to}}
@@ -230,6 +250,21 @@ def _sum_trace_payload_bytes(
     if not result.results:
         return 0
     return int(result.results[0][0] or 0)
+
+
+def _read_missed_events(
+    team: Team, trace: LLMTrace, date_from: datetime, date_to: datetime, *, user: "User | None" = None
+) -> bool:
+    """Decide whether a trace that came back with no events was read in full.
+
+    A renderable event the fetch did not return means `ai_events` served a partial trace. This count
+    falls back to the shared events table when `ai_events` holds no renderable row, so it finds the
+    events the fetch did not see. Every evaluation would grade the wrong unit without them.
+    """
+    return (
+        _count_trace_events(team, trace.id, date_from, date_to, event_names=_RENDERABLE_TRACE_EVENT_NAMES, user=user)
+        > 0
+    )
 
 
 def _fetch_trace(
@@ -280,10 +315,9 @@ def _fetch_trace(
     if not response.results:
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     trace = response.results[0]
-    if bound_to_date_to and not trace.events:
-        # The count preflight includes the `$ai_trace` root row, which never reaches `events`, so a
-        # non-zero count does not promise a transcript. Once the bound applies, an empty one must
-        # skip rather than let the judge grade nothing. A live run keeps its own handling of this.
+    # The count preflight above includes the `$ai_trace` root row, which the runner drops from
+    # `events`, so a non-zero count does not promise that the fetch saw the whole trace.
+    if not trace.events and _read_missed_events(team, trace, date_from, date_to, user=user):
         return TraceFetchOutcome(trace=None, skip_reason="trace_not_found", event_count=event_count)
     return TraceFetchOutcome(trace=trace, skip_reason=None, event_count=event_count)
 
@@ -542,6 +576,29 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
     return text
 
 
+def _has_state_content(state: object, *, is_output: bool = False) -> bool:
+    # Message headers and whitespace can render without any content for the judge to grade.
+    if isinstance(state, list) and state and isinstance(state[0], dict):
+        if "role" in state[0] or "content" in state[0]:
+            return has_message_content(state, is_output=is_output)
+    return bool(state.strip()) if isinstance(state, str) else bool(state)
+
+
+def _has_judge_transcript(trace: LLMTrace) -> bool:
+    """Whether the trace formats into something the LLM judge can read.
+
+    `format_trace_text_repr` renders the trace-level input and output only when the event hierarchy
+    is empty, so a trace with neither formats down to its name alone and the judge grades nothing.
+    A Hog eval has no such requirement: it reads trace-level cost and latency straight off the root
+    event, so this gate belongs to the judge rather than to the fetch.
+    """
+    return (
+        bool(trace.events)
+        or _has_state_content(trace.inputState)
+        or _has_state_content(trace.outputState, is_output=True)
+    )
+
+
 def build_trace_hog_globals(trace: LLMTrace, trace_id: str, *, bytecode: list[Any] | None = None) -> dict[str, Any]:
     """Build Hog globals for a trace-level eval.
 
@@ -630,6 +687,8 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     )
     if outcome.skip_reason or outcome.trace is None:
         return _build_trace_skip_result(allows_na, outcome.skip_reason or "trace_not_found", output_type=output_type)
+    if not _has_judge_transcript(outcome.trace):
+        return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
 
     return call_llm_judge(
         evaluation=evaluation,
