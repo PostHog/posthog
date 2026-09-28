@@ -1457,6 +1457,52 @@ class TestExternalDataSchema(APIBaseTest):
         assert schema.sync_type_config.get("reset_pipeline") is True
         mock_trigger.assert_called_once()
 
+    def test_update_schema_seeds_the_cursor_from_its_normalized_column(self):
+        # The already-synced data holds the cursor under its normalized name. Reading it back by the
+        # source's own spelling finds nothing, and a miss is treated as "reset and re-read everything",
+        # so a source whose cursor is not already snake_case pays for a full resync on every edit.
+        source = self._xmin_postgres_source()
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+            table=table,
+        )
+
+        def only_the_stored_column(column):
+            return 42 if column == "row_version" else None
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.trigger_external_data_workflow"
+            ),
+            mock.patch.object(
+                DataWarehouseTable, "get_max_value_for_column", side_effect=only_the_stored_column
+            ) as mock_max_value,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "sync_type": "incremental",
+                    "incremental_field": "rowVersion",
+                    "incremental_field_type": "integer",
+                },
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        mock_max_value.assert_called_once_with("row_version")
+
+        schema.refresh_from_db()
+        # The source query still runs against the column as the source spells it.
+        assert schema.sync_type_config.get("incremental_field") == "rowVersion"
+        assert schema.sync_type_config.get("incremental_field_last_value") == 42
+        assert schema.sync_type_config.get("reset_pipeline") is not True
+
     @parameterized.expand(
         [
             ("incremental_one_minute", ExternalDataSchema.SyncType.INCREMENTAL, "1min", 400),
