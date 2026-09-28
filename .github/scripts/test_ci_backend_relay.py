@@ -347,3 +347,49 @@ def test_reader_retries_interrupted_pages_without_reusing_a_stale_verdict(page: 
     assert reader.read(relay.GATE_CHECK) == []
     assert reader.read(relay.GATE_CHECK) == []
     assert not answers
+
+
+@pytest.mark.parametrize("name", relay.PREREQUISITES)
+@pytest.mark.parametrize(
+    "state,workflow,newer",
+    [
+        ("failure", "live", None),
+        ("failure", "other", None),
+        ("success", "live", None),
+        ("failure", "live", "pending"),
+        ("failure", "live", "success"),
+    ],
+)
+def test_cancelled_gate_reports_only_current_selected_prerequisite(
+    name: str, state: str, workflow: str, newer: str | None
+) -> None:
+    roots = [run(2, state, workflow)]
+    if newer:
+        roots.append(run(3, newer, workflow))
+    clock = FakeClock()
+    result = relay.poll(
+        FakeReader(
+            [
+                {
+                    EVENT_WAIT: [run(1, "success")],
+                    relay.GATE_CHECK: [run(5, "cancelled")],
+                    f"{relay.DEPOT_WORKFLOW} / {name}": roots,
+                }
+            ]
+        ),
+        EVENT,
+        relay.GATE_CHECK,
+        deadline_minutes=90,
+        absent_minutes=15,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    code, lines = relay.relay_gate(result, EVENT, "123")
+    assert code == 1
+    if state == "failure" and workflow == "live" and newer is None:
+        assert clock.now == 0
+        assert lines == [f"::error::{name} failed on Depot (check 2). Push a fix; a retry will not help."]
+        assert result.root_check_id == 2
+    else:
+        assert result.phase == relay.Phase.CANCELLED
+        assert clock.now == 900

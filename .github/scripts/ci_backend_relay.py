@@ -56,6 +56,7 @@ API_ROOT = "https://api.github.com"
 PAGE_SIZE = 100
 # A 403 also covers a secondary rate limit, which clears, so a few refusals in a row are tolerated.
 MAX_REFUSALS = 5
+PREREQUISITES = ("Repo checks (depot-ubuntu-24.04)", "Validate OpenAPI types")
 
 
 class ReadRefusedError(RuntimeError):
@@ -98,6 +99,8 @@ class Progress:
     # The state of the check behind the phase, empty when there is none.
     state: str = ""
     details_url: str = ""
+    root_failure: str = ""
+    root_check_id: int = 0
 
 
 def wait_check_name(pr_number: int, event_at: str) -> str:
@@ -236,6 +239,22 @@ def racing_wait(reader: CheckReader, event: Event, followed: set[str]) -> str | 
     return None
 
 
+def prerequisite_failure(reader: CheckReader, wait: CheckRun, current: Progress) -> Progress:
+    for name in PREREQUISITES:
+        latest = max(
+            (
+                check
+                for check in reader.read(f"{DEPOT_WORKFLOW} / {name}")
+                if check.depot_workflow == wait.depot_workflow
+            ),
+            key=lambda check: check.id,
+            default=None,
+        )
+        if latest and latest.state == "failure":
+            return Progress(Phase.FINISHED, "failure", current.details_url, name, latest.id)
+    return current
+
+
 def poll(
     reader: CheckReader,
     event: Event,
@@ -259,6 +278,12 @@ def poll(
         wait = newest_live(reader.read(event_name))
         checks = reader.read(check_name) if wait and wait.state == "success" else []
         current = progress(wait, checks)
+        if (
+            (current.phase == Phase.CANCELLED or (current.phase == Phase.FINISHED and current.state == "failure"))
+            and wait
+            and wait.state == "success"
+        ):
+            current = prerequisite_failure(reader, wait, current)
         sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
         elapsed = clock() - start
         if current.phase in (Phase.FINISHED, Phase.DECLINED):
@@ -310,6 +335,11 @@ def relay_gate(result: Progress, event: Event, run_id: str) -> tuple[int, list[s
     """The exit code and log lines of the `Django Tests Pass` relay for the gate's progress."""
     if result.phase == Phase.FINISHED and result.state == "success":
         return 0, []
+    if result.root_failure:
+        return 1, [
+            f"::error::{result.root_failure} failed on Depot (check {result.root_check_id}). "
+            "Push a fix; a retry will not help."
+        ]
     if result.phase == Phase.FINISHED:
         return 1, [
             f"::error::Backend tests on Depot CI concluded {result.state}. This step's log lists the retry options.",
