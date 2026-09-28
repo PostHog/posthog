@@ -1,10 +1,4 @@
-import logging
-
 from django.db import models
-
-from posthog.models.team.extensions import register_team_extension_signal
-
-logger = logging.getLogger(__name__)
 
 
 class TeamFeatureFlagPolicyConfig(models.Model):
@@ -32,9 +26,6 @@ class TeamFeatureFlagPolicyConfig(models.Model):
     # experiment, early access feature, product tour, or web experiment are exempt, because those
     # forms have no tag input and would otherwise dead-end.
     require_tags = models.BooleanField(default=False)
-
-
-register_team_extension_signal(TeamFeatureFlagPolicyConfig, logger=logger)
 
 
 def team_requires_flag_tags(team_id: int) -> bool:

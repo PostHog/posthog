@@ -160,6 +160,10 @@ from products.alerts.backend.facade.temporal import (
     SHARED_ORCHESTRATION_ACTIVITIES as ALERTS_PLATFORM_SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS as ALERTS_PLATFORM_SHARED_ORCHESTRATION_WORKFLOWS,
 )
+from products.autoresearch.backend.facade.temporal import (
+    ACTIVITIES as AUTORESEARCH_ACTIVITIES,
+    WORKFLOWS as AUTORESEARCH_WORKFLOWS,
+)
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
@@ -189,6 +193,10 @@ from products.customer_analytics.backend.facade.temporal import (
     ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
     ACTIVITIES as CUSTOMER_ANALYTICS_ACTIVITIES,
     WORKFLOWS as CUSTOMER_ANALYTICS_WORKFLOWS,
+)
+from products.data_catalog.backend.facade.temporal import (
+    ACTIVITIES as DATA_CATALOG_DIGEST_ACTIVITIES,
+    WORKFLOWS as DATA_CATALOG_DIGEST_WORKFLOWS,
 )
 from products.data_quality.backend.facade.temporal import (
     ACTIVITIES as DATA_QUALITY_ACTIVITIES,
@@ -512,8 +520,8 @@ _task_queue_specs = [
     # workflows left, so a dedicated fleet for them isn't worth its reserved capacity.
     (
         settings.WEEKLY_DIGEST_TASK_QUEUE,
-        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS,
-        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES,
+        WEEKLY_DIGEST_WORKFLOWS + WA_DIGEST_WORKFLOWS + DATA_CATALOG_DIGEST_WORKFLOWS,
+        WEEKLY_DIGEST_ACTIVITIES + WA_DIGEST_ACTIVITIES + DATA_CATALOG_DIGEST_ACTIVITIES,
     ),
     (
         settings.LLMA_EVALS_TASK_QUEUE,
@@ -560,6 +568,11 @@ _task_queue_specs = [
         settings.LOGS_VOLUME_TICK_TASK_QUEUE,
         LOGS_VOLUME_TICK_WORKFLOWS,
         LOGS_VOLUME_TICK_ACTIVITIES,
+    ),
+    (
+        settings.AUTORESEARCH_TASK_QUEUE,
+        AUTORESEARCH_WORKFLOWS,
+        AUTORESEARCH_ACTIVITIES,
     ),
     (
         settings.STAMPHOG_TASK_QUEUE,
@@ -694,6 +707,12 @@ class Command(BaseCommand):
             help="Fraction of available CPU to use",
         )
         parser.add_argument(
+            "--activity-ramp-throttle-ms",
+            type=int,
+            default=settings.TEMPORAL_ACTIVITY_RAMP_THROTTLE_MS,
+            help="Minimum milliseconds between two activity slot issues when the resource-based tuner is on",
+        )
+        parser.add_argument(
             "--health-port",
             type=int,
             default=settings.TEMPORAL_HEALTH_PORT,
@@ -726,6 +745,7 @@ class Command(BaseCommand):
         use_pydantic_converter = options["use_pydantic_converter"]
         target_memory_usage = options.get("target_memory_usage", None)
         target_cpu_usage = options.get("target_cpu_usage", None)
+        activity_ramp_throttle_ms = options.get("activity_ramp_throttle_ms", None)
         health_port = options.get("health_port", None)
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
@@ -822,6 +842,7 @@ class Command(BaseCommand):
                 max_concurrent_activities=max_concurrent_activities,
                 target_memory_usage=target_memory_usage,
                 target_cpu_usage=target_cpu_usage,
+                activity_ramp_throttle_ms=activity_ramp_throttle_ms,
                 health_port=health_port,
                 health_max_idle_seconds=health_max_idle_seconds,
                 combined_metrics_server_enabled=not disable_combined_metrics_server,
@@ -860,6 +881,11 @@ class Command(BaseCommand):
                     use_pydantic_converter=use_pydantic_converter,
                     target_memory_usage=target_memory_usage,
                     target_cpu_usage=target_cpu_usage,
+                    activity_ramp_throttle=(
+                        dt.timedelta(milliseconds=activity_ramp_throttle_ms)
+                        if activity_ramp_throttle_ms is not None
+                        else None
+                    ),
                     enable_combined_metrics_server=not disable_combined_metrics_server,
                     enable_open_telemetry_plugin=enable_otel,
                 )

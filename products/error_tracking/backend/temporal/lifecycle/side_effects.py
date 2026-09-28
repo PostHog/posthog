@@ -14,6 +14,7 @@ from posthog.helpers.tiktoken_encoding import (
 )
 from posthog.models import Team
 
+from products.error_tracking.backend.logic.assignees import resolve_current_assignee
 from products.error_tracking.backend.temporal.alerts.dispatch import start_alert_delivery_workflow
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.event_properties import (
@@ -86,6 +87,18 @@ def _status_property(
         return None
     status = inputs.issue.status
     return _STATUS_LABELS.get(status, status) if humanize_status else status
+
+
+def _assignee_display_properties(inputs: IssueLifecycleWorkflowInputs) -> dict[str, str]:
+    if inputs.assignee is None:
+        return {}
+    resolved = resolve_current_assignee(inputs.issue_id)
+    # Cymbal snapshots the assignee at ingestion, and the issue can be reassigned before
+    # this activity runs. Names for a different assignee would contradict `assignee`,
+    # so leave them out in that case.
+    if resolved is None or resolved.property_value != inputs.assignee:
+        return {}
+    return resolved.display_properties()
 
 
 def _normalize_timestamp(value: str) -> datetime:
@@ -189,6 +202,7 @@ def produce_issue_lifecycle_internal_event(
         properties["status"] = status_property
     if inputs.assignee is not None:
         properties["assignee"] = inputs.assignee
+        properties.update(_assignee_display_properties(inputs))
     if extra_properties is not None:
         properties.update(extra_properties)
 

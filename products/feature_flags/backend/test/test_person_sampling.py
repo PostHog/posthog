@@ -11,6 +11,7 @@ from products.feature_flags.backend.person_sampling import (
     bounded_memory_settings,
     count_settings,
     sampled_or_exact_count,
+    sampled_or_exact_estimate,
 )
 
 
@@ -62,3 +63,15 @@ class TestSampledOrExactCount(SimpleTestCase):
         assert sampled_or_exact_count(run_count) == self.EXACT_COUNT
         # The probe still runs and is paid for before the exact count replaces it.
         assert moduli == [SAMPLE_MODULUS, None]
+
+    def test_the_threshold_reads_the_matched_count_and_not_the_estimate(self):
+        moduli: list[Optional[int]] = []
+
+        def run(sample_modulus: Optional[int]) -> tuple[int, float]:
+            moduli.append(sample_modulus)
+            # A large audience behind a low-rollout dependency: many matches, a small weight sum.
+            return (MIN_SAMPLED_MATCHES, 3.0) if sample_modulus is not None else (self.EXACT_COUNT, 5.0)
+
+        assert sampled_or_exact_estimate(run) == round(3.0 * SAMPLE_MODULUS)
+        # Comparing the estimate against the threshold would rerun the exact query here.
+        assert moduli == [SAMPLE_MODULUS]

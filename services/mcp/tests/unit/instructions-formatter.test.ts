@@ -196,6 +196,8 @@ describe('InstructionsFormatter', () => {
             expect(result.indexOf('### PostHog knowledge sources')).toBeLessThan(
                 result.indexOf('Using the `posthog` tool')
             )
+            // The mandate leads the description, ahead of the grammar it depends on.
+            expect(result).toContain('`call docs-search <json_input>`')
         })
 
         it('omits knowledge guidance when only business knowledge search is available', () => {
@@ -214,9 +216,7 @@ describe('InstructionsFormatter', () => {
             })
 
             expect(result.indexOf('SKILL-FIRST MANDATE')).toBeLessThan(result.indexOf('### PostHog knowledge sources'))
-            expect(result.indexOf('`business-knowledge-documents-search`')).toBeLessThan(
-                result.indexOf('`docs-search`')
-            )
+            expect(result.indexOf('business-knowledge-documents-search')).toBeLessThan(result.indexOf('docs-search'))
             expect(result.length).toBeLessThanOrEqual(2048)
         })
     })
@@ -509,6 +509,69 @@ describe('InstructionsFormatter', () => {
             const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
             expect(cellsOff).not.toContain('### Python in an analysis')
             expect(cellsOff).toBe(render(formatter, fullCtx))
+        })
+    })
+
+    describe('activity history guidance', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+            inline: boolean
+        }[] = [
+            { name: 'tools', render: (f, ctx) => f.buildToolsInstructions(ctx), inline: true },
+            { name: 'exec', render: (f, ctx) => f.buildExecCommandReference(ctx), inline: true },
+            {
+                name: 'Claude analytics guide',
+                render: (f, ctx) =>
+                    f.buildClaudeExecLearnGuides(ctx).find((entry) => entry.id === 'analytics')!.content,
+                inline: true,
+            },
+            {
+                name: 'Claude without guides',
+                render: (f, ctx) => f.buildClaudeExecCommandReference(ctx, { learnEnabled: false }),
+                inline: true,
+            },
+            {
+                name: 'Claude with guides',
+                render: (f, ctx) => f.buildClaudeExecCommandReference(ctx),
+                inline: false,
+            },
+        ]
+
+        it.each(
+            surfaces.flatMap((surface) =>
+                [
+                    { capability: 'neither reader', tools: [], history: false, sql: false },
+                    { capability: 'SQL only', tools: ['execute-sql'], history: false, sql: false },
+                    {
+                        capability: 'activity reader only',
+                        tools: ['advanced-activity-logs-list'],
+                        history: true,
+                        sql: false,
+                    },
+                    {
+                        capability: 'both readers',
+                        tools: ['advanced-activity-logs-list', 'execute-sql'],
+                        history: true,
+                        sql: true,
+                    },
+                ].map((capability) => ({ ...surface, ...capability }))
+            )
+        )('$name exposes only supported history procedures: $capability', ({ render, inline, tools, history, sql }) => {
+            const result = render(new InstructionsFormatter(), {
+                ...fullCtx,
+                tools: tools.map((name) => ({ name, category: 'Platform Features' })),
+            })
+
+            expect(result.includes('### Activity history')).toBe(inline && history)
+            expect(result.includes('`system.activity_logs`')).toBe(inline && sql)
+            if (inline && history) {
+                expect(result).toContain('`start_date`, `end_date`')
+                expect(result).toContain('`page_size: 10`')
+                expect(result).toContain('`clients: ["scout:<skill_name>"]`')
+                expect(result).toContain('If access is denied, stop using this reader')
+                expect(result).toContain('Other advertised, authorized history readers, including per-object readers')
+            }
         })
     })
 

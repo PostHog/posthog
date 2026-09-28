@@ -88,6 +88,7 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
         secondaryMetricsResults,
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
+        exposuresLoading,
         currentRefresh,
     } = useValues(experimentLogic)
     const { reportExperimentMetricsRefreshed } = useActions(experimentLogic)
@@ -97,7 +98,7 @@ function LegacyRefreshButton({ experiment }: { experiment: Experiment }): JSX.El
 
     return (
         <RefreshButton
-            isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
+            isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading || exposuresLoading}
             lastRefresh={lastRefresh}
             onRefresh={() => {
                 reportExperimentMetricsRefreshed(experiment, true, {

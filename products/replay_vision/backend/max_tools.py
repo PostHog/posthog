@@ -501,7 +501,7 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
         empty = (f"No recordings from {scope_label} matched that search yet.", {"result_count": 0})
 
         response = search_observations(
-            self._team, self.user_access_control, scanner_ids, query_vector, capped_limit, filters
+            self._team, self.user_access_control, scanner_ids, lambda: query_vector, capped_limit, filters
         )
 
         lines: list[str] = []
