@@ -1798,6 +1798,7 @@ export namespace Schemas {
       NoEventFilter: 'no_event_filter',
       NoStartDate: 'no_start_date',
       PersonsJoin: 'persons_join',
+      RepeatedCte: 'repeated_cte',
     } as const;
 
     export interface QueryScanWarning {
