@@ -42,6 +42,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeScene'),
     BusinessKnowledgeSettings: () =>
         import('../../products/business_knowledge/frontend/scenes/BusinessKnowledgeSettingsScene'),
+    BusinessKnowledgeMagicEightBall: () =>
+        import('../../products/business_knowledge/frontend/scenes/MagicEightBallScene'),
     BusinessKnowledgeSource: () => import('../../products/business_knowledge/frontend/scenes/KnowledgeSourceScene'),
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),

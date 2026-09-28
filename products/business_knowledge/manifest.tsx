@@ -28,6 +28,13 @@ export const manifest: ProductManifest = {
             projectBased: true,
             iconType: 'conversations',
         },
+        BusinessKnowledgeMagicEightBall: {
+            name: 'Magic 8 ball',
+            import: () => import('./frontend/scenes/MagicEightBallScene'),
+            projectBased: true,
+            iconType: 'conversations',
+            description: 'Ask a product question and let your business knowledge shake out an answer.',
+        },
         BusinessKnowledgeSource: {
             name: 'Knowledge source',
             import: () => import('./frontend/scenes/KnowledgeSourceScene'),
@@ -40,12 +47,14 @@ export const manifest: ProductManifest = {
         '/business-knowledge': ['BusinessKnowledge', 'businessKnowledge'],
         // Static sibling must stay above :id so kea-router does not treat "settings" as an id.
         '/business-knowledge/settings': ['BusinessKnowledgeSettings', 'businessKnowledgeSettings'],
+        '/business-knowledge/magic-8-ball': ['BusinessKnowledgeMagicEightBall', 'businessKnowledgeMagicEightBall'],
         '/business-knowledge/:id': ['BusinessKnowledgeSource', 'businessKnowledgeSource'],
     },
     redirects: {},
     urls: {
         businessKnowledge: (): string => '/business-knowledge',
         businessKnowledgeSettings: (): string => '/business-knowledge/settings',
+        businessKnowledgeMagicEightBall: (): string => '/business-knowledge/magic-8-ball',
         businessKnowledgeSource: (id: string): string => `/business-knowledge/${id}`,
     },
     fileSystemTypes: {},

@@ -7832,6 +7832,26 @@ snapshots:
         hash: v1.k794b7964.6dfdfa963cd528d998f0fec6cad0e97b3d999d584c03513cb02aaebfac0df7b1.p1pRi00v4RXJ6t8fXTtzfgLTTMnU0-efeu_N-yFdeL8
     scenes-app-businessknowledge-knowledgesourcenamecell--user-text--light:
         hash: v1.k794b7964.fba04716b8f344e21fa3bb2ec69e627bd9836ff2161986538ac2b562973b0edc.Xl-YJ8Poqz1nofU4nIyAfnM4GbZZ1YYtbM37mIzZ4w4
+    scenes-app-businessknowledge-magiceightball--answered--dark:
+        hash: v1.k794b7964.ed0cdbca57a45dec487cbf2508ce20c4b5ed2fcb0958254b3589f337be11f479.8nOdIiyqGpo6V-LeRvY270nvL_LYUT3hVYiJ9bncdrk
+    scenes-app-businessknowledge-magiceightball--answered--light:
+        hash: v1.k794b7964.42cbc3a3933bc945701ab57a139581228045261e87ac41528b4a51482cfc29cc.knIy2TT1ncUOHzI20-H-Ih9GvLuHSRea7gkz415u3mA
+    scenes-app-businessknowledge-magiceightball--error--dark:
+        hash: v1.k794b7964.6135f9668f82222597db99260965c91b62927dad36b3e59c98794885b3addad0.Uu8m21NZbUFm4t7dPuexN1egdcqyEQy3RNrsMtOrrlY
+    scenes-app-businessknowledge-magiceightball--error--light:
+        hash: v1.k794b7964.76813359b1e1cd8aa02a4f382f4adec0b2b83b89886005376f4d0318ad043f16.ddh5bHO_umwIubFN8FPMfE4CBYbR-jWbKgn60upZ0G4
+    scenes-app-businessknowledge-magiceightball--loading--dark:
+        hash: v1.k794b7964.172cc6886d1dcc3ba648d442017163609c7ac7b92c9fa3ed1483c7721f366e91.Wch_jEuR_jDsDw8wv0TsawcA4rKdmXXoALvhGL6_gcY
+    scenes-app-businessknowledge-magiceightball--loading--light:
+        hash: v1.k794b7964.991c6ce885443417cdd3510b67cb0d8e4074fcdecd3f2fafe5ed0e07143dda13.dckabzcrn_3OfXViO3nCTSjLea46wkz8Z-8zat1GXlk
+    scenes-app-businessknowledge-magiceightball--no-knowledge--dark:
+        hash: v1.k794b7964.02cd3b4e30a171109def699d49182731faa709f5f7951df152cb6eed5f02916d.2MaoiE7kRmmYoM3JKyBFtfxpVAqWwtS3l0wQ9O1FP1s
+    scenes-app-businessknowledge-magiceightball--no-knowledge--light:
+        hash: v1.k794b7964.994ced8a9e8831be31a09f71d7b8d49de2462ee670ae0685e35519ac8c6326cb._lKrUkdVmMLUni6ZJ-gyCviYrXsv7zd9o9_qwu2ozWc
+    scenes-app-businessknowledge-magiceightball--ready--dark:
+        hash: v1.k794b7964.e3ab0a35ee5f18bdfc12446f9987068247c07540d232e38148bb5cc96a7d23ce.QfKNfaGLGkL94F9XIScFxw8EFG3hPqegw1cUyznyjqs
+    scenes-app-businessknowledge-magiceightball--ready--light:
+        hash: v1.k794b7964.a9cd05ef7b01eb9ca9732a138adcda6c582a85d0d52d24d4d029ba39dc589d27.1ToEPk7hfgOB9Qy1-wiJrW6ImvC8GvT9kP52qmaSIkg
     scenes-app-customer-analytics-account-detail--default--dark:
         hash: v1.k794b7964.32d5329bf4ce6055010743914ec226973cc4d455a70581692f97d8cae13c04f1.4Zd5MpCXYXWDIegWaghLkfmgRx11JTVSpbyCab_3_YU
     scenes-app-customer-analytics-account-detail--default--light:

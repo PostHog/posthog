@@ -1,10 +1,27 @@
+import { useValues } from 'kea'
+
 import { LemonTabs } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
-export type BusinessKnowledgeTab = 'sources' | 'settings'
+import { Region } from '~/types'
+
+export type BusinessKnowledgeTab = 'sources' | 'magic-eight-ball' | 'settings'
 
 export function BusinessKnowledgeTabs({ activeTab }: { activeTab: BusinessKnowledgeTab }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { preflight } = useValues(preflightLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const decisionsAvailable =
+        !!featureFlags[FEATURE_FLAGS.BUSINESS_KNOWLEDGE_MAGIC_EIGHT_BALL] &&
+        currentOrganization?.is_ai_data_processing_approved === true &&
+        (!!preflight?.is_debug ||
+            (preflight?.region === Region.US && !!featureFlags[FEATURE_FLAGS.ML_INFERENCE_DECISIONS]))
+
     return (
         <LemonTabs
             activeKey={activeTab}
@@ -17,6 +34,16 @@ export function BusinessKnowledgeTabs({ activeTab }: { activeTab: BusinessKnowle
                     // pinned: autocapture / Playwright key. Do not rename.
                     'data-attr': 'business-knowledge-tab-sources',
                 },
+                ...(decisionsAvailable
+                    ? [
+                          {
+                              key: 'magic-eight-ball',
+                              label: 'Magic 8 ball',
+                              link: urls.businessKnowledgeMagicEightBall(),
+                              'data-attr': 'business-knowledge-tab-magic-eight-ball',
+                          },
+                      ]
+                    : []),
                 {
                     key: 'settings',
                     label: 'Settings',
