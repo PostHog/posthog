@@ -49929,6 +49929,15 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface HogFlowLastRun {
+      /** The task this run belongs to. */
+      readonly task_id: string;
+      /** Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled. */
+      readonly status: string;
+      /** When the run started, or when the task was created if it has no run yet. */
+      readonly ran_at: string;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -50015,6 +50024,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     /**
@@ -50174,6 +50185,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     export interface HogFlowPublishImpactMoveTarget {
@@ -50484,6 +50497,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run: HogFlowLastRun | null;
     }
 
     /**
@@ -74135,6 +74150,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly email_sending_resumed_at?: string | null;
+      /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
+      readonly last_run?: HogFlowLastRun | null;
     }
 
     /**

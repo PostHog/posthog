@@ -313,6 +313,7 @@ __all__ = [
     "list_task_repositories",
     "list_task_runs",
     "list_tasks",
+    "list_workflow_last_runs",
     "pi_cloud_runtime_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
@@ -6348,6 +6349,41 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     return await select_repository_for_message_impl(
         team_id, user_id, message, origin_product=Task.OriginProduct(origin_product)
     )
+
+
+def list_workflow_last_runs(
+    team_id: int, user_id: int | None, hog_flow_ids: Iterable[UUID]
+) -> dict[UUID, contracts.WorkflowLastRunDTO]:
+    """The newest visible task of each given workflow, keyed by workflow id, in one query.
+
+    Uses the same rows as the workflow's run history (``hog_flow_id`` task list with archived tasks
+    included), so a list row never names a run that the history hides. Workflows without a
+    visible task are absent from the result.
+    """
+    ids = list(hog_flow_ids)
+    if not ids:
+        return {}
+    latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
+    rows = (
+        _visible_task_qs(team_id, user_id)
+        .filter(hog_flow_id__in=ids, internal=False)
+        .order_by("hog_flow_id", "-created_at", "-id")
+        .distinct("hog_flow_id")
+        .annotate(
+            _run_status=Subquery(latest_run.values("status")[:1]),
+            _run_created_at=Subquery(latest_run.values("created_at")[:1]),
+        )
+        .values_list("hog_flow_id", "id", "created_at", "_run_status", "_run_created_at")
+    )
+    return {
+        hog_flow_id: contracts.WorkflowLastRunDTO(
+            hog_flow_id=hog_flow_id,
+            task_id=task_id,
+            status=run_status or TaskRun.Status.NOT_STARTED,
+            ran_at=run_created_at or created_at,
+        )
+        for hog_flow_id, task_id, created_at, run_status, run_created_at in rows
+    }
 
 
 #: Orderings the task list accepts, keyed by the value clients send. Both fall back to `-id` so a

@@ -4,6 +4,7 @@ import json
 import uuid as uuid_mod
 import hashlib
 import dataclasses
+from collections.abc import Sequence
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -118,6 +119,8 @@ from products.messaging.backend.api.message_templates import DesignOperationSeri
 from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.tasks.backend.facade.api import list_workflow_last_runs
+from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
@@ -2822,8 +2825,22 @@ class WorkflowEmailPauseStatusSerializer(serializers.Serializer):
     )
 
 
+class HogFlowLastRunSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(read_only=True, help_text="The task this run belongs to.")
+    status = serializers.CharField(
+        read_only=True,
+        help_text="Status of the task's newest run: not_started, queued, in_progress, completed, failed or cancelled.",
+    )
+    ran_at = serializers.DateTimeField(
+        read_only=True, help_text="When the run started, or when the task was created if it has no run yet."
+    )
+
+
 class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    last_run = serializers.SerializerMethodField(
+        help_text="Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run."
+    )
     draft = serializers.JSONField(
         read_only=True,
         help_text=(
@@ -2859,8 +2876,22 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "variables",
             "billable_action_types",
             "user_access_level",
+            "last_run",
         ]
         read_only_fields = fields
+
+    @extend_schema_field(HogFlowLastRunSerializer(allow_null=True))
+    def get_last_run(self, instance: HogFlow) -> dict | None:
+        if instance.origin_product != HogFlow.OriginProduct.LOOPS:
+            return None
+        # The list view batches this lookup for the whole page; other responses carry one flow.
+        last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = self.context.get("workflow_last_runs")
+        if last_runs is None:
+            request = self.context.get("request")
+            user_id = request.user.id if request is not None else None
+            last_runs = list_workflow_last_runs(instance.team_id, user_id, [instance.id])
+        last_run = last_runs.get(instance.id)
+        return HogFlowLastRunSerializer(last_run).data if last_run else None
 
     def to_representation(self, instance):
         # Never return secret function inputs. Replace each set secret with the {"secret": True}
@@ -3199,6 +3230,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_by",
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
+            "last_run",
         ]
         read_only_fields = [
             "id",
@@ -3221,6 +3253,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "email_sending_paused_by",
             "email_sending_pause_requires_support",
             "email_sending_resumed_at",
+            "last_run",
         ]
 
     def validate(self, data):
@@ -4603,6 +4636,7 @@ class HogFlowViewSet(
     log_source = "hog_flow"
     app_source = "hog_flow"
     function_kind = "hog_flow"
+    _workflow_last_runs: dict[uuid_mod.UUID, WorkflowLastRunDTO] | None = None
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # Dual-method custom actions need method-aware scopes — the action-name-based read/write
@@ -4674,7 +4708,18 @@ class HogFlowViewSet(
         # command). See _should_validate_strictly.
         context = super().get_serializer_context()
         context["event_source"] = get_event_source(self.request)
+        if self._workflow_last_runs is not None:
+            context["workflow_last_runs"] = self._workflow_last_runs
         return context
+
+    def paginate_queryset(self, queryset: QuerySet | Sequence[Any]) -> Sequence[Any] | None:
+        page = super().paginate_queryset(queryset)
+        # The MCP summary serializer has no last_run, so only the full list row pays for the lookup.
+        if self.action == "list" and page is not None and self.get_serializer_class() is HogFlowMinimalSerializer:
+            # One lookup for every loop on the page, so each row does not query tasks on its own.
+            loop_ids = [flow.id for flow in page if flow.origin_product == HogFlow.OriginProduct.LOOPS]
+            self._workflow_last_runs = list_workflow_last_runs(self.team_id, self.request.user.id, loop_ids)
+        return page
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
