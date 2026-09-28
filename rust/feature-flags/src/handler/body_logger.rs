@@ -369,6 +369,7 @@ mod tests {
                 has_experiment: false,
             },
             conditions: None,
+            config_outcome: Default::default(),
         }
     }
 

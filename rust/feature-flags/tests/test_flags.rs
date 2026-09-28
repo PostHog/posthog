@@ -227,9 +227,8 @@ async fn it_gets_v2_response_by_default_when_no_params() -> Result<()> {
 
 #[rstest]
 #[case("2")]
-#[case("3")]
 #[tokio::test]
-async fn it_get_new_response_when_version_is_2_or_more(#[case] version: &str) -> Result<()> {
+async fn it_get_new_response_when_version_is_2(#[case] version: &str) -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 
     let distinct_id = "user_distinct_id".to_string();

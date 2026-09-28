@@ -4,6 +4,7 @@
   "release_status": "released",
   "contract_version": "2.2.0",
   "v2_boolean_evaluation_version": "1.0.0",
+  "wire_version": "1.0.0",
   "v1_corpus_version": "1.1.0",
   "registry_version": "2.0.0",
   "config_schema_version": "1.0.0",
@@ -14,7 +15,11 @@
     "registries/literals.json",
     "schemas/config.schema.json",
     "schemas/v2_boolean_evaluation.schema.json",
-    "corpus/v2_boolean_evaluation.json"
+    "corpus/v2_boolean_evaluation.json",
+    "schemas/flags_response_v3.schema.json",
+    "schemas/flags_response_v3_presence.schema.json",
+    "rules/response_presence.json",
+    "fixtures/wire/responses.json"
   ],
   "vendoring_scope": "subset",
   "upstream_metadata": "README.md, manifest.json, and SHA256SUMS describe the full upstream package. Only the paths in files and the source checksum index are vendored here, unchanged.",

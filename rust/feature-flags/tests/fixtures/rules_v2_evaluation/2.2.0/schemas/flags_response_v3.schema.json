@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v3.schema.json",
+  "title": "POST /flags?v=3 response (producer contract)",
+  "type": "object",
+  "required": ["errorsWhileComputingFlags", "flags", "requestId", "evaluatedAt"],
+  "properties": {
+    "errorsWhileComputingFlags": { "type": "boolean" },
+    "flags": { "type": "object", "additionalProperties": { "$ref": "#/$defs/record" } },
+    "quotaLimited": { "type": "array", "items": { "type": "string" } },
+    "requestId": { "type": "string", "format": "uuid" },
+    "evaluatedAt": { "type": "integer", "minimum": 0 },
+    "minimalFlagCalledEvents": { "type": "boolean" }
+  },
+  "$defs": {
+    "v2_reason_code": {
+      "enum": [
+        "targeting_match", "experiment_split", "rollout_miss", "experiment_paused", "holdout",
+        "no_rule_match", "missing_group_key", "dependency_error", "error"
+      ]
+    },
+    "no_rule_context": {
+      "not": {
+        "anyOf": [
+          { "required": ["rule_type"] }, { "required": ["rule_id"] }, { "required": ["experiment_id"] },
+          { "required": ["variant_key"] }, { "required": ["holdout_id"] }
+        ]
+      }
+    },
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "value", "reason", "metadata"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "value": { "type": ["boolean", "string", "number", "object", "null"] },
+        "failed": { "const": true },
+        "reason": { "$ref": "#/$defs/reason" },
+        "metadata": { "$ref": "#/$defs/metadata" },
+        "conditions": { "type": "array" }
+      },
+      "allOf": [
+        { "$ref": "#/$defs/v2_rules" },
+        { "$ref": "#/$defs/failed_rules" },
+        { "$ref": "#/$defs/split_rules" },
+        { "$ref": "#/$defs/no_rule_rules" }
+      ]
+    },
+    "reason": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "condition_index"],
+      "properties": {
+        "code": { "type": "string", "minLength": 1 },
+        "condition_index": { "type": ["integer", "null"] },
+        "description": { "type": "string" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "version", "config_version"],
+      "properties": {
+        "id": { "type": "integer" },
+        "version": { "type": "integer", "minimum": 0 },
+        "config_version": { "enum": [1, 2] },
+        "description": { "type": ["string", "null"] },
+        "payload": {},
+        "has_experiment": { "type": "boolean" },
+        "rule_type": { "enum": ["targeted_release", "percentage_rollout", "experiment"] },
+        "rule_id": { "type": "string", "format": "uuid" },
+        "experiment_id": { "type": "integer" },
+        "variant_key": { "type": "string", "pattern": "^[a-zA-Z0-9_-]+$" },
+        "holdout_id": { "type": "integer" },
+        "forced_variant": { "const": true }
+      }
+    },
+    "v2_rules": {
+      "if": { "properties": { "metadata": { "properties": { "config_version": { "const": 2 } } } } },
+      "then": {
+        "properties": {
+          "reason": { "properties": { "code": { "$ref": "#/$defs/v2_reason_code" } } },
+          "metadata": { "properties": { "payload": { "type": "null" } }, "not": { "required": ["forced_variant"] } }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "reason": { "properties": { "code": { "enum": ["dependency_error", "error"] } } } } },
+            "then": { "required": ["failed"] }
+          },
+          {
+            "if": { "properties": { "reason": { "properties": { "code": { "const": "missing_group_key" } } } } },
+            "then": { "properties": { "value": { "type": "null" } } }
+          }
+        ]
+      }
+    },
+    "failed_rules": {
+      "if": { "required": ["failed"] },
+      "then": {
+        "properties": {
+          "value": { "type": "null" },
+          "metadata": { "$ref": "#/$defs/no_rule_context" }
+        }
+      }
+    },
+    "split_rules": {
+      "if": { "properties": { "reason": { "properties": { "code": { "const": "experiment_split" } } } } },
+      "then": {
+        "properties": {
+          "metadata": {
+            "required": ["rule_type", "rule_id", "experiment_id", "variant_key"],
+            "properties": { "rule_type": { "const": "experiment" }, "config_version": { "const": 2 } },
+            "not": { "required": ["holdout_id"] }
+          }
+        }
+      }
+    },
+    "no_rule_rules": {
+      "if": {
+        "properties": {
+          "reason": { "properties": { "code": { "enum": ["no_rule_match", "missing_group_key", "dependency_error", "error"] } } },
+          "metadata": { "properties": { "config_version": { "const": 2 } } }
+        }
+      },
+      "then": {
+        "properties": {
+          "reason": { "properties": { "condition_index": { "type": "null" } } },
+          "metadata": { "$ref": "#/$defs/no_rule_context" }
+        }
+      }
+    }
+  }
+}

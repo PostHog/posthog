@@ -5,7 +5,8 @@ use crate::{
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
         types::{
-            ConfigResponse, FlagsQueryParams, FlagsResponse, LegacyFlagsResponse, ServiceResponse,
+            ConfigResponse, FlagsQueryParams, FlagsResponse, FlagsResponseV3, LegacyFlagsResponse,
+            ServiceResponse,
         },
     },
     config::BotFilterMode,
@@ -204,7 +205,8 @@ fn get_minimal_flags_response(
 /// - v>=4 -> FlagsV2 response format
 ///
 /// When the request is not from decide:
-/// - v>=2 -> FlagsV2 response format
+/// - v>=3 -> FlagsV3 response format (typed `value`, no `enabled`/`variant`)
+/// - v=2 -> FlagsV2 response format
 /// - v=1 or missing -> FlagsV1 response format
 ///
 /// Returns a tuple of (response, format_name) for logging purposes
@@ -244,7 +246,11 @@ fn get_versioned_response(
         }
     } else {
         match version {
-            Some(v) if v >= 2 => Ok((ServiceResponse::V2(response), "FlagsV2")),
+            Some(v) if v >= 3 => Ok((
+                ServiceResponse::V3(FlagsResponseV3::from_response(response)),
+                "FlagsV3",
+            )),
+            Some(2) => Ok((ServiceResponse::V2(response), "FlagsV2")),
             _ => Ok((
                 ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
                 "FlagsV1",
