@@ -16,6 +16,9 @@ Each report keeps its own date range.
 - The **live activity** feed: every tool call with its tool, agent intent, result, duration, client and a link to its session. It refreshes every minute. Expand a row to see the event's properties, and use the date range and property filters to narrow it.
 - **Who is calling your server**: the same share-of-calls-by-harness and by-model cards as the dashboard, over the last 30 days.
 
+When `exec` rejects a call before dispatch, the feed and tool statistics attribute the attempt to its known target tool.
+Discovery requests (`info` and `schema`) and unrecognized targets remain under `exec`.
+
 ## Next steps
 
 Each step reflects what the last 30 days of calls show:

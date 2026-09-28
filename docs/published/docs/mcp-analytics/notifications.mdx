@@ -47,6 +47,10 @@ The alert is deduplicated per failing tool: if one tool fails a hundred times in
 A tool that is still broken reappears after 30 minutes.
 You can change this under **Trigger options** on the alert's page, including turning deduplication off.
 
+For `exec` calls, new alert templates use the requested tool when the call is rejected before dispatch.
+Discovery requests and unrecognized targets remain under `exec`.
+Saved alerts retain their message and deduplication configuration.
+
 ## Manage alerts and reports
 
 Instant alerts are standard CDP destinations, so you can also manage them from the data pipelines page.
