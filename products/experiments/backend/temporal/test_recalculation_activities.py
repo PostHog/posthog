@@ -813,6 +813,30 @@ class TestCalculateActivity(BaseTest):
         assert recalc.metric_retries == {}
         assert "m1" in recalc.metric_errors
 
+    def test_memory_limit_fails_metric_permanently_without_capture(self):
+        # A query hitting the ClickHouse memory limit is handled end to end: the metric result is
+        # stored FAILED with copy telling the user what to do, and the terminal `experiment metric
+        # error` event carries error_type=out_of_memory. Capturing it as well mints an error
+        # tracking issue per failure class against the experiments team, so this activity reports
+        # none.
+        exp = self._experiment(flag_key="calc-oom", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+        ):
+            mock_runner.return_value.run.side_effect = ClickHouseQueryMemoryLimitExceeded()
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
+
+        assert exc_info.value.type == "out_of_memory"
+        assert exc_info.value.non_retryable
+        mock_capture.assert_not_called()
+        recalc.refresh_from_db()
+        assert "m1" in recalc.metric_errors
+
     @parameterized.expand(
         [
             ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),

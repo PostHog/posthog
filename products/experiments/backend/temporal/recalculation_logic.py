@@ -34,6 +34,7 @@ from products.experiments.backend.hogql_queries.base_query_utils import experime
 from products.experiments.backend.hogql_queries.error_handling import (
     classify_experiment_query_error,
     get_user_friendly_message,
+    is_handled_user_facing_error,
 )
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
@@ -914,7 +915,11 @@ def _calculate_experiment_metric_for_recalculation_sync(
             is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
             # validation_error = the user's metric config is broken (e.g. HogQL referencing a
             # column outside an aggregate) — a stored failure, not a platform error to track.
-            if error_type != "validation_error":
+            # A handled user-facing failure (e.g. the query hitting the ClickHouse memory limit)
+            # is the same story: the metric result is stored FAILED with copy telling the user
+            # what to do, and the terminal event below carries the type.
+            handled = error_type == "validation_error" or is_handled_user_facing_error(e)
+            if not handled:
                 capture_exception(
                     e,
                     additional_properties={
