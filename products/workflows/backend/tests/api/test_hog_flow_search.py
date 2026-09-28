@@ -10,7 +10,6 @@ from django.core.management import call_command
 from django.db import connection
 from django.test import SimpleTestCase, TestCase
 from django.test.utils import CaptureQueriesContext
-from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -247,7 +246,7 @@ class TestHogFlowSearchAPI(APIBaseTest):
             flow.name = "Renamed onboarding"
         else:
             flow.draft = {"actions": [_email_step("email_1", "Access email", subject="Your beta access starts today")]}
-            flow.draft_updated_at = timezone.now()
+            flow.draft_updated_at = datetime(2026, 1, 1, tzinfo=UTC)
 
         with patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers") as reload:
             flow.save(update_fields=update_fields)
