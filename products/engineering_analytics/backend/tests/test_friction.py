@@ -12,7 +12,10 @@ from posthog.hogql.errors import QueryError
 
 from products.engineering_analytics.backend.facade.contracts import FrictionGroup
 from products.engineering_analytics.backend.logic.friction import (
+    CI_WAIT_CAP_SECONDS,
+    COUNT_CAP,
     MIN_PULL_REQUESTS,
+    QUEUE_CAP_SECONDS,
     FrictionScorer,
     PullRequestFriction,
     build_author_friction,
@@ -134,6 +137,26 @@ class TestFrictionScore(SimpleTestCase):
         }
 
         assert queue["once_queued"] < queue["always_queued"]
+
+    @parameterized.expand(
+        [
+            ("queue_time", {"queue_seconds": float(QUEUE_CAP_SECONDS)}, {"queue_seconds": 7 * 24 * 3600.0}),
+            ("ci_wait", {"ci_wait_seconds": (float(CI_WAIT_CAP_SECONDS),)}, {"ci_wait_seconds": (25 * 24 * 3600.0,)}),
+            ("futile_reruns", {"futile_rerun_count": COUNT_CAP}, {"futile_rerun_count": 41}),
+            ("master_red", {"master_red_count": COUNT_CAP}, {"master_red_count": 44}),
+            ("kickouts", {"kickout_count": COUNT_CAP}, {"kickout_count": 12}),
+        ]
+    )
+    def test_one_outlier_pull_request_scores_no_higher_than_the_cap(
+        self, _name: str, at_cap: dict[str, Any], far_past_cap: dict[str, Any]
+    ) -> None:
+        rows = _population()
+        rows += [_pr("at_cap", 800 + i, **(at_cap if i == 0 else {})) for i in range(MIN_PULL_REQUESTS)]
+        rows += [_pr("far_past_cap", 900 + i, **(far_past_cap if i == 0 else {})) for i in range(MIN_PULL_REQUESTS)]
+
+        scores = {item.author: item.score for item in FrictionScorer(rows).score()}
+
+        assert scores["far_past_cap"] == pytest.approx(scores["at_cap"])
 
     @parameterized.expand(
         [
