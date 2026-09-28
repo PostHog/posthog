@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestExperimentQueryRunner.test_data_warehouse_metric_skips_precomputation_0_mean_metric
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-01-18'
-    AND date < '2023-01-31'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_data_warehouse_metric_skips_precomputation_0_mean_metric.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -69,18 +57,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_data_warehouse_metric_skips_precomputation_1_ratio_metric
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-28'
-    AND date < '2023-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_data_warehouse_metric_skips_precomputation_1_ratio_metric.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -169,18 +145,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_continuous_metric
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-01-18'
-    AND date < '2023-01-31'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_continuous_metric.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -237,18 +201,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_count_metric
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_count_metric.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -307,18 +259,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_fixed_properties
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_fixed_properties.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -375,18 +315,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_0_single_property_filter
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_0_single_property_filter.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -445,18 +373,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_1_multiple_property_filters
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_1_multiple_property_filters.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -513,18 +429,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_2_numeric_property_filter
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_2_numeric_property_filter.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -583,18 +487,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_3_mixed_property_filters
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_data_warehouse_metric_with_property_filters_3_mixed_property_filters.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -652,18 +544,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_group_aggregation_data_warehouse_mean_metric
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_group_aggregation_data_warehouse_mean_metric.1
-  '''
   WITH exposures AS
     (SELECT events.`$group_0` AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -713,18 +593,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -781,19 +649,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_0_person_properties.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -852,18 +708,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -919,19 +763,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_1_event_properties.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -990,18 +822,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1057,19 +877,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_2_feature_flags.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1138,18 +946,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.2
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1208,19 +1004,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.3
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.4
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1289,18 +1073,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.1
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1359,19 +1131,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.3
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.4
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_4_cohort_dynamic.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1429,18 +1189,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1505,19 +1253,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_5_group.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1576,18 +1312,6 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1643,19 +1367,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-25'
-    AND date < '2023-01-07'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.3
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_6_element.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1713,18 +1425,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-28'
-    AND date < '2023-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_subscriptions_table.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1788,18 +1488,6 @@
   '''
 # ---
 # name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2022-12-28'
-    AND date < '2023-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentQueryRunner.test_ratio_metric_with_different_join_keys.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestExperimentMeanMetric.test_conversion_window_anchored_on_first_exposure_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-28'
-    AND date < '2020-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_conversion_window_anchored_on_first_exposure_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -75,18 +63,6 @@
 # ---
 # name: TestExperimentMeanMetric.test_count_unique_property_values_via_hogql_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_count_unique_property_values_via_hogql_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -148,18 +124,6 @@
   '''
 # ---
 # name: TestExperimentMeanMetric.test_hogql_count_metric_with_winsorization_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_hogql_count_metric_with_winsorization_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -233,18 +197,6 @@
 # ---
 # name: TestExperimentMeanMetric.test_only_count_matured_users_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-01-02'
-    AND date < '2020-01-15'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_only_count_matured_users_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -307,18 +259,6 @@
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_for_count_metric_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_outlier_handling_for_count_metric_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -392,18 +332,6 @@
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_for_sum_metric_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_outlier_handling_for_sum_metric_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -475,18 +403,6 @@
   '''
 # ---
 # name: TestExperimentMeanMetric.test_outlier_handling_with_ignore_zeros_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_outlier_handling_with_ignore_zeros_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -560,18 +476,6 @@
 # ---
 # name: TestExperimentMeanMetric.test_property_aggregation_metric_0_max_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_property_aggregation_metric_0_max_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -633,18 +537,6 @@
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_aggregation_metric_2_min_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_property_aggregation_metric_2_min_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -708,18 +600,6 @@
 # ---
 # name: TestExperimentMeanMetric.test_property_aggregation_metric_4_avg_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_property_aggregation_metric_4_avg_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -781,18 +661,6 @@
   '''
 # ---
 # name: TestExperimentMeanMetric.test_property_sum_metric_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_property_sum_metric_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -908,18 +776,6 @@
 # ---
 # name: TestExperimentMeanMetric.test_threshold_sum_metric_counts_users_crossing_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_threshold_sum_metric_counts_users_crossing_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -981,18 +837,6 @@
   '''
 # ---
 # name: TestExperimentMeanMetric.test_unique_sessions_math_type_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentMeanMetric.test_unique_sessions_math_type_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_respects_date_range
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-28'
-    AND date < '2024-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_respects_date_range.1
-  '''
   SELECT breakdown_property AS breakdown_property,
          breakdown_value AS breakdown_value,
          count AS count,
@@ -63,18 +51,6 @@
   '''
 # ---
 # name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_with_limit
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-28'
-    AND date < '2024-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_with_limit.1
   '''
   SELECT breakdown_property AS breakdown_property,
          breakdown_value AS breakdown_value,
@@ -127,18 +103,6 @@
 # ---
 # name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_with_null_values
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-28'
-    AND date < '2024-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingBreakdownsQueryRunner.test_breakdown_with_null_values.1
-  '''
   SELECT breakdown_property AS breakdown_property,
          breakdown_value AS breakdown_value,
          count AS count,
@@ -189,18 +153,6 @@
   '''
 # ---
 # name: TestErrorTrackingBreakdownsQueryRunner.test_multiple_breakdown_properties
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-28'
-    AND date < '2024-01-10'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestErrorTrackingBreakdownsQueryRunner.test_multiple_breakdown_properties.1
   '''
   SELECT breakdown_property AS breakdown_property,
          breakdown_value AS breakdown_value,

@@ -71,7 +71,7 @@ ClickHouse execution records `estimated_rows` alongside `plan_fingerprint` in th
 This uses the same estimator as the SQL editor, independently of the editor's display flag.
 Missing statistics, unsupported queries, and estimator failures leave the estimate tag absent and do not prevent execution.
 The `scan_estimate` timing measures the added planning work.
-`HOGQL_SCAN_ESTIMATE_AT_EXECUTION=false` switches the execution-time estimate off for the whole instance; queries run as before and the accuracy query collects nothing.
+`HOGQL_SCAN_ESTIMATE_AT_EXECUTION=false` switches the execution-time estimate off for the whole instance; queries run as before and the accuracy query collects nothing. It is off under test settings.
 The statistics it reads are shared across requests through the cache: event volume for an hour, a property's distinct count and a table's row count for a day.
 
 The estimate has one entry per table in the FROM tree, each labeled with its source and precision.

@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestExperimentRetentionMetric.test_basic_retention_calculation_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_basic_retention_calculation_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -158,18 +146,6 @@
 # ---
 # name: TestExperimentRetentionMetric.test_only_count_matured_users_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-01-12'
-    AND date < '2020-01-25'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_only_count_matured_users_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -250,18 +226,6 @@
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_only_count_matured_users_anchors_on_start_event_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-01-12'
-    AND date < '2020-01-25'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_only_count_matured_users_anchors_on_start_event_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -344,18 +308,6 @@
 # ---
 # name: TestExperimentRetentionMetric.test_only_count_matured_users_with_exposure_start
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-01-12'
-    AND date < '2020-01-25'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_only_count_matured_users_with_exposure_start.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -426,18 +378,6 @@
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_only_count_matured_users_without_conversion_window_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2020-01-12'
-    AND date < '2020-01-25'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_only_count_matured_users_without_conversion_window_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -520,18 +460,6 @@
 # ---
 # name: TestExperimentRetentionMetric.test_retention_anchored_on_exposure_event_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_anchored_on_exposure_event_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -602,18 +530,6 @@
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_day_zero_same_day_as_start_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_day_zero_same_day_as_start_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -695,18 +611,6 @@
 # ---
 # name: TestExperimentRetentionMetric.test_retention_exposure_start_excludes_exposure_as_its_own_completion_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_exposure_start_excludes_exposure_as_its_own_completion_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -777,18 +681,6 @@
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_first_seen_vs_last_seen_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_first_seen_vs_last_seen_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -868,19 +760,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentRetentionMetric.test_retention_first_seen_vs_last_seen_0_direct.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_first_seen_vs_last_seen_0_direct.3
+# name: TestExperimentRetentionMetric.test_retention_first_seen_vs_last_seen_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -962,18 +842,6 @@
 # ---
 # name: TestExperimentRetentionMetric.test_retention_hour_based_same_hour_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_hour_based_same_hour_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1053,18 +921,6 @@
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_multiple_completions_in_window_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_multiple_completions_in_window_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1146,18 +1002,6 @@
 # ---
 # name: TestExperimentRetentionMetric.test_retention_multiple_variants_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_multiple_variants_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1237,18 +1081,6 @@
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_no_completion_events_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_no_completion_events_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -1330,18 +1162,6 @@
 # ---
 # name: TestExperimentRetentionMetric.test_retention_start_event_before_exposure_not_excluded_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_start_event_before_exposure_not_excluded_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1422,18 +1242,6 @@
 # ---
 # name: TestExperimentRetentionMetric.test_retention_window_boundaries_0_direct
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_window_boundaries_0_direct.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1513,18 +1321,6 @@
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_with_conversion_window_0_direct
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2023-12-19'
-    AND date < '2024-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExperimentRetentionMetric.test_retention_with_conversion_window_0_direct.1
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

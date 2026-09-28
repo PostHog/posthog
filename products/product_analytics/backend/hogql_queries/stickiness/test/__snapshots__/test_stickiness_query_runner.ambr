@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestStickinessQueryRunner.test_actor_query_cumulative
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStickinessQueryRunner.test_actor_query_cumulative.1
-  '''
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target AS aggregation_target,
@@ -48,19 +36,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestStickinessQueryRunner.test_actor_query_cumulative.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStickinessQueryRunner.test_actor_query_cumulative.3
+# name: TestStickinessQueryRunner.test_actor_query_cumulative.1
   '''
   SELECT aggregation_target AS actor_id
   FROM
@@ -97,19 +73,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestStickinessQueryRunner.test_actor_query_cumulative.4
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStickinessQueryRunner.test_actor_query_cumulative.5
+# name: TestStickinessQueryRunner.test_actor_query_cumulative.2
   '''
   SELECT aggregation_target AS actor_id
   FROM
@@ -148,18 +112,6 @@
 # ---
 # name: TestStickinessQueryRunner.test_actor_query_non_cumulative
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.1
-  '''
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target AS aggregation_target,
@@ -195,19 +147,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.3
+# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.1
   '''
   SELECT aggregation_target AS actor_id
   FROM
@@ -244,19 +184,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.4
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.5
+# name: TestStickinessQueryRunner.test_actor_query_non_cumulative.2
   '''
   SELECT aggregation_target AS actor_id
   FROM
@@ -294,18 +222,6 @@
   '''
 # ---
 # name: TestStickinessQueryRunner.test_cumulative_stickiness
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStickinessQueryRunner.test_cumulative_stickiness.1
   '''
   SELECT groupArray(num_actors) AS counts,
          groupArray(num_intervals) AS intervals
@@ -400,18 +316,6 @@
   '''
 # ---
 # name: TestStickinessQueryRunner.test_stickiness_runs
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStickinessQueryRunner.test_stickiness_runs.1
   '''
   SELECT groupArray(num_actors) AS counts,
          groupArray(num_intervals) AS intervals

@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-19'
-    AND date < '2022-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses.1
-  '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_id'), ''), 'null'), '^"|"$', '') AS survey_id,
          count(DISTINCT if(ifNull(notEquals(coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_submission_id'), ''), 'null'), '^"|"$', ''), ''), ''), 1), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_submission_id'), ''), 'null'), '^"|"$', ''), toString(events.uuid))) AS unique_responses
   FROM events
@@ -32,19 +20,7 @@
                    use_hive_partitioning=0
   '''
 # ---
-# name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2021-12-19'
-    AND date < '2022-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses.3
+# name: TestStopSurveysReachedTarget.test_stop_surveys_with_enough_responses.1
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_id'), ''), 'null'), '^"|"$', '') AS survey_id,
          count(DISTINCT if(ifNull(notEquals(coalesce(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_submission_id'), ''), 'null'), '^"|"$', ''), ''), ''), 1), replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$survey_submission_id'), ''), 'null'), '^"|"$', ''), toString(events.uuid))) AS unique_responses

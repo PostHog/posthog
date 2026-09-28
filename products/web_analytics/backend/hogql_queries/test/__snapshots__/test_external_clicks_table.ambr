@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestExternalClicksTableQueryRunner.test_all_time
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_all_time.1
-  '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
@@ -31,19 +19,7 @@
                    use_hive_partitioning=0
   '''
 # ---
-# name: TestExternalClicksTableQueryRunner.test_all_time.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_all_time.3
+# name: TestExternalClicksTableQueryRunner.test_all_time.1
   '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
@@ -91,18 +67,6 @@
 # ---
 # name: TestExternalClicksTableQueryRunner.test_custom_order_by
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_custom_order_by.1
-  '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
          tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
@@ -147,19 +111,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestExternalClicksTableQueryRunner.test_custom_order_by.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_custom_order_by.3
+# name: TestExternalClicksTableQueryRunner.test_custom_order_by.1
   '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
@@ -207,18 +159,6 @@
 # ---
 # name: TestExternalClicksTableQueryRunner.test_dont_filter_test_accounts
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_dont_filter_test_accounts.1
-  '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
          tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
@@ -264,18 +204,6 @@
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_filter_test_accounts
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_filter_test_accounts.1
   '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
@@ -323,18 +251,6 @@
 # ---
 # name: TestExternalClicksTableQueryRunner.test_increase_in_users
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_increase_in_users.1
-  '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
          tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-11 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
@@ -380,18 +296,6 @@
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_no_crash_when_no_data
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_no_crash_when_no_data.1
   '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
@@ -439,18 +343,6 @@
 # ---
 # name: TestExternalClicksTableQueryRunner.test_path_cleaning
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_path_cleaning.1
-  '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
          tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
@@ -495,19 +387,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestExternalClicksTableQueryRunner.test_path_cleaning.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_path_cleaning.3
+# name: TestExternalClicksTableQueryRunner.test_path_cleaning.1
   '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
@@ -555,18 +435,6 @@
 # ---
 # name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_under_root
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_under_root.1
-  '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
          tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
@@ -612,18 +480,6 @@
   '''
 # ---
 # name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_with_shared_root
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_should_exclude_subdomain_with_shared_root.1
   '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
@@ -671,18 +527,6 @@
 # ---
 # name: TestExternalClicksTableQueryRunner.test_strip_query_params
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_strip_query_params.1
-  '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,
          tuple(sumIf(filtered_click_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), sumIf(filtered_click_count, 0)) AS `context.columns.clicks`
@@ -727,19 +571,7 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestExternalClicksTableQueryRunner.test_strip_query_params.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestExternalClicksTableQueryRunner.test_strip_query_params.3
+# name: TestExternalClicksTableQueryRunner.test_strip_query_params.1
   '''
   SELECT url AS `context.columns.url`,
          tuple(uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))), uniqIf(filtered_person_id, 0)) AS `context.columns.visitors`,

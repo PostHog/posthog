@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestFrequentistMethod.test_frequentist_property_sum_metric
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2019-12-19'
-    AND date < '2020-01-01'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestFrequentistMethod.test_frequentist_property_sum_metric.1
-  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,

@@ -398,6 +398,7 @@ def test_source_file_included_in_json_when_set():
     assert '"source_line":42' in data
 
 
+@override_settings(HOGQL_SCAN_ESTIMATE_AT_EXECUTION=True)
 class TestQueryTaggingSourceInQueryLog(BaseTest, ClickhouseTestMixin):
     def _get_log_comment(self, marker: str) -> dict:
         sync_execute("SYSTEM FLUSH LOGS")

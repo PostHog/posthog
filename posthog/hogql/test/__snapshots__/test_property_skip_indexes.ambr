@@ -345,18 +345,6 @@
 # ---
 # name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_numeric_looking_strings_compare_lexically
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2026-09-15'
-    AND date < '2026-09-28'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestEventPropertySkipIndexes.test_mat_col_nullable_minmax_lt_numeric_looking_strings_compare_lexically.1
-  '''
   SELECT events.distinct_id AS distinct_id
   FROM events
   WHERE and(equals(events.team_id, 99999), and(less(events.mat_test_prop, '500'), isNotNull(events.mat_test_prop)))

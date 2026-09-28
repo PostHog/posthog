@@ -1,18 +1,6 @@
 # serializer version: 1
 # name: TestWebNotableChangesQueryRunner.test_empty_results_without_preaggregated
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebNotableChangesQueryRunner.test_empty_results_without_preaggregated.1
-  '''
   SELECT 'Page' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
@@ -652,18 +640,6 @@
 # ---
 # name: TestWebNotableChangesQueryRunner.test_integration_with_events
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebNotableChangesQueryRunner.test_integration_with_events.1
-  '''
   SELECT 'Page' AS dimension_type,
          dimension_value AS dimension_value,
          uniqIf(person_id,
@@ -1301,19 +1277,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebNotableChangesQueryRunner.test_integration_with_events.2
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebNotableChangesQueryRunner.test_integration_with_events.3
+# name: TestWebNotableChangesQueryRunner.test_integration_with_events.1
   '''
   SELECT 'Page' AS dimension_type,
          dimension_value AS dimension_value,

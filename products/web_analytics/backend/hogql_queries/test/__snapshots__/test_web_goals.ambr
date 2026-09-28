@@ -4,18 +4,6 @@
 # ---
 # name: TestWebGoalsQueryRunner.test_aggregate_function_in_where_error.1
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_aggregate_function_in_where_error.2
-  '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, 0) AS previous_total_people,
          'Test Action 1' AS action_name_0,
@@ -99,18 +87,6 @@
 # ---
 # name: TestWebGoalsQueryRunner.test_dont_show_deleted_actions
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_dont_show_deleted_actions.1
-  '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
@@ -165,18 +141,6 @@
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_many_users_and_actions
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_many_users_and_actions.1
   '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
@@ -240,18 +204,6 @@
 # ---
 # name: TestWebGoalsQueryRunner.test_no_comparison
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_no_comparison.1
-  '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, 0) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
@@ -312,18 +264,6 @@
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_no_crash_when_no_data_and_some_actions
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_no_crash_when_no_data_and_some_actions.1
   '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
@@ -387,18 +327,6 @@
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_one_action
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_one_user_one_action.1
-  '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
@@ -460,18 +388,6 @@
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_two_different_actions
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_one_user_two_different_actions.1
   '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
@@ -535,18 +451,6 @@
 # ---
 # name: TestWebGoalsQueryRunner.test_one_user_two_similar_actions_across_sessions
   '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_one_user_two_similar_actions_across_sessions.1
-  '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
          'Contacted Sales' AS action_name_0,
@@ -608,18 +512,6 @@
   '''
 # ---
 # name: TestWebGoalsQueryRunner.test_one_users_one_action_each
-  '''
-  
-  SELECT date, event,
-               sumMerge(event_count) AS event_count
-  FROM posthog_test.usage_report_events_preagg
-  WHERE team_id = 99999
-    AND date >= '2025-01-16'
-    AND date < '2025-01-29'
-  GROUP BY date, event
-  '''
-# ---
-# name: TestWebGoalsQueryRunner.test_one_users_one_action_each.1
   '''
   SELECT uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-29 23:59:59', 'UTC'))))) AS current_total_people,
          uniqIf(web_goals_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-08-03 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2024-10-31 23:59:59', 'UTC'))))) AS previous_total_people,
