@@ -122,6 +122,28 @@ describe('deriveChartPreview', () => {
         )
     })
 
+    it('keeps the previous-period row of every series a comparison preview shows', () => {
+        const source = query(ChartDisplayType.ActionsLineGraph, {
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+            compareFilter: { compare: true },
+        })
+        const browsers = Array.from({ length: PREVIEW_SERIES_LIMIT + 5 }, (_, index) => `browser ${index}`)
+        const rows = [
+            ...browsers.map((browser) => series({ breakdown_value: browser, compare_label: CompareLabelType.Current })),
+            ...browsers.map((browser) =>
+                series({ breakdown_value: browser, compare_label: CompareLabelType.Previous })
+            ),
+        ]
+
+        const shown = results(deriveChartPreview(ChartDisplayType.ActionsLineGraph, source, response(rows)))
+        expect(shown.filter((row) => row.compare_label === CompareLabelType.Previous)).toHaveLength(
+            PREVIEW_SERIES_LIMIT
+        )
+        expect(new Set(shown.map((row) => row.breakdown_value))).toEqual(
+            new Set(browsers.slice(0, PREVIEW_SERIES_LIMIT))
+        )
+    })
+
     it.each([ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap, ChartDisplayType.BoxPlot])(
         'shows sample data for %s instead of querying',
         (display) => {

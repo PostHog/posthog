@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -10,26 +11,6 @@ import { chartPreviewsLogic } from './chartPreviewsLogic'
 import { ChartPreviewTile } from './ChartPreviewTile'
 
 const GRID = 'grid grid-cols-1 gap-2 @sm:grid-cols-2 @lg:grid-cols-3'
-
-// Each tile mounts a full chart, so mounting them all in one render freezes slower devices before the gallery shows.
-function useCountUpOnePerFrame(total: number): number {
-    const [count, setCount] = useState(0)
-    useEffect(() => {
-        if (count >= total) {
-            return
-        }
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        // A timeout after the frame lets the browser paint the previous tile before the next one mounts.
-        const frame = requestAnimationFrame(() => {
-            timeout = setTimeout(() => setCount((current) => current + 1))
-        })
-        return () => {
-            cancelAnimationFrame(frame)
-            clearTimeout(timeout)
-        }
-    }, [count, total])
-    return count
-}
 
 export function ChartGallery({
     className,
@@ -46,10 +27,12 @@ export function ChartGallery({
     const alternativesLogic = useMountedLogic(chartAlternativesLogic(logicProps))
     const { selectionDisabledReason } = useValues(alternativesLogic)
     const { selectChart } = useActions(alternativesLogic)
-    const { previews } = useValues(chartPreviewsLogic(logicProps))
+    const previewsLogic = chartPreviewsLogic(logicProps)
+    const { chartsShown, previews } = useValues(previewsLogic)
+    const { startChartPreviews } = useActions(previewsLogic)
+    useOnMountEffect(startChartPreviews)
     const suggested = previews.filter((preview) => preview.suggested)
     const remaining = previews.filter((preview) => !preview.suggested)
-    const chartsShown = useCountUpOnePerFrame(previews.length)
 
     const renderTile = (preview: ChartPreview, index: number): JSX.Element => (
         <ChartPreviewTile

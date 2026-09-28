@@ -201,12 +201,25 @@ function candidateRows(
     return candidates
 }
 
+function seriesKey(result: TrendResult): string {
+    return JSON.stringify([result.action?.order, result.breakdown_value])
+}
+
+// Keeps whole series, so a comparison keeps the previous-period row of each series it shows.
 function capSeries(display: ChartDisplayType, preview: ChartPreviewData): ChartPreviewData {
     const results = resultsOf(preview.response)
-    if (!SERIES_CAPPED_DISPLAYS.has(display) || results.length <= PREVIEW_SERIES_LIMIT) {
+    const series = results.filter((result) => result.compare_label !== 'previous')
+    if (!SERIES_CAPPED_DISPLAYS.has(display) || series.length <= PREVIEW_SERIES_LIMIT) {
         return preview
     }
-    return { ...preview, response: withResults(preview.response, results.slice(0, PREVIEW_SERIES_LIMIT)) }
+    const kept = new Set(series.slice(0, PREVIEW_SERIES_LIMIT).map(seriesKey))
+    return {
+        ...preview,
+        response: withResults(
+            preview.response,
+            results.filter((result) => kept.has(seriesKey(result)))
+        ),
+    }
 }
 
 function deriveUncappedPreview(
