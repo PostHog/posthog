@@ -93,6 +93,8 @@ const ROW_BASE_STYLE: CSSProperties = { position: 'absolute', top: 0, left: 0, w
 const HEADER_KEY = '__vt_header__'
 const FOOTER_KEY = '__vt_footer__'
 
+const lastReadItems = new Map<string, string>()
+
 interface RootContextValue {
     isFollowing: boolean
     /** Inspecting expanded content should release automatic following, just like scrolling up. */
@@ -170,6 +172,7 @@ export interface VirtualizedThreadRootProps<T> {
      * and follows the streaming answer; the sent message rides up naturally as the response grows.
      */
     anchorItemKey?: string | null
+    scrollRestorationKey?: string
     /**
      * True while `items` are still being assembled (a history replay in flight). Defers the once-only
      * opening scroll and the anchor-key adoption: partial fold commits can carry renderable items —
@@ -208,6 +211,7 @@ function Root<T>({
     stickToBottom = true,
     turnActive = false,
     anchorItemKey,
+    scrollRestorationKey,
     itemsLoading = false,
     maxWidthClassName = 'max-w-180',
     className,
@@ -221,6 +225,7 @@ function Root<T>({
 
     const scrollRef = useRef<HTMLDivElement>(null)
     const didInitialScrollRef = useRef(false)
+    const savedReadItem = useRef(scrollRestorationKey ? lastReadItems.get(scrollRestorationKey) : undefined)
     // Content growth can move the bottom before the next follow write. Track reader intent separately:
     // the ref updates scroll handlers immediately; state publishes the same mode to activity lists.
     const pinnedRef = useRef(true)
@@ -403,7 +408,13 @@ function Root<T>({
                       if (itemsLoading) {
                           return 0
                       }
-                      const anchorIndex = anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
+                      const savedIndex = savedReadItem.current ? findVirtualIndexForKey(savedReadItem.current) : -1
+                      const anchorIndex =
+                          savedIndex >= 0
+                              ? savedIndex
+                              : anchorItemKey != null
+                                ? findVirtualIndexForKey(anchorItemKey)
+                                : -1
                       const limit = anchorIndex >= 0 ? anchorIndex : rowCount
                       let total = 0
                       for (let i = 0; i < limit; i++) {
@@ -414,6 +425,34 @@ function Root<T>({
               }
             : {}),
     })
+
+    useEffect(() => {
+        const element = scrollRef.current
+        if (!scrollRestorationKey || !element || itemsLoading) {
+            return
+        }
+        const rememberPosition = (): void => {
+            if (!didInitialScrollRef.current || element.clientHeight === 0 || element.clientWidth === 0) {
+                return
+            }
+            // `item.key`, not a re-derivation from `item.index`: the virtualizer produced that key from
+            // its current `getItemKey`, while this listener is only re-bound in the passive phase, so a
+            // scroll event arriving after an append can otherwise map a new index through the old `items`.
+            const firstVisibleItem = virtualizer.getVirtualItems().find((item) => {
+                const itemKey = String(item.key)
+                return item.end > element.scrollTop && itemKey !== HEADER_KEY && !itemKey.startsWith(FOOTER_KEY)
+            })
+            if (firstVisibleItem) {
+                lastReadItems.delete(scrollRestorationKey)
+                lastReadItems.set(scrollRestorationKey, String(firstVisibleItem.key))
+                if (lastReadItems.size > 100) {
+                    lastReadItems.delete(lastReadItems.keys().next().value!)
+                }
+            }
+        }
+        element.addEventListener('scroll', rememberPosition, { passive: true })
+        return () => element.removeEventListener('scroll', rememberPosition)
+    }, [scrollRestorationKey, virtualizer, itemsLoading])
 
     // The only way to flip pinning. Two pins have to move together and in the same tick as the gesture:
     // ours, and the core's at-end growth compensation, which is a second pin we do not otherwise control.
@@ -547,7 +586,9 @@ function Root<T>({
             return
         }
         didInitialScrollRef.current = true
-        const anchorIndex = anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
+        const savedIndex = savedReadItem.current ? findVirtualIndexForKey(savedReadItem.current) : -1
+        const anchorIndex =
+            savedIndex >= 0 ? savedIndex : anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
         const el = scrollRef.current
         if (anchorIndex >= 0) {
             // Provisional anchor landing — this commit only has estimates for the rows under the anchor,
@@ -562,7 +603,9 @@ function Root<T>({
             setPinned(false)
             bottomRepinBlockedUntilRef.current = performance.now() + BOTTOM_REPIN_BLOCK_MS
             scheduleAnchorSettle(anchorIndex)
-            scheduleOpenDecision(anchorIndex)
+            if (savedIndex < 0) {
+                scheduleOpenDecision(anchorIndex)
+            }
             return
         }
         if (turnActive && el) {

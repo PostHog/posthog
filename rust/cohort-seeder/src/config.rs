@@ -129,6 +129,9 @@ pub struct Config {
     #[envconfig(default = "")]
     pub clickhouse_password: String,
 
+    #[envconfig(default = "")]
+    pub clickhouse_password_file: String,
+
     #[envconfig(default = "default")]
     pub clickhouse_database: String,
 
@@ -205,6 +208,19 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub seeder_bands_per_day: u16,
 
+    /// How long after a run's boundary the stream processor may take to start counting a new cohort
+    /// leaf. Keep it at least the processor's `FILTER_CATALOG_REFRESH_SECS` plus
+    /// `FILTER_CATALOG_REFRESH_JITTER_SECS`. The seeder plans every day this reaches as a trailing
+    /// day, so a boundary set just before midnight also seeds the minutes the live path missed of
+    /// the next day.
+    #[envconfig(default = "420")]
+    pub seeder_live_tracking_lag_secs: u64,
+
+    /// How long the seeder waits after a trailing day ends, in the run's timezone, before it scans
+    /// that day. An event ingested for the day after the scan is missing from its tile.
+    #[envconfig(default = "1800")]
+    pub seeder_trailing_day_grace_secs: u64,
+
     /// Enable the person-property seed path: discovery widens to `person_property` runs and the
     /// planning/scan/emission pipeline arms. Default off — the processor's decode arm and
     /// `COHORT_SEED_PERSON_APPLY_ENABLED` must be deployed everywhere first, or an old processor
@@ -252,8 +268,16 @@ pub struct Config {
     #[envconfig(default = "1")]
     pub seeder_person_max_concurrent_chunks: usize,
 
-    /// Emit empty-`matched` seeds for scanned non-matchers. They heal stale-TRUE state and cost
-    /// only a point-read on absent records (the consumer's no-create rule).
+    /// Which scanned persons a person chunk emits.
+    ///
+    /// On, this is the healer cadence: every scanned person is seeded, including empty-`matched`
+    /// ones, which is what retracts stale TRUE state. It has to see everyone, so it prunes nothing
+    /// and asks ClickHouse for no key filter.
+    ///
+    /// Off, a chunk emits only a person whose leaf truths can move a participating cohort's verdict
+    /// against an absent prior. Conditions whose keys the person's blob lacks are decided from a
+    /// verdict cached at validation instead of through the VM, and when every condition is decidable
+    /// that way the scan drops key-less rows in ClickHouse rather than transferring them.
     #[envconfig(default = "true")]
     pub seeder_person_emit_nonmatchers: bool,
 

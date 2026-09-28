@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -420,11 +420,11 @@ export const CanvasesDraftsRetrieveQueryParams = () => zod.object({
 })
 
 /**
- * Publish per-file edits against the canvas's current source project.
+ * Publish file edits against the canvas's current source project.
  *
- * Diff-aware alternative to sending the complete project: each operation
- * sets a file's content or (content null) deletes it, applied to the head
- * the caller read. `expected_current_version_id` is mandatory here —
+ * Diff-aware alternative to sending the complete project: operations
+ * replace text inside a file, write, delete, or rename files, applied in
+ * order to the head the caller read. `expected_current_version_id` is mandatory here —
  * relative edits against an unverified base could silently merge into
  * someone else's newer work.
  */
@@ -437,6 +437,34 @@ export const CanvasesEditCreateParams = () => zod.object({
         ),
 })
 
+export const canvasesEditCreateBodyOperationsItemReplaceAllDefault = false
+export const canvasesEditCreateBodyCapabilitiesOnePosthogInsightsItemMax = 128
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogInsightsMax = 100
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsItemMax = 200
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsMax = 100
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogStateMax = 2
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault = false
+export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax = 2048
+
+export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsMax = 20
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemProviderMax = 300
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsItemMax = 200
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsMax = 64
+
+export const canvasesEditCreateBodyCapabilitiesOneConnectorsMax = 20
+
 export const canvasesEditCreateBodyNameMax = 400
 
 export const CanvasesEditCreateBody = () => zod
@@ -445,19 +473,115 @@ export const CanvasesEditCreateBody = () => zod
             .array(
                 zod
                     .object({
+                        op: zod
+                            .enum(['write', 'delete', 'rename', 'str_replace'])
+                            .describe(
+                                '\* `write` - Write\n\* `delete` - Delete\n\* `rename` - Rename\n\* `str_replace` - Str Replace'
+                            )
+                            .optional()
+                            .describe(
+                                "What to do. 'str_replace' replaces old_string with new_string inside the file: the default for changing an existing file. 'write' sets the file's complete content (new files, full rewrites). 'delete' removes the file. 'rename' moves it to new_path. When omitted, it follows the fields sent: old_string or new_string means 'str_replace', new_path means 'rename', non-null content means 'write', and content null means 'delete'. An operation with none of these fields is rejected.\n\n\* `write` - Write\n\* `delete` - Delete\n\* `rename` - Rename\n\* `str_replace` - Str Replace"
+                            ),
                         path: zod
                             .string()
-                            .describe(
-                                'Project-relative path of the file to write or delete (e.g. \"src\/canvas.tsx\").'
-                            ),
-                        content: zod
+                            .describe('Project-relative path of the file to edit (e.g. \"src\/canvas.tsx\").'),
+                        content: zod.string().nullish().describe("For 'write': the file's complete new content."),
+                        old_string: zod
                             .string()
-                            .nullish()
-                            .describe("The file's complete new content. Null (or omitted) deletes the file."),
+                            .optional()
+                            .describe(
+                                "For 'str_replace': the exact text to replace, copied from the file with a few surrounding lines so it matches one place only. If whitespace differs slightly, a unique line-by-line match is still accepted."
+                            ),
+                        new_string: zod
+                            .string()
+                            .optional()
+                            .describe(
+                                "For 'str_replace': the text that replaces old_string. An empty string deletes old_string."
+                            ),
+                        replace_all: zod
+                            .boolean()
+                            .default(canvasesEditCreateBodyOperationsItemReplaceAllDefault)
+                            .describe(
+                                "For 'str_replace': replace every exact match of old_string instead of requiring exactly one."
+                            ),
+                        new_path: zod
+                            .string()
+                            .optional()
+                            .describe("For 'rename': the file's new project-relative path."),
                     })
-                    .describe("One per-file edit: set a file's content, or delete it.")
+                    .describe('One file edit: replace text in a file, write a whole file, delete it, or rename it.')
             )
-            .describe("Edits applied in order to the canvas's current source project."),
+            .optional()
+            .describe(
+                "Edits applied in order to the canvas's current source project, all or nothing. May be empty when the edit only changes capabilities."
+            ),
+        capabilities: zod
+            .object({
+                posthog: zod.object({
+                    insights: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogInsightsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogInsightsMax),
+                    inlineQueries: zod.boolean(),
+                    captureEvents: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogCaptureEventsMax),
+                    state: zod
+                        .array(zod.enum(['user', 'shared']).describe('\* `user` - user\n\* `shared` - shared'))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogStateMax)
+                        .optional()
+                        .describe(
+                            "State scopes the canvas may use via ph.state: 'user' (private to each viewer) and\/or 'shared' (one value per canvas, team-visible)."
+                        ),
+                    actions: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax)
+                        .optional()
+                        .describe(
+                            "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                        ),
+                    agentRequests: zod
+                        .boolean()
+                        .default(canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault),
+                }),
+                network: zod.object({
+                    origins: zod
+                        .array(zod.url().max(canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOneNetworkOriginsMax),
+                }),
+                connectors: zod
+                    .array(
+                        zod
+                            .object({
+                                provider: zod
+                                    .string()
+                                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemProviderMax)
+                                    .describe(
+                                        "Connector provider id: a native provider such as 'github', or 'mcp:<server host>' (e.g. 'mcp:mcp.calendly.com') for a server the viewer connected in the MCP store."
+                                    ),
+                                tools: zod
+                                    .array(
+                                        zod
+                                            .string()
+                                            .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsItemMax)
+                                    )
+                                    .min(1)
+                                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsItemToolsMax)
+                                    .describe('Tool names the canvas may call on this provider. Read-only tools only.'),
+                            })
+                            .describe(
+                                'One provider a canvas may call through ph.connectors, with the tools it may use.'
+                            )
+                    )
+                    .max(canvasesEditCreateBodyCapabilitiesOneConnectorsMax)
+                    .optional()
+                    .describe(
+                        "Third-party providers the canvas reads through ph.connectors, each with the tools it may call. Every call runs with the viewer's own connection; declaring one shows it in the promote review."
+                    ),
+            })
+            .optional()
+            .describe(
+                "The project's complete new capabilities, replacing the current ones in the same publish. Send it when the change needs a capability the canvas does not declare yet, for example a new ph.state scope, insight, capture event, or network origin. Copy the current capabilities from canvas-source-retrieve and change only what you need. Omit to keep the current capabilities."
+            ),
         prompt: zod
             .string()
             .optional()
@@ -1228,8 +1352,44 @@ export const CanvasesStateRetrieveParams = () => zod.object({
         ),
 })
 
+export const canvasesStateRetrieveQueryKeyMax = 200
+
+export const canvasesStateRetrieveQueryKeyPrefixMax = 200
+
+export const canvasesStateRetrieveQueryKeysOnlyDefault = false
+export const canvasesStateRetrieveQueryLimitMax = 100
+
+export const canvasesStateRetrieveQueryOffsetDefault = 0
+export const canvasesStateRetrieveQueryOffsetMin = 0
+
 export const CanvasesStateRetrieveQueryParams = () => zod.object({
-    scope: zod.enum(['shared', 'user']).optional().describe('Only return entries in this scope.'),
+    key: zod.string().min(1).max(canvasesStateRetrieveQueryKeyMax).optional().describe('Only read this exact key.'),
+    key_prefix: zod
+        .string()
+        .max(canvasesStateRetrieveQueryKeyPrefixMax)
+        .optional()
+        .describe('Only read entries whose key starts with this prefix.'),
+    keys_only: zod
+        .boolean()
+        .default(canvasesStateRetrieveQueryKeysOnlyDefault)
+        .describe('True returns a key inventory without stored values.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(canvasesStateRetrieveQueryLimitMax)
+        .optional()
+        .describe(
+            'Maximum entries per page. Omit for the full state. Prefer an inventory and state\/value for large values.'
+        ),
+    offset: zod
+        .number()
+        .min(canvasesStateRetrieveQueryOffsetMin)
+        .default(canvasesStateRetrieveQueryOffsetDefault)
+        .describe('Entry offset from next_offset. Keep filters unchanged between pages.'),
+    scope: zod
+        .enum(['user', 'shared'])
+        .optional()
+        .describe('Only read this scope.\n\n\* `user` - user\n\* `shared` - shared'),
 })
 
 /**
@@ -1258,6 +1418,55 @@ export const CanvasesStateSetBody = () => zod
         value: zod.unknown().describe('JSON value to store (at most 64 KB serialized), or null to delete the key.'),
     })
     .describe("Payload for writing (or deleting) one key of a canvas's runtime state.")
+
+/**
+ * Canvases: agent-built sandboxed browser apps, filed into channels.
+ *
+ * Source is versioned per publish and built server-side; the canvas app
+ * renders the published build's artifact from the isolated artifact origin.
+ */
+export const CanvasesStateValueRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this canvas.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const canvasesStateValueRetrieveQueryKeyMax = 200
+
+export const canvasesStateValueRetrieveQueryLimitDefault = 12000
+export const canvasesStateValueRetrieveQueryLimitMax = 12000
+
+export const canvasesStateValueRetrieveQueryOffsetDefault = 0
+export const canvasesStateValueRetrieveQueryOffsetMin = 0
+
+export const canvasesStateValueRetrieveQueryRevisionMax = 64
+
+export const CanvasesStateValueRetrieveQueryParams = () => zod.object({
+    key: zod.string().min(1).max(canvasesStateValueRetrieveQueryKeyMax).describe('Exact key to read.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(canvasesStateValueRetrieveQueryLimitMax)
+        .default(canvasesStateValueRetrieveQueryLimitDefault)
+        .describe('Maximum JSON characters in this response.'),
+    offset: zod
+        .number()
+        .min(canvasesStateValueRetrieveQueryOffsetMin)
+        .default(canvasesStateValueRetrieveQueryOffsetDefault)
+        .describe('Character offset from next_offset.'),
+    revision: zod
+        .string()
+        .min(1)
+        .max(canvasesStateValueRetrieveQueryRevisionMax)
+        .optional()
+        .describe('Revision from the first chunk. Required when offset is greater than zero.'),
+    scope: zod
+        .enum(['user', 'shared'])
+        .describe('Scope of the value to read.\n\n\* `user` - user\n\* `shared` - shared'),
+})
 
 /**
  * Validate a candidate source project without publishing it. Side-effect free.

@@ -12,7 +12,7 @@ ci = "github"
 # Keep generated release workflows off tag-push publishing; Release CLI owns publishing
 dispatch-releases = true
 # The installers to generate for each app
-installers = ["shell", "powershell", "npm"]
+installers = ["shell", "powershell", "npm", "homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = [
     "aarch64-apple-darwin",
@@ -23,12 +23,22 @@ targets = [
     "x86_64-unknown-linux-musl",
     "x86_64-pc-windows-msvc",
 ]
+# Prefer our own origin for artifact downloads, with GitHub Releases as the
+# fallback. {tag} is posthog-cli/vX.Y.Z, which is also the key prefix the
+# release workflow uploads to, so the project name is not repeated in the URL.
+simple-download-url = "https://releases.posthog.com/{tag}"
 # Path that installers should place binaries in
 install-path = "~/.posthog"
-# Whether to install an updater program
-install-updater = true
+# No standalone updater. It resolves versions through the GitHub releases
+# API, which cannot paginate far enough to reach a CLI release in this
+# monorepo unauthenticated, so it has never worked here. `posthog-cli
+# update` replaces it and reads the manifest from releases.posthog.com.
+install-updater = false
 # A namespace to use when publishing this package to the npm registry
 npm-scope = "@posthog"
+# The tap the generated formula is published to. It has to exist already,
+# and it is the same one phrocs and hogland use.
+tap = "PostHog/homebrew-tap"
 # Publish jobs to run in CI
 publish-jobs = ["npm"]
 unix-archive = ".tar.gz"

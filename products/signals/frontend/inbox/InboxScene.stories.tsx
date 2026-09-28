@@ -41,6 +41,14 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/integrations/github/available_installations/': {
+            discovery_id: '11111111-1111-4111-8111-111111111111',
+            discovered_at: '2026-06-11T00:00:00Z',
+            installations: [],
+            personal_github_connected: false,
+            personal_github_login: null,
+            personal_discovery_status: 'not_connected',
+        },
         '/api/projects/:id/signals/reports': () => [
             200,
             { results: allReports, count: allReports.length, next: null, previous: null },
@@ -82,6 +90,7 @@ const meta: Meta = {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
         testOptions: { waitForLoadersToDisappear: false },
@@ -188,6 +197,7 @@ export const EmptyControl: Story = {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
             [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
         },
     },
     decorators: [

@@ -52,9 +52,11 @@ function ArtefactRow({
 export function ReportActivity({
   reportId,
   artefacts,
+  collapsedNoteCount = 0,
 }: {
   reportId: string;
   artefacts: AnySignalReportArtefact[];
+  collapsedNoteCount?: number;
 }) {
   const themeColors = useThemeColors();
   const activity = useMemo(
@@ -62,7 +64,7 @@ export function ReportActivity({
     [artefacts],
   );
 
-  if (activity.length === 0) return null;
+  if (activity.length === 0 && collapsedNoteCount === 0) return null;
 
   return (
     <View className="mb-4">
@@ -70,8 +72,18 @@ export function ReportActivity({
         <ClockCounterClockwise size={14} color={themeColors.gray[12]} />
         <Text className="font-semibold text-[14px] text-gray-12">
           Activity ({activity.length})
+          {collapsedNoteCount > 0
+            ? ` · ${collapsedNoteCount} ${collapsedNoteCount === 1 ? "confirmation" : "confirmations"}`
+            : ""}
         </Text>
       </View>
+      {collapsedNoteCount > 0 ? (
+        <Text className="mb-2 text-[12px] text-gray-10">
+          Corroborated {collapsedNoteCount} more{" "}
+          {collapsedNoteCount === 1 ? "time" : "times"} by a scout, with nothing
+          new to add.
+        </Text>
+      ) : null}
       <View className="gap-2">
         {activity.map((artefact) => (
           <ArtefactRow

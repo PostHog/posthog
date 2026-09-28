@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 import time_machine
 from unittest import mock
 
@@ -209,12 +210,12 @@ class TestInsights:
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_incremental_windows_from_watermark_to_today(self, MockSession) -> None:
         session = MockSession.return_value
-        params = _wire(session, [_page([], has_more=False)])
+        params = _wire(session, [_response({"currency_code": "EUR"}), _page([], has_more=False)])
 
         watermark = datetime(2026, 7, 1, 12, 30, tzinfo=UTC)
         _rows(_source("campaign_insights", _make_manager(), last_value=watermark))
 
-        sent = params[0]["params"]
+        sent = params[1]["params"]
         assert sent["aggregation_level"] == "campaign"
         assert sent["time_granularity"] == "daily"
         assert json.loads(sent["time_ranges[]"]) == {
@@ -233,11 +234,11 @@ class TestInsights:
         # Without a watermark we still need a bounded window — the API rejects unbounded/future
         # ranges — and it must cover all possible history for the product.
         session = MockSession.return_value
-        params = _wire(session, [_page([], has_more=False)])
+        params = _wire(session, [_response({"currency_code": "EUR"}), _page([], has_more=False)])
 
         _rows(_source("ad_account_insights", _make_manager()))
 
-        assert json.loads(params[0]["params"]["time_ranges[]"])["since"] == "2025-01-01"
+        assert json.loads(params[1]["params"]["time_ranges[]"])["since"] == "2025-01-01"
 
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_bucket_times_become_datetimes(self, MockSession) -> None:
@@ -247,6 +248,7 @@ class TestInsights:
         _wire(
             session,
             [
+                _response({"currency_code": "EUR"}),
                 _page(
                     [
                         {
@@ -257,7 +259,7 @@ class TestInsights:
                         }
                     ],
                     has_more=False,
-                )
+                ),
             ],
         )
 
@@ -266,6 +268,8 @@ class TestInsights:
         assert rows[0]["start_time"] == datetime(2026, 4, 25, tzinfo=UTC)
         assert rows[0]["end_time"] == datetime(2026, 4, 26, tzinfo=UTC)
         assert rows[0]["impressions"] == 5
+        assert rows[0]["currency_code"] == "EUR"
+        assert session.send.call_count == 2
 
     @time_machine.travel("2026-07-21", tick=False)
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -274,6 +278,7 @@ class TestInsights:
         _wire(
             session,
             [
+                _response({"currency_code": "EUR"}),
                 _page([{"id": "b1", "start_time": 1, "end_time": 2}], has_more=True, last_id="b1"),
                 _page([{"id": "b2", "start_time": 2, "end_time": 3}], has_more=False, last_id="b2"),
             ],
@@ -293,28 +298,51 @@ class TestInsights:
         # A cursor is only valid for the result set it was issued for — recomputing `until` as a
         # later day on resume would pair it with a different window.
         session = MockSession.return_value
-        params = _wire(session, [_page([], has_more=False)])
+        params = _wire(session, [_response({"currency_code": "EUR"}), _page([], has_more=False)])
 
         resume = OpenAIAdsResumeConfig(cursor="b1", since="2026-06-01", until="2026-07-19")
         _rows(_source("campaign_insights", _make_manager(resume)))
 
-        sent = params[0]["params"]
+        sent = params[1]["params"]
         assert sent["after"] == "b1"
         window = json.loads(sent["time_ranges[]"])
         assert (window["since"], window["until"]) == ("2026-06-01", "2026-07-19")
 
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_missing_account_currency_stops_sync(self, MockSession) -> None:
+        session = MockSession.return_value
+        _wire(session, [_response({"id": "account_example"})])
+        with pytest.raises(ValueError, match="account currency"):
+            _rows(_source("campaign_insights", _make_manager()))
+        assert session.send.call_count == 1
+
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("forbidden_scope", 403, True), ("unauthorized", 401, False)])
-    def test_status_mapping(self, _name: str, status: int, expected: bool) -> None:
+    @parameterized.expand(
+        [
+            ("ok", 200, True, None),
+            ("forbidden_scope", 403, True, None),
+            ("unauthorized", 401, False, "invalid or has been revoked"),
+            ("server_error", 500, False, "Couldn't reach OpenAI Ads"),
+        ]
+    )
+    def test_status_mapping(self, _name: str, status: int, expected: bool, message_fragment: str | None) -> None:
         # 403 is accepted at create time (a real key with restricted access); 401 means a bad key.
+        # A 5xx says nothing about the key, so it must not read as a rejected credential.
         session = mock.MagicMock()
         session.get.return_value = mock.MagicMock(status_code=status)
         with mock.patch(OPENAI_ADS_SESSION_PATCH, return_value=session):
-            assert validate_credentials("oa-ads-test") is expected
+            is_valid, message = validate_credentials("oa-ads-test")
+        assert is_valid is expected
+        if message_fragment is None:
+            assert message is None
+        else:
+            assert message is not None and message_fragment in message
 
-    def test_network_error_is_invalid(self) -> None:
+    def test_network_error_reads_as_unreachable_not_a_bad_key(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch(OPENAI_ADS_SESSION_PATCH, return_value=session):
-            assert validate_credentials("oa-ads-test") is False
+            is_valid, message = validate_credentials("oa-ads-test")
+        assert is_valid is False
+        assert message is not None and "Couldn't reach OpenAI Ads" in message

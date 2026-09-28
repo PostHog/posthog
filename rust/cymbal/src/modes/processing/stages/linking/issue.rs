@@ -304,7 +304,7 @@ async fn resolve_issue(
 
     // Insert the fingerprint override
     let issue_override = IssueFingerprintOverride::create_or_load(
-        &mut *txn,
+        &mut txn,
         team_id,
         &fingerprint,
         &issue,
@@ -375,6 +375,11 @@ async fn resolve_issue(
                 .await?;
 
         let processed_properties = event_properties.processed_properties(&issue);
+        // Produce before the commit on purpose. A failure here rolls the transaction back, so the
+        // retry re-runs this whole slow path and produces again. Committing first would leave a
+        // new issue whose fingerprint state never reached ClickHouse: the retry takes the fast
+        // path, finds the issue already active, and `maybe_reopen` returns false, so nothing
+        // re-sends it. Moving this after the commit needs a durable outbox first.
         send_fingerprint_issue_state(
             context,
             &issue,

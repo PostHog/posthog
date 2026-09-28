@@ -13,7 +13,6 @@ from posthog.models.user import User
 from products.error_tracking.backend.facade import alerts as alerts_facade
 
 # PostgreSQL integer column bound; larger values would 500 on save.
-MAX_THROTTLE_SECONDS = 2**31 - 1
 
 
 class _StrictCharField(serializers.CharField):
@@ -72,6 +71,18 @@ class ErrorTrackingAlertDestinationRequestSerializer(serializers.Serializer):
 
 class ErrorTrackingAlertDestinationSerializer(ErrorTrackingAlertDestinationRequestSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier of the destination.")
+    last_delivered_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When a notification last reached this destination."
+    )
+    last_failure_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When delivery to this destination last failed."
+    )
+    last_error = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Message of the most recent delivery failure."
+    )
+    consecutive_failures = serializers.IntegerField(
+        read_only=True, help_text="Delivery failures since the last successful delivery."
+    )
 
 
 class ErrorTrackingAlertSerializer(serializers.Serializer):
@@ -113,8 +124,8 @@ class ErrorTrackingAlertCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=0,
         min_value=0,
-        max_value=MAX_THROTTLE_SECONDS,
-        help_text="Minimum seconds between thread-opening notifications per issue. 0 disables the throttle.",
+        max_value=alerts_facade.MAX_THROTTLE_SECONDS,
+        help_text="Minimum seconds between thread-opening notifications per issue, at most 30 days. 0 disables the throttle.",
     )
     destinations = ErrorTrackingAlertDestinationRequestSerializer(
         many=True,
@@ -144,8 +155,8 @@ class ErrorTrackingAlertUpdateRequestSerializer(serializers.Serializer):
     throttle_seconds = serializers.IntegerField(
         required=False,
         min_value=0,
-        max_value=MAX_THROTTLE_SECONDS,
-        help_text="Minimum seconds between thread-opening notifications per issue. Omit to keep the current value.",
+        max_value=alerts_facade.MAX_THROTTLE_SECONDS,
+        help_text="Minimum seconds between thread-opening notifications per issue, at most 30 days. Omit to keep the current value.",
     )
     destinations = ErrorTrackingAlertDestinationRequestSerializer(
         many=True,

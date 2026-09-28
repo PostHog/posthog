@@ -3,7 +3,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DESTINATION_ICON_MAP, destinationTypeLabel } from './DestinationIcon'
-import { destinationTarget } from './DestinationList'
+import { destinationTarget } from './destinationTarget'
 
 export interface JobDestinationsProps {
     /** Snapshotted on the run when it started. Empty on runs that predate destinations. */

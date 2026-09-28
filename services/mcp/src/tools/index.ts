@@ -8,8 +8,8 @@ import parserRecipeReference from './aiObservability/parserRecipeReference'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
+import experimentGetByFlagKey from './experiments/getByFlagKey'
 import getExperimentResults from './experiments/getResults'
-import experimentListDeprecated from './experiments/listDeprecated'
 // Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 import updateFeatureFlagPreservingGroups from './featureFlags/updateFeatureFlag'
@@ -53,6 +53,7 @@ import updateEventDefinition from './projects/updateEventDefinition'
 import updatePathCleaning from './projects/updatePathCleaning'
 import updatePropertyDefinition from './projects/updatePropertyDefinition'
 // Replay
+import getSessionRecording from './replay/getSessionRecording'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 import { tasksArtifactsList, tasksCommentsList, tasksCommentsRetrieve } from './tasksContext'
@@ -93,10 +94,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     'path-cleaning-rules-update': updatePathCleaning,
 
-    // Experiments (results is hand-written; CRUD + lifecycle are codegen)
+    // Experiments (results and get-by-flag-key are hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
-    // Deprecated alias for experiment-list — forwards and annotates the response.
-    'experiment-get-all': experimentListDeprecated,
+    'experiment-get-by-flag-key': experimentGetByFlagKey,
 
     // Insights
     'insight-query': queryInsight,
@@ -134,6 +134,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'read-data-schema': readDataSchema,
 
     // Replay
+    'session-recording-get': getSessionRecording,
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
@@ -198,7 +199,11 @@ export const getToolsFromContext = async (
     const apiKey = await context.stateManager.getApiKey()
     const scopes = apiKey?.scopes ?? []
 
-    const candidates = tools.filter((tool) => hasScopes(scopes, tool.scopes))
+    const candidates = tools.filter(
+        (tool) =>
+            hasScopes(scopes, tool.scopes) &&
+            (!scopes.includes('internal_run:read') || !['tasks-run-create', 'tasks-create-and-run'].includes(tool.name))
+    )
 
     return filterStaffOnlyTools(candidates, apiKey ?? { scopes: [] }, () => context.stateManager.getUser())
 }

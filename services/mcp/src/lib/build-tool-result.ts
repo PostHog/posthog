@@ -1,6 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
-import { getDiscoveryHint } from '@/lib/discovery-hints'
+import { type DiscoveryHint, type DiscoveryHintKind, getDiscoveryHint, isEmptyToolResult } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
@@ -43,6 +43,7 @@ export interface BuildToolResultOptions {
      * see `exec` registered, so the UI metadata has to ride on the per-call response.
      */
     includeUiResponseMeta?: boolean
+    includeRenderNote?: boolean
 }
 
 /**
@@ -75,9 +76,31 @@ export function isToolCallPayload(value: unknown): value is ToolResultPayload {
     )
 }
 
+interface BuiltResponseText {
+    structuredContentOnly: boolean
+    footers: string[]
+    discoveryHint: DiscoveryHintKind | undefined
+    resultEmpty: boolean
+}
+
+const builtResponseText = new WeakMap<ToolResultPayload, BuiltResponseText>()
+
 /** Stamp a payload as exec-built so `isToolCallPayload` recognizes it. */
 export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
-    return { ...payload, [EXEC_BUILT_PAYLOAD]: true }
+    const marked: ToolResultPayload = { ...payload, [EXEC_BUILT_PAYLOAD]: true }
+    const built = builtResponseText.get(payload)
+    if (built) {
+        builtResponseText.set(marked, built)
+    }
+    return marked
+}
+
+export function toolResultAnalyticsProperties(response: ToolResultPayload): Record<string, unknown> {
+    const built = builtResponseText.get(response)
+    return {
+        ...(built?.discoveryHint ? { mcp_discovery_hint: built.discoveryHint } : {}),
+        ...(built?.resultEmpty ? { mcp_result_empty: true } : {}),
+    }
 }
 
 /**
@@ -86,6 +109,9 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
  * literal so the model knows where to read the result from.
  */
 export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's structuredContent field."
+
+export const UI_APP_RENDER_NOTE =
+    'The user already sees this result as an interactive view in the conversation. State your conclusion in text and do not repeat this data in your reply.'
 
 /**
  * Estimate output tokens from what the client actually receives — the serialized
@@ -96,11 +122,11 @@ export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's s
  * pointer it duplicates nothing, so the structured payload is what gets counted.
  */
 export function estimateResponseTokens(response: ToolResultPayload): number {
-    const text = response.content.map((part) => part.text).join('')
-    if (response.structuredContent && text === STRUCTURED_CONTENT_ONLY_TEXT) {
-        return estimateTokens(response.structuredContent)
+    const built = builtResponseText.get(response)
+    if (response.structuredContent && built?.structuredContentOnly) {
+        return estimateTokens(response.structuredContent) + estimateTokens(built.footers.join('\n\n'))
     }
-    return estimateTokens(text)
+    return estimateTokens(response.content.map((part) => part.text).join(''))
 }
 
 /**
@@ -132,6 +158,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         includeAppData,
         distinctId,
         includeUiResponseMeta,
+        includeRenderNote,
     } = opts
 
     const isStringResult = typeof handlerResult === 'string'
@@ -197,26 +224,36 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         !useJson &&
         formattedResults === undefined
 
-    let text = structuredContentOnly
+    const body = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
         : ((includeAppData && useJson ? undefined : formattedResults) ??
           (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
 
-    // Discovery hints ride the text channel as a footer, mirroring how error
-    // responses carry `getToolRecoveryHint`. Skipped when the caller asked for
-    // raw JSON (the text must stay machine-parseable) and when the text is only
-    // the structuredContent pointer (the model reads the structured field, and
-    // `estimateResponseTokens` keys off the exact pointer string).
+    const footers: string[] = []
+
+    let discoveryHint: DiscoveryHint | undefined
     if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
-        const discoveryHint = getDiscoveryHint({ toolName, handlerResult })
+        discoveryHint = getDiscoveryHint({ toolName, handlerResult })
         if (discoveryHint) {
-            text = `${text}\n\n${discoveryHint}`
+            footers.push(discoveryHint.text)
         }
     }
+
+    if (includeRenderNote && hasUiResource && !useJson) {
+        footers.push(UI_APP_RENDER_NOTE)
+    }
+
+    const text = [body, ...footers].join('\n\n')
 
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],
     }
+    builtResponseText.set(payload, {
+        structuredContentOnly,
+        footers,
+        discoveryHint: discoveryHint?.kind,
+        resultEmpty: isEmptyToolResult(handlerResult),
+    })
     if (hasUiResource && !suppressStructuredContent) {
         payload.structuredContent = structuredContent as Record<string, unknown>
     }

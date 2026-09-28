@@ -24,9 +24,10 @@ import {
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { teamLogic } from 'scenes/teamLogic'
-import { MathCategory, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { BaseMathType, EntityTypes, InsightType } from '~/types'
+
+import { MathCategory, mathsLogic } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 import { ActionFilterRow, MathSelector, taxonomicFilterGroupTypeToEntityType } from '../ActionFilterRow/ActionFilterRow'
 import { getDefaultMathHogQLExpression } from '../ActionFilterRow/mathUtils'

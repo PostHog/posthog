@@ -1,4 +1,3 @@
-import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
@@ -7,10 +6,6 @@ import {
   EFFORT_LEVEL_LABELS,
   EFFORT_LEVELS,
 } from "@posthog/shared/domain-types";
-import {
-  MISSION_CONTROL_CLIENT,
-  type MissionControlClient,
-} from "@posthog/ui/features/mission-control/identifiers";
 import {
   ReasoningLevelDropdown,
   type ReasoningLevelOption,
@@ -22,7 +17,6 @@ import {
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { SettingsSegmented } from "@posthog/ui/features/settings/components/SettingsSegmented";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
-import { ThemePicker } from "@posthog/ui/features/settings/components/ThemePicker";
 import { AccountSection } from "@posthog/ui/features/settings/sections/AccountSettings";
 import { UpdatesSection } from "@posthog/ui/features/settings/sections/UpdatesSettings";
 import {
@@ -35,10 +29,8 @@ import {
   useSettingsStore,
 } from "@posthog/ui/features/settings/settingsStore";
 import { track } from "@posthog/ui/shell/analytics";
-import type { ThemePreference } from "@posthog/ui/shell/themeStore";
-import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect } from "react";
 
 const DEFAULT_EFFORT_OPTIONS: ReasoningLevelOption[] = [
@@ -57,9 +49,6 @@ const MESSAGING_MODE_OPTIONS = [
 
 export function GeneralSettings() {
   const hostTRPC = useHostTRPC();
-
-  const theme = useThemeStore((state) => state.theme);
-  const setTheme = useThemeStore((state) => state.setTheme);
 
   const { localWorkspaces } = useHostCapabilities();
   const { preventSleepWhileRunning, setPreventSleepWhileRunning } =
@@ -97,40 +86,6 @@ export function GeneralSettings() {
     [setPreventSleepWhileRunning, preventSleepMutation],
   );
 
-  // Mission Control overlay state. The client is bound on desktop only, so on
-  // other hosts this resolves to null and the setting is hidden.
-  const queryClient = useQueryClient();
-  const missionControl = useServiceOptional<MissionControlClient>(
-    MISSION_CONTROL_CLIENT,
-  );
-  const { data: missionControlSupported } = useQuery({
-    queryKey: ["missionControlOverlay", "supported"],
-    queryFn: () => missionControl?.isSupported() ?? false,
-    enabled: missionControl != null,
-  });
-  const { data: missionControlEnabled } = useQuery({
-    queryKey: ["missionControlOverlay", "enabled"],
-    queryFn: () => missionControl?.getEnabled() ?? false,
-    enabled: missionControl != null && missionControlSupported === true,
-  });
-  const missionControlMutation = useMutation({
-    mutationFn: (enabled: boolean) =>
-      missionControl?.setEnabled(enabled) ?? Promise.resolve(),
-  });
-
-  const handleMissionControlOverlayChange = useCallback(
-    (checked: boolean) => {
-      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
-        setting_name: "mission_control_overlay",
-        new_value: checked,
-        old_value: !checked,
-      });
-      queryClient.setQueryData(["missionControlOverlay", "enabled"], checked);
-      missionControlMutation.mutate(checked);
-    },
-    [missionControlMutation, queryClient],
-  );
-
   const {
     autoConvertLongText,
     defaultInitialTaskMode,
@@ -147,18 +102,6 @@ export function GeneralSettings() {
     setDiffOpenMode,
     setSendMessagesWith,
   } = useSettingsStore();
-
-  const handleThemeChange = useCallback(
-    (value: ThemePreference) => {
-      track(ANALYTICS_EVENTS.SETTING_CHANGED, {
-        setting_name: "theme",
-        new_value: value,
-        old_value: theme,
-      });
-      setTheme(value);
-    },
-    [theme, setTheme],
-  );
 
   const handleAutoConvertLongTextChange = useCallback(
     (value: AutoConvertLongText) => {
@@ -247,27 +190,6 @@ export function GeneralSettings() {
   return (
     <div className="flex flex-col gap-7">
       <AccountSection />
-
-      <SettingsSection
-        label="Appearance"
-        description="Theme and how the app looks"
-      >
-        <ThemePicker value={theme} onChange={handleThemeChange} />
-        {missionControl != null && missionControlSupported === true && (
-          <SettingsCard>
-            <SettingsCardRow
-              label="Mission Control overlay"
-              description="Show the PostHog logo over the window in macOS Mission Control"
-            >
-              <Switch
-                size="sm"
-                checked={missionControlEnabled ?? false}
-                onCheckedChange={handleMissionControlOverlayChange}
-              />
-            </SettingsCardRow>
-          </SettingsCard>
-        )}
-      </SettingsSection>
 
       <SettingsSection
         label="New tasks"

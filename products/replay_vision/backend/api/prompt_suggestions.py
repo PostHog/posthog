@@ -22,6 +22,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import User
+from posthog.permissions import is_scout_sandbox_request
 from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
@@ -49,6 +50,7 @@ from products.replay_vision.backend.prompt_suggestions import (
 )
 from products.replay_vision.backend.quota import compute_scanner_budget, quota_state
 from products.replay_vision.backend.scanner_config import scanner_config_error
+from products.replay_vision.backend.scout_writes import refuse_scout_scanner_scan
 from products.replay_vision.backend.temporal.constants import (
     EVALUATE_PROMPT_SUGGESTION_WORKFLOW_NAME,
     build_evaluate_prompt_suggestion_workflow_id,
@@ -465,6 +467,7 @@ class ReplayScannerPromptSuggestionViewSet(
     )
     @action(detail=True, methods=["post"], required_scopes=["replay_scanner:write", "session_recording:read"])
     def evaluate(self, request: Request, **kwargs: Any) -> Response:
+        refuse_scout_scanner_scan(is_scout_sandbox_request(request))
         scanner = self._scanner_for_url()
         self._require_editor(scanner)
         suggestion = self.get_object()

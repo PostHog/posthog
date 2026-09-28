@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -19,7 +19,9 @@ import { DestinationsIncidentReplayBanner } from 'products/cdp/frontend/Destinat
 import { destinationsEmptyState } from 'products/cdp/frontend/emptyState/destinationsEmptyState'
 
 import { DataPipelinesHogFunctions } from './DataPipelinesHogFunctions'
-import { destinationsSceneLogic } from './destinationsSceneLogic'
+import { DestinationsBatchExportsTab } from './DestinationsBatchExportsTab'
+import { DestinationsNotificationsTab } from './DestinationsNotificationsTab'
+import { DestinationsSceneTab, destinationsSceneLogic } from './destinationsSceneLogic'
 
 export const scene: SceneExport = {
     component: DestinationsScene,
@@ -27,6 +29,37 @@ export const scene: SceneExport = {
     productKey: ProductKey.PIPELINE_DESTINATIONS,
     emptyState: destinationsEmptyState,
 }
+
+// Each tab mounts its own list, so only the active kind of destination is fetched.
+const TABS: LemonTab<DestinationsSceneTab>[] = [
+    {
+        key: 'realtime',
+        label: 'Real-time',
+        tooltip: 'Destinations that receive each event as it arrives.',
+        'data-attr': 'destinations-tab-realtime',
+        content: <DataPipelinesHogFunctions kind="destination" additionalKinds={['site_destination']} />,
+    },
+    {
+        key: 'batch',
+        label: 'Batch exports',
+        tooltip: 'Destinations that receive data on a schedule, such as a warehouse or a storage bucket.',
+        'data-attr': 'destinations-tab-batch',
+        content: <DestinationsBatchExportsTab />,
+    },
+    {
+        key: 'notifications',
+        label: 'Notifications',
+        tooltip: 'Destinations for the alerts and other events that PostHog itself sends.',
+        'data-attr': 'destinations-tab-notifications',
+        content: <DestinationsNotificationsTab />,
+    },
+    {
+        key: 'history',
+        label: 'History',
+        'data-attr': 'destinations-tab-history',
+        content: <ActivityLog scope={[ActivityScope.HOG_FUNCTION, ActivityScope.BATCH_EXPORT]} />,
+    },
+]
 
 export function DestinationsScene(): JSX.Element {
     const { activeTab } = useValues(destinationsSceneLogic)
@@ -53,24 +86,6 @@ export function DestinationsScene(): JSX.Element {
         </Shortcut>
     )
 
-    const tabs = [
-        {
-            key: 'all',
-            label: 'All destinations',
-            content: (
-                <DataPipelinesHogFunctions
-                    kind="destination"
-                    additionalKinds={['site_destination', 'internal_destination']}
-                />
-            ),
-        },
-        {
-            key: 'history',
-            label: 'History',
-            content: <ActivityLog scope={[ActivityScope.HOG_FUNCTION, ActivityScope.BATCH_EXPORT]} />,
-        },
-    ]
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -82,12 +97,7 @@ export function DestinationsScene(): JSX.Element {
                 actions={action}
             />
             <DestinationsIncidentReplayBanner />
-            <LemonTabs
-                activeKey={activeTab}
-                onChange={(key) => setActiveTab(key as 'all' | 'history')}
-                tabs={tabs}
-                sceneInset
-            />
+            <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={TABS} sceneInset />
         </SceneContent>
     )
 }

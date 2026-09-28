@@ -195,6 +195,7 @@ def test_falls_back_to_clickhouse_when_valkey_payload_expired(
 
 @pytest.mark.asyncio
 async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
+    alert_issue_ids: list[str] = []
     event_issue_ids: list[str] = []
     signal_issue_ids: list[str] = []
     signal_attempts: dict[str, int] = {}
@@ -230,6 +231,10 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
     async def merge(inputs: FingerprintEmbeddingResultInputs) -> FingerprintEmbeddingMergeResult:
         return FingerprintEmbeddingMergeResult(merged_count=int(inputs.fingerprint == "merged"))
 
+    @activity.defn(name="dispatch_issue_created_alert_activity")
+    async def dispatch_alert(inputs: IssueCreatedWorkflowInputs) -> None:
+        alert_issue_ids.append(inputs.issue_id)
+
     @activity.defn(name="emit_issue_created_internal_event_activity")
     async def emit_event(inputs: IssueCreatedWorkflowInputs) -> None:
         event_issue_ids.append(inputs.issue_id)
@@ -247,7 +252,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
             environment.client,
             task_queue=task_queue,
             workflows=[ErrorTrackingIssueCreatedWorkflow],
-            activities=[generate, persist, merge, emit_event, emit_signal],
+            activities=[generate, persist, merge, dispatch_alert, emit_event, emit_signal],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             merged_inputs = _inputs("merged")
@@ -278,6 +283,7 @@ async def test_only_notifies_for_an_issue_that_was_not_merged() -> None:
         notified=True,
         embedding_skipped_reason="embedding_service_unavailable",
     )
+    assert alert_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
     assert event_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
     assert signal_issue_ids == [unmerged_inputs.issue_id, embedding_unavailable_inputs.issue_id]
     assert signal_attempts == {

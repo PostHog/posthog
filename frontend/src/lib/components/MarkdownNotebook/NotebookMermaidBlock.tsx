@@ -1,4 +1,4 @@
-import { KeyboardEvent, Suspense, lazy, useEffect, useState } from 'react'
+import { KeyboardEvent, Suspense, useEffect, useState } from 'react'
 
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
@@ -7,13 +7,14 @@ import { PostHogErrorBoundary } from '@posthog/react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { updateNotebookCodeBlockText } from './documentModel'
 import { InsertMenuSelectionDirection } from './editorTypes'
 import { NotebookBlockNode, NotebookCodeBlockNode, NotebookMode } from './types'
 
 // Loaded on demand so the mermaid library ships in its own chunk rather than the notebook bundle.
-const LazyMermaidDiagram = lazy(() => import('lib/lemon-ui/LemonMarkdown/MermaidDiagram'))
+const LazyMermaidDiagram = lazyWithRetry(() => import('lib/lemon-ui/LemonMarkdown/MermaidDiagram'))
 
 // Wait for a pause in typing before re-rendering the preview, so a burst of keystrokes runs one
 // Mermaid render instead of one parse and layout per character.

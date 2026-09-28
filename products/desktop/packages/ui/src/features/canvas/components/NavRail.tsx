@@ -1,9 +1,15 @@
-import { BellIcon, GearSix, MagnifyingGlass } from "@phosphor-icons/react";
+import {
+  BellIcon,
+  DotsThree,
+  GearSix,
+  MagnifyingGlass,
+} from "@phosphor-icons/react";
 import {
   Button,
   cn,
   Kbd,
   Popover,
+  PopoverContent,
   PopoverTrigger,
   Tooltip,
   TooltipContent,
@@ -19,16 +25,29 @@ import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useSpacesTabs } from "@posthog/ui/features/browser-tabs/useSpacesTabs";
 import { ActivityHoverCard } from "@posthog/ui/features/canvas/components/ActivityHoverCard";
+import { ChannelsFab } from "@posthog/ui/features/canvas/components/ChannelsFab";
 import {
   pickRailDestination,
   type RailCounts,
   type RailDestination,
+  showWorkColumn,
   visibleRailDestinations,
+  visibleWorkRailDestinations,
 } from "@posthog/ui/features/canvas/components/railDestinations";
 import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
+import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
+import {
+  type NavRailPane,
+  railPaneFoldsIntoWork,
+} from "@posthog/ui/features/canvas/railPane";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
+import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import {
+  closeWorkActivity,
+  useWorkActivityStore,
+} from "@posthog/ui/features/canvas/stores/workActivityStore";
 import {
   formatHotkey,
   SHORTCUTS,
@@ -39,13 +58,15 @@ import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFla
 import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
+import { NavRailTile } from "@posthog/ui/features/sidebar/components/NavRailTile";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
-import { NAV_RAIL_WIDTH } from "@posthog/ui/features/sidebar/constants";
+import { useNavRailMetrics } from "@posthog/ui/features/sidebar/navRailSize";
 import { CountBadge } from "@posthog/ui/primitives/CountBadge";
 import { track } from "@posthog/ui/shell/analytics";
 import { useCommandMenuStore } from "@posthog/ui/shell/commandMenuStore";
 import {
   type ComponentPropsWithRef,
+  type MouseEvent,
   type MouseEventHandler,
   memo,
   type ReactElement,
@@ -55,12 +76,21 @@ import {
 
 const ICON_BADGE_CLASS =
   "-top-1 -right-1 absolute h-3.5 min-w-3.5 w-auto px-1 font-semibold text-[9px] ring-2 ring-chrome";
-const NOTIFICATION_DOT_CLASS =
-  "top-0 right-0 absolute ring-2 ring-chrome size-2 bg-primary rounded-full";
+
+function NotificationDot() {
+  return (
+    <span
+      data-slot="dot"
+      className="absolute top-0 right-0 size-2 rounded-full bg-primary ring-2 ring-chrome"
+      aria-hidden
+    />
+  );
+}
 
 function NavIcon({
   icon,
   label,
+  caption,
   shortcut,
   isActive,
   onClick,
@@ -68,6 +98,7 @@ function NavIcon({
 }: {
   icon: ReactNode;
   label: string;
+  caption?: string;
   shortcut?: string;
   isActive: boolean;
   onClick: MouseEventHandler<HTMLButtonElement>;
@@ -77,20 +108,17 @@ function NavIcon({
     <Tooltip>
       <TooltipTrigger
         render={
-          <Button
-            variant="default"
-            size="icon"
-            aria-label={label}
-            data-selected={isActive || undefined}
+          <NavButton
+            icon={icon}
+            label={label}
+            caption={caption}
+            isActive={isActive}
             onClick={onClick}
-            className="group relative shrink-0 pl-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground"
-          >
-            {icon}
-            {badge}
-          </Button>
+            badge={badge}
+          />
         }
       />
-      <TooltipContent side="right">
+      <TooltipContent side="right" alignOffset={-10}>
         {label}
         {shortcut && <Kbd>{shortcut}</Kbd>}
       </TooltipContent>
@@ -101,6 +129,7 @@ function NavIcon({
 interface NavButtonProps extends ComponentPropsWithRef<"button"> {
   icon: ReactNode;
   label: string;
+  caption?: string;
   isActive: boolean;
   badge?: ReactNode;
 }
@@ -108,31 +137,21 @@ interface NavButtonProps extends ComponentPropsWithRef<"button"> {
 function NavButton({
   icon,
   label,
+  caption,
   isActive,
-  onClick,
   badge,
-  className,
-  ref,
   ...buttonProps
 }: NavButtonProps) {
   return (
-    <Button
+    <NavRailTile
       {...buttonProps}
-      ref={ref}
-      type="button"
-      variant="default"
-      size="icon"
       aria-label={label}
+      caption={caption ?? label}
       data-selected={isActive || undefined}
-      onClick={onClick}
-      className={cn(
-        "relative shrink-0 text-muted-foreground data-selected:bg-fill-selected data-selected:text-foreground",
-        className,
-      )}
     >
       {icon}
       {badge}
-    </Button>
+    </NavRailTile>
   );
 }
 
@@ -155,6 +174,75 @@ function ActivityHoverPopover({ trigger }: { trigger: ReactElement }) {
   );
 }
 
+function MoreNavItem({
+  destinations,
+  railPane,
+  counts,
+  onPick,
+}: {
+  destinations: readonly RailDestination[];
+  railPane: NavRailPane;
+  counts: RailCounts;
+  onPick: (
+    destination: RailDestination,
+  ) => (event: MouseEvent<HTMLElement>) => void;
+}) {
+  const { iconSize } = useNavRailMetrics();
+  const [open, setOpen] = useState(false);
+  const isActive = destinations.some(({ pane }) => pane === railPane);
+  const hasCount = destinations.some(({ count }) => (count?.(counts) ?? 0) > 0);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        closeDelay={100}
+        render={
+          <NavButton
+            icon={<DotsThree size={iconSize} weight="bold" />}
+            label="More"
+            isActive={isActive || open}
+            badge={hasCount ? <NotificationDot /> : null}
+          />
+        }
+      />
+      <PopoverContent
+        side="right"
+        align="start"
+        sideOffset={8}
+        className="w-52 gap-0.5 p-1"
+      >
+        {destinations.map((destination) => {
+          const { pane, label, Icon, count, countTone } = destination;
+          const pick = onPick(destination);
+          return (
+            <Button
+              key={pane}
+              variant="default"
+              size="sm"
+              data-selected={railPane === pane || undefined}
+              className="w-full justify-start data-selected:bg-fill-selected"
+              onClick={(event) => {
+                setOpen(false);
+                pick(event);
+              }}
+            >
+              <Icon size={16} weight={railPane === pane ? "fill" : "regular"} />
+              {label}
+              <CountBadge
+                count={count?.(counts) ?? 0}
+                tone={countTone}
+                className="ml-auto"
+              />
+            </Button>
+          );
+        })}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 // No peek once Activity is the destination: the feed is already beside you.
 function ActivityNavItem({
   isActive,
@@ -165,14 +253,14 @@ function ActivityNavItem({
   badge: ReactNode;
   onClick: MouseEventHandler<HTMLButtonElement>;
 }) {
+  const { iconSize } = useNavRailMetrics();
   const bell = (
     <NavButton
-      icon={<BellIcon size={16} weight={isActive ? "fill" : "regular"} />}
+      icon={<BellIcon size={iconSize} weight={isActive ? "fill" : "regular"} />}
       label="Activity"
       isActive={isActive}
       onClick={onClick}
       badge={badge}
-      className="pl-0"
     />
   );
 
@@ -185,6 +273,7 @@ function ActivityNavItem({
  * that sidebar leaves the destinations reachable.
  */
 function NavRailImpl() {
+  const { width, iconSize, gapClassName } = useNavRailMetrics();
   const homeEnabled = useFeatureFlag(DESKTOP_HOME_FLAG);
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
   const contextEnabled = useContextLayerFlag();
@@ -197,15 +286,24 @@ function NavRailImpl() {
 
   const savedSearchesRailEnabled = useFeatureFlag(SAVED_SEARCHES_RAIL_FLAG);
   const hasSavedSearches = useProjectTaskFeeds().length > 0;
-  const destinations = visibleRailDestinations({
+  const workLayout = useWorkLayout();
+  const workActivityOpen = useWorkActivityStore((state) => state.open);
+  const toggleWorkActivity = useWorkActivityStore((state) => state.toggle);
+  const railFlags = {
     home: homeEnabled,
     inbox: inboxAvailable,
     loops: loopsEnabled,
     context: contextEnabled,
     savedSearches: savedSearchesRailEnabled && hasSavedSearches,
-  });
+  };
+  const destinations = workLayout
+    ? visibleWorkRailDestinations(railFlags)
+    : visibleRailDestinations(railFlags);
   const topDestinations = destinations.filter(
-    ({ placement }) => placement !== "bottom",
+    ({ placement }) => placement === undefined || placement === "top",
+  );
+  const moreDestinations = destinations.filter(
+    ({ placement }) => placement === "more",
   );
   const bottomDestinations = destinations.filter(
     ({ placement }) => placement === "bottom",
@@ -228,13 +326,15 @@ function NavRailImpl() {
   // light a destination the screen isn't on.
   const railPane = useRailPane();
   const toggleCommandMenu = useCommandMenuStore((s) => s.toggle);
+  // So the create button files into the space you are in, like the shortcut.
+  const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
 
   const pick =
-    (destination: RailDestination): MouseEventHandler<HTMLButtonElement> =>
-    (event) => {
+    (destination: RailDestination) =>
+    (event: MouseEvent<HTMLElement>): void => {
       track(ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED, {
         item: destination.analyticsId,
-        in_more: false,
+        in_more: destination.placement === "more",
         layout: "channels",
       });
       if (tabsEnabled && (event.metaKey || event.ctrlKey)) {
@@ -242,24 +342,35 @@ function NavRailImpl() {
         openBrowserTab(destination.href);
         return;
       }
+      if (workLayout) {
+        if (destination.pane === "activity") {
+          if (!workActivityOpen) showWorkColumn();
+          toggleWorkActivity();
+          return;
+        }
+        closeWorkActivity();
+        if (destination.pane === "spaces" && railPaneFoldsIntoWork(railPane)) {
+          showWorkColumn();
+          return;
+        }
+      }
       pickRailDestination(destination, railPane);
     };
 
   const renderDestination = (destination: RailDestination): ReactNode => {
     const { pane, label, Icon, count, countTone } = destination;
-    const isActive = railPane === pane;
+    const isActive = workLayout
+      ? pane === "activity"
+        ? workActivityOpen
+        : pane === "spaces"
+          ? !workActivityOpen && railPaneFoldsIntoWork(railPane)
+          : !workActivityOpen && railPane === pane
+      : railPane === pane;
     const destinationCount = count?.(counts) ?? 0;
     const usesNotificationDot = pane === "activity" || pane === "inbox";
     let badge: ReactNode;
     if (usesNotificationDot) {
-      badge =
-        destinationCount > 0 ? (
-          <span
-            data-slot="dot"
-            className={NOTIFICATION_DOT_CLASS}
-            aria-hidden
-          />
-        ) : null;
+      badge = destinationCount > 0 ? <NotificationDot /> : null;
     } else {
       badge = (
         <CountBadge
@@ -286,12 +397,12 @@ function NavRailImpl() {
         key={pane}
         icon={
           <Icon
-            className={pane === "spaces" ? "size-5" : undefined}
-            size={pane === "spaces" ? 20 : 16}
+            size={pane === "spaces" && !workLayout ? iconSize + 4 : iconSize}
             weight={isActive ? "fill" : "regular"}
           />
         }
         label={label}
+        caption={destination.shortLabel}
         shortcut={destination.shortcut}
         isActive={isActive}
         onClick={onClick}
@@ -306,14 +417,36 @@ function NavRailImpl() {
     <TooltipProvider delay={400}>
       <div
         data-testid="nav-rail"
-        className="relative z-[60] flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
-        style={{ width: NAV_RAIL_WIDTH }}
+        className={cn(
+          "relative z-[60] flex h-full shrink-0 flex-col items-center overflow-y-auto overflow-x-hidden bg-chrome px-1 pt-1 pb-2 [scrollbar-width:none]",
+          gapClassName,
+        )}
+        style={{ width }}
       >
         {topDestinations.map(renderDestination)}
-        <div className="mt-auto flex flex-col items-center gap-1.5">
+        {moreDestinations.length > 0 && (
+          <MoreNavItem
+            destinations={moreDestinations}
+            railPane={railPane}
+            counts={counts}
+            onPick={pick}
+          />
+        )}
+        <div
+          className={cn(
+            "mt-auto flex w-full flex-col items-center",
+            gapClassName,
+          )}
+        >
           {bottomDestinations.map(renderDestination)}
+          {/* Every destination keeps the rail, sidebar or not, so the create
+              button is reachable from all of them here. */}
+          <ChannelsFab
+            channelId={currentChannelId ?? undefined}
+            placement="rail"
+          />
           <NavIcon
-            icon={<MagnifyingGlass size={16} />}
+            icon={<MagnifyingGlass size={iconSize} />}
             label="Search"
             shortcut={formatHotkey(SHORTCUTS.COMMAND_MENU)}
             isActive={false}
@@ -327,7 +460,7 @@ function NavRailImpl() {
             }}
           />
           <NavIcon
-            icon={<GearSix size={16} />}
+            icon={<GearSix size={iconSize} />}
             label="Settings"
             shortcut={formatHotkey(SHORTCUTS.SETTINGS)}
             isActive={false}
@@ -340,7 +473,6 @@ function NavRailImpl() {
               openSettings();
             }}
           />
-          <div className="my-0.5 w-5 shrink-0 border-border border-t" />
           <ProjectSwitcher appearance="icon" />
         </div>
       </div>

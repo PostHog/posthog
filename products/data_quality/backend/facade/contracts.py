@@ -6,6 +6,7 @@ Frozen, framework-free values other products need. No Django imports.
 
 from dataclasses import dataclass, field
 from typing import Any, Literal, TypeGuard
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
@@ -55,6 +56,7 @@ class RunCheckSuiteInputs:
     saved_query_ids: list[str] = field(default_factory=list)
     table_ids: list[str] = field(default_factory=list)
     metric_ids: list[str] = field(default_factory=list)
+    posthog_table_ids: list[str] = field(default_factory=list)
     check_ids: list[str] = field(default_factory=list)
     node_ids: list[str] = field(default_factory=list)
     suite_run_id: str | None = None
@@ -63,3 +65,32 @@ class RunCheckSuiteInputs:
     created_by_id: int | None = None
     # Audits the staged folder rather than the published table. Needs exactly one saved query.
     staged_queryable_folder: str | None = None
+
+
+@dataclass(frozen=True)
+class MetricSubject:
+    id: UUID
+    name: str
+    display_name: str
+
+
+@dataclass(frozen=True)
+class SelectableSubject:
+    """One thing a caller may author a check on, with enough to fill a picker.
+
+    ``columns`` is empty for a metric, whose output columns come from running its query.
+    """
+
+    subject_type: str
+    id: str
+    name: str
+    display_name: str = ""
+    time_column: str = ""
+    columns: dict[str, str] = field(default_factory=dict)
+    editable: bool = True
+
+
+@dataclass(frozen=True)
+class OutputColumn:
+    name: str
+    type: str | None

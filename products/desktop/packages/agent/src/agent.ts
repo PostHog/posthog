@@ -4,6 +4,7 @@ import {
   mergePrUrls,
   readPrUrls,
 } from "@posthog/shared";
+import { isRetiredModel } from "@posthog/shared/model-catalog";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
@@ -20,7 +21,6 @@ import {
   DEFAULT_CODEX_MODEL,
   DEFAULT_GATEWAY_MODEL,
   fetchModelsList,
-  isBlockedModelId,
   type ModelInfo,
 } from "./gateway-models";
 import { PostHogAPIClient, type TaskRunUpdate } from "./posthog-api";
@@ -154,7 +154,7 @@ export class Agent {
 
     let codexModels: ModelInfo[] | undefined;
     let sanitizedModel =
-      options.model && !isBlockedModelId(options.model)
+      options.model && !isRetiredModel(options.model)
         ? options.model
         : undefined;
     if (codexSubscription) {
@@ -172,7 +172,6 @@ export class Agent {
         projectId: this.posthogApiConfig?.projectId,
       });
       const gatewayCodexModels = models.filter((model) => {
-        if (isBlockedModelId(model.id)) return false;
         if (model.owned_by) {
           return model.owned_by === "openai";
         }
@@ -309,7 +308,10 @@ export class Agent {
 
   async cleanup(): Promise<void> {
     if (this.sessionLogWriter && this.taskRunId) {
-      await this.sessionLogWriter.flush(this.taskRunId, { coalesce: true });
+      await this.sessionLogWriter.flush(this.taskRunId, {
+        coalesce: true,
+        retry: true,
+      });
     }
     await this.acpConnection?.cleanup();
   }

@@ -63,9 +63,11 @@ export interface issueActionsLogicActions {
     }
     mutationFailure: (
         mutationName: string,
-        error: unknown
+        error: unknown,
+        issueId?: string
     ) => {
         error: unknown
+        issueId: string | undefined
         mutationName: string
     }
     mutationSuccess: (mutationName: string) => {
@@ -89,7 +91,11 @@ export interface issueActionsLogicActions {
         }[]
         id: string
     }
-    splitIssueSuccess: (newIssueIds: string[]) => {
+    splitIssueSuccess: (
+        id: ErrorTrackingIssue['id'],
+        newIssueIds: string[]
+    ) => {
+        id: string
         newIssueIds: string[]
     }
     suppressIssues: (ids: string[]) => {
@@ -159,9 +165,9 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         updateIssueDescription: (id: string, description: string) => ({ id, description }),
         createIssueCohort: (id: string, name: string, description: string) => ({ id, name, description }),
 
-        splitIssueSuccess: (newIssueIds: string[]) => ({ newIssueIds }),
+        splitIssueSuccess: (id: ErrorTrackingIssue['id'], newIssueIds: string[]) => ({ id, newIssueIds }),
         mutationSuccess: (mutationName: string) => ({ mutationName }),
-        mutationFailure: (mutationName: string, error: unknown) => ({ mutationName, error }),
+        mutationFailure: (mutationName: string, error: unknown, issueId?: string) => ({ mutationName, error, issueId }),
         clearNeedsReload: true,
     }),
 
@@ -186,7 +192,8 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         async function runMutation(
             mutationName: string,
             cb: () => Promise<void>,
-            onSuccess?: () => Promise<void>
+            onSuccess?: () => Promise<void>,
+            issueId?: string
         ): Promise<void> {
             try {
                 await cb()
@@ -195,7 +202,7 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 }
                 actions.mutationSuccess(mutationName)
             } catch (e: unknown) {
-                actions.mutationFailure(mutationName, e)
+                actions.mutationFailure(mutationName, e, issueId)
             }
         }
         return {
@@ -213,11 +220,16 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 }
             },
             splitIssue: async ({ id, fingerprints }) => {
-                await runMutation('splitIssues', async () => {
-                    posthog.capture('error_tracking_issue_split', { issueId: id })
-                    const response = await api.errorTracking.split(id, fingerprints)
-                    actions.splitIssueSuccess(response.new_issue_ids)
-                })
+                await runMutation(
+                    'splitIssues',
+                    async () => {
+                        posthog.capture('error_tracking_issue_split', { issueId: id })
+                        const response = await api.errorTracking.split(id, fingerprints)
+                        actions.splitIssueSuccess(id, response.new_issue_ids)
+                    },
+                    undefined,
+                    id
+                )
             },
             resolveIssues: async ({ ids }) => {
                 await runMutation('resolveIssues', async () => {

@@ -2,13 +2,17 @@ from unittest.mock import MagicMock, patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation_media import ReplayObservationMedia
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
@@ -427,3 +431,80 @@ class TestReplayScannerAccessControl(_AccessControlTestCase):
         self.assertTrue(observation_reads, "expected the dock read to query the observation table")
         for sql in observation_reads:
             self.assertIn("session_id", sql, sql)
+
+    def test_detail_read_never_scans_the_observation_table(self) -> None:
+        # The snapshot path has no index, so any observation read not bound to the row or to a keyset
+        # scans the team's whole observation history.
+        self._set_resource_default("replay_scanner", "editor")
+        self._set_resource_default("session_recording", "editor")
+        scanner = self._create_scanner(name="detail")
+        observation = ReplayObservation.objects.create(
+            scanner=scanner, session_id="sess-1", scanner_snapshot=snapshot_for(scanner)
+        )
+        ReplayObservation.objects.create(scanner=scanner, session_id="sess-2", scanner_snapshot=snapshot_for(scanner))
+        urls = {
+            "flat": f"/api/environments/{self.team.id}/vision/observations/{observation.id}/",
+            "nested": f"{self.observations_url(str(scanner.id))}{observation.id}/",
+        }
+
+        self.client.force_login(self.other_user)
+        for label, url in urls.items():
+            with self.subTest(label):
+                self.client.get(url)  # warm request-scoped caches so the capture is the read itself.
+                with CaptureQueriesContext(connection) as queries:
+                    self.assertEqual(self.client.get(url).status_code, 200)
+
+                observation_reads = [
+                    q["sql"] for q in queries.captured_queries if 'FROM "replay_vision_replayobservation"' in q["sql"]
+                ]
+                self.assertTrue(observation_reads, "expected the detail read to query the observation table")
+                for sql in observation_reads:
+                    self.assertNotIn("SELECT DISTINCT", sql, sql)
+                    self.assertTrue(observation.id.hex in sql or sql.endswith("LIMIT 1"), sql)
+
+
+class TestObservationThumbnailAccessControl(_AccessControlTestCase):
+    """The frame is recording content, so denying the recording has to hide it."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._set_resource_default("session_recording", "editor")
+        self._set_resource_default("replay_scanner", "editor")
+        self.scanner = self._create_scanner()
+        self.observation = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id="sess-thumbnail",
+            status="succeeded",
+            completed_at=timezone.now(),
+            triggered_by="schedule",
+            scanner_snapshot=snapshot_for(self.scanner),
+        )
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            export_context={"observation_id": str(self.observation.id)},
+            content_location=f"replay-vision/media/team-{self.team.id}/{self.observation.id}/x.png",
+            is_system=True,
+        )
+        ReplayObservationMedia.objects.for_team(self.team.id).create(
+            observation=self.observation,
+            asset=asset,
+            kind=ReplayObservationMedia.Kind.THUMBNAIL,
+            position=0,
+            video_start_ms=1000,
+        )
+        self.recording = SessionRecording.objects.create(team=self.team, session_id=self.observation.session_id)
+        self.url = f"{self.observations_url(str(self.scanner.id))}{self.observation.id}/thumbnail/"
+
+    def test_a_reader_of_the_recording_gets_the_frame(self) -> None:
+        self.client.force_login(self.other_user)
+
+        self.assertEqual(self.client.get(self.url).status_code, 302)
+
+    def test_a_reader_denied_the_recording_does_not(self) -> None:
+        # Object-level access keys on the row id, which is what `check_access_level_for_object` reads.
+        self._grant_object_access(self.other_user, "session_recording", str(self.recording.id), "none")
+        self.client.force_login(self.other_user)
+
+        self.assertEqual(self.client.get(self.url).status_code, 404)

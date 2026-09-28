@@ -50,6 +50,7 @@ import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealth
 import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
+import { WebAnalyticsSavePresetNudge } from 'scenes/web-analytics/WebAnalyticsSavePresetNudge'
 import { WebAnalyticsShareColleagueBanner } from 'scenes/web-analytics/WebAnalyticsShareColleagueBanner'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
 import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
@@ -87,8 +88,8 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
     return (
         <div
             className={clsx(
-                'mt-4 grid grid-cols-1',
-                useTileHeaderV2 ? 'lg:grid-cols-2 2xl:grid-cols-3' : 'md:grid-cols-2 2xl:grid-cols-3',
+                'mt-4 pb-4 grid grid-cols-1',
+                'md:grid-cols-2 2xl:grid-cols-3',
                 useTileHeaderV2 && '2xl:grid-flow-dense',
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-4'
             )}
@@ -166,6 +167,8 @@ interface QueryTileItemVariantProps {
     docs?: QueryTile['docs']
 }
 
+const HEADERLESS_TILES = new Set<TileId>([TileId.OVERVIEW, TileId.WEB_VITALS])
+
 const QueryTileItemV2 = ({
     tile,
     containerClassName,
@@ -196,7 +199,7 @@ const QueryTileItemV2 = ({
                 showIntervalSelect={showIntervalSelect}
                 tileId={tile.tileId}
                 headerSlot={
-                    tile.tileId === TileId.OVERVIEW ? undefined : (
+                    HEADERLESS_TILES.has(tile.tileId) ? undefined : (
                         <WebTileHeader
                             tileId={tile.tileId}
                             title={title}
@@ -568,8 +571,8 @@ export const WebTabs = ({
 export const SectionTileItem = ({ tile, separator }: { tile: SectionTile; separator?: boolean }): JSX.Element => {
     return (
         <div className="col-span-full">
-            {tile.title && <h2 className="text-lg font-semibold mb-4">{tile.title}</h2>}
-            <div className={tile.layout.className ? `grid ${tile.layout.className} mb-4` : 'mb-4'}>
+            {tile.title && <h2 className="text-lg font-semibold mb-2">{tile.title}</h2>}
+            <div className={clsx('grid gap-2', tile.layout.className)}>
                 {tile.tiles.map((subTile, i) => {
                     if (subTile.kind === 'query') {
                         return (
@@ -877,6 +880,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         <Filters tabs={<></>} />
 
                         <WebAnalyticsShareColleagueBanner />
+                        <WebAnalyticsSavePresetNudge />
                         <ShareNudgePrompt />
                         <WebAnalyticsHealthCheck />
                         <MainContent />

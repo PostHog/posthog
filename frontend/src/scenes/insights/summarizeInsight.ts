@@ -8,8 +8,6 @@ import {
     getDisplayNameFromEntityNode,
     humanizePathsEventTypes,
 } from 'scenes/insights/utils'
-import { MathCategory, apiValueToMathType, mathsLogic } from 'scenes/trends/mathsLogic'
-import type { mathsLogicType } from 'scenes/trends/mathsLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import type { cohortsModelType } from '~/models/cohortsModel'
@@ -45,6 +43,12 @@ import { BreakdownKeyType, BreakdownType, EntityFilter, FilterType, FunnelVizTyp
 
 import { summarizeJourneys } from 'products/product_analytics/frontend/insights/journeys/journeysSummary'
 import { retentionOptions } from 'products/product_analytics/frontend/insights/retention/constants'
+import {
+    MathCategory,
+    apiValueToMathType,
+    mathsLogic,
+} from 'products/product_analytics/frontend/insights/trends/mathsLogic'
+import type { mathsLogicType } from 'products/product_analytics/frontend/insights/trends/mathsLogic'
 
 function summarizeSingularBreakdown(
     breakdown: BreakdownKeyType | undefined,

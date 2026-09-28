@@ -55,6 +55,14 @@ export const canvasDataResultSchema = z.object({
   //     through untouched so the canvas reads the native trends shape.
   // Hence `unknown` per element rather than `unknown[]`.
   results: z.array(z.unknown()),
+  hogql: z.string().optional(),
+  insight: z
+    .object({
+      name: z.string().nullable(),
+      kind: z.string().nullable(),
+      display: z.string().nullable(),
+    })
+    .optional(),
 });
 export type CanvasDataResult = z.infer<typeof canvasDataResultSchema>;
 
@@ -86,6 +94,12 @@ export const canvasLoadInsightInput = z.object({
   refresh: z.number().int().min(30).max(86_400).optional(),
 });
 export type CanvasLoadInsightInput = z.infer<typeof canvasLoadInsightInput>;
+
+export const savedInsightSchema = z.object({
+  shortId: z.string(),
+  name: z.string(),
+});
+export type SavedInsight = z.infer<typeof savedInsightSchema>;
 
 // Capture (write) avenue behind the `ph.capture` shim. The host sends the event
 // to the project using its PUBLIC project key (phc_…, safe to be client-side) —

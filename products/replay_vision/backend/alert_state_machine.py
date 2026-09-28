@@ -7,7 +7,7 @@ outcome via `apply_outcome`, the only function that mutates those two fields. Th
 rule at `.semgrep/rules/security/alert-state-must-go-through-state-machine.yaml` enforces
 this in CI.
 
-The decision logic lives in `products/alerts/backend/state_machine.py`, configured with
+The decision logic lives in `products/alerts/backend/facade/lifecycle.py`, configured with
 `VISION_ALERT_POLICY`; this module owns the vision-shaped inputs and the model mutation.
 """
 
@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from posthog.dataclasses import frozen
 
-from products.alerts.backend.state_machine import (
+from products.alerts.backend.facade.lifecycle import (
     MAX_CONSECUTIVE_FAILURES,
     AlertCheckOutcome,
     AlertPolicy,

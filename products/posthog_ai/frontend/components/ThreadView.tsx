@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { type ReactNode, memo, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
@@ -53,6 +53,7 @@ function estimateThreadItemHeight(item: ThreadDisplayItem): number {
 }
 
 interface ThreadViewProps {
+    scrollRestorationKey?: string
     /**
      * Pass `false` when an ancestor already owns scroll (the live Max column + auto-scroller) — rows then
      * render in document flow, unchanged from the pre-virtualized layout. Defaults to virtualized.
@@ -85,6 +86,7 @@ interface ThreadViewProps {
  * header/footer rows.
  */
 export function ThreadView({
+    scrollRestorationKey,
     virtualized = true,
     showContextUsage = false,
     renderTurnTrailer,
@@ -254,6 +256,8 @@ export function ThreadView({
 
     return (
         <VirtualizedThread.Root
+            key={scrollRestorationKey}
+            scrollRestorationKey={scrollRestorationKey}
             items={displayItems}
             getItemKey={getThreadItemKey}
             estimateItemHeight={estimateThreadItemHeight}
@@ -315,11 +319,14 @@ const ThreadFooter = memo(function ThreadFooter({
     // `runConnectionState` is self-subscribed here (like `currentProgress`) so the frequently-updating
     // reconnect attempt counter stays isolated to this leaf and never destabilizes `ThreadView`'s footer.
     const { currentProgress, runConnectionState } = useValues(runStreamLogic)
+    const { retryConnection } = useActions(runStreamLogic)
     // `gap-1.5` matches the thread's inter-row gap (`VirtualizedThread`'s `gap` default) so stacked footer
     // items keep the same vertical rhythm as the thread.
     return (
         <div className="flex flex-col gap-1.5">
-            {showConnectionStatus && runConnectionState && <RunAlertActivity {...runConnectionState} />}
+            {showConnectionStatus && runConnectionState && (
+                <RunAlertActivity {...runConnectionState} onRetry={retryConnection} />
+            )}
             {showThinking && (
                 <ThinkingIndicator
                     progress={thinkingPhase === 'provisioning' ? null : currentProgress}

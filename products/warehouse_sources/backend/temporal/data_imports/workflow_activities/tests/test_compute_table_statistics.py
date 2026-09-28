@@ -2,6 +2,7 @@ import json
 import uuid
 import datetime as dt
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -214,6 +215,37 @@ class TestComputeTableStatisticsSync:
         assert result["status"] == "done"
         assert mock_upsert.call_count == 2
 
+    def test_recovers_from_deadlock_on_team_lookup(self) -> None:
+        # The Team/Organization join at the top of the activity can lose a Postgres deadlock race
+        # against an unrelated writer of either table. It's a plain read, so retrying it must
+        # recover instead of failing the whole activity (and reaching error tracking) over a race
+        # that clears on its own.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        add_actions = pa.table({"num_records": [1], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        real_select_related = comp.Team.objects.select_related
+        lookups: list[tuple[Any, ...]] = []
+
+        def select_related_losing_first_deadlock(*fields: Any) -> Any:
+            lookups.append(fields)
+            if len(lookups) == 1:
+                raise OperationalError("deadlock detected")
+            return real_select_related(*fields)
+
+        with (
+            patch.object(comp.Team.objects, "select_related", side_effect=select_related_losing_first_deadlock),
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
+            patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry.time.sleep"),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry.close_old_connections"
+            ),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        assert len(lookups) == 2
+
     def test_job_reuses_prefetched_schema_to_avoid_lazy_query(self) -> None:
         # job is fetched without select_related("schema"), so job.folder_path() (which reads
         # job.schema.source.source_type) would otherwise fire a lazy SELECT on a pooled connection a
@@ -294,6 +326,17 @@ class TestComputeTableStatisticsSync:
             WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id, column_name="amount").row_count
             == 7
         )
+
+    def test_skipped_when_team_deleted(self) -> None:
+        # The gate that decides whether to start this child workflow runs in an earlier activity;
+        # the team can be deleted in the gap before this one runs. That must skip like the other
+        # not-found cases here, not raise Team.DoesNotExist into the activity's error-tracking path.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team)
+        deleted_team_id = team.id
+        team.delete()
+        result = compute_table_statistics_sync(deleted_team_id, schema.id)
+        assert result == {"status": "skipped", "reason": "team_deleted"}
 
     def test_skipped_when_no_table(self) -> None:
         team = self._team()

@@ -172,8 +172,16 @@ test.describe('Quick create survey from feature flag', () => {
         await clickCreateSurvey(page, name)
 
         // add event — the beforeEach seeds a recent $autocapture event, so its definition shows
-        // as "Autocapture" in the picker's Events list (no search needed).
+        // as "Autocapture" in the picker's Events list after choosing that category.
         await page.locator('.LemonButton').getByText('Add event').click()
+        const categoryDropdown = page.getByTestId('taxonomic-category-dropdown-trigger-pill')
+        await expect(categoryDropdown).toBeVisible()
+        await categoryDropdown.click()
+
+        const eventsCategory = page.getByTestId('taxonomic-category-dropdown-item-events')
+        await expect(eventsCategory).toBeVisible()
+        await eventsCategory.click()
+
         const autocaptureOption = page.locator('span[aria-label="Autocapture"]').getByText('Autocapture')
         await expect(autocaptureOption).toBeVisible()
         await autocaptureOption.click()

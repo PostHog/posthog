@@ -422,6 +422,7 @@ describe('FrontierPublisher', () => {
             key: `imageurl:${'a'.repeat(22)}`,
             value: Buffer.from('image'),
             headers: {
+                ai_research_ingestion_version: '1',
                 'content-type': 'image/png',
                 'content-encoding': 'gzip',
                 'capture-timestamp-ms': '1700000000000',

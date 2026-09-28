@@ -6,6 +6,8 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { urls } from 'scenes/urls'
 
 import { TaskExecutionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -138,7 +140,14 @@ export const taskLogic = kea<taskLogicType>([
                     // defaults to `{}`, which drops "For you"'s scout exclusion (and any other
                     // filter) and shows the whole visible set until the next filter/search change.
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks(logic.values.taskListParams))
-                    router.actions.push('/tasks')
+                    // The archived task has no page left, so send the user to the list of the host they
+                    // are already in: the task page came from `/tasks`, but the shared AI workspace
+                    // renders the same detail under `/ai` and must not eject them to another product.
+                    router.actions.push(
+                        removeProjectIdIfPresent(router.values.location.pathname) === urls.ai()
+                            ? urls.ai()
+                            : urls.taskTracker()
+                    )
                     return null
                 },
                 updateTask: async ({ data }: { data: TaskUpsertProps }) => {
@@ -176,10 +185,27 @@ export const taskLogic = kea<taskLogicType>([
             },
         ],
     }),
-    listeners(({ props, values }) => ({
+    listeners(({ props, values, actions }) => ({
         loadTaskSuccess: () => {
             if (values.task) {
                 tasksLogic.findMounted()?.actions.updateTask(values.task)
+            }
+        },
+        // The sidebar rename writes through tasksLogic, so mirror the result onto this detail
+        // logic. Without it the header keeps the old title until the next full load.
+        [tasksLogic.actionTypes.renameTaskSuccess]: ({
+            tasks,
+            payload,
+        }: {
+            tasks: Task[]
+            payload?: { taskId: string; title: string }
+        }) => {
+            if (payload?.taskId !== props.taskId) {
+                return
+            }
+            const renamed = tasks.find((task) => task.id === props.taskId)
+            if (renamed) {
+                actions.loadTaskSuccess(renamed)
             }
         },
         runTaskSuccess: () => {
@@ -198,6 +224,10 @@ export const taskLogic = kea<taskLogicType>([
             if (values.task) {
                 tasksLogic.findMounted()?.actions.updateTask(values.task)
             }
+        },
+        // The title field keeps what the user typed, so without this a rejected rename reads as saved.
+        updateTaskFailure: ({ error, errorObject }) => {
+            lemonToast.error(loadErrorMessage(error, errorObject) || "Couldn't save the task. Try again.")
         },
     })),
 ])

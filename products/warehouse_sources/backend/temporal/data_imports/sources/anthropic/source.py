@@ -1,15 +1,13 @@
 from collections import defaultdict
 from typing import Optional, cast
 
-from posthog.schema import (
+from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.anthropic import (
     AnthropicResumeConfig,
     anthropic_source,
@@ -56,10 +54,10 @@ class AnthropicSource(ResumableSource[AnthropicSourceConfig, AnthropicResumeConf
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
-            name=SchemaExternalDataSourceType.ANTHROPIC,
+            name=ExternalDataSourceType.ANTHROPIC,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Anthropic",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Anthropic Admin API key to pull your organization's Claude usage, cost, and admin data into the PostHog Data warehouse.
 
 Create an Admin API key (prefixed `sk-ant-admin...`) in your [Anthropic Console](https://console.anthropic.com/settings/admin-keys). Only organization admins can create one, and the Admin API is not available for individual accounts.

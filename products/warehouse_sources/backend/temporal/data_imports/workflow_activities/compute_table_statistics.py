@@ -41,6 +41,9 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import clean_type
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
+    retry_on_operational_error,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -164,6 +167,11 @@ def _most_recent_computed_at(existing: dict[str, WarehouseColumnStatistics]) -> 
     return max(times) if times else None
 
 
+@retry_on_operational_error
+def _get_team(team_id: int) -> Team:
+    return Team.objects.select_related("organization").only("id", "uuid", "organization_id").get(id=team_id)
+
+
 def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str, Any]:
     """Compute and persist per-column statistics for one warehouse table. Safe to re-run."""
     # Lazy: DeltaTableRef drags deltalake/pyarrow/dlt — keep them off the flag-check import path that
@@ -176,7 +184,16 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     log = logger.bind(team_id=team_id, schema_id=str(schema_id))
 
-    team = Team.objects.select_related("organization").only("id", "uuid", "organization_id").get(id=team_id)
+    # A plain read, so it's safe to retry outright on the Team/Organization join losing a
+    # Postgres deadlock race against an unrelated writer of either table. The team can also be
+    # legitimately gone by the time this fire-and-forget child workflow runs (deleted between the
+    # post-import gate check and now) — that's not a bug, so skip like the other not-found cases
+    # below rather than let DoesNotExist reach the activity's except block and error tracking.
+    try:
+        team = _get_team(team_id)
+    except Team.DoesNotExist:
+        log.info("warehouse_statistics.skipped", reason="team_deleted")
+        return {"status": "skipped", "reason": "team_deleted"}
     event_props: dict[str, Any] = {"schema_id": str(schema_id)}
 
     def emit_completed(status: str, **props: Any) -> None:

@@ -80,6 +80,7 @@ class TestConversationsLearningProvider(BaseTest):
         assert refs[0].ticket_number == 1
         assert refs[0].source_team_id == self.team.id
         assert refs[0].resolution_comment_id == comment.id
+        assert refs[0].revision_at == comment.created_at
         assert refs[0].evidence_key == evidence_key_for(ticket.id, comment.id)
         assert bundle is not None
         assert bundle.replies == ("The limit is 1000",)

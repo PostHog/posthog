@@ -218,6 +218,69 @@ async function streamLiveText(
 }
 
 describe("assembled assistant text fallback", () => {
+  it("forwards partial tool inputs without retaining snapshots in session history", async () => {
+    const { context, updates } = createHandlerContext();
+    await handleStreamEvent(
+      streamEvent({
+        type: "content_block_start",
+        index: 0,
+        content_block: {
+          type: "tool_use",
+          id: "tool-1",
+          name: "Bash",
+          input: {},
+        },
+      }),
+      context,
+    );
+    for (const partial_json of ['{"command":"echo ', "hello ", 'world"}']) {
+      await handleStreamEvent(
+        streamEvent({
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "input_json_delta", partial_json },
+        }),
+        context,
+      );
+    }
+    await handleStreamEvent(
+      streamEvent({ type: "content_block_stop", index: 0 }),
+      context,
+    );
+
+    expect(updates.slice(-3).map(({ update }) => update)).toMatchObject([
+      { sessionUpdate: "tool_call_update", rawInput: { command: "echo" } },
+      {
+        sessionUpdate: "tool_call_update",
+        rawInput: { command: "echo hello" },
+      },
+      {
+        sessionUpdate: "tool_call_update",
+        rawInput: { command: "echo hello world" },
+      },
+    ]);
+    expect(context.session.notificationHistory).toEqual([]);
+    updates.length = 0;
+
+    await handleUserAssistantMessage(
+      assistantMessage("msg_1", [
+        {
+          type: "tool_use",
+          id: "tool-1",
+          name: "Bash",
+          input: { command: "echo hello world" },
+        },
+      ]),
+      context,
+    );
+
+    expect(updates).toHaveLength(1);
+    expect(updates[0].update).toMatchObject({
+      rawInput: { command: "echo hello world" },
+    });
+    expect(context.session.notificationHistory).toEqual(updates);
+  });
+
   it.each([false, true])(
     "preserves the MCP result metadata in ACP and stored notifications (isError=%s)",
     async (isError) => {

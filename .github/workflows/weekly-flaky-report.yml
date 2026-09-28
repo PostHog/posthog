@@ -5,7 +5,7 @@ name: Weekly flaky test report
 # engineering_analytics product's flaky_tests endpoint and relays a channel
 # table plus per-team thread slices to Slack via the DevEx bot — it does not
 # re-derive the flake signal. Owner
-# attribution runs in the script through the tools/owners resolver, which is why
+# attribution runs in the script through the packages/owners-yaml resolver, which is why
 # the sparse checkout includes the ownership files.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
@@ -34,7 +34,7 @@ permissions:
 
 jobs:
     report:
-        runs-on: ubuntu-latest
+        runs-on: ubuntu-24.04
         # Worst case mirrors the digest: 3 endpoint attempts x 150s abort plus 2 x 30s
         # backoffs (~8.5min), plus checkout and owner resolution.
         timeout-minutes: 12
@@ -50,7 +50,7 @@ jobs:
                       .github/scripts/weekly-flaky-report.mjs
                       .github/scripts/weekly-report-common.mjs
                       .nvmrc
-                      tools/owners
+                      packages/owners-yaml
                       owners.yaml
                       **/owners.yaml
                       **/product.yaml

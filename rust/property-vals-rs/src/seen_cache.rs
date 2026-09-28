@@ -1,6 +1,11 @@
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use quick_cache::{sync, DefaultHashBuilder, Lifecycle, UnitWeighter};
 
-use crate::metrics_consts::{SEEN_CACHE_EVICTED, SEEN_CACHE_HITS, SEEN_CACHE_MISSES};
+use crate::metrics_consts::{
+    SEEN_CACHE_EVICTED, SEEN_CACHE_HITS, SEEN_CACHE_MISSES, SEEN_CACHE_ROLLS,
+};
 use crate::types::TupleKey;
 
 #[derive(Clone)]
@@ -23,6 +28,14 @@ type Inner = sync::Cache<TupleKey, (), UnitWeighter, DefaultHashBuilder, Evictin
 pub struct SeenCache {
     cache: Inner,
     worker: &'static str,
+    day: AtomicU64,
+}
+
+pub fn utc_day() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|since_epoch| since_epoch.as_secs() / 86_400)
+        .unwrap_or(0)
 }
 
 impl SeenCache {
@@ -34,7 +47,19 @@ impl SeenCache {
             DefaultHashBuilder::default(),
             EvictingLifecycle { worker },
         );
-        Self { cache, worker }
+        Self {
+            cache,
+            worker,
+            day: AtomicU64::new(utc_day()),
+        }
+    }
+
+    pub fn roll(&self, day: u64) {
+        if self.day.swap(day, Ordering::AcqRel) == day {
+            return;
+        }
+        self.cache.clear();
+        metrics::counter!(SEEN_CACHE_ROLLS, "worker" => self.worker).increment(1);
     }
 
     pub fn seen(&self, key: &TupleKey) -> bool {
@@ -49,5 +74,33 @@ impl SeenCache {
 
     pub fn insert(&self, key: &TupleKey) {
         self.cache.insert(key.clone(), ());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::PropertyType;
+
+    fn tuple(value: &str) -> TupleKey {
+        TupleKey {
+            team_id: 2,
+            property_type: PropertyType::Event,
+            property_key: "$browser".to_string(),
+            property_value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn roll_clears_entries_only_when_the_day_changes() {
+        let cache = SeenCache::new(1000, "test");
+        cache.roll(100);
+        cache.insert(&tuple("Chrome"));
+
+        cache.roll(100);
+        assert!(cache.seen(&tuple("Chrome")), "same day keeps entries");
+
+        cache.roll(101);
+        assert!(!cache.seen(&tuple("Chrome")), "new day clears entries");
     }
 }

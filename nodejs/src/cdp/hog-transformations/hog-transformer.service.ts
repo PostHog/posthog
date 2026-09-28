@@ -190,6 +190,7 @@ export class HogTransformerService implements HogTransformer {
             // Check if function has filters - if not, always apply
             if (hogFunction.filters?.bytecode) {
                 const filterResults = await filterFunctionInstrumented({
+                    caller: 'transformation',
                     fn: hogFunction,
                     filters: hogFunction.filters,
                     filterGlobals,

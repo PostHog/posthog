@@ -20,11 +20,8 @@ from .materialize_view_managed_warehouse import (
     ManagedWarehouseShadowEligibilityInputs,
     ManagedWarehouseShadowInputs,
     ManagedWarehouseShadowResult,
-    check_duckgres_shadow_eligibility_activity,
-    check_duckgres_shadow_enabled_activity,
     check_managed_warehouse_shadow_eligibility_activity,
     check_managed_warehouse_shadow_enabled_activity,
-    materialize_view_duckgres_activity,
     materialize_view_managed_warehouse_activity,
 )
 from .notify_materialization_failure import (
@@ -71,8 +68,6 @@ __all__ = [
     "StageQueryableFilesResult",
     "SucceedMaterializationInputs",
     "SucceedMaterializationResult",
-    "check_duckgres_shadow_eligibility_activity",
-    "check_duckgres_shadow_enabled_activity",
     "check_managed_warehouse_shadow_eligibility_activity",
     "check_managed_warehouse_shadow_enabled_activity",
     "clear_cdp_staging_activity",
@@ -82,7 +77,6 @@ __all__ = [
     "fail_materialization_activity",
     "notify_dag_materialization_failures_activity",
     "materialize_view_activity",
-    "materialize_view_duckgres_activity",
     "materialize_view_managed_warehouse_activity",
     "get_dag_structure_activity",
     "preempt_dag_run_activity",

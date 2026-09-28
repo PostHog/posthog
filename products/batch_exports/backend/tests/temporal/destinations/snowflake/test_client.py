@@ -35,7 +35,7 @@ pytestmark = [
 
 
 @pytest_asyncio.fixture
-async def snowflake_client(snowflake_config, database, schema):
+async def snowflake_client(snowflake_export_config, snowflake_integration_credentials, database, schema):
     """Create a SnowflakeClient with a test database and schema set up and cleaned up after tests."""
 
     inputs = SnowflakeInsertInputs(
@@ -45,10 +45,12 @@ async def snowflake_client(snowflake_config, database, schema):
         ).isoformat(),  # not important for this test
         data_interval_end=(dt.datetime.now(dt.UTC)).isoformat(),  # not important for this test
         table_name="test_table",  # not important for this test
-        **snowflake_config,
+        **snowflake_export_config,
     )
 
-    async with SnowflakeClient.from_inputs(inputs).connect(use_namespace=False) as client:
+    async with SnowflakeClient.from_integration(snowflake_integration_credentials, inputs).connect(
+        use_namespace=False
+    ) as client:
         # Set up: Create database and schema
         await client.execute_async_query(f'CREATE DATABASE IF NOT EXISTS "{database}"', fetch_results=False)
         await client.execute_async_query(f'CREATE SCHEMA IF NOT EXISTS "{database}"."{schema}"', fetch_results=False)

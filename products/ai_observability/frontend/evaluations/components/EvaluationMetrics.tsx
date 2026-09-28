@@ -78,7 +78,8 @@ export function EvaluationMetrics(): JSX.Element {
                 ) : (
                     <div className="flex-1 bg-bg-light border rounded p-8 flex items-center justify-center">
                         <div className="text-muted text-center">
-                            No enabled evaluations to display. Create and enable evaluations to see metrics.
+                            No enabled evaluations with pass rates. Enable a boolean evaluation or set a passing
+                            threshold on a numeric evaluation.
                         </div>
                     </div>
                 )}
@@ -100,9 +101,13 @@ export function EvaluationMetrics(): JSX.Element {
                             />
                             <SummaryCard
                                 title="Pass rate"
-                                value={summaryMetrics.total_runs === 0 ? 'N/A' : `${summaryMetrics.overall_pass_rate}%`}
+                                value={
+                                    summaryMetrics.overall_pass_rate == null
+                                        ? 'N/A'
+                                        : `${summaryMetrics.overall_pass_rate}%`
+                                }
                                 colorClass={
-                                    summaryMetrics.total_runs > 0
+                                    summaryMetrics.overall_pass_rate != null
                                         ? getPassRateColor(summaryMetrics.overall_pass_rate)
                                         : ''
                                 }

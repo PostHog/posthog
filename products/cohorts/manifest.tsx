@@ -14,6 +14,7 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/feature_flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
     },
     urls: {

@@ -226,7 +226,7 @@ export const getAlertsSimulateCreateUrl = (projectId: string) => {
 }
 
 /**
- * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
+ * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
  */
 export const alertsSimulateCreate = async (
     projectId: string,

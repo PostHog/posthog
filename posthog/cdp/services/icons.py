@@ -36,7 +36,8 @@ _DEFAULT_TEAM_HOURLY_BUDGET = 1_000
 def _team_budget_policy(key: str) -> RatePolicy:
     per_minute = int(getattr(settings, "CDP_ICONS_TEAM_PER_MINUTE_BUDGET", _DEFAULT_TEAM_PER_MINUTE_BUDGET))
     hourly = int(getattr(settings, "CDP_ICONS_TEAM_HOURLY_BUDGET", _DEFAULT_TEAM_HOURLY_BUDGET))
-    return RatePolicy(limits=((per_minute, 60.0), (hourly, 3600.0)), in_memory_divider=4)
+    # Flat: each team's budget has one caller on one lane, so no higher lane needs reserved headroom.
+    return RatePolicy(limits=((per_minute, 60.0), (hourly, 3600.0)), in_memory_divider=4, reserve={})
 
 
 register_policy(_TEAM_BUDGET_DOMAIN, _team_budget_policy)

@@ -46,9 +46,10 @@ import type { Task } from "@posthog/shared/domain-types";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useSmoothedText } from "@posthog/ui/features/editor/components/useSmoothedText";
 import { hasUiAppResult } from "@posthog/ui/features/mcp-apps/hasUiAppResult";
-import type {
-  BuildResult,
-  ConversationItem,
+import {
+  type BuildResult,
+  type ConversationItem,
+  hasSetupProgressForRun,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import {
   ChatMarkdown,
@@ -129,6 +130,7 @@ import {
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { SkillButtonActionMessage } from "@posthog/ui/features/skill-buttons/components/SkillButtonActionMessage";
+import { useDebouncedValue } from "@posthog/ui/primitives/hooks/useDebouncedValue";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { track } from "@posthog/ui/shell/analytics";
@@ -660,6 +662,8 @@ function MessageContextMenu({
   );
 }
 
+const GROWING_TEXT_SETTLE_MS = 500;
+
 /**
  * Start-aligned assistant prose bubble. Streamed tokens arrive in bursts; `useSmoothedText` reveals
  * them at a steady character rate so the text reads as even typing (text present on mount shows
@@ -677,6 +681,10 @@ const AgentProse = memo(function AgentProse({
   isStreaming?: boolean;
 }) {
   const smoothed = useSmoothedText(text);
+  const { isPending: growing } = useDebouncedValue(
+    text,
+    GROWING_TEXT_SETTLE_MS,
+  );
 
   return (
     <MessageContextMenu value={text}>
@@ -684,7 +692,7 @@ const AgentProse = memo(function AgentProse({
         <ChatMessageContent className="gap-1">
           <ChatBubble variant="ghost">
             <ChatBubbleContent>
-              {isStreaming ? (
+              {isStreaming || growing ? (
                 <ChatStreamingMarkdown content={smoothed} renderObjectTags />
               ) : (
                 <ChatMarkdown content={text} renderObjectTags />
@@ -1324,6 +1332,10 @@ export function ChatThread({
 
 export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
   const showDebugLogs = useSettingsStore((state) => state.debugLogsCloudRuns);
+  const currentRunId = useSessionSelector(
+    props.taskId,
+    (session) => session?.taskRunId,
+  );
   const { items, ...footerState } = useConversationItems(
     events,
     props.isPromptPending,
@@ -1339,6 +1351,7 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
         {...props}
         conversationItems={items}
         footerState={footerState}
+        hasCurrentSetupProgress={hasSetupProgressForRun(events, currentRunId)}
       />
     </RawLogsToggleContext.Provider>
   );
@@ -1347,6 +1360,7 @@ export function AcpChatThread({ events, ...props }: AcpChatThreadProps) {
 interface ChatThreadRendererProps extends SharedChatThreadProps {
   conversationItems: ConversationItem[];
   footerState: Omit<BuildResult, "items">;
+  hasCurrentSetupProgress?: boolean;
 }
 
 function ChatThreadRenderer({
@@ -1358,6 +1372,7 @@ function ChatThreadRenderer({
   task,
   taskId,
   footerState,
+  hasCurrentSetupProgress = false,
   hasPendingPermission,
   currentWork,
   promptRecallRef,
@@ -1482,6 +1497,7 @@ function ChatThreadRenderer({
         task={task}
         taskId={taskId}
         footerState={footerState}
+        hasCurrentSetupProgress={hasCurrentSetupProgress}
         hasPendingPermission={hasPendingPermission}
         currentWork={currentWork}
       />

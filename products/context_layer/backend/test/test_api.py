@@ -737,6 +737,27 @@ class TestContextLayerAPI(APIBaseTest):
         )
         assert read.status_code == 200, read.content
 
+        content = read.json()["content"]
+        params = {"path": f"projects/{self.team.id}/spaces/growth.md", "limit": "23"}
+        chunks: list[str] = []
+        while True:
+            response = self.client.get(f"{self.agent_url}/pages/", params, HTTP_AUTHORIZATION=f"Bearer {token}")
+            assert response.status_code == 200, response.content
+            page = response.json()
+            chunks.append(page["content"])
+            assert len(page["content"]) <= 23
+            if page["next_offset"] is None:
+                assert page["complete"] is True
+                break
+            params.update(offset=page["next_offset"], head_sha=page["head_sha"])
+        assert "".join(chunks) == content
+        stale = self.client.get(
+            f"{self.agent_url}/pages/",
+            {**params, "head_sha": "0" * 40},
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        assert stale.status_code == 409, stale.content
+
         updated = self.client.put(
             f"{self.agent_url}/pages/",
             {
@@ -807,7 +828,7 @@ class TestContextLayerAPI(APIBaseTest):
         task = apps.get_model("tasks", "Task").objects.create(
             team=self.team, created_by=self.user, title="Wiki maintenance", internal=True
         )
-        apps.get_model("tasks", "TaskRun").objects.create(
+        run = apps.get_model("tasks", "TaskRun").objects.create(
             task=task,
             team=self.team,
             status="in_progress",
@@ -832,6 +853,7 @@ class TestContextLayerAPI(APIBaseTest):
 
         with patch.object(views, "RUN_COMMITS_PER_DAY_CAP", 1):
             assert land("areas/first.md").status_code == 200
+            assert dreams.list_dream_runs(self.organization.id).dreams[0].task_run_id == str(run.id)
             capped = land("areas/second.md")
         assert capped.status_code == 429
 
@@ -1110,6 +1132,62 @@ class TestContextLayerAPI(APIBaseTest):
 
     def test_dreams_404_before_enablement(self, _flag) -> None:
         assert self.client.get(f"{self.base_url}/dreams/").status_code == 404
+
+    @parameterized.expand(["completed", "failed", "cancelled"])
+    @override_settings(SITE_URL="https://example.com")
+    def test_dreams_shows_a_finished_run_without_a_published_update(self, _flag: MagicMock, status: str) -> None:
+        self._enable()
+        task = apps.get_model("tasks", "Task").objects.create(
+            team=self.team, created_by=self.user, title="Wiki maintenance", internal=True
+        )
+        latest = apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=self.team,
+            status=status,
+            environment="cloud",
+            state={"ai_stage": dreams.DREAM_AI_STAGE},
+        )
+        branch = "dream/2026-08-18"
+        views.facade.land_dream_branch(
+            self.organization.id,
+            self._bundle_with_edit("areas/dreamt.md", _page("Dreamt"), branch),
+            branch=branch,
+            task_run_id=uuid4(),
+        )
+        active = apps.get_model("tasks", "TaskRun").objects.create(
+            task=task,
+            team=self.team,
+            status="in_progress",
+            environment="cloud",
+            state={"ai_stage": dreams.DREAM_AI_STAGE},
+        )
+
+        for _ in range(2):
+            response = self.client.get(f"{self.base_url}/dreams/")
+            assert response.status_code == 200, response.content
+            assert response.json()["unpublished_run"] == {
+                "task_url": f"https://example.com/project/{self.team.id}/tasks/{task.id}",
+                "run_status": status,
+                "started_at": latest.created_at.isoformat().replace("+00:00", "Z"),
+            }
+            assert response.json()["active_run"] == {
+                "run_status": "in_progress",
+                "started_at": active.created_at.isoformat().replace("+00:00", "Z"),
+            }
+
+        branch = "dream/2026-08-19"
+        views.facade.land_dream_branch(
+            self.organization.id,
+            self._bundle_with_edit("areas/published.md", _page("Published"), branch),
+            branch=branch,
+            summary="Recorded a context update.",
+            task_run_id=latest.id,
+        )
+        for _ in range(2):
+            assert self.client.get(f"{self.base_url}/dreams/").json()["unpublished_run"] is None
+        assert (
+            self.client.get(f"{self.base_url}/dreams/").json()["dreams"][0]["summary"] == "Recorded a context update."
+        )
 
     def test_dream_returns_the_runs_per_file_patches(self, _flag) -> None:
         self._enable()

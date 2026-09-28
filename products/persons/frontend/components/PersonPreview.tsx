@@ -1,0 +1,122 @@
+import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
+
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { Spinner } from 'lib/lemon-ui/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
+import { urls } from 'scenes/urls'
+
+import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket'
+
+import { personLogic } from '../logics/personLogic'
+import { asDisplay, pickBestPersonDistinctId } from '../person-utils'
+
+export type PersonPreviewProps = {
+    distinctId?: string
+    personId?: string
+    onClose?: () => void
+}
+
+export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
+    if (!props.distinctId && !props.personId) {
+        return null
+    }
+    return <PersonPreviewInner {...props} />
+}
+
+function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
+    const logicProps = { id: props.personId, distinctId: props.distinctId }
+    const { person, personLoading } = useValues(personLogic(logicProps))
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (personLoading) {
+        return <Spinner />
+    }
+
+    // NOTE: This can happen if the Person was deleted or the events associated with the distinct_id had person processing disabled
+    if (!person) {
+        const eventsQuery = getDefaultEventsSceneQuery([
+            {
+                type: PropertyFilterType.EventMetadata,
+                key: 'distinct_id',
+                value: props.distinctId,
+                operator: PropertyOperator.Exact,
+            },
+        ])
+        const eventsUrl = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
+        return (
+            <div className="p-2 max-w-160">
+                <h4>No profile associated with this ID</h4>
+                <p>
+                    Person profiles allow you to see a detailed view of a Person's user properties, track users across
+                    devices, and more. To create person profiles, see{' '}
+                    <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles">here.</Link>
+                </p>
+                <div className="flex justify-center mt-2 w-fit">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        to={eventsUrl}
+                        tooltip={`View events matching distinct_id=${props.distinctId}`}
+                    >
+                        View events
+                    </LemonButton>
+                </div>
+            </div>
+        )
+    }
+
+    const display = asDisplay(person)
+    const bestDistinctId = pickBestPersonDistinctId(person?.distinct_ids)
+    const url = urls.personByDistinctId(bestDistinctId ?? person?.distinct_ids[0])
+
+    return (
+        <div className="flex flex-col overflow-hidden max-h-80 max-w-160 gap-2">
+            <div className="flex items-center justify-between min-h-10 px-2">
+                <Link to={url} className="flex gap-2 items-center flex-1">
+                    <ProfilePicture name={display} /> <span className="font-semibold">{display}</span>
+                </Link>
+
+                <NotebookSelectButton
+                    resource={{
+                        type: NotebookNodeType.Person,
+                        attrs: { id: person?.uuid },
+                    }}
+                    onNotebookOpened={() => props.onClose?.()}
+                    size="small"
+                />
+                {featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_CREATE_TICKET] && (
+                    <ComposeTicketButton
+                        size="small"
+                        type="tertiary"
+                        iconOnly
+                        distinctId={bestDistinctId}
+                        email={typeof person?.properties?.email === 'string' ? person.properties.email : undefined}
+                        onCompose={() => props.onClose?.()}
+                    />
+                )}
+                <LemonButton size="small" icon={<IconOpenInNew />} to={url} targetBlank tooltip="Open in new tab" />
+            </div>
+
+            <ScrollableShadows direction="vertical">
+                <PropertiesTable
+                    properties={person.properties}
+                    type={PropertyDefinitionType.Person}
+                    sortProperties
+                    embedded={false}
+                />
+            </ScrollableShadows>
+        </div>
+    )
+}

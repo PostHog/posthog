@@ -664,6 +664,8 @@ async fn extracts_metadata_from_exceptions(db: PgPool) {
         mechanism_type: None,
         source: None,
         synthetic: None,
+        exception_id: None,
+        parent_id: None,
     });
     let input = make_event_with_options(vec![exception], None, Some(true));
 
