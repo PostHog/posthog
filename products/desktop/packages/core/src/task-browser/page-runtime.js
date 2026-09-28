@@ -29,6 +29,9 @@ export function pageKit() {
     return style.visibility !== "hidden" && style.display !== "none";
   };
 
+  const ACTIONABLE =
+    "a[href],button,input,select,textarea,summary,label,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch]";
+
   const clean = (text, max) => {
     const value = (text || "").replace(/\s+/g, " ").trim();
     return value.length > max ? `${value.slice(0, max - 1)}…` : value;
@@ -41,7 +44,25 @@ export function pageKit() {
 
   const formOf = (element) => element.form ?? element.closest?.("form") ?? null;
 
-  const formFields = (form) => [...form.elements].filter(isField);
+  const formFields = (form) => [
+    ...[...form.elements].filter(isField),
+    ...form.querySelectorAll("[contenteditable]:not([contenteditable=false])"),
+  ];
+
+  const labelText = (element) =>
+    [...(element.labels || [])].map((label) => label.innerText).join(" ");
+
+  const labelledByText = (element) =>
+    (element.getAttribute("aria-labelledby") || "")
+      .split(/\s+/)
+      .map((id) => (id ? document.getElementById(id)?.innerText : ""))
+      .filter(Boolean)
+      .join(" ");
+
+  const labelOf = (element) =>
+    element.getAttribute("aria-label") ||
+    labelledByText(element) ||
+    labelText(element);
 
   const autocompleteOf = (field) =>
     (field.getAttribute("autocomplete") || "").toLowerCase();
@@ -55,8 +76,14 @@ export function pageKit() {
 
   const isPayment = (field) =>
     isField(field) &&
-    /cc-|card|cvc|cvv|iban|expiry|exp-/i.test(
-      `${autocompleteOf(field)} ${field.name || ""} ${field.id || ""}`,
+    /cc-|card|cvc|cvv|iban|expir|exp-|security code/i.test(
+      [
+        autocompleteOf(field),
+        field.name,
+        field.id,
+        field.getAttribute("placeholder"),
+        labelOf(field),
+      ].join(" "),
     );
 
   const isSecret = (field) => isPasswordField(field) || isPayment(field);
@@ -64,6 +91,7 @@ export function pageKit() {
   const NON_VALUE_TYPES = ["hidden", "submit", "button", "reset", "image"];
 
   const isFilled = (field) => {
+    if (field.isContentEditable) return field.innerText.trim().length > 0;
     if (field.type === "checkbox" || field.type === "radio")
       return field.checked;
     if (NON_VALUE_TYPES.includes(field.type)) return false;
@@ -80,12 +108,8 @@ export function pageKit() {
     (element instanceof HTMLInputElement &&
       ["submit", "button", "reset", "image"].includes(element.type));
 
-  const labelText = (element) =>
-    [...(element.labels || [])].map((label) => label.innerText).join(" ");
-
   const nameOf = (element) =>
-    element.getAttribute("aria-label") ||
-    labelText(element) ||
+    labelOf(element) ||
     element.getAttribute("title") ||
     element.getAttribute("alt") ||
     element.innerText ||
@@ -94,14 +118,12 @@ export function pageKit() {
 
   const safeName = (element) =>
     isSecret(element)
-      ? element.getAttribute("aria-label") ||
-        labelText(element) ||
-        element.getAttribute("placeholder") ||
-        ""
+      ? labelOf(element) || element.getAttribute("placeholder") || ""
       : nameOf(element);
 
   return {
     state,
+    ACTIONABLE,
     refFor,
     elementFor,
     visible,
@@ -116,6 +138,7 @@ export function pageKit() {
     isSubmitter,
     isButtonLike,
     labelText,
+    labelledByText,
     safeName,
   };
 }
@@ -123,7 +146,9 @@ export function pageKit() {
 export function snapshot(kit, { maxChars }) {
   const INTERACTIVE =
     "a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch],[role=combobox],[role=textbox],[contenteditable=true],[tabindex]:not([tabindex='-1'])";
-  const TEXT = "h1,h2,h3,h4,h5,h6,p,li,td,th,label,dt,dd,figcaption,blockquote";
+  const TEXT =
+    "h1,h2,h3,h4,h5,h6,p,li,td,th,label,dt,dd,figcaption,blockquote,[role=alert],[role=status]";
+  const LOOSE = "div,span";
   const TRUNCATED = "… snapshot truncated";
   const VALUELESS = [
     "hidden",
@@ -198,7 +223,18 @@ export function snapshot(kit, { maxChars }) {
   push(`url: ${location.href}`);
   push(`title: ${kit.clean(document.title, 200)}`);
   const seen = new Set();
-  for (const element of document.querySelectorAll(`${INTERACTIVE},${TEXT}`)) {
+  const ownText = (element) =>
+    [...element.childNodes]
+      .filter((child) => child.nodeType === Node.TEXT_NODE)
+      .map((child) => child.nodeValue)
+      .join(" ");
+  const textOf = (element) => {
+    if (element.matches(TEXT)) return element.innerText;
+    if (element.parentElement?.closest(TEXT)) return "";
+    return ownText(element);
+  };
+  const query = `${INTERACTIVE},${TEXT},${LOOSE}`;
+  for (const element of document.querySelectorAll(query)) {
     if (seen.has(element) || !kit.visible(element)) continue;
     seen.add(element);
     if (element.matches(INTERACTIVE)) {
@@ -206,7 +242,7 @@ export function snapshot(kit, { maxChars }) {
       continue;
     }
     if (element.closest(INTERACTIVE)) continue;
-    const text = kit.clean(element.innerText, 200);
+    const text = kit.clean(textOf(element), 200);
     if (text && !push(`${element.tagName.toLowerCase()}: ${text}`)) break;
   }
   if (truncated) lines.push(TRUNCATED);
@@ -228,11 +264,15 @@ export function rect(kit, { ref, forClick }) {
       return { problem: "covered" };
     }
     const target = document.elementFromPoint(x, y);
-    const reaches =
+    const inner = target?.closest?.(kit.ACTIONABLE);
+    const reachesInside =
       target &&
-      (target === element ||
-        element.contains(target) ||
-        target.closest?.("label")?.control === element);
+      element.contains(target) &&
+      (!inner || inner === element || !element.contains(inner));
+    const reaches =
+      target === element ||
+      reachesInside ||
+      target?.closest?.("label")?.control === element;
     if (!reaches) return { problem: "covered" };
   }
   return {
@@ -258,6 +298,13 @@ export function focus(kit, { ref, clear }) {
     const selection = getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
+  } else if (element.isContentEditable) {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    range.collapse(false);
+    const selection = getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
   } else if (
     "setSelectionRange" in element &&
     typeof element.value === "string"
@@ -270,11 +317,8 @@ export function focus(kit, { ref, clear }) {
 }
 
 export function findText(kit, { text }) {
-  const ACTIONABLE =
-    "a[href],button,input,select,textarea,summary,label,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],[role=switch]";
   const LABELLED =
-    "input:not([type=hidden]),textarea,select,img,[aria-label],[title]";
-  const MAX_TEXT_NODES = 5000;
+    "input:not([type=hidden]),textarea,select,img,[aria-label],[aria-labelledby],[title]";
   const needle = text.toLowerCase();
 
   const fieldText = (element) =>
@@ -285,6 +329,7 @@ export function findText(kit, { text }) {
       element.getAttribute("alt"),
       kit.isButtonLike(element) ? element.value : "",
       kit.labelText(element),
+      kit.labelledByText(element),
     ]
       .filter(Boolean)
       .join(" ");
@@ -294,11 +339,11 @@ export function findText(kit, { text }) {
       kit.visible(field) &&
       kit.clean(fieldText(field), 400).toLowerCase().includes(needle)
     ) {
-      return kit.refFor(field);
+      return kit.refFor(field.closest(kit.ACTIONABLE) ?? field);
     }
   }
 
-  for (const element of document.querySelectorAll(ACTIONABLE)) {
+  for (const element of document.querySelectorAll(kit.ACTIONABLE)) {
     if (
       kit.visible(element) &&
       kit.clean(element.innerText, 400).toLowerCase().includes(needle)
@@ -312,16 +357,11 @@ export function findText(kit, { text }) {
     NodeFilter.SHOW_TEXT,
   );
   let fallback = null;
-  let node = walker.nextNode();
-  for (
-    let seen = 0;
-    node && seen < MAX_TEXT_NODES;
-    seen++, node = walker.nextNode()
-  ) {
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     if (!(node.nodeValue || "").toLowerCase().includes(needle)) continue;
     const parent = node.parentElement;
     if (!parent || !kit.visible(parent)) continue;
-    const actionable = parent.closest(ACTIONABLE);
+    const actionable = parent.closest(kit.ACTIONABLE);
     if (actionable && kit.visible(actionable)) return kit.refFor(actionable);
     fallback ??= parent;
   }
