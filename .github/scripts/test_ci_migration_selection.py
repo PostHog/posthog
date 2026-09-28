@@ -1,12 +1,23 @@
 import os
-import textwrap
 import subprocess
 from pathlib import Path
 
 import pytest
 
+import yaml
+
 ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS = "posthog/clickhouse/migrations"
+MIGRATION_TEMPLATE = """from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.cluster import NodeRole
+
+operations = [
+    run_sql_with_exceptions(
+        "ALTER TABLE {table} ADD COLUMN IF NOT EXISTS example String",
+        node_roles=[NodeRole.DATA],
+    ),
+]
+"""
 
 
 def git(repo: Path, *args: str) -> str:
@@ -24,7 +35,7 @@ def commit_file(repo: Path, name: str, content: str) -> str:
 
 @pytest.mark.parametrize("engine,master", [(".github", "origin/master"), (".depot", "upstream/master")])
 @pytest.mark.parametrize(
-    "case", ["plain", "stale", "own", "collision", "modified", "missing-base", "bad-base", "bad-master"]
+    "case", ["plain", "stale", "own", "behind", "collision", "modified", "missing-base", "bad-base", "bad-master"]
 )
 def test_selects_only_pr_migrations_and_fails_on_invalid_refs(
     engine: str, master: str, case: str, tmp_path: Path
@@ -53,6 +64,13 @@ def test_selects_only_pr_migrations_and_fails_on_invalid_refs(
     if case in ("own", "plain"):
         commit_file(repo, "0003_own.py", "own\n")
         expected_added = expected_changed = [f"{MIGRATIONS}/0003_own.py"]
+    elif case == "behind":
+        git(repo, "checkout", "-q", "master")
+        commit_file(repo, "0003_master.py", MIGRATION_TEMPLATE.format(table="master_table"))
+        git(repo, "update-ref", f"refs/remotes/{master}", "HEAD")
+        git(repo, "checkout", "-q", "topic")
+        commit_file(repo, "0003_own.py", MIGRATION_TEMPLATE.format(table="own_table"))
+        expected_added = expected_changed = [f"{MIGRATIONS}/0003_own.py"]
     elif case == "collision":
         commit_file(repo, "0002_master.py", "conflict\n")
         expected_added = expected_changed = [f"{MIGRATIONS}/0002_master.py"]
@@ -64,9 +82,13 @@ def test_selects_only_pr_migrations_and_fails_on_invalid_refs(
     elif case == "bad-master":
         git(repo, "update-ref", "-d", f"refs/remotes/{master}")
 
-    workflow = (ROOT / engine / "workflows/ci-backend.yml").read_text()
-    step = workflow.split("- name: List this PR's ClickHouse migrations\n", 1)[1].split("\n\n", 1)[0]
-    script = textwrap.dedent(step.split("run: |\n", 1)[1])
+    workflow = yaml.safe_load((ROOT / engine / "workflows/ci-backend.yml").read_text())
+    script = next(
+        step["run"]
+        for job in workflow["jobs"].values()
+        for step in job.get("steps", [])
+        if step.get("name") == "List this PR's ClickHouse migrations"
+    )
     result = subprocess.run(
         ["bash", "-euo", "pipefail", "-c", script],
         cwd=repo,

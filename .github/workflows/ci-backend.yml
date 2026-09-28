@@ -2244,7 +2244,9 @@ jobs:
                       DIFF_BASE="$BASE_SHA"
                   fi
                   ch_migrations() {
-                      git diff --name-only --diff-filter="$1" "$2"..HEAD -- posthog/clickhouse/migrations/ | awk '!/README|__pycache__/' | sort
+                      # Migrations share most of their text, so rename detection would pair this PR's
+                      # migration with one master added later and report it as R, dropping it here.
+                      git diff --no-renames --name-only --diff-filter="$1" "$2"..HEAD -- posthog/clickhouse/migrations/ | awk '!/README|__pycache__/' | sort
                   }
                   # Compare contents against master so conflicting additions still reach validation.
                   ch_migrations AM origin/master > "$RUNNER_TEMP/ch-master.txt"
