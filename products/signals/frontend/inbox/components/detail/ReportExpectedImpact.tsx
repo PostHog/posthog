@@ -60,7 +60,8 @@ export function ReportExpectedImpact({
 }): JSX.Element {
     const [modalOpen, setModalOpen] = useState(false)
     const [description, setDescription] = useState('')
-    const [approvingId, setApprovingId] = useState<string | null>(null)
+    const [saving, setSaving] = useState(false)
+    const [savedIds, setSavedIds] = useState<Set<string>>(() => new Set())
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
     const { aiConsentDisabledReason, isDiscussing, isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const newest = new Map<string, { artefact: SignalReportArtefact; plan: MeasurementPlan }>()
@@ -94,7 +95,7 @@ export function ReportExpectedImpact({
             artefact,
             eligibilityQuery: plan.eligibility_query,
             goalGrain: plan.goal_grain ?? 'whole_window',
-            activated: plan.activated,
+            activated: plan.activated || savedIds.has(artefact.id),
         }))
     if (artefacts !== null) {
         for (const metric of report.metrics ?? []) {
@@ -114,16 +115,36 @@ export function ReportExpectedImpact({
         setModalOpen(false)
     }
 
-    const approve = async (artefact: SignalReportArtefact): Promise<void> => {
-        setApprovingId(artefact.id)
+    const availablePlans = measurements.filter(({ artefact, metric }) => artefact && metric.query != null)
+    const pendingPlans = availablePlans.flatMap(({ artefact, activated }) => (artefact && !activated ? [artefact] : []))
+
+    const keepAnEyeOnThis = async (): Promise<void> => {
+        if (saving) {
+            return
+        }
+        if (!pendingPlans.length) {
+            lemonToast.info('Measurements are saved. Monitoring is coming soon; nothing is being tracked yet.')
+            return
+        }
+        setSaving(true)
         try {
-            await api.signalReports.activateMeasurement(report.id, artefact.id)
-            onApprovalComplete?.()
-            lemonToast.success('Measurement approved')
-        } catch {
-            lemonToast.error('Could not approve this measurement. Please try again.')
+            const results = await Promise.allSettled(
+                pendingPlans.map((artefact) => api.signalReports.activateMeasurement(report.id, artefact.id))
+            )
+            const successfulIds = pendingPlans
+                .filter((_, index) => results[index].status === 'fulfilled')
+                .map((artefact) => artefact.id)
+            if (successfulIds.length) {
+                setSavedIds((current) => new Set([...current, ...successfulIds]))
+                onApprovalComplete?.()
+            }
+            if (successfulIds.length !== pendingPlans.length) {
+                lemonToast.error('Some measurements could not be saved. Please try again.')
+            } else {
+                lemonToast.info('Measurements saved. Monitoring is coming soon; nothing is being tracked yet.')
+            }
         } finally {
-            setApprovingId(null)
+            setSaving(false)
         }
     }
 
@@ -141,7 +162,7 @@ export function ReportExpectedImpact({
                                     : `${metric.goal_direction === 'at_most' ? 'at most' : 'at least'} ${formatReportMetricValue(metric, metric.goal_value) ?? metric.goal_value}`}
                             </p>
                             <p className="m-0 text-secondary text-sm">
-                                {activated ? 'Approved measurement' : 'Proposed measurement'} ·{' '}
+                                {activated ? 'Saved measurement' : 'Proposed measurement'} ·{' '}
                                 {goalGrain === 'per_interval'
                                     ? 'Goal per chart interval'
                                     : 'Goal for the full query window'}
@@ -185,19 +206,6 @@ export function ReportExpectedImpact({
                                     </pre>
                                 </details>
                             )}
-                            {artefact && !activated && metric.query != null && (
-                                <div className="flex">
-                                    <LemonButton
-                                        data-attr="report-expected-impact-approve"
-                                        type="secondary"
-                                        size="small"
-                                        loading={approvingId === artefact.id}
-                                        onClick={() => approve(artefact)}
-                                    >
-                                        Approve measurement
-                                    </LemonButton>
-                                </div>
-                            )}
                         </div>
                     )
                 })
@@ -213,7 +221,15 @@ export function ReportExpectedImpact({
                     data-attr="report-expected-impact-follow-up"
                     type="primary"
                     size="small"
-                    onClick={() => lemonToast.info('Coming soon: automatic impact follow-ups are not available yet.')}
+                    loading={saving}
+                    disabledReason={
+                        artefacts === null
+                            ? 'Loading proposed measurements…'
+                            : availablePlans.length === 0
+                              ? 'Add a proposed measurement first.'
+                              : undefined
+                    }
+                    onClick={keepAnEyeOnThis}
                 >
                     Keep an eye on this for me
                 </LemonButton>
