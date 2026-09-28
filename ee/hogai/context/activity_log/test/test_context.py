@@ -277,24 +277,40 @@ class TestActivityLogContext(ActivityLogTestBase):
         [
             (
                 "created_change",
+                "FeatureFlag",
                 [{"field": "enabled", "action": "created", "after": True}],
                 "enabled: set to True",
             ),
             (
                 "deleted_change",
+                "FeatureFlag",
                 [{"field": "description", "action": "deleted", "before": "old desc"}],
                 "description: removed (was old desc)",
             ),
             (
                 "changed_value",
+                "FeatureFlag",
                 [{"field": "name", "action": "changed", "before": "old", "after": "new"}],
                 "name: old -> new",
             ),
+            (
+                "destination_inputs_masked",
+                "HogFunction",
+                [
+                    {
+                        "field": "inputs",
+                        "action": "changed",
+                        "before": {"api_key": {"value": "old-value"}},
+                        "after": {"api_key": {"value": "new-value"}},
+                    }
+                ],
+                "inputs: masked -> masked",
+            ),
         ]
     )
-    async def test_format_changes(self, _name, changes, expected_text):
+    async def test_format_changes(self, _name, scope, changes, expected_text):
         await self._create_log(
-            scope="FeatureFlag",
+            scope=scope,
             activity="updated",
             item_id="1",
             detail={"name": "test", "changes": changes},
