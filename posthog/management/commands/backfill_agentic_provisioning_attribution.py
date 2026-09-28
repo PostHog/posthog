@@ -3,12 +3,13 @@ import uuid
 from argparse import ArgumentParser
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
+from datetime import timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db.models import Min
+from django.db.models import F, Min
 
 from posthog.dataclasses import frozen
 from posthog.models.oauth import OAuthApplication
@@ -18,6 +19,7 @@ from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 
 REQUIRED_COLUMNS = {"team_id", "partner_id"}
+FIRST_TEAM_CREATION_WINDOW = timedelta(minutes=5)
 
 
 class Outcome(StrEnum):
@@ -153,11 +155,17 @@ def _first_team_claims(
     partner_by_team: Mapping[int, uuid.UUID], outcomes: Counter[OrganizationOutcome]
 ) -> list[_OrganizationClaim]:
     team_organizations = dict(Team.objects.filter(id__in=partner_by_team).values_list("id", "organization_id"))
-    first_team_ids = set(
+    lowest_team_ids = set(
         Team.objects.filter(organization_id__in=set(team_organizations.values()))
         .values("organization_id")
-        .annotate(first_team_id=Min("id"))
-        .values_list("first_team_id", flat=True)
+        .annotate(lowest_team_id=Min("id"))
+        .values_list("lowest_team_id", flat=True)
+    )
+    first_team_ids = set(
+        Team.objects.filter(
+            id__in=lowest_team_ids,
+            created_at__lte=F("organization__created_at") + FIRST_TEAM_CREATION_WINDOW,
+        ).values_list("id", flat=True)
     )
     claims = []
     for team_id, application_id in partner_by_team.items():

@@ -1,10 +1,12 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.db import IntegrityError
 from django.test import override_settings
 
 from parameterized import parameterized
 
+from posthog.models.organization import Organization
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.user import User
 
@@ -58,13 +60,29 @@ class TestAccountRequests(StripeProvisioningTestBase):
             (new_organization.id, "stripe_projects", self.stripe_app.id)
         ]
 
-    @override_settings(STRIPE_POSTHOG_OAUTH_CLIENT_ID="")
-    def test_new_user_is_not_created_without_the_stripe_app(self):
-        res = self._post_signed(URL, data=_account_request("brand-new@example.com"))
+    @parameterized.expand(
+        [
+            ("without_the_stripe_app", override_settings(STRIPE_POSTHOG_OAUTH_CLIENT_ID=""), "server_error"),
+            (
+                "when_recording_the_organization_partner_fails",
+                patch(
+                    "ee.partners.stripe.api.provisioning.core.OrganizationProvisioning.objects.create",
+                    side_effect=IntegrityError,
+                ),
+                "account_creation_failed",
+            ),
+        ]
+    )
+    def test_new_user_is_not_created(self, _name, failure, error_code):
+        organization_count = Organization.objects.count()
+
+        with failure:
+            res = self._post_signed(URL, data=_account_request("brand-new@example.com"))
 
         assert res.status_code == 500
-        assert res.json()["error"]["code"] == "server_error"
+        assert res.json()["error"]["code"] == error_code
         assert not User.objects.filter(email="brand-new@example.com").exists()
+        assert Organization.objects.count() == organization_count
 
     def test_existing_user_gets_silent_code_for_requested_team(self):
         res = self._post_signed(
