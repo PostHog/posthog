@@ -10,7 +10,7 @@ export function NewSessionHeading({
   disabled?: boolean;
 }) {
   return (
-    <div className="mb-5 flex flex-col font-semibold text-[26px] leading-tight tracking-tight">
+    <div className="mb-5 flex flex-wrap items-baseline gap-x-2 font-semibold text-[26px] leading-tight tracking-tight">
       <span>Start a new session</span>
       <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 text-muted-foreground">
         in
