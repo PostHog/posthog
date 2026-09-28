@@ -89,7 +89,8 @@ class DigestMetadataSerializer(serializers.Serializer):
             "How to read the headline numbers. 'ok': the period has web sessions. "
             "'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them "
             "contain a $pageview or $screen event from a non-test account. Query the sessions table directly to "
-            "count them. 'no_sessions': the project has no sessions in the period."
+            "count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, "
+            "and the check for other sessions in the period failed. Query the sessions table directly to count them."
         ),
     )
     date_from = ProjectTimezoneDateTimeField(help_text="Start of the current period, in the project timezone.")

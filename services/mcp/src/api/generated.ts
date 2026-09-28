@@ -32727,6 +32727,7 @@ export namespace Schemas {
      * * `ok` - OK
      * * `no_web_sessions` - No web sessions
      * * `no_sessions` - No sessions
+     * * `unknown` - Unknown
      */
     export type DigestDataStatusEnum = typeof DigestDataStatusEnum[keyof typeof DigestDataStatusEnum];
 
@@ -32735,14 +32736,16 @@ export namespace Schemas {
       Ok: 'ok',
       NoWebSessions: 'no_web_sessions',
       NoSessions: 'no_sessions',
+      Unknown: 'unknown',
     } as const;
 
     export interface DigestMetadata {
-      /** How to read the headline numbers. 'ok': the period has web sessions. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period.
+      /** How to read the headline numbers. 'ok': the period has web sessions. 'no_web_sessions': the headline is zero, but the project has sessions in the period. None of them contain a $pageview or $screen event from a non-test account. Query the sessions table directly to count them. 'no_sessions': the project has no sessions in the period. 'unknown': the headline is zero, and the check for other sessions in the period failed. Query the sessions table directly to count them.
        *
        * * `ok` - OK
        * * `no_web_sessions` - No web sessions
-       * * `no_sessions` - No sessions */
+       * * `no_sessions` - No sessions
+       * * `unknown` - Unknown */
       data_status: DigestDataStatusEnum;
       /** Start of the current period, in the project timezone. */
       date_from: string;

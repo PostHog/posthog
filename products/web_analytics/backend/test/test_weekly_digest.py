@@ -86,6 +86,23 @@ class TestDigestQueryFailures(SimpleTestCase):
             with self.assertRaises(TimeoutError):
                 build_team_digest(Team(pk=1))
 
+    def test_a_failed_session_check_keeps_the_digest(self) -> None:
+        with (
+            patch(
+                "products.web_analytics.backend.weekly_digest.get_overview_for_team", return_value=_default_overview()
+            ),
+            patch("products.web_analytics.backend.weekly_digest.get_top_pages", return_value=[]),
+            patch("products.web_analytics.backend.weekly_digest.get_top_sources", return_value=[]),
+            patch("products.web_analytics.backend.weekly_digest.get_goals_for_team", return_value=[]),
+            patch("products.web_analytics.backend.weekly_digest.execute_hogql_query", side_effect=TimeoutError),
+            patch("products.web_analytics.backend.weekly_digest.capture_exception") as capture,
+        ):
+            digest = build_team_digest(Team(pk=1))
+
+        assert digest["sessions"] == {"current": 0, "previous": None, "change": None}
+        assert digest["metadata"]["data_status"] == "unknown"
+        capture.assert_called_once()
+
 
 def _create_pageview(
     team,

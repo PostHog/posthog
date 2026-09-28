@@ -59,6 +59,7 @@ class DigestDataStatus(models.TextChoices):
     OK = "ok", "OK"
     NO_WEB_SESSIONS = "no_web_sessions", "No web sessions"
     NO_SESSIONS = "no_sessions", "No sessions"
+    UNKNOWN = "unknown", "Unknown"
 
 
 DigestResponse = TypeVar("DigestResponse", WebOverviewQueryResponse, WebStatsTableQueryResponse, WebGoalsQueryResponse)
@@ -305,17 +306,28 @@ def _has_sessions_in_range(team: Team, date_from: datetime, date_to: datetime) -
     return bool(response.results)
 
 
+def _zero_traffic_status(team: Team, date_from: datetime, date_to: datetime) -> DigestDataStatus:
+    try:
+        has_sessions = _has_sessions_in_range(team, date_from, date_to)
+    except Exception as e:
+        # The status only explains a zero, so a failed check must not discard metrics that loaded.
+        logger.warning("WA digest could not check for sessions", team_id=team.id, error=str(e))
+        capture_exception(e, {"team_id": team.id})
+        return DigestDataStatus.UNKNOWN
+    if has_sessions:
+        # A plain zero reads as "no traffic", but the project has sessions that the web definition excludes.
+        return DigestDataStatus.NO_WEB_SESSIONS
+    return DigestDataStatus.NO_SESSIONS
+
+
 def get_digest_metadata(team: Team, overview: dict, days: int = 7) -> dict:
     date_range = _digest_date_range(team, days)
     date_from = overview.get("date_from", date_range.date_from())
     date_to = overview.get("date_to", date_range.date_to())
     if overview["sessions"]["current"] or overview["pageviews"]["current"]:
         data_status = DigestDataStatus.OK
-    elif _has_sessions_in_range(team, date_from, date_to):
-        # A plain zero reads as "no traffic", but the project has sessions that the web definition excludes.
-        data_status = DigestDataStatus.NO_WEB_SESSIONS
     else:
-        data_status = DigestDataStatus.NO_SESSIONS
+        data_status = _zero_traffic_status(team, date_from, date_to)
 
     return {
         "data_status": data_status.value,
