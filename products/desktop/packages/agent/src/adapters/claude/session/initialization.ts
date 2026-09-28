@@ -30,6 +30,12 @@ export class SessionInitialization {
     return this.activeHooks.size > 0 ? "setup_hooks" : "sdk_initialization";
   }
 
+  get timeoutMs(): number {
+    return this.phase === "setup_hooks"
+      ? this.hooksTimeoutMs
+      : this.connectionTimeoutMs;
+  }
+
   observe(stdout: Readable): void {
     if (this.disposed) return;
     const decoder = new StringDecoder("utf8");
@@ -98,10 +104,7 @@ export class SessionInitialization {
           this.reschedule = () => {
             clearTimeout(timer);
             const phase = this.phase;
-            const timeoutMs =
-              phase === "setup_hooks"
-                ? this.hooksTimeoutMs
-                : this.connectionTimeoutMs;
+            const timeoutMs = this.timeoutMs;
             const remainingMs =
               phase === "setup_hooks"
                 ? timeoutMs - (Date.now() - (this.hooksStartedAt ?? Date.now()))
