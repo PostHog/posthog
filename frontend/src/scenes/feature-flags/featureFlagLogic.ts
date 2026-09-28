@@ -3300,6 +3300,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         // about values the page already shows. kea-loaders swallows the breakpoint
                         // and dispatches no failure, as the status loader below does for its verdict.
                         breakpoint()
+                        // A load or save that landed while this request was open replaced the values
+                        // the notice calls old, and the notice never closes on its own. The success
+                        // path below discards its response on the same check.
+                        if (values.flagMutationCount !== mutationsBefore) {
+                            return null
+                        }
                         throw error
                     }
                     // A second mutation can start a newer refresh while this one is open. Discard this

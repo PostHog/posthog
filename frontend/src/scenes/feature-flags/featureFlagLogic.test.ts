@@ -442,21 +442,23 @@ describe('featureFlagLogic', () => {
             expect(logic.values.originalFeatureFlag?.name).toBe('second agent change')
         })
 
-        // The case above holds a refresh against a second refresh, which `breakpoint()` covers on
-        // its own. A mutation landing mid-request needs a separate guard, so it needs its own case.
-        it.each([
-            ['a toggle', (flag: FeatureFlagType) => logic.actions.updateFeatureFlagActiveSuccess(flag)],
+        const mutationsDuringRefresh: [string, (flag: FeatureFlagType) => void][] = [
+            ['a toggle', (flag) => logic.actions.updateFeatureFlagActiveSuccess(flag)],
             // The inline tag and description saves and the cross-project toggle re-baseline without
             // dispatching any loader success, so a guard keyed to those actions cannot see them.
             [
                 'an inline field save',
-                (flag: FeatureFlagType) => {
+                (flag) => {
                     logic.actions.setFeatureFlag(flag)
                     logic.actions.setOriginalFeatureFlag(flag)
                 },
             ],
-            ['a full reload', (flag: FeatureFlagType) => logic.actions.loadFeatureFlagSuccess(flag)],
-        ])('discards a refresh response that %s superseded', async (_label, mutate) => {
+            ['a full reload', (flag) => logic.actions.loadFeatureFlagSuccess(flag)],
+        ]
+
+        // The case above holds a refresh against a second refresh, which `breakpoint()` covers on
+        // its own. A mutation landing mid-request needs a separate guard, so it needs its own case.
+        it.each(mutationsDuringRefresh)('discards a refresh response that %s superseded', async (_label, mutate) => {
             const response = deferred()
             // The loader samples the mutation count before it calls the API, so mutating before the
             // request is open would pass without exercising the guard.
@@ -484,6 +486,41 @@ describe('featureFlagLogic', () => {
             expect(logic.values.featureFlag.active).toBe(false)
             expect(logic.values.featureFlag.name).toBe('test-name')
             expect(logic.values.featureFlag.version).toBe(7)
+        })
+
+        // The failure notice never closes on its own, so a failure that lands after newer state would
+        // tell the reader a current page is stale until they act on it.
+        it.each(mutationsDuringRefresh)('says nothing when a refresh fails after %s', async (_label, mutate) => {
+            silenceKeaLoadersErrors()
+            try {
+                const response = deferred()
+                const requestStarted = deferred()
+
+                useMocks({
+                    get: {
+                        [FLAG_URL]: async () => {
+                            requestStarted.resolve()
+                            await response.promise
+                            return [500, SERVER_ERROR_BODY]
+                        },
+                    },
+                })
+
+                logic.actions.refreshFeatureFlagAfterAgentChange()
+                await requestStarted.promise
+
+                mutate({ ...MOCK_FEATURE_FLAG, active: false, version: 7 } as FeatureFlagType)
+
+                response.resolve()
+                await expectLogic(logic)
+                    .toDispatchActions(['refreshFeatureFlagSuccess'])
+                    .toNotHaveDispatchedActions(['refreshFeatureFlagFailure'])
+                    .toFinishAllListeners()
+
+                expect(lemonToast.error).not.toHaveBeenCalled()
+            } finally {
+                resumeKeaLoadersErrors()
+            }
         })
 
         // Silence here leaves the reader trusting a screen behind the server, then saving over it.
