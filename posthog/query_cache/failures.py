@@ -92,6 +92,7 @@ class QueryFailureCache:
     def get_open(self) -> Optional[QueryFailureRecord]:
         record = self._load()
         if record is not None:
+            # Apply the caller's cooldown only in memory so warming cannot delay foreground retries.
             record = replace(record, open_until=self.retry_after(record))
         return record if record is not None and record.is_open else None
 
@@ -194,6 +195,7 @@ class WarmingQueryFailureCache(QueryFailureCache):
     def retry_after(self, record: QueryFailureRecord) -> Optional[datetime]:
         policy = KIND_POLICIES[record.kind]
         if record.consecutive_failures < policy.open_threshold:
+            # None allows retries without clearing the failure history used to reach the threshold.
             return None
         max_doublings = (policy.max_backoff // WARMING_BASE_BACKOFF).bit_length()
         doublings = min(record.consecutive_failures - policy.open_threshold, max_doublings)
