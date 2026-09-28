@@ -16,6 +16,7 @@ from collections.abc import AsyncGenerator, Callable
 from typing import TYPE_CHECKING, Any, Final, Literal
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 import psycopg
@@ -38,9 +39,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     companion_resource_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
+    BUFFER_FILE_RETENTION,
     BufferFileSpan,
     get_buffer_prefix,
     parse_buffer_file_name,
+    purge_buffer_prefix,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
@@ -54,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     drop_superseded_rows,
     has_engine_seq,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import snapshot_in_buffer
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     normalize_column_name,
@@ -106,15 +110,17 @@ class CDCLane:
     write_mode: CDCWriteMode
 
 
-# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer, cleared by
-# its rollback. `cdc_buffered_before` stays after a rollback, so a later flip can tell the
-# `_ph_cdc_seq` the buffered lane wrote from a column the source owns.
-BUFFERED_LANE_KEY = "cdc_buffered_lane"
+# In `sync_type_config`. Set by the flip command on each schema it moves to the buffer and never
+# cleared, so a later flip can tell the `_ph_cdc_seq` the buffered lane wrote from a column the
+# source owns.
 BUFFERED_BEFORE_KEY = "cdc_buffered_before"
 
 
-def buffered_lane_candidate(schema: ExternalDataSchema) -> bool:
-    """Whether the flip command may move this schema to the buffer: streaming, seeded, with lanes."""
+def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
+    """Schema-side conditions for buffered ingress: streaming, seeded, and in a table mode with lanes.
+
+    The source's `ingest_mode` is the other half.
+    """
     return bool(
         schema.is_cdc
         and schema.cdc_mode == "streaming"
@@ -123,18 +129,40 @@ def buffered_lane_candidate(schema: ExternalDataSchema) -> bool:
     )
 
 
-def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
-    """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
+def captures_to_buffer(schema: ExternalDataSchema) -> bool:
+    """Schema-side condition for capture to write this schema's changes into the buffer.
 
-    Eligibility is opt-in per schema, by the marker the flip command writes. A source flipped
-    before history modes were served left its `cdc_only` and `both` schemas on legacy with
-    their schedules paused; widening this predicate by mode alone would have capture route
-    those schemas into the buffer on deploy, with nothing scheduled to consume it. Consolidated
-    schemas on an already-buffered source predate the marker and stay served without it.
+    Wider than `serves_buffered_lane`: a table whose snapshot the buffer carries is captured too,
+    and the consumer reads those changes once the snapshot completes.
     """
-    if not buffered_lane_candidate(schema):
-        return False
-    return schema.cdc_table_mode == "consolidated" or bool(schema.sync_type_config.get(BUFFERED_LANE_KEY))
+    return bool(
+        schema.is_cdc
+        and schema.cdc_table_mode in _LANE_WRITE_MODES
+        and (serves_buffered_lane(schema) or snapshot_in_buffer(schema))
+    )
+
+
+def snapshot_can_start_in_buffer(schema: ExternalDataSchema) -> bool:
+    """Schema-side condition for routing a snapshotting table the buffer does not carry yet to it."""
+    return bool(
+        schema.is_cdc
+        and schema.cdc_mode == "snapshot"
+        and schema.cdc_table_mode in _LANE_WRITE_MODES
+        and not snapshot_in_buffer(schema)
+    )
+
+
+def purge_buffer_before_handover(schema: ExternalDataSchema, logger: FilteringBoundLogger) -> None:
+    """Before a snapshot hands over to streaming, drop the buffer files it must not replay.
+
+    When the buffer carried the snapshot, it holds an unbroken run of changes, and replaying all of
+    them over the snapshot converges, so nothing goes. Otherwise the snapshot's changes went to
+    legacy deferred runs, and every file predates a gap: an old file replayed after them would bring
+    back rows. Strict, because a surviving stale file corrupts the table.
+    """
+    if snapshot_in_buffer(schema):
+        return
+    purge_buffer_prefix(schema.team_id, str(schema.id), logger, strict=True)
 
 
 def consumes_buffer(schema: ExternalDataSchema, *, ingest_mode: str) -> bool:
@@ -217,6 +245,52 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | No
 async def completed_listing_proof(schema: ExternalDataSchema) -> dt.datetime | None:
     """`read_completed_listing_proof`, off the event loop."""
     return await database_sync_to_async_pool(db_read_with_retry)(lambda: read_completed_listing_proof(schema))
+
+
+def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime) -> bool:
+    """Whether this table may have lost buffered changes it never read.
+
+    The bucket deletes a buffer file BUFFER_FILE_RETENTION after writing it, so what counts is the last
+    run since then that drained the buffer or re-seeded the table with a snapshot. A stand-down, such as
+    the wait for in-flight batches, completes its job without reading the buffer, so neither a completed
+    job nor `last_synced_at`, which every completion moves, proves the table read its changes.
+
+    A run counts only once every table it writes finished, the bar `read_completed_listing_proof` sets:
+    a `both` run whose companion job never completed landed the buffer's changes on one of its two
+    tables, and the other still owes them.
+    """
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    if schema.last_synced_at is None:
+        return False
+    cutoff = now - BUFFER_FILE_RETENTION
+    # Every completion moves it, so nothing has drained since the cutoff either.
+    if schema.last_synced_at < cutoff:
+        return True
+    # Bounded by `created_at` and on the index, as the proof read is. Past the search depth the table
+    # reads as expired: runs that recent with a companion still owing rows are worth re-seeding over.
+    reads = (
+        ExternalDataJob.objects.filter(
+            team_id=schema.team_id,
+            pipeline_id=schema.source_id,
+            schema_id=schema.id,
+            status=ExternalDataJob.Status.COMPLETED,
+            created_at__gte=cutoff,
+        )
+        .filter(
+            Q(schema_snapshot__has_key=BUFFER_LISTED_AT_KEY) | Q(schema_snapshot__sync_type_config__cdc_mode="snapshot")
+        )
+        .order_by("-created_at")
+        .values_list("schema_snapshot", flat=True)[:_PROOF_SEARCH_DEPTH]
+    )
+    return not any(_companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
+
+
+async def buffer_expired_unread(schema: ExternalDataSchema) -> bool:
+    """`buffer_may_have_expired_unread`, off the event loop."""
+    return await database_sync_to_async_pool(db_read_with_retry)(
+        lambda: buffer_may_have_expired_unread(schema, timezone.now())
+    )
 
 
 def clear_listing(job_id: str, team_id: int) -> None:
@@ -376,7 +450,11 @@ def has_batches_in_flight(schema: ExternalDataSchema) -> bool:
     """
     if schema.sync_type_config.get("cdc_deferred_runs"):
         return True
+    return has_queued_batches(schema)
 
+
+def has_queued_batches(schema: ExternalDataSchema) -> bool:
+    """Whether any batch of this schema is still waiting or loading in the queue."""
     conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
     try:
         age = BatchQueue.get_oldest_non_terminal_batch_age_seconds(

@@ -23,6 +23,8 @@ from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, refund_wizard_mint, reserve_wizard_mint
 
+from products.security.backend.facade.enums import Surface as SecuritySurface
+
 # Derived, not written out: these cases assert the ceiling binds, not its value.
 # Every floor populates every field; the Optional is there for partial overrides.
 _active_mints = _TIER_FLOORS["active"].mints_per_week
@@ -73,6 +75,24 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert kwargs["user_id"] == self.user.id
         assert kwargs["branch"] is None
         assert kwargs["team"].id == self.team.id
+
+    @patch("posthog.api.wizard.http.security_shadow_check")
+    @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
+    def test_cloud_run_records_a_shadow_access_check(self, mock_create, shadow: MagicMock) -> None:
+        mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
+
+        response = self.client.post(
+            self.CLOUD_RUN_URL,
+            data={"project_id": self.team.id, "repository": "acme/app", "branch": ""},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        shadow.assert_called_once()
+        subject, surface = shadow.call_args.args
+        assert surface == SecuritySurface.AI_GATEWAY
+        assert subject.organization_ids == (str(self.team.organization_id),)
+        assert shadow.call_args.kwargs == {"call_site": "wizard_cloud_run"}
 
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
     def test_rejects_invalid_repository_format(self, mock_create):
@@ -287,6 +307,27 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             # The fixture organization is minutes old, unpaid, and has ingested nothing.
             "posture": "new",
         }
+
+    @patch("posthog.api.wizard.http.security_shadow_check")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_gateway_token_records_a_shadow_access_check(
+        self, mock_authentication, mock_flag, mock_mint, mock_authorized, shadow: MagicMock
+    ) -> None:
+        self._mock_oauth(mock_authentication)
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        shadow.assert_called_once()
+        subject, surface = shadow.call_args.args
+        assert surface == SecuritySurface.AI_GATEWAY
+        assert subject.organization_ids == (str(self.team.organization_id),)
+        assert shadow.call_args.kwargs == {"call_site": "wizard_gateway_token"}
 
     @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)

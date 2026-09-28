@@ -136,6 +136,7 @@ pub async fn handle_recording_payload(
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
         ai_max_event_bytes: 0,
+        ai_lane_predicate: crate::v0_request::AiLanePredicate::Allowlist,
         sdk_attribution: attribution_from_event(&events[0], metadata.user_agent),
     };
 

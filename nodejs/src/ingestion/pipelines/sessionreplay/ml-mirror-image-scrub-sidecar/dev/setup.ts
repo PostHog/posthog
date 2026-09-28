@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs'
  * /splits discovers a valid config+split, /rows returns rows whose image cells carry a `src` URL.
  * The dataset list below is just defaults — swap in whatever faces/text sources you want.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import sharp from 'sharp'
 
 const ROOT = new URL('..', import.meta.url).pathname
@@ -21,14 +21,14 @@ const ROOT = new URL('..', import.meta.url).pathname
 // same files at build time).
 const MODELS: { url: string; file: string; sha256: string }[] = [
     {
-        url: 'https://huggingface.co/SWHL/RapidOCR/resolve/1cfba2e90fc938db55889873735088de210cc173/PP-OCRv4/en_PP-OCRv3_det_infer.onnx',
+        url: 'https://huggingface.co/PaddlePaddle/PP-OCRv6_tiny_det_onnx/resolve/2ba1506c0380b8f0b03dd142459aac66d4421f6c/inference.onnx',
         file: 'models/dbnet_det.onnx',
-        sha256: 'f139598bc2af4e4b6fe98dec11574e30edfdd91fc94ac1425c18ace3bd5a866b',
+        sha256: '193bab7a04fca699a6c82e6abb5b81bdb28177f0abd4062552b04908dafb19f8',
     },
     {
-        url: 'https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2023mar.onnx',
+        url: 'https://github.com/opencv/opencv_zoo/raw/47534e27c9851bb1128ccc0102f1145e27f23f98/models/face_detection_yunet/face_detection_yunet_2026may.onnx',
         file: 'models/yunet.onnx',
-        sha256: '8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4',
+        sha256: 'ebafce4e3c118d6554634be5c27ab333b4c047a9a8c3faf1d7cf93101c22f0f0',
     },
     {
         url: 'https://huggingface.co/OwenElliott/image-safety-classifier-xs/resolve/54f4560bd9c5ee92d45dc30418a8f8680e80de6d/onnx/image-safety-classifier-xs.onnx',
@@ -88,19 +88,30 @@ async function getBuf(url: string, tries = 3): Promise<Buffer> {
     throw new Error('unreachable')
 }
 
+const sha256Hex = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex')
+
 async function downloadModels(): Promise<void> {
     for (const m of MODELS) {
         const dest = ROOT + m.file
         if (existsSync(dest)) {
-            continue
+            if (sha256Hex(await readFile(dest)) === m.sha256) {
+                continue
+            }
+            console.warn(`  ${m.file} does not match its pinned sha256, replacing it`)
         }
         const buf = await getBuf(m.url)
-        const digest = createHash('sha256').update(buf).digest('hex')
+        const digest = sha256Hex(buf)
         if (digest !== m.sha256) {
             throw new Error(`${m.file}: sha256 mismatch (got ${digest}, want ${m.sha256}) — refusing to write`)
         }
         await mkdir(ROOT + 'models', { recursive: true })
-        await writeFile(dest, buf)
+        const partial = `${dest}.${process.pid}.partial`
+        try {
+            await writeFile(partial, buf)
+            await rename(partial, dest)
+        } finally {
+            await rm(partial, { force: true })
+        }
     }
 }
 

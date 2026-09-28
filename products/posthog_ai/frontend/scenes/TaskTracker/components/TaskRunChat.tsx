@@ -13,6 +13,7 @@ import { RunEscapeBoundary, type RunEscapeBoundaryProps } from '../../../compone
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
+import type { AttachedContextItem } from '../../../types/contextTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { TaskRunComposer } from './TaskRunComposer'
 
@@ -32,6 +33,7 @@ export interface TaskRunChatProps {
     initialDraft?: string
     onDraftAdopted?: () => void
     autoFocus?: boolean
+    contextItems?: AttachedContextItem[]
 }
 
 /**
@@ -52,6 +54,7 @@ export function TaskRunChat({
     initialDraft,
     onDraftAdopted,
     autoFocus,
+    contextItems,
 }: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns, continueWithRun } = useActions(taskDetailSceneLogic({ taskId }))
     const { selectedRun, task } = useValues(taskDetailSceneLogic({ taskId }))
@@ -73,6 +76,7 @@ export function TaskRunChat({
         initialDraft,
         onDraftAdopted,
         flushDraft: () => flushDraftRef.current(),
+        contextItems: contextItems ?? pendingInteraction?.props.contextItems,
         currentModel:
             runConfig?.model ??
             (typeof runConfig?.state?.model === 'string'

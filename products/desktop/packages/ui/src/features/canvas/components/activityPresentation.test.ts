@@ -97,9 +97,11 @@ describe("activityPresentation", () => {
     ],
   ])("presents a %s", (_name, activity, metadata, agentIcon) => {
     expect(activityPresentation(activity, "me@posthog.com")).toEqual({
+      action: metadata.split(" · ")[1],
       metadata,
       agentIcon,
       spaceLabel: null,
+      time: metadata.split(" · ")[0],
     });
   });
 

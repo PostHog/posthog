@@ -1,0 +1,47 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.",
+            "type": "string"
+        },
+        "filter_test_accounts": {
+            "default": false,
+            "description": "Whether to also apply the project's internal and test user filters (its test_account_filters setting) on top of `properties`.",
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 100,
+            "description": "Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "order_by": {
+            "default": "",
+            "description": "Sort column. Allowed: session_id, session_start, session_end, duration_seconds, tool_call_count, mcp_client_name, distinct_id. Prefix with '-' for descending. Defaults to '-session_start' (newest sessions first).",
+            "type": "string"
+        },
+        "properties": {
+            "default": "",
+            "description": "Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{\"key\": \"$mcp_tool_name\", \"value\": [\"query_run\"], \"operator\": \"exact\", \"type\": \"event\"}]",
+            "type": "string"
+        },
+        "search": {
+            "default": "",
+            "description": "Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

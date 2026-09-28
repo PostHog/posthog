@@ -6,7 +6,7 @@ from typing import Any, Union, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Exists, F, Max, OuterRef, QuerySet
+from django.db.models import Count, Exists, F, Max, QuerySet
 from django.db.models.query_utils import Q
 from django.utils.functional import SimpleLazyObject
 from django.utils.timezone import now
@@ -32,7 +32,7 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ProductKey, QueryStatus
+from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, ProductKey, QueryStatus
 
 from posthog.hogql.errors import ExposedHogQLError
 
@@ -160,9 +160,11 @@ from products.dashboards.backend.facade.api import (
     update_insight_dashboard_membership,
 )
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
+from products.exports.backend.facade.api import delete_insight_subscriptions
 from products.product_analytics.backend.facade.account_filters import plan_test_account_filter_update
 from products.product_analytics.backend.facade.api import (
     insight_variables_for_team,
+    lock_insight_for_evaluation,
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
@@ -517,6 +519,12 @@ class InsightFilterOverrideContext(BaseModel):
     )
 
 
+class _InsightResultWarnings(RootModel):
+    """Warnings attached to the query response that produced an insight's results."""
+
+    root: list[DataWarehouseSyncWarning | AccessControlFilterWarning]
+
+
 @extend_schema_serializer(deprecate_fields=["dashboards"])
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
@@ -575,6 +583,15 @@ class InsightSerializer(InsightBasicSerializer):
         read_only=True,
         help_text="What ClickHouse read for this insight's last slow run, with the findings of its query scan.",
     )
+    warnings = serializers.SerializerMethodField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Warnings from the run that produced these results. A `warehouse_sync` warning means the query"
+            " read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be"
+            " out of date. Reflects the sync state when the results were computed. Null for shared insights."
+        ),
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
@@ -621,6 +638,7 @@ class InsightSerializer(InsightBasicSerializer):
             "types",
             "resolved_date_range",
             "query_scan",
+            "warnings",
             "_create_in_folder",
             "alerts",
             "filter_override_context",
@@ -868,17 +886,24 @@ class InsightSerializer(InsightBasicSerializer):
                     "and this insight is publicly shared."
                 )
 
-        if validated_data.get("deleted", False):
-            hide_tiles_for_insights([instance.id])
-            for alert in instance.alertconfiguration_set.all():
-                alert.delete()
-        else:
-            dashboard_ids = validated_data.pop("dashboards", None)
-            if dashboard_ids is not None:
-                # The membership write runs before the query is saved, so gate on the incoming one.
-                self._update_insight_dashboards(dashboard_ids, instance, validated_data.get("query", instance.query))
+        with transaction.atomic():
+            if validated_data.get("deleted", False):
+                # Alert creation locks the insight, then checks `deleted`. Taking the same lock before
+                # the sweep keeps a concurrent create from adding an alert the sweep never sees.
+                lock_insight_for_evaluation(team_id=instance.team_id, insight_id=instance.id)
+                delete_insight_subscriptions(project_id=instance.team.project_id, insight_ids=[instance.id])
+                hide_tiles_for_insights([instance.id])
+                for alert in instance.alertconfiguration_set.all():
+                    alert.delete()
+            else:
+                dashboard_ids = validated_data.pop("dashboards", None)
+                if dashboard_ids is not None:
+                    # The membership write runs before the query is saved, so gate on the incoming one.
+                    self._update_insight_dashboards(
+                        dashboard_ids, instance, validated_data.get("query", instance.query)
+                    )
 
-        updated_insight = super().update(instance, validated_data)
+            updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
         # alertable kinds (e.g. trends -> SQL) is left alone: the config type no longer matches, but
         # the alert check cycle re-validates against the current query and auto-disables + notifies on
@@ -1107,6 +1132,14 @@ class InsightSerializer(InsightBasicSerializer):
             return None
         return hydrate_scan_summary(self.context["get_team"](), summary, cache_key)
 
+    @extend_schema_field(_InsightResultWarnings)  # type: ignore[arg-type]
+    def get_warnings(self, insight: Insight) -> list[dict] | None:
+        # Sync warnings name warehouse tables and sources, which a shared viewer outside the
+        # project must not see.
+        if self.context.get("is_shared"):
+            return None
+        return self.insight_result(insight).warnings
+
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):
         if insight.alertable_query_kind is None:
@@ -1290,6 +1323,7 @@ class InsightSerializer(InsightBasicSerializer):
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
                     query_scan=cached_response.get("query_scan"),
+                    warnings=cached_response.get("warnings"),
                 )
             else:
                 EXPORT_QUERY_CACHE_MISS.inc()
@@ -1894,7 +1928,10 @@ class InsightViewSet(
         if not order:
             if self.request.GET.get("search"):
                 return queryset
-            return queryset.order_by("order")
+            # `order` is a vestigial nullable column with no index, so sorting on it forces a full
+            # scan and sort of the project. `-last_modified_at` is covered by dashboarditem_team_lmod_idx.
+            # `-pk` breaks ties so paginated pages stay stable when timestamps collide.
+            return queryset.order_by("-last_modified_at", "-pk")
 
         if order == "-last_viewed_at":
             return queryset.order_by(F("last_viewed_at").desc(nulls_last=True))
@@ -2096,7 +2133,7 @@ class InsightViewSet(
                     if tags_list:
                         # A semi-join returns one row per insight, so the list needs no
                         # `.distinct()` sort over the wide insight JSON columns.
-                        matching_tags = TaggedItem.objects.filter(insight_id=OuterRef("pk"), tag__name__in=tags_list)
+                        matching_tags = TaggedItem.objects.matching_outer(Insight).filter(tag__name__in=tags_list)
                         queryset = queryset.filter(Exists(matching_tags))
             elif key == "created_by":
                 created_by_filter = request.GET["created_by"]
@@ -2365,6 +2402,7 @@ When set, the specified dashboard's filters and date range override will be appl
                 # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
+                delete_insight_subscriptions(project_id=self.team.project_id, insight_ids=insight_ids)
 
                 activity_log_entries: list[LogActivityEntry] = []
                 for insight in insights:

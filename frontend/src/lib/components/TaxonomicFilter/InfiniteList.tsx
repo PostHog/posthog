@@ -51,6 +51,7 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { EventDefinition, PropertyDefinition } from '~/types'
 
 import { NO_ITEM_SELECTED, infiniteListLogic } from './infiniteListLogic'
+import { TaxonomicEventMatchSuggestions } from './TaxonomicEventMatchSuggestions'
 
 export interface InfiniteListProps {
     popupAnchorElement: HTMLDivElement | null
@@ -474,8 +475,7 @@ export const InfiniteListRow = ({
         return (
             <div style={style} className="flex flex-col items-center justify-center gap-1 pt-2">
                 <IconSearch className="text-3xl text-tertiary" />
-                <span className="text-secondary text-center text-xs">Start searching and we'll suggest filters...</span>
-                <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                <SuggestedFiltersMessage taxonomicGroupTypes={taxonomicGroupTypes} className="text-xs" />
             </div>
         )
     }
@@ -547,11 +547,8 @@ export const InfiniteListRow = ({
                 data-attr="prop-filter-event-option-custom"
             >
                 <div className="flex items-center gap-2">
-                    <span className="text-muted">Select event:</span>
+                    <span className="text-muted">Use event name:</span>
                     <span className="font-medium">{trimmedSearchQuery}</span>
-                    <LemonTag type="caution" size="small">
-                        Not seen yet
-                    </LemonTag>
                 </div>
             </LemonRow>
         )
@@ -767,8 +764,7 @@ function InfiniteListEmptyState(): JSX.Element {
             {suggestedFiltersBeforeSearching ? (
                 <>
                     <IconSearch className="text-5xl text-tertiary" />
-                    <span className="text-secondary text-center">Start searching and we'll suggest filters...</span>
-                    <SuggestedFiltersSearchHint taxonomicGroupTypes={taxonomicGroupTypes} />
+                    <SuggestedFiltersMessage taxonomicGroupTypes={taxonomicGroupTypes} />
                 </>
             ) : needsMoreSearchCharacters ? (
                 <>
@@ -808,6 +804,9 @@ function InfiniteListEmptyState(): JSX.Element {
                             </>
                         )}
                     </span>
+                    {!emptySearchQuery && listGroupType === TaxonomicFilterGroupType.Events && (
+                        <TaxonomicEventMatchSuggestions />
+                    )}
                     {canOfferStaleToggle && (
                         <LemonButton
                             type="secondary"
@@ -1065,11 +1064,24 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     )
 }
 
-function SuggestedFiltersSearchHint({
+function SuggestedFiltersMessage({
     taxonomicGroupTypes,
+    className,
 }: {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
-}): JSX.Element | null {
+    className?: string
+}): JSX.Element {
+    const examples = suggestedFiltersSearchExamples(taxonomicGroupTypes)
+    return (
+        <span className={clsx('text-secondary text-center', className)}>
+            {examples
+                ? `Type a value like ${examples} and we'll suggest a filter for it`
+                : "Start typing and we'll suggest filters"}
+        </span>
+    )
+}
+
+function suggestedFiltersSearchExamples(taxonomicGroupTypes: TaxonomicFilterGroupType[]): string | null {
     const groupSet = new Set(taxonomicGroupTypes)
     const hints: string[] = []
     if (groupSet.has(TaxonomicFilterGroupType.EmailAddresses)) {
@@ -1084,13 +1096,11 @@ function SuggestedFiltersSearchHint({
     if (hints.length === 0) {
         return null
     }
-    const joined =
-        hints.length === 1
-            ? hints[0]
-            : hints.length === 2
-              ? `${hints[0]} or ${hints[1]}`
-              : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
-    return <span className="text-center text-secondary italic">Try searching for {joined}</span>
+    return hints.length === 1
+        ? hints[0]
+        : hints.length === 2
+          ? `${hints[0]} or ${hints[1]}`
+          : `${hints.slice(0, -1).join(', ')}, or ${hints[hints.length - 1]}`
 }
 
 function resolveItemRendering({

@@ -925,6 +925,47 @@ tools:
                 - results.*.result.query_status
                 - results.*.result.stats_version
                 - results.*.result.insight
+    experiment-migrate:
+        operation: experiments_migrate_create
+        enabled: true
+        scopes:
+            - experiment:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Migrate legacy experiment
+        description: >
+            Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the
+            user's reference first. Only for experiments where is_legacy is true.
+
+
+            Move a legacy experiment onto the new experiments engine. This creates a NEW experiment with the same
+            configuration and its metrics converted to the new format, and returns it. The legacy experiment is left
+            untouched and keeps its results, so the project ends up with two experiments. Both point at the same feature
+            flag, so no new rollout is needed and users keep the variant they already have. Tell the user about the
+            second experiment before you call this.
+
+
+            Legacy shared metrics used by the experiment are converted too. Each one gets a new shared metric, and the
+            new experiment links to that. The legacy shared metrics stay where they are.
+
+
+            Calling this again returns the experiment created the first time instead of making another copy.
+
+
+            Returns 400 if the experiment already uses the new engine.
+
+
+            No request body needed.
+        param_overrides:
+            id:
+                cast: string-int
+                aliases:
+                    - experimentId
+                    - experiment_id
+        ui_app: experiment
     experiment-pause:
         operation: experiments_pause_create
         enabled: true

@@ -1,6 +1,3 @@
-// No repo figure: the cause comes from replaying each pull request's timeline, which is too heavy to run
-// over the whole repository per request.
-
 import { LemonCard, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
@@ -32,16 +29,16 @@ export function RedTimeByCauseCard({
                         <div className="flex flex-col gap-1">
                             <div>
                                 Time a merged pull request's latest commit had a failed check, per merged pull request,
-                                split by what turned it green.
+                                grouped by the evidence that classifies each red stretch.
                             </div>
                             <div>
                                 Flake: the failed workflow passed a re-run of the same commit. Master broken: the failed
-                                jobs also failed on the default branch within 12 hours. Fixed by a push: a later commit
-                                arrived. Not provable: none of those.
+                                jobs also failed around the same time on the default branch. Fixed by a push: a later
+                                commit arrived. Not provable: none of those.
                             </div>
                             <div>
-                                There is no repo figure: the cause comes from replaying each pull request, which only
-                                runs for the pull requests listed here.
+                                Values cover every merged pull request in the selected scope, including pull requests
+                                omitted from the list below.
                             </div>
                             {!jobsAvailable && (
                                 <div>
@@ -51,7 +48,7 @@ export function RedTimeByCauseCard({
                         </div>
                     }
                 >
-                    <span className="cursor-default">Red checks, by what turned them green</span>
+                    <span className="cursor-default">Red checks, by evidence</span>
                 </Tooltip>
             </h3>
             {loading ? (

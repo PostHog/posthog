@@ -1,5 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
@@ -439,7 +440,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             },
             removeSeries: ({ index }) => {
                 actions.setLocalSeries(values.localSeries.filter((_, i) => i !== index))
-                eventUsageLogic.actions.reportInsightFilterRemoved(index)
+                posthog.capture('local filter removed', { index: index })
             },
             splitGroup: ({ index }) => {
                 const node = values.localSeries[index]?.node
@@ -488,16 +489,16 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                 if (typeof props.onChange === 'function') {
                     props.onChange(series)
                 }
-                eventUsageLogic.actions.reportInsightFilterSet(
-                    series.map((node) => ({
+                posthog.capture('filters set', {
+                    filters: series.map((node) => ({
                         id: seriesNodeKey(node),
                         type: seriesNodeEntityType(node) as EntityType | undefined,
-                    }))
-                )
+                    })),
+                })
             },
             setEntityFilterVisibility: ({ index, value }) => {
                 const entityName = values.localSeries[index]?.node.name || undefined
-                eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value, entityName)
+                posthog.capture('entity filter visbility set', { index: index, visible: value, entityName: entityName })
             },
         }
     }),

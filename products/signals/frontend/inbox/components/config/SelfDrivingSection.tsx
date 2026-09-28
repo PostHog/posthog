@@ -23,7 +23,12 @@ import { IntegrationType } from '~/types'
 
 import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import { userAutonomyLogic } from '../../logics/userAutonomyLogic'
-import { PRIORITY_THRESHOLD_OPTIONS, SignalReportPriority } from '../../types'
+import {
+    DEFAULT_PULL_REQUEST_LABEL,
+    GITHUB_LABEL_NAME_MAX_LENGTH,
+    PRIORITY_THRESHOLD_OPTIONS,
+    SignalReportPriority,
+} from '../../types'
 import { AutonomySettingGroup } from './AutonomySettingGroup'
 import { AutonomySettingRow } from './AutonomySettingRow'
 
@@ -562,6 +567,58 @@ function GitHubIssueWritebackRow(): JSX.Element {
 }
 
 /**
+ * Team-wide opt-in to labelling every self-driving pull request. Off by default, because the label
+ * lands on a repository the team shares with everybody. The name is only editable while the label
+ * is on, and a blank name saves as the default label rather than as no label.
+ */
+function PullRequestLabelRow(): JSX.Element {
+    const { pullRequestLabelEnabled, draftPullRequestLabel, savePullRequestLabelDisabledReason, teamConfigUpdating } =
+        useValues(signalTeamConfigLogic)
+    const { patchTeamConfig, setDraftPullRequestLabel, saveDraftPullRequestLabel } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Label PRs on GitHub"
+            description="Add a label to every PR agents open, so you can find them in GitHub search and notification rules. PostHog creates the label if your repository does not have it."
+            control={
+                <LemonSwitch
+                    checked={pullRequestLabelEnabled}
+                    loading={teamConfigUpdating}
+                    onChange={(enabled) => patchTeamConfig({ pull_request_label_enabled: enabled })}
+                    aria-label="Label self-driving pull requests on GitHub"
+                    data-attr="signals-pull-request-label-enabled"
+                />
+            }
+        >
+            {pullRequestLabelEnabled && (
+                <div className="flex items-center gap-2">
+                    <LemonInput
+                        size="small"
+                        className="w-48"
+                        placeholder={DEFAULT_PULL_REQUEST_LABEL}
+                        maxLength={GITHUB_LABEL_NAME_MAX_LENGTH}
+                        value={draftPullRequestLabel}
+                        onChange={setDraftPullRequestLabel}
+                        onPressEnter={saveDraftPullRequestLabel}
+                        aria-label="Pull request label name"
+                    />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={saveDraftPullRequestLabel}
+                        loading={teamConfigUpdating}
+                        disabledReason={savePullRequestLabelDisabledReason ?? undefined}
+                        data-attr="signals-pull-request-label-save"
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            )}
+        </AutonomySettingRow>
+    )
+}
+
+/**
  * Per-user opt-in to being added as a GitHub assignee on the implementation PR for reports that
  * suggest this user as reviewer. Off by default, because being assigned is visible to everybody on
  * the pull request. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox
@@ -766,6 +823,7 @@ export function SelfDrivingSection(): JSX.Element {
                 <BaseBranchesRow />
                 <ProjectPullRequestStateRow />
                 <GitHubIssueWritebackRow />
+                <PullRequestLabelRow />
                 <IssueTrackerRow />
             </AutonomySettingGroup>
             <AutonomySettingGroup

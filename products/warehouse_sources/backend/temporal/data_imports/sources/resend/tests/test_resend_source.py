@@ -96,7 +96,7 @@ class TestResendSource:
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
-        assert error_message == "Invalid Resend API key"
+        assert error_message is not None and "Generate a new API key" in error_message
 
     def test_validate_credentials_api_key_missing(self):
         config = ResendSourceConfig(auth_method=ResendAuthMethodConfig(selection="api_key", api_key=None))

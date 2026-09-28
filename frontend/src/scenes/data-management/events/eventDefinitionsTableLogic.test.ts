@@ -2,6 +2,7 @@ import { MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
@@ -143,6 +144,7 @@ describe('eventDefinitionsTableLogic', () => {
 
     describe('event definitions', () => {
         it('load event definitions on navigate and cache', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
             const url = urls.eventDefinitions()
             router.actions.push(url)
             await expectLogic(logic)
@@ -159,6 +161,12 @@ describe('eventDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
                 })
+
+            expect(capture).toHaveBeenCalledWith(
+                'event definitions page load succeeded',
+                expect.objectContaining({ num_results: 50 })
+            )
+            capture.mockRestore()
 
             // Check cache directly
             expect(logic.cache.apiCache).toMatchObject({
@@ -273,14 +281,14 @@ describe('eventDefinitionsTableLogic', () => {
                 [propertiesStartingUrl]: expect.objectContaining({
                     count: 5,
                 }),
-                [`api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: expect.objectContaining(
+                [`api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: expect.objectContaining(
                     mockEvent.properties
                 ),
             })
 
             expect(api.get).toHaveBeenCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)
-            expect(api.get).toHaveBeenNthCalledWith(2, `api/environments/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
+            expect(api.get).toHaveBeenNthCalledWith(2, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
             expect(api.get).toHaveBeenNthCalledWith(3, startingUrl)
 
             await expectLogic(logic, () => {

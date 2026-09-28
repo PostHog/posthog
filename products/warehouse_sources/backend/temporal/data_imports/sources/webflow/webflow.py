@@ -253,8 +253,11 @@ def create_webhook(api_token: str, site_id: str, webhook_url: str) -> WebhookCre
         # A secret we never saw can't be reconstructed — Webflow only returns it on create, and
         # tokens predating its per-webhook secrets return none at all. Ask for one by hand so
         # deliveries aren't silently rejected.
-        pending_inputs = [] if len(secrets) == len(ALL_WEBHOOK_EVENTS) else ["signing_secret"]
-        extra_inputs: dict[str, Any] = {"signing_secrets": secrets} if secrets else {}
+        complete = len(secrets) == len(ALL_WEBHOOK_EVENTS)
+        pending_inputs = [] if complete else ["signing_secret"]
+        extra_inputs: dict[str, Any] = (
+            {"signing_secrets": secrets, "signing_secrets_complete": complete} if secrets else {}
+        )
         return WebhookCreationResult(success=True, extra_inputs=extra_inputs, pending_inputs=pending_inputs)
     except Exception as e:
         return WebhookCreationResult(

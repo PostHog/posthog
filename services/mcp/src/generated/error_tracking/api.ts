@@ -8347,7 +8347,7 @@ export const errorTrackingQueryIssuesListCreateBodyFilterGroupItemOperatorDefaul
 export const errorTrackingQueryIssuesListCreateBodyFilterGroupItemTypeDefault = `event`
 export const errorTrackingQueryIssuesListCreateBodyOrderByDefault = `occurrences`
 export const errorTrackingQueryIssuesListCreateBodyOrderDirectionDefault = `DESC`
-export const errorTrackingQueryIssuesListCreateBodyLimitDefault = 25
+export const errorTrackingQueryIssuesListCreateBodyLimitDefault = 10
 export const errorTrackingQueryIssuesListCreateBodyLimitMax = 100
 
 export const errorTrackingQueryIssuesListCreateBodyOffsetDefault = 0
@@ -8525,7 +8525,7 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
         .min(1)
         .max(errorTrackingQueryIssuesListCreateBodyLimitMax)
         .default(errorTrackingQueryIssuesListCreateBodyLimitDefault)
-        .describe('Page size.'),
+        .describe('Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.'),
     offset: zod
         .number()
         .min(errorTrackingQueryIssuesListCreateBodyOffsetMin)
@@ -8536,7 +8536,9 @@ export const ErrorTrackingQueryIssuesListCreateBody = () => zod.object({
         .min(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMin)
         .max(errorTrackingQueryIssuesListCreateBodyVolumeResolutionMax)
         .default(errorTrackingQueryIssuesListCreateBodyVolumeResolutionDefault)
-        .describe('Number of volume buckets. Defaults to 0 for compact aggregate counts.'),
+        .describe(
+            'Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.'
+        ),
     library: zod
         .union([zod.string(), zod.array(zod.string()).min(1)])
         .optional()
@@ -8579,6 +8581,7 @@ export const ErrorTrackingRecommendationsListParams = () => zod.object({
 export const ErrorTrackingRecommendationsListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    poll: zod.boolean().optional().describe('True reads the current state without scheduling a refresh.'),
 })
 
 export const ErrorTrackingSettingsRetrieveSettingsRetrieveParams = () => zod.object({

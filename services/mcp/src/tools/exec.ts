@@ -3,6 +3,7 @@ import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
+import { isEmptyToolResult } from '@/lib/discovery-hints'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
@@ -37,9 +38,11 @@ const MAX_SEARCH_PATTERN_LENGTH = 800
 
 /** Advertised on `tools/list` and on the runtime Tool. OpenAI's plugin verifier
  *  requires these three hints (plus idempotent) to be present, not just defined
- *  on the handler side. */
+ *  on the handler side. `destructiveHint` stays false because every read goes
+ *  through `exec` too: Claude Code asks for approval on each call to a tool
+ *  marked destructive, even when the user set it to always allow. */
 export const EXEC_TOOL_ANNOTATIONS = {
-    destructiveHint: true,
+    destructiveHint: false,
     idempotentHint: false,
     openWorldHint: true,
     readOnlyHint: false,
@@ -82,7 +85,7 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
         return result
     }
     return {
-        NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric and label the result noncanonical.`,
+        NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
         ...envelope,
     }
 }
@@ -139,6 +142,7 @@ export interface ExecInnerCallProperties {
     output?: unknown
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skill_lookup_miss_kind?: SkillLookupMissKind
+    result_empty?: boolean
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -160,30 +164,54 @@ export interface ExecCommandMeta {
     exec_search_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
+    exec_learn_kind?: ExecLearnKind
+    exec_learn_target?: string
 }
 
 export type ExecCommandTracker = (meta: ExecCommandMeta) => void
 
-/**
- * Session-scoped skill-usage markers backing the skills-first gate. Product
- * `call`s in a session that ran no `learn` load are rejected with a retryable
- * instruction — interaction-time enforcement of the SKILLS FIRST prompt section,
- * which agents demonstrably rationalize their way past when it is advisory only.
- * `call --no-skills` acknowledges that no skill applies and opens the gate for
- * the rest of the session.
- */
-export interface SkillsSessionState {
-    hasLearned(): Promise<boolean>
-    markLearned(): Promise<void>
-    hasAcknowledgedNoSkills(): Promise<boolean>
-    markAcknowledgedNoSkills(): Promise<void>
+export type ExecLearnKind = 'search' | 'load' | 'list' | 'describe' | 'guide'
+
+export function classifyLearnCommand(
+    rest: string
+): Pick<ExecCommandMeta, 'exec_learn_kind' | 'exec_search_query' | 'exec_learn_target'> {
+    let tokens: string[]
+    try {
+        tokens = tokenizeLearnInput(rest)
+    } catch {
+        return {}
+    }
+    const [first, ...args] = tokens
+    if (first === '-s') {
+        return { exec_learn_kind: 'search', exec_search_query: args.join(' ').slice(0, MAX_SEARCH_PATTERN_LENGTH) }
+    }
+    if (first === '-d') {
+        return { exec_learn_kind: 'describe' }
+    }
+    if (first === undefined || first === 'skills') {
+        return { exec_learn_kind: 'list' }
+    }
+    if (first !== undefined && QUALIFIED_IDENTIFIER.test(first)) {
+        const searchIndex = args.indexOf('-s')
+        return {
+            exec_learn_kind: 'load',
+            exec_learn_target: first.slice(0, MAX_SEARCH_PATTERN_LENGTH),
+            ...(searchIndex === -1
+                ? {}
+                : {
+                      exec_search_query: args
+                          .slice(searchIndex + 1)
+                          .join(' ')
+                          .slice(0, MAX_SEARCH_PATTERN_LENGTH),
+                  }),
+        }
+    }
+    return { exec_learn_kind: 'guide' }
 }
 
 export interface ExecToolOptions {
     requireDestructiveConfirmation?: boolean
     learnCatalog?: ExecLearnCatalog
-    /** Present only when skill distribution is enabled and the client has a session. */
-    skillsSession?: SkillsSessionState
     /**
      * Client is an inline-exec UI-app host that renders MCP UI apps on the exec
      * response (Claude Code, Cowork). Gets the same UI-app payload treatment as the
@@ -214,10 +242,7 @@ export interface ExecToolOptions {
     builtInSkillHint?: BuiltInSkillHint
 }
 
-const CALL_USAGE = 'Usage: call [--json] [--confirm] [--no-skills] <tool_name> <json_input>'
-
-const SKILLS_GATE_MESSAGE =
-    'No skills loaded this session. Run `learn -s "<task keywords>"`, then load a result with `learn posthog:<skill>` or `learn project:<skill>` using its exact qualified name. Searching alone does not load a skill. `skill-get` and `skill-list` do not satisfy this gate. After loading, retry the original call. If no skill applies, re-run this exact command as `call --no-skills ...`.'
+const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> <json_input>'
 
 /**
  * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
@@ -231,58 +256,6 @@ function classifyLearnError(error: unknown): unknown {
     }
     const reason: ExecCommandErrorReason = error.message.startsWith('Unknown ') ? 'unknown_learn_topic' : 'usage'
     return new ExecCommandError(error.message, reason)
-}
-
-/**
- * True when a `learn` input loads skill content (a qualified `source:skill` read,
- * including file reads within a skill). Generic guide reads, listings, searches,
- * and describes don't count — a guide is not a skill, and opening the gate on
- * `learn analytics` would restore exactly the bypass the gate exists to catch.
- *
- * Uses the dispatcher's quote-aware tokenizer so a quoted flag (`learn '-s' ...`)
- * or quoted identifier (`learn 'posthog:x'`) resolves the same way it dispatches —
- * a naive whitespace split disagrees on both. An unterminated quote can't be a
- * skill load (and `execute` would have thrown first), so it returns false.
- */
-function isSkillLoad(rest: string): boolean {
-    let tokens: string[]
-    try {
-        tokens = tokenizeLearnInput(rest)
-    } catch {
-        return false
-    }
-    if (tokens[0] === 'skills' || tokens[0] === '-s' || tokens[0] === '-d') {
-        return false
-    }
-    return tokens.some((token) => QUALIFIED_IDENTIFIER.test(token))
-}
-
-/**
- * Returns the gate rejection message, or undefined when the call may proceed.
- * A session-store hiccup opens the gate — enforcement must never break tools.
- */
-async function resolveSkillsGate(
-    session: SkillsSessionState | undefined,
-    noSkillsFlag: boolean
-): Promise<string | undefined> {
-    if (!session) {
-        return undefined
-    }
-    try {
-        if (noSkillsFlag) {
-            await session.markAcknowledgedNoSkills()
-            return undefined
-        }
-        if (await session.hasLearned()) {
-            return undefined
-        }
-        if (await session.hasAcknowledgedNoSkills()) {
-            return undefined
-        }
-        return SKILLS_GATE_MESSAGE
-    } catch {
-        return undefined
-    }
 }
 
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
@@ -379,11 +352,10 @@ function batchedCommandMessage(commands: string[]): string {
     ].join('\n')
 }
 
-function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; noSkills: boolean; rest: string } {
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
     let rest = input.trim()
     let forceJson = false
     let confirmed = false
-    let noSkills = false
 
     while (rest) {
         const parsed = parseCommand(rest)
@@ -397,15 +369,10 @@ function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean
             rest = parsed.rest
             continue
         }
-        if (parsed.verb === '--no-skills') {
-            noSkills = true
-            rest = parsed.rest
-            continue
-        }
         break
     }
 
-    return { forceJson, confirmed, noSkills, rest }
+    return { forceJson, confirmed, rest }
 }
 
 // Extracts the inner tool name from an exec `call` command, e.g.
@@ -503,7 +470,12 @@ export function describeExecCommand(command: string, isKnownToolName: (name: str
         return {}
     }
     const verb = KNOWN_EXEC_VERBS.has(rawVerb) ? rawVerb : UNRECOGNIZED_EXEC_TOKEN
-    if (!TOOL_TARGETING_VERBS.has(rawVerb) || !rest) {
+    if (!TOOL_TARGETING_VERBS.has(rawVerb)) {
+        // Record the tool so a dropped `call` prefix is countable instead of hiding in
+        // the unrecognized bucket with genuine typos.
+        return isRecordableToolName(rawVerb, isKnownToolName) ? { verb, targetTool: rawVerb } : { verb }
+    }
+    if (!rest) {
         return { verb }
     }
     // The target must be parsed exactly as the dispatcher looks it up, or a
@@ -855,6 +827,47 @@ export function rewrapFlattenedArguments(
     }
 
     return schema.safeParse(rebuilt).success ? rebuilt : undefined
+}
+
+/**
+ * The mirror of `rewrapFlattenedArguments`: lifts a payload the caller nested under one
+ * undeclared key, such as `{query: {series}}`, back to the top level the schema declares.
+ *
+ * A nested `query` object is the natural shape for a query tool, and callers keep sending
+ * it even when the description says not to, so the rejection alone costs a round trip.
+ *
+ * Returns undefined when the wrapper or its siblings carry a key the schema does not
+ * declare, because the parse would drop that key without a word, or when the lifted
+ * payload does not parse.
+ */
+export function unwrapOverWrappedArguments(
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    const key = overWrappedPayloadKey(input, schema)
+    if (!schema || !key || !isRecord(input)) {
+        return undefined
+    }
+    const inner = input[key] as Record<string, unknown>
+    const siblings = Object.fromEntries(Object.entries(input).filter(([name]) => name !== key))
+    const declared = topLevelFieldNames(schema)
+    if (Object.keys(siblings).some((name) => !declared.has(name))) {
+        return undefined
+    }
+    if (Object.keys(inner).some((name) => !declared.has(name) || name in siblings)) {
+        return undefined
+    }
+    const unwrapped = { ...siblings, ...inner }
+    return schema.safeParse(unwrapped).success ? unwrapped : undefined
+}
+
+/** Repairs a call whose payload sits one level off from where the schema wants it, in either direction. */
+export function repairArgumentNesting(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    return rewrapFlattenedArguments(error, input, schema) ?? unwrapOverWrappedArguments(input, schema)
 }
 
 function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
@@ -1619,6 +1632,8 @@ export function createExecTool(
 
             switch (verb) {
                 case 'learn': {
+                    // Before the availability check, so a rejected skill command still records its form.
+                    options.trackCommand?.({ exec_verb: verb, ...classifyLearnCommand(rest) })
                     const learnCatalog = options.learnCatalog
                     if (!learnCatalog) {
                         // `learn` is only advertised when a catalog exists, so without one
@@ -1633,11 +1648,6 @@ export function createExecTool(
                         learnResult = await learnCatalog.execute(rest)
                     } catch (error) {
                         throw classifyLearnError(error)
-                    }
-                    // Only skill loads count as "learned" — a search whose results are
-                    // then ignored is exactly the bypass the gate exists to catch.
-                    if (options.skillsSession && isSkillLoad(rest)) {
-                        await options.skillsSession.markLearned().catch(() => undefined)
                     }
                     return learnResult
                 }
@@ -1852,16 +1862,12 @@ export function createExecTool(
                         // belongs in the `internal` bucket its siblings are kept out of.
                         throw new Error('Cannot call PostHog tools without an API context')
                     }
-                    const { forceJson, confirmed, noSkills, rest: callArgs } = parseCallFlags(rest)
+                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
                         throw new ExecCommandError(CALL_USAGE, 'usage')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(await resolveTools(), scopeGatedTools, flagGatedTools, toolName)
-                    const gateMessage = await resolveSkillsGate(options.skillsSession, noSkills)
-                    if (gateMessage) {
-                        throw new ExecCommandError(gateMessage, 'skills_gate')
-                    }
                     if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
                         throw new ExecCommandError(
                             `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`,
@@ -1907,7 +1913,7 @@ export function createExecTool(
                     // field. Dispatch the parsed output so coerced values and defaults apply.
                     let validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const rewrapped = rewrapFlattenedArguments(validation.error, input, toolSchema)
+                        const rewrapped = repairArgumentNesting(validation.error, input, toolSchema)
                         if (rewrapped) {
                             input = rewrapped
                             validation = toolSchema.safeParse(input, { reportInput: true })
@@ -1966,6 +1972,8 @@ export function createExecTool(
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
+                    // The text path below builds no payload, so emptiness is reported from here.
+                    const resultShape = isEmptyToolResult(result) ? { result_empty: true } : {}
                     const formattedOverride =
                         result !== null && typeof result === 'object'
                             ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]
@@ -1989,6 +1997,7 @@ export function createExecTool(
                             output_tokens: estimateTokens(outputText),
                             input,
                             output: outputText,
+                            ...resultShape,
                         })
                         if (!includeAppData) {
                             return outputText
@@ -2038,6 +2047,7 @@ export function createExecTool(
                             output_tokens: estimateResponseTokens(payload),
                             input,
                             output: payload,
+                            ...resultShape,
                         })
                         return payload
                     }
@@ -2063,15 +2073,28 @@ export function createExecTool(
                         output_tokens: estimateTokens(outputText),
                         input,
                         output: outputText,
+                        ...resultShape,
                     })
                     return outputText
                 }
 
-                default:
+                default: {
+                    // A connected tool reaches `call` through the gateway, not `allTools`.
+                    // Only a namespaced name can be one, so a plain typo skips the fetch.
+                    const isTool =
+                        allTools.some((tool) => tool.name === verb) ||
+                        (isGatewayToolName(verb) && (await resolveTools()).some((tool) => tool.name === verb))
+                    if (isTool) {
+                        throw new ExecCommandError(
+                            `"${verb}" is a tool, not a command. Invoke it as: call ${verb} <json_input>. Run "info ${verb}" first if its schema is not in context.`,
+                            'tool_as_command'
+                        )
+                    }
                     throw new ExecCommandError(
                         `Unknown command: "${verb}". Supported commands: ${options.learnCatalog ? 'learn, ' : ''}tools, search, info, schema, call`,
                         'unknown_command'
                     )
+                }
             }
         },
     }

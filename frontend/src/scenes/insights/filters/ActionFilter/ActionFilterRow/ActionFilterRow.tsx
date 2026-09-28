@@ -398,6 +398,7 @@ export function ActionFilterRow({
             filter={node}
             suggestedFiltersLabel={suggestedFiltersLabel}
             enableKeywordShortcuts
+            promoteSelectedItemToFirstPosition
             selectingKeyOnly
             onChange={(changedValue, taxonomicGroupType, item) =>
                 applyTaxonomicSelection(taxonomicGroupType, changedValue, item)

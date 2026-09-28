@@ -1667,6 +1667,16 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                 if "invalid_grant" in str(e):
                     raise
                 inputs.logger.warning(f"Skipping cleanup of bigquery destination table {destination_table}: {e}")
+            except Forbidden as e:
+                # BigQuery rejects the delete with a 403 reading "Project #<id> has been deleted."
+                # when the customer's whole GCP project was removed after the sync started. Unlike
+                # the genuine permission denial the comment above guards against, there's no
+                # readable copy left to protect here — the project, dataset, and table are all
+                # already gone — so retrying only repeats the identical failure forever. Matched on
+                # the stable wording, not the volatile project number.
+                if "has been deleted" not in str(e):
+                    raise
+                inputs.logger.warning(f"Skipping cleanup of bigquery destination table {destination_table}: {e}")
 
     def _build_source_response(
         self,

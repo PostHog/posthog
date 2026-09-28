@@ -249,6 +249,20 @@ class TestDispatchLoopEventEmailReport(LoopNotificationsTestCase):
         template_context = mock_email_message_cls.call_args.kwargs["template_context"]
         self.assertEqual(template_context["report"], expected_report)
 
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.create_notification")
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.is_email_available", return_value=True)
+    @patch(f"{LOOP_NOTIFICATIONS_MODULE}.EmailMessage")
+    def test_pr_event_email_does_not_share_the_run_email_key(
+        self, mock_email_message_cls, _mock_email_available, _mock_create_notification
+    ):
+        loop = self.create_loop(notifications={"email": {"enabled": True, "events": ["run_completed", "pr_merged"]}})
+
+        dispatch_loop_event(loop, "run_completed", {"task_run_id": "run-1"})
+        dispatch_loop_event(loop, "pr_merged", {"task_run_id": "run-1", "dedupe_key": "pr_merged:https://x/pull/1"})
+
+        campaign_keys = [call.kwargs["campaign_key"] for call in mock_email_message_cls.call_args_list]
+        self.assertEqual(len(set(campaign_keys)), 2)
+
 
 class TestDispatchLoopEventSlackReport(LoopNotificationsTestCase):
     def setUp(self):
