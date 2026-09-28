@@ -1329,6 +1329,13 @@ def test_bigquery_rejects_non_google_token_uri_before_building_credentials(token
             BIGQUERY_IMPERSONATION_PERMISSION_ERROR,
             False,
         ),
+        (
+            # Names the permission without denying it, so it must not match the check above and
+            # should fall through to the generic (captured) branch.
+            RefreshError("('Unable to acquire impersonated credentials', 'iam.serviceAccounts.getAccessToken')"),
+            BIGQUERY_VALIDATION_GENERIC_ERROR,
+            True,
+        ),
         (BadRequest('Invalid dataset ID "(default)"'), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (BadRequest("400 ProjectId must be non-empty"), BIGQUERY_INVALID_IDENTIFIER_ERROR, False),
         (
