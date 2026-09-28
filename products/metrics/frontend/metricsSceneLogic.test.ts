@@ -364,6 +364,32 @@ describe('metricsSceneLogic', () => {
             expect(history.index).toEqual(exploreIndex + 1)
         })
 
+        it('returns to Overview on browser back after switching away from it', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/metrics')
+            }).toFinishAllListeners()
+            const overviewLocation = { ...router.values.location, searchParams: router.values.searchParams }
+            await expectLogic(logic, () => {
+                logic.actions.setActiveTab('explore')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).toMatchObject({ activeTab: 'explore' })
+
+            // Overview is the default tab, so its entry has no activeTab param to restore from.
+            await expectLogic(logic, () => {
+                router.actions.locationChanged({
+                    method: 'POP',
+                    pathname: overviewLocation.pathname,
+                    search: overviewLocation.search,
+                    searchParams: overviewLocation.searchParams,
+                    hash: '',
+                    hashParams: {},
+                    url: `${overviewLocation.pathname}${overviewLocation.search}`,
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual('overview')
+        })
+
         it('replaces the history entry for filter and date edits', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/metrics', { activeTab: 'viewer' })

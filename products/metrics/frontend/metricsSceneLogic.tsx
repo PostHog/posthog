@@ -269,13 +269,15 @@ export const metricsSceneLogic = kea<metricsSceneLogicType>([
             // half-applied state would strip the params this pass has not consumed yet.
             actions.setRestoringFromUrl(true)
             try {
+                // syncUrl drops activeTab at the default, so a bare URL (e.g. browser back to
+                // the Overview entry) must reset the tab like the other params below.
                 const requested = params.activeTab
-                if (
-                    typeof requested === 'string' &&
-                    VALID_ACTIVE_TABS.includes(requested as MetricsSceneActiveTab) &&
-                    requested !== values.activeTab
-                ) {
-                    actions.setActiveTab(requested as MetricsSceneActiveTab)
+                const activeTab =
+                    typeof requested === 'string' && VALID_ACTIVE_TABS.includes(requested as MetricsSceneActiveTab)
+                        ? (requested as MetricsSceneActiveTab)
+                        : DEFAULT_ACTIVE_TAB
+                if (activeTab !== values.activeTab) {
+                    actions.setActiveTab(activeTab)
                 }
                 if (params.clauses) {
                     // A present-but-invalid clauses param is ignored outright, like a malformed
