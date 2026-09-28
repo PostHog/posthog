@@ -10521,6 +10521,16 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertEqual(response["X-Total-Count"], "3")
         self.assertEqual(response["X-Filtered-Count"], "3")
 
+    @parameterized.expand([("retrieve", ""), ("session_logs", "session_logs/")])
+    def test_malformed_run_id_returns_404(self, _name: str, suffix: str):
+        task = self.create_task()
+
+        response = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/0123456-89ab-cdef-0123-456789abcdef/{suffix}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_session_logs_empty_log(self):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)

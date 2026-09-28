@@ -1610,6 +1610,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "task"
     http_method_names = ["get", "post", "patch", "head", "options"]
     pagination_class = TasksPagination
+    lookup_value_regex = UUID_LOOKUP_REGEX
     # Fallback for drf-spectacular introspection only; every action declares its own
     # request/response schema via @validated_request / @extend_schema.
     serializer_class = TaskRunDetailSerializer
