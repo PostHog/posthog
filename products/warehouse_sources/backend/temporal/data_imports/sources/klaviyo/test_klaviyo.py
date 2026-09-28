@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
+from tenacity import Future, RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.klaviyo import (
@@ -19,12 +20,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.co
     KLAVIYO_API_VERSION_2026_07_15,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.klaviyo import (
+    MAX_RETRY_AFTER_SECONDS,
     KlaviyoConversionMetricError,
     KlaviyoResumeConfig,
+    KlaviyoRetryableError,
     _build_filter,
     _build_initial_params,
     _clamp_future_value_to_now,
     _format_incremental_value,
+    _parse_retry_after,
+    _wait_klaviyo,
     get_rows,
     klaviyo_source,
 )
@@ -328,6 +333,76 @@ class TestFetchPageRetries:
                 klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
 
         assert session.get.call_count == 5
+
+    def test_429_retry_after_header_propagates_to_the_exception(self) -> None:
+        # `_wait_klaviyo` only sees Klaviyo's Retry-After instruction via this attribute; if
+        # `_fetch_page` stops attaching it, retries silently fall back to blind exponential backoff.
+        rate_limited = MagicMock()
+        rate_limited.status_code = 429
+        rate_limited.ok = False
+        rate_limited.headers = {"Retry-After": "42"}
+
+        session = MagicMock()
+        session.get.return_value = rate_limited
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            with pytest.raises(KlaviyoRetryableError) as exc_info:
+                klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
+
+        assert exc_info.value.retry_after == 42.0
+
+    def test_5xx_does_not_read_retry_after(self) -> None:
+        # Only 429 carries a meaningful Retry-After from Klaviyo; a 5xx shouldn't pick up a stray
+        # header value and skip the exponential backoff meant for generic server errors.
+        server_error = MagicMock()
+        server_error.status_code = 503
+        server_error.ok = False
+        server_error.headers = {"Retry-After": "42"}
+
+        session = MagicMock()
+        session.get.return_value = server_error
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
+            with pytest.raises(KlaviyoRetryableError) as exc_info:
+                klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
+
+        assert exc_info.value.retry_after is None
+
+
+class TestRetryAfter:
+    @parameterized.expand(
+        [
+            ("30", 30.0),
+            (" 30 ", 30.0),
+            ("0", 0.0),
+            (None, None),
+            ("", None),
+            ("soon", None),
+            # An HTTP-date already in the past clamps to no wait.
+            ("Wed, 21 Oct 2015 07:28:00 GMT", 0.0),
+        ]
+    )
+    def test_parse_retry_after(self, value: str | None, expected: float | None) -> None:
+        assert _parse_retry_after(value) == expected
+
+    def _state(self, exc: Exception) -> RetryCallState:
+        state = RetryCallState(retry_object=MagicMock(), fn=None, args=(), kwargs={})
+        state.outcome = Future.construct(1, exc, has_exception=True)
+        return state
+
+    def test_wait_honors_retry_after_below_cap(self) -> None:
+        assert _wait_klaviyo(self._state(KlaviyoRetryableError("rate limited", retry_after=45.0))) == 45.0
+
+    def test_wait_caps_long_retry_after(self) -> None:
+        # An hourly/daily window can dwarf the cap; a single retry must stay bounded.
+        assert (
+            _wait_klaviyo(self._state(KlaviyoRetryableError("rate limited", retry_after=99999.0)))
+            == MAX_RETRY_AFTER_SECONDS
+        )
+
+    def test_wait_falls_back_to_backoff_without_retry_after(self) -> None:
+        waited = _wait_klaviyo(self._state(KlaviyoRetryableError("rate limited")))
+        assert 0 <= waited <= 30
 
 
 def _response_with_status(status_code: int, body: bytes | None = None, url: str | None = None) -> requests.Response:
