@@ -232,7 +232,7 @@ export interface signalSourcesLogicValues {
     conversationsConfig: SignalSourceConfig | null
     dataSourceSetupSource: WarehouseBackedSource | null
     enabledSourcesCount: number
-    enablingProduct: SourceProductEnablement | null
+    enablingProducts: Set<SourceProductEnablement>
     errorTrackingConfigs: SignalSourceConfig[]
     errorTrackingIsFullyEnabled: boolean
     errorTrackingTypeStates: {
@@ -291,8 +291,8 @@ export interface signalSourcesLogicActions {
     enableSourceProduct: (enablement: SourceProductEnablement) => {
         enablement: SourceProductEnablement
     }
-    enableSourceProductComplete: () => {
-        value: true
+    enableSourceProductComplete: (enablement: SourceProductEnablement) => {
+        enablement: SourceProductEnablement
     }
     initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
@@ -547,7 +547,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleConversations: true,
         toggleAnomalyInvestigation: true,
         enableSourceProduct: (enablement: SourceProductEnablement) => ({ enablement }),
-        enableSourceProductComplete: true,
+        enableSourceProductComplete: (enablement: SourceProductEnablement) => ({ enablement }),
     }),
 
     loaders(({ values }) => ({
@@ -664,11 +664,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 closeSourcesModal: () => null,
             },
         ],
-        enablingProduct: [
-            null as SourceProductEnablement | null,
+        // One recipe per entry: three sources can have an enable request in flight at once, and
+        // each button must keep its own spinner until its own request settles.
+        enablingProducts: [
+            new Set<SourceProductEnablement>(),
             {
-                enableSourceProduct: (_, { enablement }) => enablement,
-                enableSourceProductComplete: () => null,
+                enableSourceProduct: (state, { enablement }) => new Set(state).add(enablement),
+                enableSourceProductComplete: (state, { enablement }) => {
+                    const next = new Set(state)
+                    next.delete(enablement)
+                    return next
+                },
             },
         ],
         productDataEventsFailed: [
@@ -919,8 +925,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                         settingName: 'Support',
                         enabled: team ? !!team.conversations_enabled : null,
                         enablement: 'conversations',
-                        // `conversations_enabled` is an admin-only Team field, so the endpoint
-                        // refuses this recipe for a plain member.
+                        // `conversations_enabled` is an admin-only Team field.
                         enableBlockedReason: isProjectAdmin ? null : 'Only project admins can turn it on.',
                         dataStatus: 'unavailable',
                     },
@@ -1387,7 +1392,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 } catch (error: any) {
                     lemonToast.error(error?.detail || error?.message || "Couldn't turn this on. Please try again.")
                 } finally {
-                    actions.enableSourceProductComplete()
+                    actions.enableSourceProductComplete(enablement)
                 }
             },
             setDataWarehouseSourceEnabled: ({ source, enabled }) => {

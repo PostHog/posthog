@@ -490,6 +490,70 @@ function Expansion({
     )
 }
 
+/**
+ * The row's one control. An off product blocks arming (the source would watch nothing) but never
+ * disarming, so a blocked row offers the enable action in place of the switch.
+ */
+function RowControl({
+    agent,
+    state,
+    product,
+    offReason,
+    enablingProduct,
+    onToggle,
+    onEnableProduct,
+}: {
+    agent: AgentRosterDefinition
+    state: AgentSourceState
+    product?: SourceProductStatus
+    offReason?: string
+    enablingProduct: boolean
+    onToggle: () => void
+    onEnableProduct: (product: SourceProductStatus) => void
+}): JSX.Element | null {
+    const { armed, loading, requiresSetup } = state
+    if (loading) {
+        return <Spinner className="text-base" />
+    }
+    if (requiresSetup) {
+        return (
+            <LemonButton type="secondary" size="xsmall" onClick={onToggle}>
+                Connect
+            </LemonButton>
+        )
+    }
+    const armingBlocked = !!offReason && !armed
+    if (armingBlocked && product?.enablement) {
+        return (
+            <LemonButton
+                type="secondary"
+                size="xsmall"
+                loading={enablingProduct}
+                disabledReason={product.enableBlockedReason ?? undefined}
+                tooltip={offReason}
+                // LemonButton copies a string tooltip into aria-label, which would drop the verb.
+                aria-label={`Turn on ${product.settingName}`}
+                onClick={() => onEnableProduct(product)}
+            >
+                Turn on
+            </LemonButton>
+        )
+    }
+    // A source whose entities the user creates gets no master switch. Arming it would write to
+    // every entity at once, and turning it off and on again would not restore the earlier subset.
+    if (agent.entitiesAreUserCreated) {
+        return null
+    }
+    return (
+        <LemonSwitch
+            checked={armed}
+            onChange={onToggle}
+            disabledReason={armingBlocked ? offReason : undefined}
+            aria-label={`Arm ${agent.label}`}
+        />
+    )
+}
+
 interface AgentRowProps {
     agent: AgentRosterDefinition
     state: AgentSourceState
@@ -520,16 +584,10 @@ const AgentRow = memo(function AgentRow({
     onRetryData,
 }: AgentRowProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const { armed, loading, requiresSetup, syncStatus, entities } = state
+    const { armed, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
-    const productOff = product?.enabled === false
-    // An off product blocks arming (the source would watch nothing), never disarming.
-    const armingBlocked = productOff && !armed
-    const offReason = product && productOff ? productOffReason(product) : undefined
+    const offReason = product?.enabled === false ? productOffReason(product) : undefined
     const tag = notableTag(status, armed, product)
-    // A source whose entities the user creates gets no master switch. Arming it would write to
-    // every entity at once, and turning it off and on again would not restore the earlier subset.
-    const hasMasterSwitch = !agent.entitiesAreUserCreated
     const enabledCount = entities.filter((entity) => entity.enabled).length
     return (
         <div>
@@ -570,34 +628,21 @@ const AgentRow = memo(function AgentRow({
                 <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
                     {entities.length > 0 && `${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
                 </span>
-                {(loading || requiresSetup || hasMasterSwitch || (armingBlocked && product?.enablement)) && (
+                {(state.loading ||
+                    state.requiresSetup ||
+                    !agent.entitiesAreUserCreated ||
+                    (!!offReason && !armed && product?.enablement)) && (
                     // eslint-disable-next-line react/no-unknown-property
                     <div className="flex w-13 shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
-                        {loading ? (
-                            <Spinner className="text-base" />
-                        ) : requiresSetup ? (
-                            <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
-                                Connect
-                            </LemonButton>
-                        ) : armingBlocked && product?.enablement ? (
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                loading={enablingProduct}
-                                disabledReason={product.enableBlockedReason ?? undefined}
-                                tooltip={offReason}
-                                onClick={() => onEnableProduct(product)}
-                            >
-                                Turn on
-                            </LemonButton>
-                        ) : (
-                            <LemonSwitch
-                                checked={armed}
-                                onChange={() => onToggle(agent.source)}
-                                disabledReason={armingBlocked ? offReason : undefined}
-                                aria-label={`Arm ${agent.label}`}
-                            />
-                        )}
+                        <RowControl
+                            agent={agent}
+                            state={state}
+                            product={product}
+                            offReason={offReason}
+                            enablingProduct={enablingProduct}
+                            onToggle={() => onToggle(agent.source)}
+                            onEnableProduct={onEnableProduct}
+                        />
                     </div>
                 )}
                 {/* A real button inside the clickable row, so keyboard users can reach the
@@ -685,7 +730,7 @@ export function AgentsRoster(): JSX.Element {
         isHealthChecksToggling,
         isCiSignalsToggling,
         productStatusBySource,
-        enablingProduct,
+        enablingProducts,
         sourceConfigsLoadFailed,
         sourceConfigsLoading,
         linearTeamsPicker,
@@ -952,6 +997,7 @@ export function AgentsRoster(): JSX.Element {
                     <div className={agentListClassName(redesign)}>
                         {group.agents.map((agent) => {
                             const state = stateFor(agent.source)
+                            const product = productStatusBySource[agent.source]
                             // Steering needs a persisted row to write to, so optimistic `new_`
                             // placeholder rows wait until the reload lands. Disabled sources keep
                             // the control: enabling starts a sync immediately, so rules must be
@@ -984,12 +1030,9 @@ export function AgentsRoster(): JSX.Element {
                                     key={agent.source}
                                     agent={agent}
                                     state={state}
-                                    product={productStatusBySource[agent.source]}
+                                    product={product}
                                     expanded={expandedSource === agent.source}
-                                    enablingProduct={
-                                        !!enablingProduct &&
-                                        enablingProduct === productStatusBySource[agent.source]?.enablement
-                                    }
+                                    enablingProduct={!!product?.enablement && enablingProducts.has(product.enablement)}
                                     onExpand={() =>
                                         setExpandedSource((current) => (current === agent.source ? null : agent.source))
                                     }
