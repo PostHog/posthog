@@ -56,6 +56,7 @@ class TaskRunGatewayUsageWorkflow(PostHogWorkflow):
         pending: int | None = None
         while workflow.now() < self._retry_until:
             wakeups = self._wakeups
+            previous_pending = pending
             remaining = self._retry_until - workflow.now()
             try:
                 pending = await workflow.execute_activity(
@@ -72,17 +73,23 @@ class TaskRunGatewayUsageWorkflow(PostHogWorkflow):
             if workflow.now() >= self._retry_until:
                 break
 
-            def has_new_requests(wakeups: int = wakeups) -> bool:
-                return self._wakeups != wakeups
+            # Backoff is for usage the gateway has not settled. A pass that settled usage runs the next batch at once.
+            settled_usage = pending is not None and previous_pending is not None and pending < previous_pending
+            if settled_usage:
+                delay = 30
+            else:
 
-            try:
-                await workflow.wait_condition(
-                    has_new_requests,
-                    timeout=min(timedelta(seconds=delay), self._retry_until - workflow.now()),
-                )
-            except TimeoutError:
-                pass
-            delay = 30 if self._wakeups != wakeups else min(delay * 2, 300)
+                def has_new_requests(wakeups: int = wakeups) -> bool:
+                    return self._wakeups != wakeups
+
+                try:
+                    await workflow.wait_condition(
+                        has_new_requests,
+                        timeout=min(timedelta(seconds=delay), self._retry_until - workflow.now()),
+                    )
+                except TimeoutError:
+                    pass
+                delay = 30 if self._wakeups != wakeups else min(delay * 2, 300)
             if workflow.info().is_continue_as_new_suggested():
                 workflow.continue_as_new(replace(input, retry_until=self._retry_until))
 

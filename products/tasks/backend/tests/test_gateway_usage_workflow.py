@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -73,6 +73,38 @@ async def test_reconciliation_drains_retries_and_accepts_late_callbacks() -> Non
             await asyncio.wait_for(handles[-1].result(), timeout=30)
             assert pending == []
             assert attempts == 5
+
+
+async def test_reconciliation_drains_settled_backlog_without_backoff() -> None:
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        pending = 100
+        call_times: list[datetime] = []
+
+        @activity.defn(name="reconcile_gateway_usage")
+        async def reconcile(input: GatewayUsageInput) -> int:
+            nonlocal pending
+            call_times.append(await env.get_current_time())
+            pending = max(pending - 20, 0)
+            return pending
+
+        async with Worker(
+            env.client,
+            task_queue="gateway-usage-test",
+            workflows=[TaskRunGatewayUsageWorkflow],
+            activities=[reconcile],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            run_id = uuid4()
+            await env.client.execute_workflow(
+                TaskRunGatewayUsageWorkflow.run,
+                GatewayUsageInput(run_id=str(run_id), team_id=7),
+                id=f"backlog-{run_id}",
+                task_queue="gateway-usage-test",
+                execution_timeout=timedelta(hours=1),
+            )
+        assert pending == 0
+        assert len(call_times) == 5
+        assert call_times[-1] - call_times[0] < timedelta(minutes=1)
 
 
 @pytest.mark.parametrize("activity_failure", [False, True])
