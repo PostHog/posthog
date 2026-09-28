@@ -24,14 +24,15 @@ call sites for the seeded flag, so the skill actually edits code and a required
 check can fail against it, is exactly what no seeder here can build.
 ``SandboxedEvalCase.repo_fixture`` names this gap but only tracks it; there is no
 seeding path that lands files in the cloned repo. The skipped-pre-edit-read
-regression and the failed/unavailable-check refusal wording are covered instead as
-deterministic scorer unit tests against synthesized call sequences, see
-``FreshDefinitionReadBeforeEdit`` in ``scorers.py`` and
-``TestFreshDefinitionReadBeforeEdit`` in
-``products/posthog_ai/eval_harness/test/test_feature_flags_scorers.py``.
-``FreshDefinitionReadBeforeEdit`` is wired into the suite's scorers below, but no
-case here declares ``fresh_definition_read_before_edit`` in ``expected`` yet, so it
-scores every case ``None`` until a case with real call sites can opt in.
+regression is covered instead by deterministic scorer unit tests against
+synthesized call sequences: see ``FreshDefinitionReadBeforeEdit`` in ``scorers.py``
+and ``TestFreshDefinitionReadBeforeEdit`` in
+``products/posthog_ai/eval_harness/test/test_feature_flags_scorers.py``. The
+failed/unavailable-check refusal wording has no scorer yet.
+``FreshDefinitionReadBeforeEdit`` is deliberately left out of the suite's scorer
+list below. No case here can seed call sites, so it would add a ``None`` row to
+every case on every run, and its divider would stay unmeasured against a real agent
+trace. The pull request that adds the first fixture case registers it.
 
 Most scorers are deterministic; the three wording cases use one LLM judge each
 (``FinalMessageJudge``), which costs a model call per case but is what the "does the
@@ -54,12 +55,11 @@ from products.feature_flags.evals.scorers import (
     FILE_EDIT_TOOLS,
     FLAG_LOOKUP_TOOLS,
     FLAG_MUTATION_TOOLS,
-    NO_OVERRIDE_OFFERED_QUESTION,
+    RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION,
     SCHEDULE_READ_TOOLS,
     TOUR_UNKNOWN_WAITS_QUESTION,
     FinalMessageJudge,
     FlagStateUnchanged,
-    FreshDefinitionReadBeforeEdit,
     ToolGroupDirection,
 )
 from products.feature_flags.evals.seeders import (
@@ -181,10 +181,17 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             name="recent_update_excluded_without_override",
             # Stale on every other signal — only `updated_at` inside the last 30 days
             # blocks this one. Grades the response wording, not just the inaction.
+            # This case does not spread _NO_CALL_SITES: the by-key lookup already returns
+            # updated_at, and the skill drops a candidate with a recent update before
+            # assessing it, so a run that refuses after one read is following the skill.
+            # Requiring the dependents and schedule reads here would fail that run. The
+            # other cases still require both reads, so the coverage stays.
             prompt=(f"Remove the feature flag '{STALE_LOOKING_RECENT_UPDATE_FLAG_KEY}' from this repository."),
             setup=seed_recently_updated_flag,
             expected={
-                **_NO_CALL_SITES,
+                TRIGGER_SCORER_NAME: {"should_load": True},
+                EDIT_SCORER_NAME: {"should_edit": False},
+                LOOKUP_SCORER_NAME: {"should_look_up": True},
                 RECENCY_REFUSAL_SCORER_NAME: {"required": True},
             },
             metadata={"trigger": "positive", "skill": SKILL_NAME, "rollout": "full"},
@@ -218,10 +225,9 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
             ToolGroupDirection(FLAG_LOOKUP_TOOLS, name=LOOKUP_SCORER_NAME, key="should_look_up"),
             ToolGroupDirection(DEPENDENTS_READ_TOOLS, name=DEPENDENTS_SCORER_NAME, key="should_check_dependents"),
             ToolGroupDirection(SCHEDULE_READ_TOOLS, name=SCHEDULE_SCORER_NAME, key="should_check_schedules"),
-            FinalMessageJudge(name=RECENCY_REFUSAL_SCORER_NAME, question=NO_OVERRIDE_OFFERED_QUESTION),
+            FinalMessageJudge(name=RECENCY_REFUSAL_SCORER_NAME, question=RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION),
             FinalMessageJudge(name=TOUR_UNKNOWN_SCORER_NAME, question=TOUR_UNKNOWN_WAITS_QUESTION),
             FinalMessageJudge(name=ASSESSMENT_ONLY_SCORER_NAME, question=ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION),
-            FreshDefinitionReadBeforeEdit(),
         ],
         ctx=ctx,
     )

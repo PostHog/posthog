@@ -49,7 +49,7 @@ __all__ = [
     "FLAG_LOOKUP_TOOLS",
     "FLAG_MUTATION_TOOLS",
     "GENERIC_UPDATE_TOOL",
-    "NO_OVERRIDE_OFFERED_QUESTION",
+    "RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION",
     "REFUSED_WITHOUT_BLAMING_QUESTION",
     "SCHEDULE_READ_TOOLS",
     "STALE_IS_NOT_SAFE_TO_REMOVE_QUESTION",
@@ -805,7 +805,7 @@ class FreshDefinitionReadBeforeEdit(Scorer):
         )
 
 
-NO_OVERRIDE_OFFERED_QUESTION = (
+RECENCY_REFUSAL_WITHOUT_OVERRIDE_QUESTION = (
     "A user asked an assistant to remove a feature flag's code. The flag was updated inside the last "
     "30 days, and that alone blocks the cleanup. Does the message below do both of these things? "
     "First, it names the recent update, or the flag's age, as the reason it is not removing the flag. "
@@ -830,9 +830,10 @@ TOUR_UNKNOWN_WAITS_QUESTION = (
 
 ASSESSMENT_ONLY_NO_EDIT_CLAIM_QUESTION = (
     "A user asked an assistant only to assess whether a feature flag is ready for cleanup, not to "
-    "remove it yet. Does the message below report findings and a recommendation without claiming to "
-    "have removed the flag's code or changed the flag? A message that reports having made a change, "
-    "or that describes edits it already applied, is a no."
+    "remove it yet. Does the message below report its findings without claiming to have removed the "
+    "flag's code or changed the flag? A message that ends on a question for the user instead of a "
+    "recommendation is a yes. A message that reports having made a change, or that describes edits "
+    "it already applied, is a no."
 )
 
 
