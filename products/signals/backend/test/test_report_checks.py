@@ -848,6 +848,27 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert check.next_run_at > timezone.now() + AGENT_CHECK_RESULT_WINDOW - timedelta(minutes=5)
         assert self._results() == []
 
+    def test_the_run_note_carries_the_brief_and_the_resolution_note(self) -> None:
+        SignalReportArtefact.append_dismissal(
+            team_id=self.team.id,
+            report_id=str(self.report.id),
+            content=Dismissal(reason="resolved", note="Shipped the retry fix"),
+            attribution=ArtefactAttribution.system(),
+        )
+        check = self._check(
+            rationale="The fix was a retry, which can mask rather than remove the error.",
+            config={"instructions": "Re-read the issue.", "probe_hints": ["issue 4821"]},
+        )
+
+        note = build_check_run_note(check, AgentCheckConfig.model_validate(check.config))
+
+        assert str(check.id) in note
+        assert "Checkout 500s stay gone" in note
+        assert "which can mask rather than remove the error" in note
+        assert "issue 4821" in note
+        assert "Shipped the retry fix" in note
+        assert "scout-check-record-result" in note
+
     def test_a_dispatched_run_is_listed_on_its_check_and_records_its_verdict(self) -> None:
         check = self._check()
         with patch(_CONNECT), patch(_DISPATCH, return_value="wf-1") as dispatch:
@@ -876,27 +897,6 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert result.check_status == SignalReportCheck.Status.PASSED
         (closed,) = list_report_checks(team=self.team, report_id=str(self.report.id))
         assert (closed.run_state, closed.waiting_on_run) == (SignalReportCheck.Status.PASSED, False)
-
-    def test_the_run_note_carries_the_brief_and_the_resolution_note(self) -> None:
-        SignalReportArtefact.append_dismissal(
-            team_id=self.team.id,
-            report_id=str(self.report.id),
-            content=Dismissal(reason="resolved", note="Shipped the retry fix"),
-            attribution=ArtefactAttribution.system(),
-        )
-        check = self._check(
-            rationale="The fix was a retry, which can mask rather than remove the error.",
-            config={"instructions": "Re-read the issue.", "probe_hints": ["issue 4821"]},
-        )
-
-        note = build_check_run_note(check, AgentCheckConfig.model_validate(check.config))
-
-        assert str(check.id) in note
-        assert "Checkout 500s stay gone" in note
-        assert "which can mask rather than remove the error" in note
-        assert "issue 4821" in note
-        assert "Shipped the retry fix" in note
-        assert "scout-check-record-result" in note
 
     def test_a_check_naming_a_scout_runs_on_that_scout(self) -> None:
         LLMSkill.objects.create(team=self.team, name=_OTHER_SKILL, is_latest=True, deleted=False)
