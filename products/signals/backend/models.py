@@ -40,7 +40,12 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
     task_run_identifier_for_legacy_relationship,
 )
-from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, signal_source_product_choices
+from products.signals.backend.enums import (
+    ReportLinkKind,
+    SignalSourceProduct,
+    SignalSourceType,
+    signal_source_product_choices,
+)
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 
 logger = logging.getLogger(__name__)
@@ -116,6 +121,13 @@ class SignalSourceConfig(UUIDModel):
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
         # per-source config, so there's no separate SignalSourceConfig row to gate against.
         if source_product == cls.SourceProduct.REPLAY_VISION and source_type == cls.SourceType.SCANNER_FINDING:
+            return True
+
+        # A failed follow-up check is the inbox emitting to itself, so there is no team to configure
+        # it: `check_failed` is deliberately absent from `SourceType` above, which means a config row
+        # for it cannot exist and a row-backed gate would refuse the pair forever. The check the team
+        # already authored is the opt-in.
+        if source_product == cls.SourceProduct.SIGNALS_CHECK and source_type == SignalSourceType.CHECK_FAILED:
             return True
 
         # Scout findings surface to the inbox by default — the team-level toggle was retired from the
@@ -1218,6 +1230,7 @@ class SignalReportArtefact(UUIDModel):
         CODE_REVIEW = "code_review"
         RELATED_TO = "related_to"
         REPORT_LINK = "report_link"
+        AUTOSTART_SKIP = "autostart_skip"
         WORK_CLAIM = "work_claim"
         WORK_RELEASE = "work_release"
         PULL_REQUEST = "pull_request"
@@ -1256,6 +1269,10 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.RANKING_SCORE,
         }
     )
+    # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
+    # no activity a user can see, so the artefact count leaves them out, and the artefact log shows
+    # them to staff only.
+    SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
     # against a graph that grew past anything a reader could order. Rows and levels are bounded
@@ -1275,6 +1292,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.CODE_REVIEW,
             ArtefactType.RELATED_TO,
             ArtefactType.REPORT_LINK,
+            ArtefactType.AUTOSTART_SKIP,
             ArtefactType.IMPLEMENTATION_REPLACEMENT,
             ArtefactType.IMPLEMENTATION_HANDOVER,
             ArtefactType.WORK_CLAIM,
@@ -1359,12 +1377,16 @@ class SignalReportArtefact(UUIDModel):
 
         The inbox list renders this count for every row it returns. A correlated subquery makes
         Postgres count a report's artefacts before the page limit applies, so the whole team's
-        reports get counted to render 25. Reports with no artefacts are omitted.
+        reports get counted to render 25. Reports with no artefacts are omitted, and so are
+        `SYSTEM_SCORING_ARTEFACT_TYPES` rows.
         """
         if not report_ids:
             return {}
         rows = (
-            cls.objects.filter(report_id__in=report_ids).values("report_id").annotate(artefact_count=models.Count("*"))
+            cls.objects.filter(report_id__in=report_ids)
+            .exclude(type__in=cls.SYSTEM_SCORING_ARTEFACT_TYPES)
+            .values("report_id")
+            .annotate(artefact_count=models.Count("*"))
         )
         return {str(row["report_id"]): row["artefact_count"] for row in rows}
 
@@ -1691,13 +1713,16 @@ class SignalReportArtefact(UUIDModel):
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
         if isinstance(content, ReportLink):
             with cls.validated_report_link_write(team_id=team_id, report_id=str(report_id), content=content):
-                return cls._create(
+                artefact = cls._create(
                     team_id=team_id,
                     report_id=report_id,
                     content=content,
                     attribution=attribution,
                     claim_id=claim_id,
                 )
+            cls._capture_report_linked(artefact, content)
+            cls._schedule_plan_rollup(artefact, content)
+            return artefact
         artefact = cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
         )
@@ -1711,6 +1736,65 @@ class SignalReportArtefact(UUIDModel):
                 attribution=attribution,
             )
         return artefact
+
+    @staticmethod
+    def _capture_report_linked(artefact: "SignalReportArtefact", content: ReportLink) -> None:
+        """Count the link after it commits, from the one write path every producer shares.
+
+        Scheduled on commit so a rolled-back write is never counted, and imported lazily to avoid a
+        models <-> typed_report_links import cycle.
+        """
+
+        def _run() -> None:
+            from products.signals.backend.typed_report_links import ReportEdge, capture_report_linked
+
+            capture_report_linked(
+                team_id=artefact.team_id,
+                edge=ReportEdge(
+                    source_id=str(artefact.report_id),
+                    kind=content.kind,
+                    target_id=content.report_id,
+                    reason=content.reason,
+                ),
+                actor_kind=artefact.actor_kind,
+                actor_agent=artefact.actor_agent,
+            )
+
+        transaction.on_commit(_run)
+
+    @staticmethod
+    def _schedule_plan_rollup(artefact: "SignalReportArtefact", content: ReportLink) -> None:
+        """Close the plan when a step joins it after the step itself closed.
+
+        The roll-up otherwise runs from the step's status change, and a `part_of` row written on a
+        report that is already resolved or archived announces no change. Only a closed source is
+        worth the walk, because an open step leaves its plan open anyway. Scheduled on commit so
+        the new row is visible, best-effort so it never breaks the write, and imported lazily to
+        avoid a models <-> plan_rollup import cycle.
+        """
+        if content.kind != ReportLinkKind.PART_OF:
+            return
+
+        def _run() -> None:
+            from products.signals.backend.plan_rollup import roll_up_plan_parents
+
+            try:
+                status = (
+                    SignalReport.objects.using("default")
+                    .filter(team_id=artefact.team_id, id=artefact.report_id)
+                    .values_list("status", flat=True)
+                    .first()
+                )
+                if status not in (SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED):
+                    return
+                roll_up_plan_parents(team_id=artefact.team_id, report_id=str(artefact.report_id))
+            except Exception:
+                logger.exception(
+                    "signals.plan_rollup.after_link_write_failed",
+                    extra={"report_id": str(artefact.report_id)},
+                )
+
+        transaction.on_commit(_run)
 
     @classmethod
     def append(
