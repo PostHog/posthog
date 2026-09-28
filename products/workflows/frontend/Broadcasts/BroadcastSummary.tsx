@@ -27,6 +27,7 @@ import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/a
 import { EmailViewerModal } from '../Workflows/EmailViewerModal'
 import type { MessageAsset } from '../Workflows/messageAssetsApi'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
+import { archiveDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
@@ -268,7 +269,8 @@ export function BroadcastSummary(): JSX.Element {
         summaryStatus,
         summaryTab,
     } = useValues(broadcastWizardLogic)
-    const { moveToDraft, duplicateBroadcast, setSummaryTab } = useActions(broadcastWizardLogic)
+    const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
+        useActions(broadcastWizardLogic)
     const pendingSchedule = broadcast?.schedules?.find((schedule) => schedule.status === 'active')
 
     const confirmMoveToDraft = (): void => {
@@ -311,44 +313,48 @@ export function BroadcastSummary(): JSX.Element {
         },
     ]
 
-    const actionsMenu =
-        canMoveToDraft || canEditContent ? (
-            <LemonMenu
-                items={[
-                    canMoveToDraft
-                        ? {
-                              label: 'Stop and edit',
-                              onClick: confirmMoveToDraft,
-                              'data-attr': 'broadcast-move-to-draft',
-                          }
-                        : null,
-                    canEditContent
-                        ? {
-                              label: 'Send again as a new broadcast',
-                              onClick: duplicateBroadcast,
-                              'data-attr': 'broadcast-send-again',
-                          }
-                        : null,
-                ]}
+    const isArchived = broadcast?.status === 'archived'
+    const actionItems = [
+        canMoveToDraft
+            ? { label: 'Stop and edit', onClick: confirmMoveToDraft, 'data-attr': 'broadcast-move-to-draft' }
+            : null,
+        canEditContent
+            ? {
+                  label: 'Send again as a new broadcast',
+                  onClick: duplicateBroadcast,
+                  'data-attr': 'broadcast-send-again',
+              }
+            : null,
+        isArchived
+            ? { label: 'Restore as draft', onClick: restoreBroadcast, 'data-attr': 'broadcast-restore' }
+            : {
+                  label: 'Archive',
+                  status: 'danger' as const,
+                  onClick: archiveBroadcast,
+                  disabledReason: archiveDisabledReason(batchJobs.map((job) => job.status)),
+                  'data-attr': 'broadcast-archive',
+              },
+        isArchived
+            ? { label: 'Delete', status: 'danger' as const, onClick: deleteBroadcast, 'data-attr': 'broadcast-delete' }
+            : null,
+    ]
+    const actionsMenu = (
+        <LemonMenu items={actionItems}>
+            <LemonButton
+                type="secondary"
+                size="small"
+                sideIcon={<IconChevronDown />}
+                loading={movingToDraft || duplicating}
+                data-attr="broadcast-actions"
             >
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    sideIcon={<IconChevronDown />}
-                    loading={movingToDraft || duplicating}
-                    data-attr="broadcast-actions"
-                >
-                    Actions
-                </LemonButton>
-            </LemonMenu>
-        ) : null
+                Actions
+            </LemonButton>
+        </LemonMenu>
+    )
 
     return (
         <SceneContent className="@container min-h-full w-full shrink-0" data-attr="broadcast-summary">
-            <BroadcastSceneHeader
-                nameSuffix={<BroadcastStatusTag status={summaryStatus} />}
-                actions={actionsMenu ?? undefined}
-            />
+            <BroadcastSceneHeader nameSuffix={<BroadcastStatusTag status={summaryStatus} />} actions={actionsMenu} />
             <div className="mx-auto w-full max-w-6xl space-y-4">
                 {summaryStatus === 'failed' && !latestBatchJob && !batchJobsLoading ? (
                     <LemonBanner
