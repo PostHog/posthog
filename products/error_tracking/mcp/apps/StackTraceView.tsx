@@ -176,20 +176,7 @@ function getDefaultExpanded(frames: StackFrame[]): string[] {
     return idx >= 0 ? [`frame-${idx}`] : []
 }
 
-/**
- * The API replaces a repeated stack trace with a reference to its first copy. The view shows one event, so a
- * reference can only point to an earlier exception of that event: show that exception's frames.
- */
-export function resolveStackReferences(exceptions: ExceptionData[]): ExceptionData[] {
-    return exceptions.map((exception) => {
-        const index = exception.stacktrace?.same_as_exception
-        const source = index === undefined ? undefined : exceptions[index]?.stacktrace
-        return source?.frames?.length ? { ...exception, stacktrace: source } : exception
-    })
-}
-
-export function StackTraceView({ exceptions: rawExceptions }: StackTraceViewProps): ReactElement {
-    const exceptions = resolveStackReferences(rawExceptions)
+export function StackTraceView({ exceptions }: StackTraceViewProps): ReactElement {
     if (exceptions.length === 0) {
         return <div className="text-sm text-muted-foreground p-4">No exception data available</div>
     }
