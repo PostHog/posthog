@@ -18,6 +18,7 @@ const HogFlowEdgeSchema = z.object({
 
 export const HogFlowSchema = z.object({
     id: z.string(),
+    key: z.string().nullable().optional(),
     team_id: z.number(),
     version: z.number(),
     name: z.string(),

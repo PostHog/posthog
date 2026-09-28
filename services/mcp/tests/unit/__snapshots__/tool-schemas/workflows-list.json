@@ -17,6 +17,9 @@
         "id": {
             "type": "string"
         },
+        "key": {
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"

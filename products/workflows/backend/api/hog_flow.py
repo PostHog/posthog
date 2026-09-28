@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import RawSQL
 from django.http import Http404, HttpResponse
@@ -2802,6 +2802,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
         model = HogFlow
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
@@ -2867,6 +2868,7 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
     class Meta(HogFlowMinimalSerializer.Meta):
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
@@ -2882,6 +2884,16 @@ class HogFlowSummarySerializer(HogFlowMinimalSerializer):
 
 
 class HogFlowSerializer(HogFlowMinimalSerializer):
+    key = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=400,
+        trim_whitespace=False,
+        help_text=(
+            "Client-chosen identifier, unique within this environment. Set only when creating a workflow. "
+            "Filter the list with `?key=`. Letters, numbers, hyphens (-) and underscores (_) only."
+        ),
+    )
     origin_product = serializers.ChoiceField(
         choices=HogFlow.OriginProduct.choices,
         required=False,
@@ -3136,6 +3148,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         model = HogFlow
         fields = [
             "id",
+            "key",
             "name",
             "description",
             "version",
@@ -3345,6 +3358,25 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             return
         validated_data["encrypted_inputs"] = strip_secrets_from_content(validated_data, template_cache={})
 
+    def validate_key(self, value: str | None) -> str | None:
+        if value is None:
+            return value
+
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", value):
+            raise serializers.ValidationError(
+                "Only letters, numbers, hyphens (-) & underscores (_) are allowed.",
+                code="invalid_key",
+            )
+
+        instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
+        taken = HogFlow.objects.filter(team_id=self.context["team_id"], key=value)
+        if instance is not None:
+            taken = taken.exclude(pk=instance.pk)
+        if taken.exists():
+            raise serializers.ValidationError("There is already a workflow with this key.", code="unique")
+
+        return value
+
     def create(self, validated_data: dict, *args, **kwargs) -> HogFlow:
         request = self.context["request"]
         team_id = self.context["team_id"]
@@ -3352,7 +3384,14 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated_data["team_id"] = team_id
         self._strip_secret_inputs(validated_data)
 
-        return super().create(validated_data=validated_data)
+        try:
+            return super().create(validated_data=validated_data)
+        except IntegrityError as exc:
+            if "unique_key_for_team" in str(exc):
+                raise serializers.ValidationError(
+                    {"key": [exceptions.ErrorDetail("There is already a workflow with this key.", code="unique")]}
+                ) from exc
+            raise
 
     def update(self, instance, validated_data):
         self._strip_secret_inputs(validated_data)
@@ -3366,6 +3405,11 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
         allow_null=True,
         help_text="Product surface that owns this workflow. This value cannot change after creation.",
     )
+    key = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Client-chosen identifier, unique within this environment. This value cannot change after creation.",
+    )
 
     def validate(self, data: dict) -> dict:
         instance = cast(Optional[HogFlow], self.instance)
@@ -3376,6 +3420,9 @@ class HogFlowUpdateSerializer(HogFlowSerializer):
             and submitted_origin_product != instance.origin_product
         ):
             raise serializers.ValidationError({"origin_product": "origin_product is set on create and cannot change."})
+        submitted_key = self.initial_data.get("key", serializers.empty)
+        if instance is not None and submitted_key is not serializers.empty and submitted_key != instance.key:
+            raise serializers.ValidationError({"key": "key is set on create and cannot change."})
         return super().validate(data)
 
 
@@ -3863,7 +3910,7 @@ class HogFlowFilterSet(FilterSet):
         model = HogFlow
         # `created_by` is filtered by uuid in safely_get_queryset (the list UI's member picker keys on
         # uuid, not pk), so it's deliberately not an exact-match field here.
-        fields = ["id", "created_at", "updated_at", "status", "origin_product"]
+        fields = ["id", "key", "created_at", "updated_at", "status", "origin_product"]
 
 
 class HogFlowPagination(LimitOffsetPagination):
@@ -4128,6 +4175,9 @@ class HogFlowViewSet(
             # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
             # otherwise repeat on one page and never appear on another.
             queryset = queryset.order_by("-updated_at", "-id")
+
+            if "key" in self.request.GET and self.request.GET["key"] == "":
+                queryset = queryset.none()
 
             created_by = self.request.GET.get("created_by")
             if created_by:

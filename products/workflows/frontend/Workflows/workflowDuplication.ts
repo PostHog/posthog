@@ -8,6 +8,7 @@ export function prepareWorkflowDuplicate(workflow: HogFlow): Partial<HogFlow> {
     }
 
     delete duplicate.id
+    delete duplicate.key
     delete duplicate.team_id
     delete duplicate.created_at
     delete duplicate.updated_at
