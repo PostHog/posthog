@@ -11,7 +11,18 @@ jest.mock('products/data_warehouse/frontend/generated/api', () => ({
     dataWarehouseCompletedActivityRetrieve: jest.fn(),
 }))
 
+jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
+    externalDataDestinationsList: jest.fn(),
+    externalDataSourcesList: jest.fn(),
+}))
+
+jest.mock('lib/components/AppMetrics/appMetricsLogic', () => ({
+    loadAppMetricsTotals: jest.fn(),
+}))
+
 const api = jest.requireMock('products/data_warehouse/frontend/generated/api')
+const wsApi = jest.requireMock('products/warehouse_sources/frontend/generated/api')
+const metrics = jest.requireMock('lib/components/AppMetrics/appMetricsLogic')
 
 const issue = (overrides: Record<string, any> = {}): Record<string, any> => ({
     id: 'issue-1',
@@ -33,6 +44,9 @@ describe('pipelineOverviewSceneLogic', () => {
         api.dataWarehouseTotalRowsStatsRetrieve.mockResolvedValue({ total_rows: 0 })
         api.dataWarehouseDataHealthIssuesRetrieve.mockResolvedValue({ results: [], count: 0 })
         api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({ results: [], next: null, previous: null })
+        wsApi.externalDataDestinationsList.mockResolvedValue({ results: [] })
+        wsApi.externalDataSourcesList.mockResolvedValue({ results: [] })
+        metrics.loadAppMetricsTotals.mockResolvedValue({})
         logic = pipelineOverviewSceneLogic()
         logic.mount()
     })
@@ -163,5 +177,22 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(api.dataWarehouseTotalRowsStatsRetrieve).toHaveBeenCalled()
         expect(api.dataWarehouseDataHealthIssuesRetrieve).toHaveBeenCalled()
         expect(api.dataWarehouseCompletedActivityRetrieve).toHaveBeenCalled()
+    })
+
+    it('keeps direct-connect sources out of the synced-sources table', async () => {
+        logic.unmount()
+        wsApi.externalDataSourcesList.mockResolvedValue({
+            results: [
+                { id: 'a', source_type: 'Stripe', access_method: 'warehouse' },
+                { id: 'b', source_type: 'Postgres', access_method: 'Direct' },
+                { id: 'c', source_type: 'Hubspot', access_method: null },
+            ],
+        })
+
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.managedSources?.map((source: any) => source.id)).toEqual(['a', 'c'])
+        expect(logic.values.otherSourceCount).toEqual(1)
     })
 })
