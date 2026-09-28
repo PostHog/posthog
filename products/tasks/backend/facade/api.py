@@ -3082,6 +3082,7 @@ def update_task_run(
     only_if_non_terminal: bool = False,
     only_if_not_started: bool = False,
     caller_is_agent: bool = False,
+    user_id: int | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     """Apply a PATCH to a run: merge output/state, set completion, then dispatch side effects.
 
@@ -3155,7 +3156,7 @@ def update_task_run(
         if only_if_non_terminal and run.is_terminal:
             if validated_data.get("status") == run.status:
                 transaction.on_commit(lambda: resume_workflow_step_for_run(run))
-            return _task_run_detail_to_dto(run)
+            return _task_run_detail_to_dto(run, user_id=user_id)
         old_status = run.status
         old_pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
         old_commit_head = _commit_push_head_sha(run.output)
@@ -3292,7 +3293,7 @@ def update_task_run(
     if new_status in _TERMINAL_TASK_RUN_STATUSES:
         resume_workflow_step_for_run(run)
 
-    return _task_run_detail_to_dto(run)
+    return _task_run_detail_to_dto(run, user_id=user_id)
 
 
 TASK_RUN_SUMMARY_MAX_CHARS = 1500
@@ -3317,7 +3318,7 @@ def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *
 
 
 def set_task_run_output(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict, user_id: int | None = None
 ) -> contracts.TaskRunDetailDTO | None:
     """Persist a run's output. Completes the run for structured-output tasks; posts Slack PR update."""
     run = _get_visible_run(run_id, task_id, team_id)
@@ -3338,7 +3339,7 @@ def set_task_run_output(
     _send_wizard_pr_ready_email_for_pr(run)
     if merged.get("pr_url"):
         post_pr_created_thread_update(run, merged["pr_url"])
-    return _task_run_detail_to_dto(run)
+    return _task_run_detail_to_dto(run, user_id=user_id)
 
 
 def set_task_run_summary(

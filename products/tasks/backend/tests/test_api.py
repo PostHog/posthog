@@ -6349,8 +6349,9 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
             team=self.team,
             task=task,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"task_summary": "Private workflow context"},
+            state={"task_summary": "Private workflow context", "task_tags": ["private-tag"]},
         )
+        expected_tags = ["private-tag"] if is_owner else []
 
         summaries_response = self.post_summaries([str(task.id)])
         detail_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/")
@@ -6360,6 +6361,16 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         self.assertEqual(payload["latest_run"]["task_summary"], expected_summary)
         self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
         self.assertEqual(detail_response.json()["task_summary"], expected_summary)
+        self.assertEqual(detail_response.json()["task_tags"], expected_tags)
+
+        set_output_response = self.client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"note": "done"}},
+            format="json",
+        )
+        self.assertEqual(set_output_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(set_output_response.json()["task_summary"], expected_summary)
+        self.assertEqual(set_output_response.json()["task_tags"], expected_tags)
 
         for basic in ("true", "false"):
             with self.subTest(basic=basic):

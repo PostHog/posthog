@@ -1999,6 +1999,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             validated_data=dict(request.validated_data),
             only_if_non_terminal=True,
             caller_is_agent=self._is_sandbox_agent_request(task_id),
+            user_id=self._user_id(),
         )
         if run is None:
             raise NotFound()
@@ -2030,7 +2031,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        run = tasks_facade.set_task_run_output(pk, task_id, self.team_id, output=output_data)
+        run = tasks_facade.set_task_run_output(pk, task_id, self.team_id, output=output_data, user_id=self._user_id())
         if run is None:
             raise NotFound()
         return Response(TaskRunDetailSerializer(run).data)
