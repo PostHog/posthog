@@ -21,6 +21,7 @@ import { getCustomIcon } from '../../ProjectTree/customIconRegistry'
 import { ProductIconWrapper, iconForType } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '../../ProjectTree/utils'
+import { isProductActive } from './flat-nav/findActiveProductPath'
 import { NavProductMenu } from './NavProductMenu'
 import { NavProductTooltip } from './NavProductTooltip'
 import { productsItemName } from './productsCatalog'
@@ -36,13 +37,8 @@ export function NavProductRow({ item }: { item: FileSystemImport }): JSX.Element
     const label = productsItemName(item)
     const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
     const shortcut = shortcutData.find((entry) => entry.type !== 'folder' && entry.path === shortcutPath)
-    const currentPath = removeProjectIdIfPresent(pathname)
     const href = item.href ?? ''
-    const active =
-        currentPath === href ||
-        (href !== urls.projectRoot() && currentPath.startsWith(`${href}/`)) ||
-        (href === urls.projectRoot() && currentPath === urls.projectHomepage()) ||
-        (item.path === 'Session replay' && currentPath.startsWith('/replay/'))
+    const active = isProductActive(item, removeProjectIdIfPresent(pathname))
     const disabledReason = getProductAccessDisabledReason(item)
     const CustomIcon = getCustomIcon(item.type, item.href)
     const iconType = item.iconType ?? (item.type as FileSystemIconType | undefined)

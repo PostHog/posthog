@@ -8,6 +8,7 @@ const PRODUCTS: FileSystemImport[] = [
     { path: 'Broadcasts', href: '/workflows/broadcasts' },
     { path: 'Logs', href: '/logs?tab=live' },
     { path: 'Docs', href: '/docs#intro' },
+    { path: 'Session replay', href: '/replay/home' },
     { path: 'Coming soon' },
 ]
 
@@ -23,6 +24,9 @@ describe('findActiveProductPath', () => {
         ['an href with a hash', '/docs/getting-started', 'Docs'],
         ['the project root', '/', 'Home'],
         ['the project root with a project id', '/project/42', 'Home'],
+        ['the project homepage', '/home', 'Home'],
+        ['a recording opened from a link', '/replay/0198a2b3-recording', 'Session replay'],
+        ['a replay playlist', '/replay/playlists/7', 'Session replay'],
         ['a shared prefix without a path boundary', '/workflows-legacy', null],
         ['a page no product owns', '/settings/project', null],
     ])('resolves %s', (_, pathname, expected) => {
