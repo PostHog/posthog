@@ -1258,6 +1258,9 @@ export interface eventUsageLogicActions {
     reportExperimentWizardStarted: () => {
         value: true
     }
+    reportExperimentWizardAskAiClicked: (currentStep: string) => {
+        currentStep: string
+    }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
         projectCount: number,
@@ -1909,6 +1912,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportInsightDraftDiscarded: (draftAgeSeconds: number) => ({ draftAgeSeconds }),
         reportExperimentWizardStarted: true,
+        reportExperimentWizardAskAiClicked: (currentStep: string) => ({ currentStep }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -2543,6 +2547,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentWizardStarted: () => {
             posthog.capture('experiment wizard started')
+        },
+        reportExperimentWizardAskAiClicked: ({ currentStep }) => {
+            posthog.capture('experiment wizard ask ai clicked', { current_step: currentStep })
         },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {

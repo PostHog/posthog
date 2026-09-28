@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconLightBulb, IconSparkles } from '@posthog/icons'
@@ -6,6 +6,7 @@ import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { urls } from 'scenes/urls'
 
@@ -45,6 +46,7 @@ const GUIDE_CONTENT: Record<ExperimentWizardStep, GuideContent> = {
 
 export function ExperimentWizardGuide(): JSX.Element {
     const { currentStep } = useValues(experimentWizardLogic)
+    const { reportExperimentWizardAskAiClicked } = useActions(eventUsageLogic)
 
     // Same create_experiment tool and prompt as the "New experiment" button on the experiments list, but with no
     // suggestion dropdown, so the user just finishes the pre-filled prompt
@@ -84,7 +86,10 @@ export function ExperimentWizardGuide(): JSX.Element {
                             type="secondary"
                             size="small"
                             icon={<IconSparkles className="text-ai" />}
-                            onClick={openMax}
+                            onClick={() => {
+                                reportExperimentWizardAskAiClicked(currentStep)
+                                openMax()
+                            }}
                             data-attr="experiment-wizard-guide-ask-ai"
                         >
                             {/* Skip the animation in Storybook so visual snapshots don't flake on the moving gradient */}
