@@ -118,14 +118,6 @@ class TestScopeSets(SimpleTestCase):
         # Spot-check: a generic OAuth client should be able to request these.
         self.assertIn(scope, UNPRIVILEGED_SCOPES)
 
-    def test_wizard_session_write_ceiling_grants_wizard_run_write(self) -> None:
-        self.assertEqual(
-            clamp_scopes_to_ceiling(["wizard_run:write"], ["@default", "wizard_session:write"]),
-            ["wizard_run:write"],
-        )
-        self.assertEqual(clamp_scopes_to_ceiling(["wizard_run:write"], ["@default"]), [])
-        self.assertIn("wizard_run:write", resolve_ceiling(["wizard_session:write"]) or ())
-
     def test_scopes_module_loadable_via_runpy_like_mcp_codegen(self) -> None:
         # MCP scope codegen at bin/build-mcp-oauth-scopes.py loads this module via
         # runpy.run_path (bypassing posthog/__init__.py which pulls in Django).
