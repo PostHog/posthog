@@ -19,6 +19,8 @@ from posthog.schema import (
     WebStatsTableQueryResponse,
 )
 
+from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
+
 from posthog.models import Team
 from posthog.models.utils import uuid7
 
@@ -73,9 +75,18 @@ class TestDigestQueryFailures(SimpleTestCase):
             runner.return_value.run.return_value = response_type(results=[])
             assert query(Team(pk=1)) == expected_empty
 
-    def test_no_configured_actions_is_a_valid_empty_goals_section(self) -> None:
-        with patch("products.web_analytics.backend.weekly_digest.WebGoalsQueryRunner") as runner:
-            runner.return_value.run.side_effect = NoActionsError()
+    @parameterized.expand(
+        [
+            ("no configured actions", NoActionsError()),
+            ("unbuildable goals query", HogQLSyntaxError("trailing tokens after expression")),
+        ]
+    )
+    def test_an_empty_goals_section_does_not_stop_the_digest(self, _name: str, error: Exception) -> None:
+        with (
+            patch("products.web_analytics.backend.weekly_digest.WebGoalsQueryRunner") as runner,
+            patch("products.web_analytics.backend.weekly_digest.capture_exception"),
+        ):
+            runner.return_value.run.side_effect = error
             assert get_goals_for_team(Team(pk=1)) == []
 
     def test_an_incomplete_section_stops_digest_construction(self) -> None:
