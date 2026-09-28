@@ -4175,11 +4175,11 @@ class TestChunkedRereadAfterRecoveryConflict:
     _XMIN_BOUNDS = XminBounds(lower=100, upper=300, ceiling_xid8=300, num_wraparound=0, wraparound_or_range=False)
 
     class _Scan:
-        def __init__(self, rows: list[tuple[int, ...]]):
+        def __init__(self, rows: list[tuple[Any, ...]]):
             self._rows = rows
             self._statements = 0
 
-        def rows_for(self, totally_ordered: bool) -> list[tuple[int, ...]]:
+        def rows_for(self, totally_ordered: bool) -> list[tuple[Any, ...]]:
             if totally_ordered:
                 return sorted(self._rows)
             self._statements += 1
@@ -4191,7 +4191,7 @@ class TestChunkedRereadAfterRecoveryConflict:
             self.description = [_fake_column(name) for name in column_names]
             self._scan = scan
             self._column_type = column_type
-            self._result: list[tuple[int | str, ...]] = []
+            self._result: list[tuple[Any, ...]] = []
 
         def execute(self, query, *args, **kwargs):
             text = query.as_string()
@@ -4297,7 +4297,7 @@ class TestChunkedRereadAfterRecoveryConflict:
         ]
         fake_table.__contains__ = mock.Mock(return_value=has_id_column)
 
-        rows = self._XMIN_ROWS if is_xmin else self._ROWS
+        rows: list[tuple[Any, ...]] = list(self._XMIN_ROWS if is_xmin else self._ROWS)
         if column_type == "text":
             rows = [(str(row[0]),) for row in rows]
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
