@@ -673,6 +673,24 @@ class TestEarlyAccessFeatureSystemWrites(APIBaseTest):
         assert not flag.has_feature_enrollment
         assert not ChangeRequest.objects.filter(team=self.team).exists()
 
+    def test_enrollment_clears_on_a_soft_deleted_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Trashed feature", "stage": "beta"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        feature_id = response.json()["id"]
+        flag = FeatureFlag.objects.get(team=self.team, key="trashed-feature")
+        assert flag.has_feature_enrollment
+        FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        flag = FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk)
+        assert not flag.has_feature_enrollment
+
 
 class TestSetFeatureEnrollment:
     @parameterized.expand(

@@ -260,9 +260,11 @@ def clear_feature_enrollment(flag_id: int, *, team: Team) -> None:
     model write when it raises. This is a system write (user=None): an enabled approval
     policy must never block cleanup with a 409, and activity is logged as system.
 
-    A flag the team no longer holds is already gone, so there is nothing to clear.
+    A flag the team no longer holds is already gone, so there is nothing to clear. A soft-deleted
+    flag still gets cleared, through ``objects_including_soft_deleted``: the default manager hides
+    it, and skipping it would leave the marker to come back with the flag on a restore.
     """
-    flag = FeatureFlag.objects.filter(pk=flag_id, team=team).first()
+    flag = FeatureFlag.objects_including_soft_deleted.filter(pk=flag_id, team=team).first()
     if flag is None:
         return
 
