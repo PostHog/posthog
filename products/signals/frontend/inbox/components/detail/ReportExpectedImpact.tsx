@@ -12,6 +12,8 @@ import { SignalReport, SignalReportArtefact } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportExpectedImpactChart } from './ReportExpectedImpactChart'
 
+const MAX_VISIBLE_MEASUREMENT_PLANS = 6
+
 interface MeasurementPlan {
     metric_id: string
     title: string
@@ -79,6 +81,7 @@ export function ReportExpectedImpact({
         activated: boolean | undefined
     }[] = [...newest.values()]
         .filter(({ plan }) => !plan.retired)
+        .slice(0, MAX_VISIBLE_MEASUREMENT_PLANS)
         .map(({ plan, artefact }) => ({
             metric: {
                 metric_id: plan.metric_id,
@@ -99,6 +102,9 @@ export function ReportExpectedImpact({
         }))
     if (artefacts !== null) {
         for (const metric of report.metrics ?? []) {
+            if (measurements.length >= MAX_VISIBLE_MEASUREMENT_PLANS) {
+                break
+            }
             if (metric.goal_value != null && metric.goal_direction && !newest.has(metric.metric_id)) {
                 measurements.push({ metric, artefact: null, goalGrain: 'whole_window', activated: false })
             }

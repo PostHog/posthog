@@ -1052,9 +1052,10 @@ class ImpactMeasurementPlan(BaseModel):
     def validate_measurement(self) -> ImpactMeasurementPlan:
         from products.signals.backend.report_metrics import ReportMetric
 
-        ReportMetric.model_validate(
+        validated_metric = ReportMetric.model_validate(
             self.model_dump(exclude={"activated", "retired", "goal_grain", "eligibility_query"})
         )
+        self.metric_id = validated_metric.metric_id
         if self.minimum_data_points is not None and self.eligibility_query is None:
             raise ValueError("minimum_data_points requires an eligibility_query for qualifying opportunities")
         if self.eligibility_query is not None:

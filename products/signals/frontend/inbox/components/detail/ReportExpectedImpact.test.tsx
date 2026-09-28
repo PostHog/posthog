@@ -115,4 +115,17 @@ describe('ReportExpectedImpact', () => {
         )
         expect(screen.getByRole('button', { name: 'Suggest different metrics' })).toBeEnabled()
     })
+
+    it('bounds the number of charts and approval requests for older oversized reports', async () => {
+        const activateMeasurement = jest.spyOn(api.signalReports, 'activateMeasurement').mockResolvedValue(undefined)
+        const user = userEvent.setup()
+        const artefacts = Array.from({ length: 7 }, (_, index) => plan(`plan-${index}`, `outcome-${index}`))
+        render(<ReportExpectedImpact report={report} reportUrl="https://example.test/report-1" artefacts={artefacts} />)
+
+        expect(screen.getAllByText('Chart')).toHaveLength(6)
+        expect(screen.queryByText(/Outcome outcome-6/)).not.toBeInTheDocument()
+
+        await user.click(screen.getByRole('button', { name: 'Keep an eye on this for me' }))
+        await waitFor(() => expect(activateMeasurement).toHaveBeenCalledTimes(6))
+    })
 })

@@ -1,6 +1,7 @@
 import json
 import random
 import asyncio
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -25,6 +26,7 @@ from posthog.temporal.oauth import grants_scratchpad_write
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_REASON_WRONG_REPO,
     Dismissal,
+    ImpactMeasurementPlan,
     ImplementationAssessment,
     ImplementationTarget,
     NoteArtefact,
@@ -1128,8 +1130,13 @@ async def test_run_agentic_report_activity_resolves_charts_payload(monkeypatch, 
     ],
 )
 async def test_run_agentic_report_activity_resolves_metrics_payload(
-    monkeypatch, ateam, name, metrics_enabled, output_factory, expected
-):
+    monkeypatch: pytest.MonkeyPatch,
+    ateam: Team,
+    name: str,
+    metrics_enabled: bool,
+    output_factory: Callable[[], ReportResearchOutput],
+    expected: list[str] | None,
+) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam, status=SignalReport.Status.IN_PROGRESS, signal_count=2, total_weight=1.3
     )
@@ -1264,7 +1271,9 @@ async def test_mark_report_pending_input_activity_applies_metrics_with_draft_pro
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize("pending_input", [False, True])
-async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goal_free(ateam, pending_input):
+async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goal_free(
+    ateam: Team, pending_input: bool
+) -> None:
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -1299,7 +1308,7 @@ async def test_report_transition_saves_goals_as_plans_and_keeps_observations_goa
             )
         )
 
-    def stored_outcome():
+    def stored_outcome() -> tuple[list[dict[str, object]], ImpactMeasurementPlan]:
         updated_report = SignalReport.objects.get(id=report.id)
         return updated_report.metrics, latest_measurement_plans(updated_report)["measured-outcome"][1]
 

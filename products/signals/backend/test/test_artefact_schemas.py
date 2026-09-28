@@ -25,10 +25,30 @@ from products.signals.backend.models import SignalReportArtefact
 
 
 class TestArtefactSchemas(SimpleTestCase):
-    def test_impact_plan_rejects_boolean_decision_rules(self):
+    def test_impact_plan_rejects_boolean_decision_rules(self) -> None:
+        plan = {
+            "metric_id": "errors",
+            "title": "Errors",
+            "kind": "occurrences",
+            "value_format": "count",
+            "query": {
+                "kind": "InsightVizNode",
+                "source": {
+                    "kind": "TrendsQuery",
+                    "dateRange": {"date_from": "-7d"},
+                    "series": [{"kind": "EventsNode", "event": "$exception", "math": "total"}],
+                    "trendsFilter": {"display": "ActionsBar"},
+                },
+            },
+            "goal_value": 0,
+            "goal_direction": "at_most",
+            "decision_window_days": 7,
+        }
+        ImpactMeasurementPlan.model_validate(plan)
         for field in ("decision_window_days", "minimum_data_points"):
-            with self.assertRaises(ValidationError):
-                ImpactMeasurementPlan.model_validate({field: True})
+            with self.assertRaises(ValidationError) as caught:
+                ImpactMeasurementPlan.model_validate({**plan, field: True})
+            self.assertIn(field, str(caught.exception))
 
     def test_reviewer_reasons_are_bounded_on_write(self):
         with self.assertRaises(ValidationError):

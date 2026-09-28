@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import structlog
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ImpactMeasurementPlan
 from products.signals.backend.models import SignalReport, SignalReportArtefact
-from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
+from products.signals.backend.report_metrics import MAX_REPORT_METRICS, REPORT_METRIC_GOAL_FIELDS
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +28,17 @@ def latest_measurement_plans(report: SignalReport) -> dict[str, tuple[SignalRepo
             continue
         plans.setdefault(plan.metric_id, (row, plan))
     return plans
+
+
+def can_append_measurement_plan(
+    existing: Mapping[str, tuple[SignalReportArtefact, ImpactMeasurementPlan]], plan: ImpactMeasurementPlan
+) -> bool:
+    if plan.retired:
+        return True
+    current = existing.get(plan.metric_id)
+    if current is not None and not current[1].retired:
+        return True
+    return sum(not current_plan.retired for _, current_plan in existing.values()) < MAX_REPORT_METRICS
 
 
 def persist_authored_measurement_plans(
@@ -71,6 +84,9 @@ def persist_authored_measurement_plans(
             logger.warning(
                 "ignoring invalid proposed impact measurement", report_id=str(report.id), metric_id=metric_id
             )
+            continue
+        if not can_append_measurement_plan(existing, plan):
+            logger.warning("impact measurement limit reached", report_id=str(report.id), metric_id=metric_id)
             continue
         row = SignalReportArtefact.add_log(
             team_id=report.team_id, report_id=str(report.id), content=plan, attribution=attribution

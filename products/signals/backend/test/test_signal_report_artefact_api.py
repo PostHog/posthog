@@ -41,6 +41,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportSuggestedReviewer,
 )
+from products.signals.backend.report_metrics import MAX_REPORT_METRICS
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
@@ -93,6 +94,38 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert approved.json()["id"] != plan_id
         assert SignalReportArtefact.objects.filter(report=report, type="impact_measurement_plan").count() == 2
         assert self.client.post(approval_url).status_code == status.HTTP_409_CONFLICT
+
+    def test_impact_plan_normalizes_metric_id_before_storing(self) -> None:
+        report = self._create_report()
+        plan = {**self._impact_plan(), "metric_id": " affected-users "}
+        response = self.client.post(
+            self._list_url(str(report.id)), {"artefact_type": "impact_measurement_plan", "content": plan}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["content"]["metric_id"] == "affected-users"
+        assert list(latest_measurement_plans(report)) == ["affected-users"]
+
+        persist_authored_measurement_plans(report, [self._impact_plan()], ArtefactAttribution.system())
+        assert SignalReportArtefact.objects.filter(report=report, type="impact_measurement_plan").count() == 1
+
+    def test_impact_plan_limits_active_outcomes_but_allows_revisions_and_replacements(self) -> None:
+        report = self._create_report()
+        url = self._list_url(str(report.id))
+
+        def write(metric_id: str, *, retired: bool = False) -> int:
+            content = {**self._impact_plan(), "metric_id": metric_id, "retired": retired}
+            return self.client.post(
+                url, {"artefact_type": "impact_measurement_plan", "content": content}, format="json"
+            ).status_code
+
+        for index in range(MAX_REPORT_METRICS):
+            assert write(f"outcome-{index}") == status.HTTP_201_CREATED
+
+        assert write("one-more") == status.HTTP_400_BAD_REQUEST
+        assert write("outcome-0") == status.HTTP_201_CREATED
+        assert write("outcome-0", retired=True) == status.HTTP_201_CREATED
+        assert write("one-more") == status.HTTP_201_CREATED
+        assert sum(not plan.retired for _, plan in latest_measurement_plans(report).values()) == MAX_REPORT_METRICS
 
     def test_revised_plan_needs_new_approval_without_changing_other_outcomes(self):
         report = self._create_report()
@@ -159,6 +192,17 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         latest, unchanged = latest_measurement_plans(report)["affected-users"]
         assert latest.id == first.id
         assert unchanged.goal_value == 0
+
+    def test_research_respects_the_active_measurement_limit(self) -> None:
+        report = self._create_report()
+        for index in range(MAX_REPORT_METRICS):
+            metric = {**self._impact_plan(), "metric_id": f"outcome-{index}"}
+            persist_authored_measurement_plans(report, [metric], ArtefactAttribution.system())
+
+        extra = {**self._impact_plan(), "metric_id": "one-more"}
+        observations = persist_authored_measurement_plans(report, [extra], ArtefactAttribution.system())
+        assert "goal_value" not in observations[0]
+        assert "one-more" not in latest_measurement_plans(report)
 
     def test_minimum_sample_requires_a_query_for_eligible_opportunities(self):
         report = self._create_report()

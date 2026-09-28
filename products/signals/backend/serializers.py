@@ -1113,7 +1113,7 @@ class ReportMetricWriteSerializer(ReportMetricSerializer):
         help_text="Legacy optional comparison. New report metrics must omit it.",
     )
 
-    def validate(self, attrs: dict) -> dict:
+    def validate(self, attrs: dict[str, object]) -> dict[str, object]:
         if any(
             attrs.get(field) is not None
             for field in ("goal_value", "goal_direction", "decision_window_days", "minimum_data_points")
