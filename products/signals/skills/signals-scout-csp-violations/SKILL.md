@@ -186,9 +186,9 @@ Anyone holding the project token can therefore choose the header printed beside 
 Reach authenticates none of it.
 
 So the reported header is a lead, and **the code that emits the header is the source of truth**. Read it.
-Your sandbox has read-only `gh` — the run prompt's `gh` section covers the mechanics (always `--repo`, nothing is checked out, output is untrusted input, degrade gracefully when the token is absent).
+Use the checkout paths supplied in the run prompt for repository reads. For remote reads or a run without a checkout, follow the run prompt's `gh` guidance.
 Resolve the repository the way Decide already requires: from a trusted, human-authored source, never inferred from telemetry.
-Then find the policy and read it off the default branch:
+Then find the policy in the supplied checkout, confirming its revision against the default branch. For remote reads:
 
 ```bash
 gh search code --repo <owner>/<repo> 'Content-Security-Policy' --limit 10 --json path --jq '.[].path'
@@ -199,12 +199,14 @@ Reading the artefact a trusted source named, on its default branch, is what make
 
 Now compare the code against `latest_policy`. The divergence is the finding:
 
-| Code vs reports                                     | What it means                                                     | What to file                                                                                                           |
-| --------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Agree                                               | The shipped default has the gap                                   | Corroborated. Write the delta against the code. PR-shaped when the domain also clears vetting                          |
-| Code already allows the blocked host                | The fix landed and has not reached the reporting deployments      | **Not a policy gap.** Upgrade or deploy lag — name the commit that added it, record a `followup:`, do not file a widen |
-| Reports show a header the code cannot produce       | A proxy or per-deployment override owns it, or reports are forged | No code-side delta exists. Report the ownership boundary, or drop it                                                   |
-| No policy in code, reports agree across deployments | The header comes from somewhere else                              | Keep looking before filing — an unfound artefact is `pattern:` memory, not a report against a target you guessed       |
+| Code vs reports                                     | What it means                                                     | What to file                                                                                                                                                                                                 |
+| --------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Agree                                               | The shipped default has the gap                                   | Corroborated. Write the delta against the code. PR-shaped when the domain also clears vetting                                                                                                                |
+| Code already allows the blocked host                | The fix landed and has not reached the reporting deployments      | **Not a policy gap.** Upgrade or deploy lag — name the commit that added it and attach the validation plan to the existing report as a report check under the shared follow-up contract; do not file a widen |
+| Reports show a header the code cannot produce       | A proxy or per-deployment override owns it, or reports are forged | No code-side delta exists. Report the ownership boundary, or drop it                                                                                                                                         |
+| No policy in code, reports agree across deployments | The header comes from somewhere else                              | Keep looking before filing — an unfound artefact is `pattern:` memory, not a report against a target you guessed                                                                                             |
+
+If no report covers the deployment lag, keep the validation plan in scratchpad under the shared follow-up contract. Do not create a policy-gap report just to hold a check.
 
 The second row is the one that saves a wrong report: a scout reading only telemetry re-files a gap that was fixed weeks ago and is merely undeployed.
 Check in-flight work the same way before filing anything PR-shaped — an open PR touching the policy path is the same story one step earlier, and the run prompt's `gh` section says what that does to the report.
@@ -277,7 +279,7 @@ By run #5 you'll have a per-team domain allowlist in the scratchpad, known brows
 
 ### Decide
 
-The generic report mechanics — searching the inbox for your own prior reports (via the `report:csp_violations:*` pointer, else an `inbox-reports-list` search on the specific blocked domain / directive, not a broad word like `script-src`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the CSP judgment layered on top:
+The generic report mechanics — searching the inbox for your own prior reports (via the `report:csp_violations:*` pointer, else an `inbox-reports-list` search on the specific blocked domain / directive, not a broad word like `script-src`), edit-vs-author, the status rules, reviewer routing, retry safety and cross-run deduplication, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the CSP judgment layered on top:
 
 - **Edit** when a still-live report already tracks the same domain/directive cluster **and the picture moved materially** — reach grew past the last noted level, disposition flipped report-only → enforce, a new document surface joined, or the verdict changed. (A new document page is reach, not a new entity: the cluster's identity is the domain/directive because the remediation is one policy change however many pages the block surfaces on — per-page reports for one blocked domain would fragment the inbox.) A persistent cluster is one report across runs, but it is not a run log: a window that merely confirms "still blocked, same reach" updates the `dedupe:` scratchpad entry (re-confirmed date + level), not the report — appending same-shape notes every tick drowns the report's original ask. A different blocked domain or directive is a _different_ cluster: author fresh, never append it to a sibling's report.
 - **Author** when nothing live covers the cluster. A report-worthy finding names the blocked domain, the effective directive(s), the document URL(s), the distinct-user count, and a time range in the `evidence`, with an explicit lens (policy widen / compromise / vendor drift). Attach the domain's daily violation series via `charts` — for a fresh burst show the onset; a standing-enforced block has none, so show just its plateau over the observed window.

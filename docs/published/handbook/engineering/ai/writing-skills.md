@@ -117,6 +117,14 @@ So the number of skills is a cost to weigh, not just the content of each one. Be
 
 The rule of thumb: prefer a small set of focused skills, each with rich `references/`, over a large set of thin ones. Reach for a reference file first; add a whole new skill only when the job and its trigger are genuinely distinct.
 
+### Canonical scout skills
+
+Canonical `signals-scout-*` skills describe a domain's watching job and judgment.
+The shared run prompt owns report retry safety, cross-run deduplication, repository checkouts,
+report metrics, and follow-up checks. Refer to that contract instead of copying its mechanics.
+Attach measurable report outcomes through typed metrics and report checks, rather than a prose-only handoff.
+State whether a scout recommends changes or maintains the objects it watches; a write grant is an upper bound, not an expansion of its remit.
+
 ### Referencing MCP tools in skills
 
 When a skill references an MCP tool, use the `posthog:` namespace prefix

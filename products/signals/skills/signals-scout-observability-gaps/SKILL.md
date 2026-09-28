@@ -145,7 +145,7 @@ Strong signal: property has 5-50 distinct values (not unbounded), event > 5000/d
 
 ### Decide — author or edit a report
 
-A finding here recommends an action, not surfaces a problem. The generic report mechanics — search the inbox first (via the `report:observability_gaps:<gap>` pointer, else an `inbox-reports-list` search on the gap's _specific_ entity, not a broad word like `gap`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. Layer the observability-gaps judgment on top.
+A finding here recommends an action, not surfaces a problem. The generic report mechanics — search the inbox first (via the `report:observability_gaps:<gap>` pointer, else an `inbox-reports-list` search on the gap's _specific_ entity, not a broad word like `gap`), edit-vs-author, the status rules, reviewer routing, retry safety and cross-run deduplication, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. Layer the observability-gaps judgment on top.
 
 Required elements in every report:
 
