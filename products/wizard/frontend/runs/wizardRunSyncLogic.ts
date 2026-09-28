@@ -8,8 +8,8 @@ import { wizardRunIsActive } from '../wizardRunDisplay'
 const RUN_POLL_MS = 30_000
 // ponytail: show five active and five completed runs; the Wizard page lists the rest.
 const RUN_LIST_LIMIT = 5
-// The FAB must not reopen for runs started before its rollout. Use a round cutoff after the first release.
-const WIZARD_RUN_SYNC_FAB_RELEASED_AFTER = '2026-09-28T13:00:00Z'
+// Use the first full UTC day after release so runs from the release day do not reopen in the FAB.
+const WIZARD_RUN_SYNC_FAB_RELEASED_AFTER = '2026-09-29T00:00:00Z'
 
 type RunStreamState = Pick<
     WizardRunApi,

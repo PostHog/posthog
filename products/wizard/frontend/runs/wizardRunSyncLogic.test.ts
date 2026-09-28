@@ -29,7 +29,7 @@ function mockRunPages(
 }
 
 function run(id: string): WizardRunApi {
-    return { id, created_at: '2026-09-28T13:00:00Z', status: 'running', stage: 'executing_wizard' } as WizardRunApi
+    return { id, created_at: '2026-09-29T00:00:00Z', status: 'running', stage: 'executing_wizard' } as WizardRunApi
 }
 
 describe('wizardRunSyncLogic', () => {
@@ -59,7 +59,7 @@ describe('wizardRunSyncLogic', () => {
         expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
             status: ['created', 'running'],
             limit: 5,
-            created_after: '2026-09-28T13:00:00Z',
+            created_after: '2026-09-29T00:00:00Z',
         })
         expect(logic.values.activeCount).toBe(2)
         expect(logic.values.run?.id).toBe('newer')
@@ -137,7 +137,7 @@ describe('wizardRunSyncLogic', () => {
         expect(mockWizardRunsList).toHaveBeenCalledWith('1', {
             status: ['completed'],
             limit: 5,
-            created_after: '2026-09-28T13:00:00Z',
+            created_after: '2026-09-29T00:00:00Z',
         })
         expect(logic.values.run).toEqual(completed)
         expect(MockEventSource.instances).toHaveLength(1)

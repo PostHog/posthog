@@ -64,7 +64,7 @@ GET   /api/projects/{project_id}/wizard/runs/{run_id}/stream/
 Run responses include the creator ID and basic creator details for attribution in project-level run lists.
 Use `GET /api/projects/{project_id}/wizard/runs/?status=created,running&limit=5` to fetch the newest active runs; `count` gives the total number of active runs in the project. The `status` filter also accepts any individual run status.
 The optional `created_after` filter accepts an ISO 8601 timestamp with a timezone. It applies before pagination, so `count` includes only runs created at or after that timestamp.
-The app-wide sync widget uses this filter to exclude runs started before its rollout. It polls the active summary and also fetches the five most recently created completed runs with the same cutoff.
+The app-wide sync widget uses a cutoff of September 29, 2026, at 00:00 UTC, the first full UTC day after its release. Runs from September 28 remain on the Wizard page but do not appear in the widget. The widget polls the active summary and also fetches the five most recently created completed runs with the same cutoff.
 It opens one event stream for the displayed active run. Completed runs do not open a stream.
 It shows the newest active run by default, or the newest completed run when none are active.
 The selector lists up to five active and five completed runs by workspace and status, with the selected run marked and the total active count shown separately.
