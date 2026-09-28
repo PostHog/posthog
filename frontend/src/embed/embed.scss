@@ -1,0 +1,10 @@
+// pinned: `ph-embed` is also the root class that build.mjs scopes this bundle's stylesheet to.
+.ph-embed {
+    --scene-layout-background: var(--color-bg-primary);
+
+    position: relative;
+    height: 100%;
+    overflow: hidden;
+    color: var(--color-text-primary);
+    background: var(--scene-layout-background);
+}

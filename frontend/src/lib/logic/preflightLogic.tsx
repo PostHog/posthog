@@ -4,6 +4,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { getEmbedContext } from 'lib/embed/embedContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
@@ -125,6 +126,10 @@ export const preflightLogic = kea<preflightLogicType>([
             null as PreflightStatus | null,
             {
                 loadPreflight: async () => {
+                    const embedContext = getEmbedContext()
+                    if (embedContext) {
+                        return embedContext.preflight
+                    }
                     const response = await api.get<PreflightStatus>('_preflight/')
                     return response
                 },

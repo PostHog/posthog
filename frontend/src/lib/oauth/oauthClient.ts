@@ -66,6 +66,21 @@ export interface PendingAuth {
     returnTo: string
 }
 
+/**
+ * A session owned by a host shell (see frontend/src/embed). While one is set, the token never reaches
+ * localStorage: the host keeps it fresh and answers refreshes, so a sign-out in the host also ends it here.
+ */
+export interface ExternalSessionProvider {
+    getSession: () => OAuthSession | null
+    refresh: () => Promise<string | null>
+}
+
+let externalSessionProvider: ExternalSessionProvider | null = null
+
+export function setExternalSessionProvider(provider: ExternalSessionProvider | null): void {
+    externalSessionProvider = provider
+}
+
 interface TokenResponse {
     access_token: string
     refresh_token: string
@@ -81,6 +96,9 @@ export function isOAuthMode(): boolean {
 }
 
 export function getStoredSession(): OAuthSession | null {
+    if (externalSessionProvider) {
+        return externalSessionProvider.getSession()
+    }
     try {
         const raw = window.localStorage.getItem(SESSION_KEY)
         return raw ? (JSON.parse(raw) as OAuthSession) : null
@@ -100,6 +118,10 @@ function storeSession(session: OAuthSession): void {
 }
 
 export function clearSession(): void {
+    if (externalSessionProvider) {
+        oauthContextIds = null
+        return
+    }
     window.localStorage.removeItem(SESSION_KEY)
     document.cookie = `${OAUTH_MODE_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`
     // Drop the bootstrap ids with the session so a later login in the same tab can't read the
@@ -184,6 +206,9 @@ export async function exchangeCodeForToken(pending: PendingAuth, code: string, s
 let refreshPromise: Promise<string | null> | null = null
 
 export function refreshAccessToken(): Promise<string | null> {
+    if (externalSessionProvider) {
+        return externalSessionProvider.refresh()
+    }
     if (!refreshPromise) {
         refreshPromise = doRefresh().finally(() => {
             refreshPromise = null

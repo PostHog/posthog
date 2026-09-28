@@ -15,6 +15,7 @@ import {
     startDevServer,
 } from '@posthog/esbuilder'
 
+import { scopeCss } from './bin/scope-embed-css.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
 
@@ -77,6 +78,19 @@ await buildInParallel(
             ...common,
         },
         {
+            // The web app as a module another shell mounts into one of its elements (src/embed). It has
+            // its own output folder so its chunks and assets resolve relative to it wherever it is served
+            // from. A host on another origin needs the absolute URL of that folder in EMBED_PUBLIC_PATH.
+            name: 'Embed',
+            entryPoints: { embed: 'src/embed/mountLegacyApp.tsx' },
+            splitting: true,
+            format: 'esm',
+            outdir: path.resolve(__dirname, 'dist', 'embed'),
+            publicPath: process.env.EMBED_PUBLIC_PATH || '/static/embed',
+            heavy: true,
+            ...common,
+        },
+        {
             name: 'Render Query',
             globalName: 'posthogRenderQuery',
             entryPoints: ['src/render-query/index.tsx'],
@@ -118,6 +132,10 @@ await buildInParallel(
                     reportTopChunks(buildResponse.outputs, { label: 'Exporter chunks' })
                 }
                 writeExporterHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Embed') {
+                scopeEmbedCss(entrypoints)
             }
 
             if (config.name === 'Render Query') {
@@ -184,6 +202,23 @@ export function writePreloadManifest(outputs = {}) {
         }
     }
     fs.writeFileSync(path.resolve(distDir, 'preload-manifest.json'), JSON.stringify(manifest, null, 2))
+}
+
+/**
+ * The embed renders inside another app's page, so its stylesheet must not reach the host's markup.
+ * Rewrites the entry stylesheet in place before the hashless copies are made. The entry stylesheet
+ * already holds the styles of every lazy chunk, and nothing loads the per-chunk copies.
+ */
+function scopeEmbedCss(entrypoints = []) {
+    for (const entrypoint of entrypoints) {
+        if (!entrypoint.endsWith('.css')) {
+            continue
+        }
+        const file = path.resolve(__dirname, entrypoint)
+        // pinned: `ph-embed` is the root class that src/embed/mountLegacyApp.tsx sets.
+        const scoped = scopeCss(fs.readFileSync(file, 'utf8'), { rootClass: 'ph-embed', layerName: 'posthog-embed' })
+        fs.writeFileSync(file, scoped)
+    }
 }
 
 // EmojiPickerPanel loads frimousse's emoji data from /static/emoji rather than from a CDN. frimousse

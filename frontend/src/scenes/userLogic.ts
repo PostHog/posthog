@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
+import { getEmbedContext } from 'lib/embed/embedContext'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
@@ -618,6 +619,13 @@ export const userLogic = kea<userLogicType>([
             posthog.reset()
             // Drop the address a signup or login attempt stored for the verify page
             clearPendingVerificationEmail()
+
+            // Embedded in another shell, the host owns the session, so signing out is its call.
+            const embedContext = getEmbedContext()
+            if (embedContext) {
+                embedContext.signOut()
+                return
+            }
 
             // OAuth mode: there's no local Django session to end — just drop the stored cloud
             // token and return to the local login. (A cross-origin /logout POST would do nothing.)
