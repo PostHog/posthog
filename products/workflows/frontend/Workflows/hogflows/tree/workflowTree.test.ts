@@ -1,6 +1,7 @@
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../types'
 import {
     buildWorkflowTree,
+    canInsertEarlyExit,
     computeMoveTreeBranchEdges,
     getWorkflowBranchLabel,
     isWorkflowTreeComplete,
@@ -93,30 +94,57 @@ describe('buildWorkflowTree', () => {
         )
     })
 
-    it('leaves routes terminal when they have no shared continuation', () => {
+    it('joins a route that exits early back at the final exit', () => {
         const tree = buildWorkflowTree(
             workflow(
                 [
                     action('trigger', 'trigger'),
                     action('condition', 'conditional_branch'),
-                    action('left-exit', 'exit'),
-                    action('right-exit', 'exit'),
+                    action('early-exit', 'exit'),
+                    action('email'),
+                    action('exit', 'exit'),
                 ],
                 [
                     edge('trigger', 'condition'),
-                    edge('condition', 'left-exit', 'branch', 0),
-                    edge('condition', 'right-exit'),
+                    edge('condition', 'early-exit', 'branch', 0),
+                    edge('condition', 'email'),
+                    edge('email', 'exit'),
                 ]
             )
         )
 
-        expect(tree.nodes.map((node) => node.action.id)).toEqual(['trigger', 'condition'])
-        expect(tree.nodes[1].joinActionId).toBeNull()
+        expect(tree.nodes.map((node) => node.action.id)).toEqual(['trigger', 'condition', 'exit'])
+        expect(tree.nodes[1].joinActionId).toBe('exit')
+        expect(tree.nodes[1].joinEdges).toEqual([edge('email', 'exit')])
         expect(tree.nodes[1].branches.map((branch) => branch.sequence.nodes.map((node) => node.action.id))).toEqual([
-            ['left-exit'],
-            ['right-exit'],
+            ['early-exit'],
+            ['email'],
         ])
+        expect(tree.nodes[1].branches[0].sequence.trailingEdge).toBeNull()
         expect(getWorkflowTreeBranchSummary(tree.nodes[1], tree.nodes[1].branches[0])).toBe('1 step · End workflow')
+    })
+
+    it.each([
+        ['a path another route still reaches', [edge('condition', 'email', 'branch', 0)], true],
+        ['the only path into a step', [edge('trigger', 'condition')], false],
+        ['every path into a join', [edge('condition', 'email', 'branch', 0), edge('condition', 'email')], false],
+    ] as const)('allows an early exit on %s: %s', (_, edgesToReplace, allowed) => {
+        const splitWorkflow = workflow(
+            [
+                action('trigger', 'trigger'),
+                action('condition', 'conditional_branch'),
+                action('email'),
+                action('exit', 'exit'),
+            ],
+            [
+                edge('trigger', 'condition'),
+                edge('condition', 'email', 'branch', 0),
+                edge('condition', 'email'),
+                edge('email', 'exit'),
+            ]
+        )
+
+        expect(canInsertEarlyExit(splitWorkflow, [...edgesToReplace])).toBe(allowed)
     })
 
     it('scopes a nested branch join to its own routes', () => {

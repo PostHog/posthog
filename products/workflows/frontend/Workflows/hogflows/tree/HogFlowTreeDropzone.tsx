@@ -10,7 +10,7 @@ import { cn, Popover, PopoverContent, PopoverTrigger } from 'lib/ui/quill'
 import { type CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlowEditorPanelBuild } from '../panel/HogFlowEditorPanelBuild'
 import type { HogFlowEdge } from '../types'
-import { computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
+import { canInsertEarlyExit, computeMoveTreeBranchEdges, isBranchingAction } from './workflowTree'
 
 export function HogFlowTreeDropzone({
     active,
@@ -37,7 +37,7 @@ export function HogFlowTreeDropzone({
     insertionLabel?: string
     alwaysVisible?: boolean
 }): JSX.Element {
-    const { workflow } = useValues(hogFlowEditorLogic)
+    const { nodeToBeAdded, workflow } = useValues(hogFlowEditorLogic)
     const {
         moveNodeToEdge,
         onDragOver,
@@ -50,6 +50,8 @@ export function HogFlowTreeDropzone({
     const [highlighted, setHighlighted] = useState(false)
     const [pickerOpen, setPickerOpen] = useState(false)
     const isAdjacentToDraggedAction = draggedActionId === edge.to || (!isBranchJoin && draggedActionId === edge.from)
+    const blocksEarlyExit = nodeToBeAdded?.type === 'exit' && (isBranchJoin || !canInsertEarlyExit(workflow, [edge]))
+    const isDisabled = isAdjacentToDraggedAction || blocksEarlyExit
     const handleDragOver = (event: DragEvent<HTMLElement>): void => {
         setHighlighted(true)
         onDragOver(event)
@@ -102,7 +104,7 @@ export function HogFlowTreeDropzone({
                 alwaysVisible ? 'min-h-8' : compact ? 'h-2' : 'h-4'
             )}
             data-workflow-tree-dropzone-candidate
-            data-workflow-tree-dropzone-disabled={isAdjacentToDraggedAction || undefined}
+            data-workflow-tree-dropzone-disabled={isDisabled || undefined}
         >
             <div
                 className={cn(
@@ -160,9 +162,7 @@ export function HogFlowTreeDropzone({
             <div
                 className={cn(
                     'absolute -inset-y-3 inset-x-0 z-20 items-center',
-                    isAdjacentToDraggedAction
-                        ? 'hidden'
-                        : 'hidden group-data-[workflow-tree-dropzone-closest=true]:flex'
+                    isDisabled ? 'hidden' : 'hidden group-data-[workflow-tree-dropzone-closest=true]:flex'
                 )}
                 onDragOver={handleDragOver}
                 onDragLeave={() => setHighlighted(false)}

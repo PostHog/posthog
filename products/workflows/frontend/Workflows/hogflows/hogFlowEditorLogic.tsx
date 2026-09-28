@@ -34,7 +34,13 @@ import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } 
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
 import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
-import { isWorkflowTreeComplete } from './tree/workflowTree'
+import {
+    canInsertEarlyExit,
+    getFinalExitActionId,
+    isDeletableAction,
+    isEarlyExitAction,
+    isWorkflowTreeComplete,
+} from './tree/workflowTree'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
 
@@ -45,7 +51,8 @@ export function computeInsertEdges(
     edges: HogFlow['edges'],
     newActionId: string,
     branchEdges: number,
-    edgesToReplace: HogFlow['edges']
+    edgesToReplace: HogFlow['edges'],
+    isTerminal = false
 ): HogFlow['edges'] | null {
     const edgeIdsToReplace = new Set(edgesToReplace.map(getEdgeId))
     const matchingEdges = edges.filter((edge) => edgeIdsToReplace.has(getEdgeId(edge)))
@@ -63,12 +70,16 @@ export function computeInsertEdges(
             type: 'branch' as const,
             from: newActionId,
         })),
-        {
-            ...matchingEdges[0],
-            index: undefined,
-            type: 'continue' as const,
-            from: newActionId,
-        },
+        ...(isTerminal
+            ? []
+            : [
+                  {
+                      ...matchingEdges[0],
+                      index: undefined,
+                      type: 'continue' as const,
+                      from: newActionId,
+                  },
+              ]),
     ]
 }
 
@@ -2132,7 +2143,8 @@ export interface hogFlowEditorLogicMeta {
         selectedNodeCanBeDeleted: (
             selectedNode: HogFlowActionNode | null,
             nodes: HogFlowActionNode[],
-            edges: HogFlowActionEdge[]
+            edges: HogFlowActionEdge[],
+            workflow: HogFlow
         ) => boolean
         selectedNodeCanBeCopiedOrMoved: (
             selectedNode: HogFlowActionNode | null,
@@ -2364,7 +2376,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                           type: 'action',
                           data: action,
                           position: { x: 0, y: 0 },
-                          deletable: !['trigger', 'exit'].includes(action.type),
+                          deletable: isDeletableAction(action, workflow.actions),
                           selectable: true,
                           draggable: false,
                           connectable: false,
@@ -2373,10 +2385,19 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNodeCanBeDeleted: [
-            (s) => [s.selectedNode, s.nodes, s.edges],
-            (selectedNode: HogFlowActionNode | null, nodes: HogFlowActionNode[], edges: HogFlowActionEdge[]) => {
+            (s) => [s.selectedNode, s.nodes, s.edges, s.workflow],
+            (
+                selectedNode: HogFlowActionNode | null,
+                nodes: HogFlowActionNode[],
+                edges: HogFlowActionEdge[],
+                workflow: HogFlow
+            ) => {
                 if (!selectedNode) {
                     return false
+                }
+
+                if (isEarlyExitAction(selectedNode.data, workflow.actions)) {
+                    return true
                 }
 
                 const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
@@ -2394,8 +2415,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return false
                 }
 
-                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
-                return !branchingTypes.includes(selectedNode?.data.type ?? '')
+                const fixedTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition', 'exit']
+                return !fixedTypes.includes(selectedNode?.data.type ?? '')
             },
         ],
     }),
@@ -2552,7 +2573,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             data: migratedAction,
                             position: { x: 0, y: 0 },
                             handles: Object.values(handlesByIdByNodeId[migratedAction.id] ?? {}),
-                            deletable: !['trigger', 'exit'].includes(migratedAction.type),
+                            deletable: isDeletableAction(migratedAction, hogFlow.actions),
                             selectable: true,
                             draggable: false,
                             connectable: false,
@@ -2604,6 +2625,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                         to: outgoer.to,
                                     }
                                 }
+                                // An early exit has no outgoer, so rejoin the path of a sibling edge or the final exit
+                                const rejoinTarget =
+                                    values.workflow.edges.find(
+                                        (edge) => edge.from === hogFlowEdge.from && !deletedNodeIds.includes(edge.to)
+                                    )?.to ??
+                                    getFinalExitActionId(
+                                        values.workflow.actions.filter((action) => !deletedNodeIds.includes(action.id))
+                                    )
+                                if (rejoinTarget) {
+                                    return {
+                                        ...hogFlowEdge,
+                                        to: rejoinTarget,
+                                    }
+                                }
                             }
                         }
                         return hogFlowEdge
@@ -2636,8 +2671,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     }
                 }
 
+                const isAddingEarlyExit = values.nodeToBeAdded?.type === 'exit'
+
                 edges.forEach((edge) => {
                     if (skipEdgeIds.has(edge.id)) {
+                        return
+                    }
+                    if (isAddingEarlyExit && edge.data && !canInsertEarlyExit(values.workflow, [edge.data.edge])) {
                         return
                     }
                     const sourceNode = nodes.find((n) => n.id === edge.source)
@@ -2671,7 +2711,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         // to allow branch convergence (fan-in). This covers both branch edges directly
                         // from a conditional node and continue edges from downstream nodes in parallel paths.
                         const hasSiblingEdges = edges.filter((e) => e.data?.edge.to === edge.target).length > 1
-                        if (hasSiblingEdges) {
+                        if (hasSiblingEdges && !isAddingEarlyExit) {
                             // Use an ID that we can consistently look up for the branch join point to avoid duplicate dropzones
                             const branchJoinDropzoneTargetId = `dropzone_target_${edge.target}_branch_join`
                             // Avoid duplicating dropzones for multiple branch edges to the same target
@@ -2783,11 +2823,22 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         : isBranchJoinDropzone
                           ? values.workflow.edges.filter((edge) => edge.to === edgeToInsertNodeInto.target)
                           : values.workflow.edges.filter((edge) => getEdgeId(edge) === edgeToInsertNodeInto.id)
+                    const isEarlyExit = newAction.type === 'exit'
+                    if (isEarlyExit && !canInsertEarlyExit(values.workflow, edgesToBeReplaced)) {
+                        lemonToast.error(
+                            'An early exit here would cut off the steps below it. Add it to a branch that joins the rest of the workflow.'
+                        )
+                        actions.setNodeToBeAdded(null)
+                        actions.hideDropzones()
+                        return
+                    }
+
                     const newEdges = computeInsertEdges(
                         values.workflow.edges,
                         newAction.id,
                         branchEdges,
-                        edgesToBeReplaced
+                        edgesToBeReplaced,
+                        isEarlyExit
                     )
 
                     if (!newEdges) {
@@ -2858,7 +2909,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     }
 
                     const oldActions = values.workflow.actions
-                    const newActions = [...oldActions.slice(0, -1), newAction, oldActions[oldActions.length - 1]]
+                    const finalExitIndex = oldActions.findIndex(
+                        (action) => action.id === getFinalExitActionId(oldActions)
+                    )
+                    const insertIndex = finalExitIndex >= 0 ? finalExitIndex : oldActions.length - 1
+                    const newActions = [
+                        ...oldActions.slice(0, insertIndex),
+                        newAction,
+                        ...oldActions.slice(insertIndex),
+                    ]
 
                     actions.setWorkflowInfo({ actions: newActions, edges: newEdges, variables: updatedVariables })
                     actions.setNodeToBeAdded(null)

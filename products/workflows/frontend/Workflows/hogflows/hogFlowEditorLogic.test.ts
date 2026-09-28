@@ -116,6 +116,22 @@ describe('computeMoveEdges', () => {
         ])
     })
 
+    it('ends the replaced edge at an early exit without a continue edge', () => {
+        const edges = [
+            edge('trigger', 'condition', 'continue'),
+            edge('condition', 'email', 'branch', 0),
+            edge('condition', 'email', 'continue'),
+            edge('email', 'exit', 'continue'),
+        ]
+
+        expect(computeInsertEdges(edges, 'early-exit', 0, [edge('condition', 'email', 'branch', 0)], true)).toEqual([
+            edge('trigger', 'condition', 'continue'),
+            edge('condition', 'email', 'continue'),
+            edge('email', 'exit', 'continue'),
+            edge('condition', 'early-exit', 'branch', 0),
+        ])
+    })
+
     it('moves a step after only the nested split paths', () => {
         const edges = [
             edge('trigger', 'move', 'continue'),

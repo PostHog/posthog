@@ -14,7 +14,11 @@ import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import type { HogFlowEdge } from '../types'
 import { HogFlowTreeBranchConnector } from './HogFlowTreeBranchConnector'
 import { getWaitTimeoutLabel, type WorkflowTreeBranch, type WorkflowTreeNode } from './workflowTree'
-import { getWorkflowTreeBranchSummary, getWorkflowTreeOccurrenceKey } from './workflowTreePresentation'
+import {
+    getWorkflowTreeBranchSummary,
+    getWorkflowTreeOccurrenceKey,
+    sequenceEndsInExit,
+} from './workflowTreePresentation'
 
 export function HogFlowTreeBranch({
     node,
@@ -41,7 +45,7 @@ export function HogFlowTreeBranch({
 }): JSX.Element {
     const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { selectedBranch, setSelectedBranch } = useHogFlowBranchSelection()
-    const joinAction = node.joinAction
+    const joinAction = sequenceEndsInExit(branch.sequence) ? null : node.joinAction
     const branchIndex = branch.edge.type === 'branch' ? (branch.edge.index ?? index) : null
     const pathColor = getHogFlowBranchColor(branchIndex)
     const isBranchSelected = selectedBranch?.actionId === node.action.id && selectedBranch.index === branchIndex

@@ -72,6 +72,10 @@ export function getWorkflowTreeStepIds(sequence: WorkflowTreeSequence): Set<stri
     return stepIds
 }
 
+export function sequenceEndsInExit(sequence: WorkflowTreeSequence): boolean {
+    return sequence.nodes.at(-1)?.action.type === 'exit'
+}
+
 function getPathDestination(sequence: WorkflowTreeSequence): string {
     const lastNode = sequence.nodes.at(-1)
     if (lastNode?.action.type === 'exit') {
@@ -86,6 +90,9 @@ function getPathDestination(sequence: WorkflowTreeSequence): string {
 
 export function getWorkflowTreeBranchSummary(node: WorkflowTreeNode, branch: WorkflowTreeBranch): string {
     const count = getWorkflowTreeStepIds(branch.sequence).size
-    const destination = node.joinAction ? `Continue to: ${node.joinAction.name}` : getPathDestination(branch.sequence)
+    const destination =
+        node.joinAction && !sequenceEndsInExit(branch.sequence)
+            ? `Continue to: ${node.joinAction.name}`
+            : getPathDestination(branch.sequence)
     return `${count} ${count === 1 ? 'step' : 'steps'} · ${destination}`
 }
