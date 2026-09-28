@@ -238,9 +238,7 @@ def _iter_parent_paths(
             )
 
 
-def get_accessible_account_ids(
-    session: AuthorizedSession, required_ids: set[str] | None, max_pages: int = 20
-) -> tuple[set[str], bool]:
+def get_accessible_account_ids(session: AuthorizedSession, required_ids: set[str] | None) -> tuple[set[str], bool]:
     """Walk accounts.list and return (account IDs seen, whether the listing was exhaustive).
 
     Stops after the first page when `required_ids` is None (credential validation only needs
@@ -251,7 +249,7 @@ def get_accessible_account_ids(
     """
     ids: set[str] = set()
     page_token: str | None = None
-    for _ in range(max_pages):
+    while True:
         params = {"pageToken": page_token} if page_token else {}
         response = session.get(f"{GTM_API_BASE}/accounts", params=params)
         response.raise_for_status()
@@ -262,7 +260,6 @@ def get_accessible_account_ids(
             return ids, True
         if required_ids is None or required_ids <= ids:
             return ids, False
-    return ids, False
 
 
 def google_tag_manager_source(

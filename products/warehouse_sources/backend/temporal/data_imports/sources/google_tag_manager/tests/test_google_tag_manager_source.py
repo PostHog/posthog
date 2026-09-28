@@ -154,13 +154,11 @@ def test_validate_credentials_rejects_inaccessible_account_ids():
     assert "3, 4" in (message or "")
 
 
-def test_validate_credentials_skips_filter_check_when_listing_capped():
-    # When the probe hit its defensive page cap the listing is incomplete, so a missing ID
-    # is unproven and must not reject the filter.
+def test_validate_credentials_rejects_missing_filter_id_from_incomplete_listing():
     ok, message = _validate(_config(account_ids="3"), ({"1"}, False))
 
-    assert ok is True
-    assert message is None
+    assert ok is False
+    assert "3" in (message or "")
 
 
 def test_validate_credentials_succeeds_with_matching_filter():

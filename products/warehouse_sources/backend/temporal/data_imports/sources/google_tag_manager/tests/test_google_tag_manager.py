@@ -317,18 +317,19 @@ def test_account_probe_stops_after_first_page_without_filter():
     assert len(session.calls) == 1
 
 
-def test_account_probe_respects_page_cap():
+def test_account_probe_keeps_paging_until_missing_filter_id_is_proven_absent():
     pages: dict[tuple[str, str | None], dict[str, Any]] = {
         ("accounts", None): {"account": [{"accountId": "1"}], "nextPageToken": "t1"},
         ("accounts", "t1"): {"account": [{"accountId": "2"}], "nextPageToken": "t2"},
+        ("accounts", "t2"): {"account": [{"accountId": "3"}]},
     }
     session = _fake_session(pages)
 
-    ids, listed_all = get_accessible_account_ids(session, required_ids={"9"}, max_pages=2)
+    ids, listed_all = get_accessible_account_ids(session, required_ids={"9"})
 
-    assert ids == {"1", "2"}
-    assert listed_all is False
-    assert len(session.calls) == 2
+    assert ids == {"1", "2", "3"}
+    assert listed_all is True
+    assert len(session.calls) == 3
 
 
 def test_source_response_primary_key_is_path():

@@ -132,7 +132,7 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
 
         account_ids = parse_account_ids(config.account_ids)
         try:
-            accessible_ids, listed_all = get_accessible_account_ids(
+            accessible_ids, _ = get_accessible_account_ids(
                 google_tag_manager_session(refresh_token), account_ids
             )
         except requests.HTTPError as e:
@@ -164,10 +164,7 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
                 "Connect a Google user with at least read access to the accounts you want to sync.",
             )
 
-        # Only reject filter IDs proven absent: the probe pages through the account list until
-        # every filter ID is found or the list ends, and skips the check in the (defensively
-        # capped) case where the listing stopped early.
-        if account_ids is not None and listed_all:
+        if account_ids is not None:
             missing = sorted(account_ids - accessible_ids)
             if missing:
                 return (
