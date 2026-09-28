@@ -103,12 +103,15 @@ export function canMoveToDraft(
     broadcast: StoppableBroadcast | null,
     batchJobs: Pick<HogFlowBatchJobApi, 'status'>[] | null
 ): boolean {
+    const schedules = broadcast?.schedules ?? []
+    const neverSent = batchJobs?.length === 0
     return (
         broadcast?.status === 'active' &&
         // Only a send still to come can be stopped, since relaunching one that went out resends it. The
-        // wizard models a single schedule, so a relaunch would fold several into one.
-        broadcast.schedules?.length === 1 &&
-        broadcast.schedules[0].status !== 'completed' &&
+        // wizard models a single schedule, so a relaunch would fold several into one. A launch or a
+        // one-time schedule that never started a run sent nothing, so it can go back to draft too.
+        schedules.length <= 1 &&
+        (neverSent || (schedules.length === 1 && schedules[0].status !== 'completed')) &&
         batchJobs !== null &&
         !batchJobs.some((job) => ['waiting', 'queued', 'active'].includes(job.status ?? '')) &&
         // Even a broadcast's own graph can be edited elsewhere, and the wizard would save over it.
@@ -121,7 +124,7 @@ export function isEligibleWorkflow(flow: Pick<HogFlowMinimalApi, 'origin_product
 }
 
 export function getBroadcastStatus(
-    broadcast: { status?: string | null },
+    broadcast: { status?: string | null; origin_product?: string | null },
     details: BroadcastRowDetails | undefined
 ): BroadcastStatus {
     if (broadcast.status === 'draft') {
@@ -149,7 +152,12 @@ export function getBroadcastStatus(
         // tells the sender another send is still pending when nothing is coming.
         return 'failed'
     }
-    // Active with no batch job yet: it's waiting on its schedule (or a manual send).
+    // Live with no run and nothing scheduled: a launch from the wizard that never finished, so nothing
+    // will ever send. A workflow opened here can wait for a send started through the API instead.
+    if (details.hasPendingSchedule === false && broadcast.origin_product === 'broadcasts') {
+        return 'failed'
+    }
+    // Active with no batch job yet: it's waiting on its schedule.
     return 'scheduled'
 }
 
