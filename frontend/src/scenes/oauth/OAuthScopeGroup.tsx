@@ -65,9 +65,10 @@ export function OAuthScopeGroup({
                         <span translate="no">{rows.length}</span> {rows.length === 1 ? 'permission' : 'permissions'}
                     </span>
                     <span className="flex items-center gap-1">
-                        {counts.write > 0 && (
-                            <LemonTag size="small" type="warning">
-                                <span translate="no">{counts.write}</span> write
+                        {/* Same order as the segmented control: no access, read, write. */}
+                        {counts.none > 0 && (
+                            <LemonTag size="small" type="muted">
+                                <span translate="no">{counts.none}</span> none
                             </LemonTag>
                         )}
                         {counts.read > 0 && (
@@ -75,9 +76,9 @@ export function OAuthScopeGroup({
                                 <span translate="no">{counts.read}</span> read
                             </LemonTag>
                         )}
-                        {counts.none > 0 && (
-                            <LemonTag size="small" type="muted">
-                                <span translate="no">{counts.none}</span> none
+                        {counts.write > 0 && (
+                            <LemonTag size="small" type="warning">
+                                <span translate="no">{counts.write}</span> write
                             </LemonTag>
                         )}
                     </span>
