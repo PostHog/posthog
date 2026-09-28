@@ -109,6 +109,7 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHING_FLAG,
     Budget,
     QueryFailureCache,
+    WarmingQueryFailureCache,
 )
 from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight, SharedFailure
 from posthog.query_cache.storage import entry_redis_key
@@ -2579,7 +2580,7 @@ class TestQueryFailureCaching(BaseTest):
                 )
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             assert response.is_cached is False
-            assert failure_cache.get_open(for_warming=True) is None
+            assert WarmingQueryFailureCache(runner.get_cache_key()).get_open() is None
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
                 analytics_props={"source": EventSource.CACHE_WARMING},
@@ -2610,14 +2611,14 @@ class TestQueryFailureCaching(BaseTest):
                 analytics_props={"source": EventSource.CACHE_WARMING},
             )
             assert response.is_cached is False
-            assert QueryFailureCache(runner.get_cache_key()).get_open(for_warming=True) is None
+            assert WarmingQueryFailureCache(runner.get_cache_key()).get_open() is None
             with mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=ClickHouseQueryTimeOut()):
                 with self.assertRaises(ClickHouseQueryTimeOut):
                     runner.run(
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
                         analytics_props={"source": EventSource.CACHE_WARMING},
                     )
-            assert QueryFailureCache(runner.get_cache_key()).get_open(for_warming=True) is None
+            assert WarmingQueryFailureCache(runner.get_cache_key()).get_open() is None
 
     @parameterized.expand([("flag_disabled", False, False), ("fresh_cache", True, True)])
     def test_warming_can_proceed_despite_failure_history(self, _name: str, flag_enabled: bool, cached: bool) -> None:
@@ -2629,7 +2630,7 @@ class TestQueryFailureCaching(BaseTest):
             failure_cache = QueryFailureCache(runner.get_cache_key())
             for _ in range(3):
                 failure_cache.record_failure("timeout", "timed out", budget=BUDGET_EXTENDED)
-            assert failure_cache.get_open(for_warming=True) is not None
+            assert WarmingQueryFailureCache(runner.get_cache_key()).get_open() is not None
             with mock.patch(
                 "posthoganalytics.feature_enabled",
                 side_effect=lambda key, *args, **kwargs: flag_enabled and _failure_caching_flag(key),

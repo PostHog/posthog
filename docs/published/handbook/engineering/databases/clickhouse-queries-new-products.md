@@ -38,7 +38,9 @@ The `QueryRunner` base class gives you:
 
   With `query-failure-caching` enabled, repeated query failures use a shared circuit breaker.
   Cache warming uses the same failure thresholds, cache keys, and execution-budget rules, but starts its retry backoff at two hours, capped at four hours.
+  The runner selects `WarmingQueryFailureCache` for warming and `QueryFailureCache` otherwise. Both share the same Redis failure history; only the retry deadline differs.
   Foreground requests keep their existing backoff, and a successful calculation clears the failure history for both paths.
+  Warming checks never persist their longer deadline or renew the failure record, so they cannot extend foreground cooldowns.
 
 - **Observability**: Query execution is automatically instrumented with Prometheus metrics (`QUERY_EXECUTION_TOTAL`, `QUERY_EXECUTION_DURATION`) and PostHog analytics events, giving you latency histograms and error breakdowns for free.
 

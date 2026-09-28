@@ -47,6 +47,16 @@ WARMING_BASE_BACKOFF = timedelta(hours=2)
 RECORD_TTL = timedelta(hours=24)
 
 
+def _retry_deadline(
+    policy: KindPolicy, failures: int, last_failed_at: datetime, base_backoff: timedelta
+) -> Optional[datetime]:
+    if failures < policy.open_threshold:
+        return None
+    max_doublings = (policy.max_backoff // base_backoff).bit_length()
+    doublings = min(failures - policy.open_threshold, max_doublings)
+    return last_failed_at + min(base_backoff * 2**doublings, policy.max_backoff)
+
+
 @dataclass(frozen=True)
 class QueryFailureRecord:
     kind: FailureKind
@@ -86,17 +96,14 @@ class QueryFailureCache:
     def __init__(self, cache_key: str) -> None:
         self.key = f"query_failure:{cache_key}"
 
-    def get_open(self, *, for_warming: bool = False) -> Optional[QueryFailureRecord]:
+    def get_open(self) -> Optional[QueryFailureRecord]:
         record = self._load()
-        if record is not None and for_warming:
-            policy = KIND_POLICIES[record.kind]
-            if record.consecutive_failures >= policy.open_threshold:
-                # Minute-scale backoff expires before the hourly warmer runs again.
-                max_doublings = (policy.max_backoff // WARMING_BASE_BACKOFF).bit_length()
-                doublings = min(record.consecutive_failures - policy.open_threshold, max_doublings)
-                backoff = min(WARMING_BASE_BACKOFF * 2**doublings, policy.max_backoff)
-                record = replace(record, open_until=record.last_failed_at + backoff)
+        if record is not None:
+            record = replace(record, open_until=self._retry_deadline(record))
         return record if record is not None and record.is_open else None
+
+    def _retry_deadline(self, record: QueryFailureRecord) -> Optional[datetime]:
+        return record.open_until
 
     def record_failure(
         self,
@@ -123,17 +130,14 @@ class QueryFailureCache:
                     # Once the big-budget path has failed, a later small-budget failure must
                     # not narrow what the breaker forbids.
                     record_budget = BUDGET_EXTENDED
-            open_until: Optional[datetime] = None
-            if failures >= policy.open_threshold:
-                max_doublings = (policy.max_backoff // BASE_BACKOFF).bit_length()
-                doublings = min(failures - policy.open_threshold, max_doublings)
-                open_until = datetime.now(UTC) + min(BASE_BACKOFF * 2**doublings, policy.max_backoff)
+            now = datetime.now(UTC)
+            open_until = _retry_deadline(policy, failures, now, BASE_BACKOFF)
             record = QueryFailureRecord(
                 kind=kind,
                 # Capped so record size stays bounded no matter what copy a caller passes.
                 detail=detail[:1000],
                 consecutive_failures=failures,
-                last_failed_at=datetime.now(UTC),
+                last_failed_at=now,
                 open_until=open_until,
                 budget=record_budget,
                 cache_key=cache_key,
@@ -188,3 +192,12 @@ class QueryFailureCache:
             "cache_key": record.cache_key,
             "query_scan": record.query_scan,
         }
+
+
+class WarmingQueryFailureCache(QueryFailureCache):
+    """Share failure history without extending the cooldown persisted for foreground retries."""
+
+    def _retry_deadline(self, record: QueryFailureRecord) -> Optional[datetime]:
+        return _retry_deadline(
+            KIND_POLICIES[record.kind], record.consecutive_failures, record.last_failed_at, WARMING_BASE_BACKOFF
+        )

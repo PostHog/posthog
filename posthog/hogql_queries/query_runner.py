@@ -193,7 +193,9 @@ from posthog.query_cache.failures import (
     QUERY_FAILURE_CACHE_COUNTER,
     QUERY_FAILURE_CACHING_FLAG,
     Budget,
+    QueryFailureCache,
     QueryFailureRecord,
+    WarmingQueryFailureCache,
 )
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_COUNTER,
@@ -2430,6 +2432,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             raise
 
                     cache_manager = QueryCache(
+                        failure_cache_class=(
+                            WarmingQueryFailureCache
+                            if analytics_props is not None
+                            and analytics_props.get("source") == EventSource.CACHE_WARMING
+                            else QueryFailureCache
+                        ),
                         team_id=self.team.pk,
                         cache_key=cache_key,
                         insight_id=insight_id,
@@ -2508,12 +2516,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _execute_and_cache_blocking(self, *, query_run: QueryRun, cache_manager: QueryCache) -> CR:
         # The single gate for all blocking execution, forced refreshes included: an open
         # breaker that covers this run's execution budget forbids touching ClickHouse.
-        self._raise_if_breaker_forbids(
-            cache_manager,
-            query_run.user,
-            for_warming=query_run.analytics_props is not None
-            and query_run.analytics_props.get("source") == EventSource.CACHE_WARMING,
-        )
+        self._raise_if_breaker_forbids(cache_manager, query_run.user)
 
         flight: Optional[QuerySingleFlight] = None
         if self._joins_single_flight():
@@ -2553,13 +2556,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             and self.limit_context != LimitContext.EXPORT
         )
 
-    def _raise_if_breaker_forbids(
-        self, cache_manager: QueryCache, user: Optional[User], *, for_warming: bool = False
-    ) -> None:
+    def _raise_if_breaker_forbids(self, cache_manager: QueryCache, user: Optional[User]) -> None:
         if not self._query_failure_caching_enabled:
             return
         self._raise_if_failure_fresh_for(
-            cache_manager.open_failure(for_warming=for_warming), budget_for_limit_context(self.limit_context), user
+            cache_manager.open_failure(), budget_for_limit_context(self.limit_context), user
         )
 
     def _record_breaker_failure(self, cache_manager: QueryCache, exc: Exception) -> None:

@@ -66,7 +66,9 @@ class QueryCache:
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         ttl: Optional[int] = None,
+        failure_cache_class: type[QueryFailureCache] = QueryFailureCache,
     ) -> None:
+        self._failure_cache = failure_cache_class(cache_key)
         self.team_id = team_id
         self.cache_key = cache_key
         self.insight_id = insight_id
@@ -76,16 +78,16 @@ class QueryCache:
     def lookup(self, *, include_failure: bool = False) -> CacheLookup:
         # The failure read is opt-in so callers that never consult the breaker (and the
         # feature-flag-off path) don't pay an extra cache roundtrip per query.
-        failure = QueryFailureCache(self.cache_key).get_open() if include_failure else None
+        failure = self._failure_cache.get_open() if include_failure else None
         return CacheLookup(entry=fetch_entry(self.cache_key, self.team_id), failure=failure)
 
     def freshness(self) -> Optional[EntryFreshness]:
         """Existence and last_refresh of the entry from Redis alone, without resolving S3 blobs."""
         return fetch_entry_freshness(self.cache_key, self.team_id)
 
-    def open_failure(self, *, for_warming: bool = False) -> Optional[QueryFailureRecord]:
+    def open_failure(self) -> Optional[QueryFailureRecord]:
         """The open breaker record alone, for paths that skip the result cache entirely."""
-        return QueryFailureCache(self.cache_key).get_open(for_warming=for_warming)
+        return self._failure_cache.get_open()
 
     def record_failure(
         self,
@@ -96,12 +98,12 @@ class QueryCache:
         cache_key: Optional[str] = None,
         query_scan: Optional[dict[str, Any]] = None,
     ) -> Optional[QueryFailureRecord]:
-        return QueryFailureCache(self.cache_key).record_failure(
+        return self._failure_cache.record_failure(
             kind, detail, budget=budget, cache_key=cache_key, query_scan=query_scan
         )
 
     def clear_failure(self) -> None:
-        QueryFailureCache(self.cache_key).clear()
+        self._failure_cache.clear()
 
     def flight(self, budget: Budget, variant: str = "") -> QuerySingleFlight:
         return QuerySingleFlight(self.cache_key, budget, variant)
