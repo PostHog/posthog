@@ -18,6 +18,9 @@
 //!   cargo run --release -p deltalite-core --example upsert_io -- \
 //!     --scenario median [--iters 4] [--latency-ms 20] [--probe-concurrency 8] \
 //!     [--max-parallel-files 4] [--dir /path]
+//!
+//! `DELTALITE_ADOPT_COMMIT_SNAPSHOT=0` restores the post-commit log refresh, which gives
+//! the before/after comparison for the snapshot adoption on one binary.
 
 use std::collections::HashMap;
 use std::path::PathBuf;

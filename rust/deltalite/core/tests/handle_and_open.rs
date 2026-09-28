@@ -17,7 +17,7 @@ use deltalake::operations::create::CreateBuilder;
 use deltalake::{DeltaResult, Path, TableProperty};
 use deltalite_core::handle::TableHandle;
 use deltalite_core::table::{open_table, open_table_multipart, wrap_multipart, MultipartConfig};
-use deltalite_core::upsert::UpsertOptions;
+use deltalite_core::upsert::{upsert_cached_with_state, RelaxCache, UpsertOptions};
 use futures::stream::BoxStream;
 use object_store::local::LocalFileSystem;
 use object_store::{
@@ -53,6 +53,12 @@ enum Op {
     Put,
 }
 
+impl Op {
+    fn is_read(self) -> bool {
+        !matches!(self, Op::Put)
+    }
+}
+
 fn record_read(target: String, n: usize) {
     *READS.lock().unwrap().entry(target).or_default() += n;
 }
@@ -73,6 +79,22 @@ fn ops_since(start: usize, root: &str) -> Vec<(Op, String)> {
         .iter()
         .skip(start)
         .filter(|(_, path)| path.starts_with(root))
+        .cloned()
+        .collect()
+}
+
+/// The reads issued after the commit JSON for `version` was written: the log reads
+/// deltalite spends on observing its own commit.
+fn log_reads_after_commit(ops: &[(Op, String)], root: &str, version: i64) -> Vec<(Op, String)> {
+    let commit = format!("{root}/_delta_log/{version:020}.json");
+    let commit_at = ops
+        .iter()
+        .position(|(op, path)| *op == Op::Put && *path == commit)
+        .unwrap_or_else(|| panic!("no PUT of {commit} in {ops:?}"));
+    let log_root = format!("{root}/_delta_log");
+    ops[commit_at + 1..]
+        .iter()
+        .filter(|(op, path)| op.is_read() && path.starts_with(&log_root))
         .cloned()
         .collect()
 }
@@ -397,6 +419,32 @@ async fn create_disjoint_files_table(uri: &str, groups: &[&[&str]]) -> SchemaRef
     s
 }
 
+/// Sorted live data-file paths of a fresh load: the log's own answer, for comparing
+/// against what a handle's adopted state claims.
+async fn live_paths_from_the_log(uri: &str) -> Vec<String> {
+    let table = open_table(uri, HashMap::new()).await.expect("fresh open");
+    let mut paths: Vec<String> = table
+        .snapshot()
+        .expect("snapshot")
+        .log_data()
+        .iter()
+        .map(|f| f.path().to_string())
+        .collect();
+    paths.sort();
+    paths
+}
+
+fn sorted_paths(handle: &TableHandle) -> Vec<String> {
+    let mut paths: Vec<String> = handle
+        .files()
+        .expect("files")
+        .into_iter()
+        .map(|f| f.path)
+        .collect();
+    paths.sort();
+    paths
+}
+
 /// Create a table partitioned on `p` at `uri` with one file in each of two partitions.
 async fn create_partitioned_table(uri: &str) -> SchemaRef {
     CreateBuilder::new()
@@ -607,8 +655,8 @@ async fn warm_relax_cache_still_relaxes_when_the_batch_carries_nulls() {
 
 /// The checkpoint prefetch: a snapshot load must read each checkpoint Parquet file with
 /// one whole-object GET instead of one ranged GET per footer, metadata and column chunk.
-/// Covers both the initial open and the post-commit refresh that adopts a checkpoint the
-/// upsert's own maintenance just wrote (through the multipart-wrapped view).
+/// Covers both the initial open and the refresh that adopts a checkpoint the previous
+/// upsert's own maintenance wrote at the version the handle already holds.
 #[tokio::test]
 async fn checkpoint_files_are_read_with_one_get_each() {
     register_counting_scheme();
@@ -630,8 +678,9 @@ async fn checkpoint_files_are_read_with_one_get_each() {
         );
     }
 
-    // Version 5 sits on the interval boundary: maintenance writes checkpoint 5 and the
-    // post-commit refresh rebuilds the snapshot from it.
+    // Version 5 sits on the interval boundary: maintenance writes checkpoint 5 after the
+    // commit whose state the handle adopted, so the next refresh rebuilds the snapshot
+    // from that checkpoint (through the multipart-wrapped view's store).
     let before = checkpoint_gets();
     let stats = handle
         .upsert(
@@ -643,9 +692,18 @@ async fn checkpoint_files_are_read_with_one_get_each() {
         .await
         .expect("boundary upsert");
     assert_eq!(stats.version, 5);
+    let is_checkpoint_5 = |path: &str| path.contains("00000000000000000005.checkpoint");
+    assert!(
+        !checkpoint_gets_since(&before)
+            .keys()
+            .any(|p| is_checkpoint_5(p)),
+        "adopting the commit state must not read the checkpoint it just wrote"
+    );
+    let before = checkpoint_gets();
+    handle.refresh().await.expect("refresh");
     let refreshed = checkpoint_gets_since(&before);
     assert!(
-        refreshed.keys().any(|p| p.contains("00000000000000000005")),
+        refreshed.keys().any(|p| is_checkpoint_5(p)),
         "the refresh must adopt the new checkpoint (read: {refreshed:?})"
     );
     for (path, gets) in &refreshed {
@@ -845,4 +903,176 @@ async fn hit_files_are_opened_once_across_probe_and_rewrite() {
              (footer GETs per file: {footer_gets:?})"
         );
     }
+}
+
+/// After the commit the handle adopts the state delta-rs derived for it instead of
+/// listing the log and reading `_last_checkpoint` again, and that state is the log's
+/// truth.
+#[tokio::test]
+async fn adopting_the_commit_snapshot_skips_the_post_commit_refresh() {
+    register_counting_scheme();
+    let dir = tempfile::tempdir().expect("tempdir");
+    let table_dir = dir.path().join("t10");
+    let uri = format!("dltest://{}", table_dir.to_string_lossy());
+    let root = table_root(&table_dir);
+    let s = create_disjoint_files_table(&uri, &[&["a0", "a1"], &["b0", "b1"]]).await;
+
+    let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+        .await
+        .expect("open handle");
+    assert!(handle.adopt_commit_snapshot(), "adoption is on by default");
+
+    let mut reads_by_mode = Vec::new();
+    let mut versions = Vec::new();
+    for (adopt, key) in [(true, "a1"), (false, "b1")] {
+        handle.set_adopt_commit_snapshot(adopt);
+        let start = ops_len();
+        let stats = handle
+            .upsert(
+                vec![batch(&s, &[key], vec![Some(3)])],
+                s.clone(),
+                opts(),
+                MultipartConfig::default(),
+            )
+            .await
+            .expect("upsert");
+        // Captured before the fresh load below, whose replay must not be counted.
+        versions.push(stats.version);
+        reads_by_mode.push(log_reads_after_commit(
+            &ops_since(start, &root),
+            &root,
+            stats.version,
+        ));
+        assert_eq!(handle.version(), stats.version);
+        assert_eq!(
+            sorted_paths(&handle),
+            live_paths_from_the_log(&uri).await,
+            "the handle's state must match the log (adopt={adopt})"
+        );
+    }
+
+    // delta-rs derives the commit's state with one log LIST (plus reads of the commit
+    // JSON it just wrote); a post-commit refresh would LIST the log a second time.
+    let lists = |reads: &[(Op, String)]| reads.iter().filter(|(op, _)| *op == Op::List).count();
+    let (adopted, refreshed) = (&reads_by_mode[0], &reads_by_mode[1]);
+    assert_eq!(
+        lists(adopted),
+        1,
+        "the handle must not refresh after adopting the commit state (reads: {adopted:?})"
+    );
+    assert!(
+        adopted
+            .iter()
+            .all(|(op, path)| *op == Op::List
+                || path.ends_with(&format!("{:020}.json", versions[0]))),
+        "after the commit only the commit's own JSON may be read (reads: {adopted:?})"
+    );
+    assert_eq!(
+        lists(refreshed),
+        2,
+        "the kill-switch path still refreshes after the commit (reads: {refreshed:?})"
+    );
+}
+
+/// The adopted state stays a valid base for later refreshes: after a boundary commit
+/// (maintenance writes a checkpoint at the adopted version) and an external writer's
+/// commit, the next upsert lands on the externally-advanced version and the handle's
+/// file list still matches the log.
+#[tokio::test]
+async fn adopted_snapshot_observes_maintenance_and_external_commits() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let uri = dir.path().join("t11").to_string_lossy().to_string();
+    let s = create_seeded_table_with(&uri, true, Some(2), 4).await;
+
+    let mut handle = TableHandle::open(uri.clone(), HashMap::new())
+        .await
+        .expect("open handle");
+    let stats = handle
+        .upsert(
+            vec![batch(&s, &["c"], vec![Some(1)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("boundary upsert");
+    assert_eq!(stats.version, 5);
+    assert_eq!(handle.version(), 5);
+    assert_eq!(sorted_paths(&handle), live_paths_from_the_log(&uri).await);
+
+    let mut other = TableHandle::open(uri.clone(), HashMap::new())
+        .await
+        .expect("open external handle");
+    let stats = other
+        .upsert(
+            vec![batch(&s, &["d"], vec![Some(2)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("external upsert");
+    assert_eq!(stats.version, 6);
+
+    let stats = handle
+        .upsert(
+            vec![batch(&s, &["c", "d"], vec![Some(3), Some(3)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("upsert after external commit");
+    assert_eq!(stats.version, 7);
+    assert_eq!(handle.version(), 7);
+    assert_eq!(sorted_paths(&handle), live_paths_from_the_log(&uri).await);
+}
+
+/// When another writer's commit lands between the snapshot read and the commit and
+/// delta-rs retries at the next version, the state returned with the commit includes
+/// that writer's file, so a handle adopting it is not behind the log.
+#[tokio::test]
+async fn commit_state_includes_a_writer_that_landed_first() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let uri = dir.path().join("t12").to_string_lossy().to_string();
+    let s = create_disjoint_files_table(&uri, &[&["a0", "a1"]]).await;
+
+    let stale = open_table(&uri, HashMap::new()).await.expect("open");
+    let v0 = stale.version().expect("loaded");
+
+    // Insert-only, disjoint from every live file: an Add-only commit that delta-rs's
+    // conflict checker lets a retried commit land on top of.
+    let mut other = TableHandle::open(uri.clone(), HashMap::new())
+        .await
+        .expect("open external handle");
+    other
+        .upsert(
+            vec![batch(&s, &["m0", "m1"], vec![Some(1), Some(1)])],
+            s.clone(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .expect("external upsert");
+
+    let (stats, state) = upsert_cached_with_state(
+        &stale,
+        vec![batch(&s, &["x0", "x1"], vec![Some(2), Some(2)])],
+        s.clone(),
+        opts(),
+        &mut RelaxCache::default(),
+    )
+    .await
+    .expect("upsert behind the external commit");
+    assert_eq!(stats.version, v0 as i64 + 2, "committed after the retry");
+    assert_eq!(state.version(), v0 + 2);
+
+    let mut adopted: Vec<String> = state
+        .log_data()
+        .iter()
+        .map(|f| f.path().to_string())
+        .collect();
+    adopted.sort();
+    assert_eq!(adopted.len(), 3, "seed file, external file, own file");
+    assert_eq!(adopted, live_paths_from_the_log(&uri).await);
 }

@@ -36,6 +36,7 @@ use deltalake::kernel::{Action, MetadataExt as _, Remove, StructType};
 use deltalake::protocol::checkpoints::{cleanup_metadata, create_checkpoint};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::table::config::TablePropertiesExt;
+use deltalake::table::state::DeltaTableState;
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
 use deltalake::{DeltaTable, ObjectStore, PartitionFilter, PartitionValue, Path};
 use futures::{StreamExt, TryStreamExt};
@@ -589,6 +590,22 @@ pub async fn upsert_cached(
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
 ) -> Result<UpsertStats> {
+    upsert_cached_with_state(table, source_batches, source_schema, opts, relax_cache)
+        .await
+        .map(|(stats, _)| stats)
+}
+
+/// [`upsert_cached`] that also returns the table state delta-rs derived for the commit
+/// it wrote (what every delta-rs operation returns as its resulting table), so a
+/// long-lived handle can adopt it instead of reading the log again. When delta-rs had to
+/// retry the commit behind another writer, the state includes that writer's commit.
+pub async fn upsert_cached_with_state(
+    table: &DeltaTable,
+    source_batches: Vec<RecordBatch>,
+    source_schema: SchemaRef,
+    opts: UpsertOptions,
+    relax_cache: &mut RelaxCache,
+) -> Result<(UpsertStats, DeltaTableState)> {
     let started = Instant::now();
     let strategy = opts.prune_strategy.as_str();
     let result = upsert_with_relax(table, source_batches, source_schema, opts, relax_cache).await;
@@ -596,7 +613,7 @@ pub async fn upsert_cached(
     // Static label values only -- no per-call allocation (rust/CLAUDE.md).
     histogram!("deltalite_upsert_duration_seconds").record(started.elapsed().as_secs_f64());
     match &result {
-        Ok(stats) => {
+        Ok((stats, _)) => {
             counter!("deltalite_upserts_total", "outcome" => "ok", "prune_strategy" => strategy)
                 .increment(1);
             counter!("deltalite_files_added_total").increment(stats.files_added as u64);
@@ -638,12 +655,12 @@ async fn upsert_with_relax(
     source_schema: SchemaRef,
     opts: UpsertOptions,
     relax_cache: &mut RelaxCache,
-) -> Result<UpsertStats> {
+) -> Result<(UpsertStats, DeltaTableState)> {
     let relax_started = Instant::now();
     let relax = columns_needing_relax(table, &source_batches, &source_schema, relax_cache).await?;
     if relax.is_empty() {
         let relax_ms = relax_started.elapsed().as_millis() as u64;
-        let mut stats = upsert_inner(table, source_batches, source_schema, opts).await?;
+        let (mut stats, state) = upsert_inner(table, source_batches, source_schema, opts).await?;
         stats.relax_ms = relax_ms;
         // Our own commit added no nulls to the verified-clean columns (the source was
         // checked above; existing rows only move between files), so the memo may follow
@@ -652,19 +669,20 @@ async fn upsert_with_relax(
         if let Ok(committed) = u64::try_from(stats.version) {
             relax_cache.advance_own_commit(committed);
         }
-        return Ok(stats);
+        return Ok((stats, state));
     }
 
     relax_columns_to_nullable(table, &relax).await?;
     // Re-read the log so the writer (and every schema derived from the table) observes
-    // the relaxed metadata; the borrowed handle still sees the old snapshot.
+    // the relaxed metadata; the borrowed handle still sees the old snapshot. The state
+    // the upsert's commit then yields sits on top of the relax commit, so it is complete.
     let mut fresh = table.clone();
     fresh.update_incremental(None).await?;
     let relax_ms = relax_started.elapsed().as_millis() as u64;
-    let mut stats = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
+    let (mut stats, state) = upsert_inner(&fresh, source_batches, source_schema, opts).await?;
     stats.columns_relaxed = relax.len();
     stats.relax_ms = relax_ms;
-    Ok(stats)
+    Ok((stats, state))
 }
 
 /// Non-nullable table columns that verifiably contain nulls -- in the incoming batch
@@ -795,7 +813,7 @@ async fn upsert_inner(
     mut source_batches: Vec<RecordBatch>,
     source_schema: SchemaRef,
     opts: UpsertOptions,
-) -> Result<UpsertStats> {
+) -> Result<(UpsertStats, DeltaTableState)> {
     if opts.primary_keys.is_empty() {
         return Err(Error::Generic(
             "primary_keys must not be empty for an upsert".into(),
@@ -1053,7 +1071,7 @@ async fn upsert_inner(
         commit_ms = stats.commit_ms,
         "upsert committed"
     );
-    Ok(stats)
+    Ok((stats, finalized.snapshot))
 }
 
 /// Checkpoint and expired-log cleanup after a durable commit, tolerating failure: the
