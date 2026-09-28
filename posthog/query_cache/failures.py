@@ -47,16 +47,6 @@ WARMING_BASE_BACKOFF = timedelta(hours=2)
 RECORD_TTL = timedelta(hours=24)
 
 
-def _retry_deadline(
-    policy: KindPolicy, failures: int, last_failed_at: datetime, base_backoff: timedelta
-) -> Optional[datetime]:
-    if failures < policy.open_threshold:
-        return None
-    max_doublings = (policy.max_backoff // base_backoff).bit_length()
-    doublings = min(failures - policy.open_threshold, max_doublings)
-    return last_failed_at + min(base_backoff * 2**doublings, policy.max_backoff)
-
-
 @dataclass(frozen=True)
 class QueryFailureRecord:
     kind: FailureKind
@@ -99,10 +89,20 @@ class QueryFailureCache:
     def get_open(self) -> Optional[QueryFailureRecord]:
         record = self._load()
         if record is not None:
-            record = replace(record, open_until=self._retry_deadline(record))
+            record = replace(record, open_until=self._effective_retry_deadline(record))
         return record if record is not None and record.is_open else None
 
-    def _retry_deadline(self, record: QueryFailureRecord) -> Optional[datetime]:
+    @staticmethod
+    def _calculate_retry_deadline(
+        policy: KindPolicy, failures: int, last_failed_at: datetime, base_backoff: timedelta
+    ) -> Optional[datetime]:
+        if failures < policy.open_threshold:
+            return None
+        max_doublings = (policy.max_backoff // base_backoff).bit_length()
+        doublings = min(failures - policy.open_threshold, max_doublings)
+        return last_failed_at + min(base_backoff * 2**doublings, policy.max_backoff)
+
+    def _effective_retry_deadline(self, record: QueryFailureRecord) -> Optional[datetime]:
         return record.open_until
 
     def record_failure(
@@ -131,7 +131,7 @@ class QueryFailureCache:
                     # not narrow what the breaker forbids.
                     record_budget = BUDGET_EXTENDED
             now = datetime.now(UTC)
-            open_until = _retry_deadline(policy, failures, now, BASE_BACKOFF)
+            open_until = self._calculate_retry_deadline(policy, failures, now, BASE_BACKOFF)
             record = QueryFailureRecord(
                 kind=kind,
                 # Capped so record size stays bounded no matter what copy a caller passes.
@@ -197,7 +197,7 @@ class QueryFailureCache:
 class WarmingQueryFailureCache(QueryFailureCache):
     """Share failure history without extending the cooldown persisted for foreground retries."""
 
-    def _retry_deadline(self, record: QueryFailureRecord) -> Optional[datetime]:
-        return _retry_deadline(
+    def _effective_retry_deadline(self, record: QueryFailureRecord) -> Optional[datetime]:
+        return self._calculate_retry_deadline(
             KIND_POLICIES[record.kind], record.consecutive_failures, record.last_failed_at, WARMING_BASE_BACKOFF
         )
