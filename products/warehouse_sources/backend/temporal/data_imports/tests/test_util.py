@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
@@ -368,8 +369,12 @@ def _stale_epoch() -> int:
     return int((datetime.now(UTC) - timedelta(seconds=util_module.S3_DELETE_TIME_BUFFER * 2)).timestamp())
 
 
-_LONG_AGO = datetime.now(UTC) - timedelta(seconds=util_module.S3_DELETE_TIME_BUFFER * 2)
-_MOMENTS_AGO = datetime.now(UTC) - timedelta(seconds=30)
+# Histories are built at import (many inside parameterized cases), so they are anchored to a fixed
+# instant and the double-buffer tests freeze the clock there. Relative to the real clock, a
+# "moments ago" stamp goes stale when the suite reaches these tests long after collection.
+_NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+_LONG_AGO = _NOW - timedelta(seconds=util_module.S3_DELETE_TIME_BUFFER * 2)
+_MOMENTS_AGO = _NOW - timedelta(seconds=30)
 _SLOT_A, _SLOT_B, _SLOT_C = "my_table__query_a", "my_table__query_b", "my_table__query_c"
 
 
@@ -421,6 +426,11 @@ async def _prepare_double_buffered(
 
 
 class TestDoubleBufferedQueryFolders:
+    @pytest.fixture(autouse=True)
+    def _clock_at_the_histories_anchor(self):
+        with time_machine.travel(_NOW, tick=True):
+            yield
+
     def _copied(self, s3: SimpleNamespace) -> set[str]:
         return {call.args[1] for call in s3._cp_file.await_args_list}
 
