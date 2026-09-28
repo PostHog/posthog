@@ -409,6 +409,8 @@ def update_release(
             raise ErrorTrackingReleaseHashInUseError(hash_id)
         release.hash_id = str(hash_id)
     release.save()
+    if metadata:
+        schedule_release_file_list(release)
     return release
 
 

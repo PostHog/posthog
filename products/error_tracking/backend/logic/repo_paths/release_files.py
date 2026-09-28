@@ -77,8 +77,9 @@ class _GitSource:
 def store_release_file_list(team_id: int, release_id: str) -> RepoPathsOutcome:
     """Fetch and store the file list of one release commit.
 
-    Returns the outcome for every result that a retry cannot change. Raises
-    ``RepoPathsRetryableError`` for a timeout or an unexpected git failure.
+    Returns the outcome for every result that an immediate retry cannot change. The workflow tries a
+    ``budget_exhausted`` job again after the budget frees up. Raises ``RepoPathsRetryableError`` for a
+    timeout, an unexpected git failure, or a GitHub server error.
     """
     release = ErrorTrackingRelease.objects.filter(team_id=team_id, id=release_id).first()
     if release is None:
@@ -88,6 +89,8 @@ def store_release_file_list(team_id: int, release_id: str) -> RepoPathsOutcome:
         return repo
     key = repo_paths_key(team_id, repo.slug, repo.commit)
     if file_list_exists(key):
+        # A retry after a worker died between the write and the cleanup lands here, so clean up again.
+        remove_old_file_lists(team_id, repo.slug, keep=settings.ERROR_TRACKING_REPO_PATHS_KEEP_PER_REPO)
         return "exists"
 
     try:
@@ -99,7 +102,9 @@ def store_release_file_list(team_id: int, release_id: str) -> RepoPathsOutcome:
         remote = GitRemote(url=source.url, auth_header=source.auth_header())
     except (EgressBudgetExhausted, GitHubRateLimitError):
         return "budget_exhausted"
-    except GitHubIntegrationError:
+    except GitHubIntegrationError as e:
+        if e.status_code is not None and e.status_code >= 500:
+            raise RepoPathsRetryableError("error", str(e)) from e
         return "auth_failed"
 
     target = GitFetchTarget(

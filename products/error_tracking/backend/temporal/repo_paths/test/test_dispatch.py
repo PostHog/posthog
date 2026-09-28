@@ -44,5 +44,5 @@ class TestStartRepoPathsWorkflow(BaseTest):
         temporal.start_workflow.assert_awaited_once()
         kwargs = temporal.start_workflow.await_args.kwargs
         assert kwargs["id"] == f"error-tracking-repo-paths:{self.team.id}:github.com/acme/shop:{COMMIT}"
-        assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE
         assert kwargs["task_queue"] == "repo-paths-test-queue"

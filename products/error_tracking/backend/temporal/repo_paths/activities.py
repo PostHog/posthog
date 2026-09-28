@@ -8,14 +8,17 @@ from products.error_tracking.backend.logic.repo_paths.release_files import (
     RepoPathsRetryableError,
     store_release_file_list,
 )
-from products.error_tracking.backend.temporal.repo_paths.types import RepoPathsWorkflowInputs
+from products.error_tracking.backend.temporal.repo_paths.types import (
+    BUDGET_EXHAUSTED_OUTCOME,
+    StoreReleaseFileListInputs,
+)
 from products.error_tracking.backend.temporal.repo_paths.workflow import ACTIVITY_RETRY_POLICY
 
 
 @activity.defn
 @posthoganalytics.scoped()
 @close_db_connections
-def store_release_file_list_activity(inputs: RepoPathsWorkflowInputs) -> str:
+def store_release_file_list_activity(inputs: StoreReleaseFileListInputs) -> str:
     try:
         outcome = store_release_file_list(inputs.team_id, inputs.release_id)
     except RepoPathsRetryableError as error:
@@ -23,7 +26,9 @@ def store_release_file_list_activity(inputs: RepoPathsWorkflowInputs) -> str:
         if activity.info().attempt >= ACTIVITY_RETRY_POLICY.maximum_attempts:
             record_job_outcome(error.outcome)
         raise
-    record_job_outcome(outcome)
+    # A deferred job is counted by the try that ends it. The egress limiter counts each denial.
+    if outcome != BUDGET_EXHAUSTED_OUTCOME or inputs.last_try:
+        record_job_outcome(outcome)
     return outcome
 
 

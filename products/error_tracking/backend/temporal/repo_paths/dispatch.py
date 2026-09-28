@@ -47,9 +47,10 @@ async def _start(inputs: RepoPathsWorkflowInputs, workflow_id: str) -> None:
                 inputs,
                 id=workflow_id,
                 task_queue=settings.ERROR_TRACKING_REPO_PATHS_TASK_QUEUE,
-                # A second release of the same commit must not fetch again, but a failed run can be
-                # started again by the next release of that commit.
-                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                # A release of a commit whose run is still open joins that run. After the run closes,
+                # the next release of the commit starts a new one. That run fetches again only when no
+                # list is stored: the last run stored nothing, or retention removed the list.
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
             ),
             timeout=DISPATCH_TIMEOUT.total_seconds(),
         )

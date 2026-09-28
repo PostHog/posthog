@@ -1,19 +1,22 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
 import zstd
 from parameterized import parameterized
 
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import Integration
 
-from products.error_tracking.backend.logic import create_release
+from products.error_tracking.backend.logic import create_release, update_release
 from products.error_tracking.backend.logic.repo_paths.git_lister import GitFetchTarget, GitHostNotAllowed, RepoFileList
-from products.error_tracking.backend.logic.repo_paths.release_files import store_release_file_list
+from products.error_tracking.backend.logic.repo_paths.release_files import (
+    RepoPathsRetryableError,
+    store_release_file_list,
+)
 
 COMMIT = "0123456789abcdef0123456789abcdef01234567"
 OLDER_COMMITS = ["1" * 40, "2" * 40]
@@ -29,10 +32,10 @@ class _MemoryObjectStorage:
         self._clock += timedelta(minutes=1)
         self.objects[key] = (content, self._clock)
 
-    def write(self, bucket: str, key: str, content: bytes, extras: dict | None = None) -> None:
+    def write(self, bucket: str, key: str, content: bytes, extras: dict[str, str] | None = None) -> None:
         self.put(key, content)
 
-    def head_object(self, bucket: str, file_key: str) -> dict[str, Any] | None:
+    def head_object(self, bucket: str, file_key: str) -> dict[str, datetime | int] | None:
         stored = self.objects.get(file_key)
         return {"LastModified": stored[1], "ContentLength": len(stored[0])} if stored else None
 
@@ -120,15 +123,18 @@ class TestStoreReleaseFileList(BaseTest):
             assert store_release_file_list(self.team.id, release_id) == "host_not_allowed"
         assert self.storage.objects == {}
 
-    def test_keeps_only_the_newest_lists_of_the_repo(self) -> None:
+    @parameterized.expand([("new_list", False, "written"), ("list_stored_before_a_failed_cleanup", True, "exists")])
+    def test_keeps_only_the_newest_lists_of_the_repo(self, _name: str, already_stored: bool, expected: str) -> None:
         self._gitlab_integration("https://gitlab.example.com", "acme/shop")
         for commit in OLDER_COMMITS:
             self.storage.put(self._key(commit), b"old")
         other_repo = f"repo_paths/v1/{self.team.id}/gitlab.example.com/acme/shop-web/{'3' * 40}.zst"
         self.storage.put(other_repo, b"other")
+        if already_stored:
+            self.storage.put(self._key(COMMIT), b"stored")
         release_id = self._release("https://gitlab.example.com/acme/shop.git")
 
-        assert store_release_file_list(self.team.id, release_id) == "written"
+        assert store_release_file_list(self.team.id, release_id) == expected
         assert sorted(self.storage.objects) == sorted([self._key(OLDER_COMMITS[1]), self._key(COMMIT), other_repo])
 
     @parameterized.expand(
@@ -142,6 +148,35 @@ class TestStoreReleaseFileList(BaseTest):
         release_id = self._release(remote_url)
 
         assert store_release_file_list(self.team.id, release_id) == expected
+        assert self.fetched == []
+
+    @parameterized.expand([("server_error", 502, "retry"), ("permission_refused", 422, "auth_failed")])
+    def test_a_github_token_failure_retries_only_on_a_server_error(
+        self, _name: str, status_code: int, expected: str
+    ) -> None:
+        github = MagicMock(github_installation_id=7)
+        github.mint_scoped_installation_token.side_effect = GitHubIntegrationError(
+            "mint failed", status_code=status_code
+        )
+        release_id = self._release("https://github.com/acme/shop.git")
+
+        with (
+            patch(
+                "products.error_tracking.backend.logic.repo_paths.release_files.GitHubIntegration.first_for_team_repository",
+                return_value=github,
+            ),
+            patch(
+                "products.error_tracking.backend.logic.repo_paths.release_files.consume_git_fetch_budget",
+                return_value=True,
+            ),
+        ):
+            outcome: str
+            try:
+                outcome = store_release_file_list(self.team.id, release_id)
+            except RepoPathsRetryableError:
+                outcome = "retry"
+
+        assert outcome == expected
         assert self.fetched == []
 
 
@@ -158,7 +193,9 @@ class TestReleaseTrigger(BaseTest):
             ("no_git_metadata", {"version": "1.0.0"}, False),
         ]
     )
-    def test_queues_the_job_after_commit_only_for_a_full_commit(self, _name: str, metadata: dict, queued: bool) -> None:
+    def test_queues_the_job_after_commit_only_for_a_full_commit(
+        self, _name: str, metadata: dict[str, object], queued: bool
+    ) -> None:
         with patch("products.error_tracking.backend.tasks.tasks.start_error_tracking_repo_paths_job.delay") as delay:
             with self.captureOnCommitCallbacks(execute=True):
                 release = create_release(self.team.id, version="1.0.0", project="shop", metadata=metadata)
@@ -168,3 +205,13 @@ class TestReleaseTrigger(BaseTest):
             delay.assert_called_once_with(team_id=self.team.id, release_id=str(release.id))
         else:
             delay.assert_not_called()
+
+    def test_queues_the_job_when_an_update_adds_git_metadata(self) -> None:
+        release = create_release(self.team.id, version="1.0.0", project="shop", metadata={"version": "1.0.0"})
+        metadata = {"git": {"remote_url": "https://github.com/acme/shop.git", "commit_id": COMMIT}}
+
+        with patch("products.error_tracking.backend.tasks.tasks.start_error_tracking_repo_paths_job.delay") as delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                update_release(self.team.id, str(release.id), metadata=metadata)
+
+        delay.assert_called_once_with(team_id=self.team.id, release_id=str(release.id))

@@ -39,20 +39,16 @@ def parse_release_repo(metadata: object) -> ReleaseRepo | Literal["no_git_metada
 
 
 def repo_paths_enabled(team_id: int) -> bool:
-    try:
-        # Bucket child environments with their parent project, as the other error tracking flags do.
-        project_id = resolve_effective_team_id(team_id)
-        return feature_enabled_or_false(
-            REPO_PATHS_FLAG,
-            str(project_id),
-            groups={"project": str(project_id)},
-            group_properties={"project": {"id": str(project_id)}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.exception("error_tracking_repo_paths_flag_check_failed", team_id=team_id)
-        return False
+    # Bucket child environments with their parent project, as the other error tracking flags do.
+    project_id = resolve_effective_team_id(team_id)
+    return feature_enabled_or_false(
+        REPO_PATHS_FLAG,
+        str(project_id),
+        groups={"project": str(project_id)},
+        group_properties={"project": {"id": str(project_id)}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
 
 
 def schedule_release_file_list(release: ErrorTrackingRelease) -> None:
