@@ -138,6 +138,24 @@ class TestPartnerTokenScopeHydration(ProvisioningTestBase):
         assert self.team.id in new_access_token.scoped_teams
         assert newly_provisioned.id in new_access_token.scoped_teams
 
+    def test_consented_project_stays_first_across_refreshes_in_partner_created_org(self):
+        TeamProvisioningConfig.objects.update_or_create(team=self.team, defaults={"application": self.partner})
+        consented = Team.objects.create_with_data(
+            initiating_user=self.user, organization=self.organization, name="Consented"
+        )
+
+        tokens = self._request_bearer_token(team_id=consented.id).json()
+        for _ in range(2):
+            res = self._refresh(tokens["refresh_token"])
+            assert res.status_code == 200, res.content
+            tokens = res.json()
+
+        access_token = OAuthAccessToken.objects.get(token=tokens["access_token"])
+        assert access_token.scoped_teams == [consented.id, self.team.id]
+        res = self._post_with_bearer("/api/agentic/provisioning/resources", token=tokens["access_token"])
+        assert res.status_code == 200, res.content
+        assert res.json()["id"] == str(consented.id)
+
     def test_refresh_rejected_when_access_lost_and_token_preserved(self):
         # A refresh whose base team access was revoked recomputes to an empty scope.
         # It must fail closed (not rotate into an unrestricted token) and, because the
