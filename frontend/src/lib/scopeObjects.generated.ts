@@ -79,6 +79,7 @@ export const API_SCOPE_OBJECTS = [
     'mcp_registry',
     'metrics',
     'notebook',
+    'offline_evaluation_ingestion',
     'organization',
     'organization_integration',
     'organization_member',
@@ -124,6 +125,7 @@ export const API_SCOPE_OBJECTS = [
     'web_analytics',
     'webhook',
     'wizard_session',
+    'wizard_run',
 ] as const
 
 // Objects that only the server mints. A person can never grant them.
@@ -144,5 +146,6 @@ export const INTERNAL_API_SCOPE_OBJECTS = [
 export const OAUTH_HIDDEN_SCOPE_OBJECTS = [
     'batch_import_support',
     'query_performance',
+    'wizard_run',
     'wizard_session',
 ] as const
