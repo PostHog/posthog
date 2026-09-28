@@ -179,6 +179,8 @@ export interface SignalSourceConfig {
     created_at: string
     updated_at: string
     status: SignalSourceConfigStatus | null
+    /** Why the warehouse sync failed. Null unless `status` is `failed`. */
+    status_error?: string | null
 }
 
 export interface ToggleSignalSourceParams {

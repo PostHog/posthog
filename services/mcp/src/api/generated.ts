@@ -67697,6 +67697,11 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status: SignalSourceSyncStatusEnum | null;
+      /**
+         * Why the warehouse import behind this source failed, taken from its newest failed sync. Null unless `status` is `failed` and the sync recorded an error.
+         * @nullable
+         */
+      readonly status_error: string | null;
     }
 
     export interface PaginatedSignalSourceConfigList {
@@ -77900,6 +77905,11 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
       readonly status?: SignalSourceSyncStatusEnum | null;
+      /**
+         * Why the warehouse import behind this source failed, taken from its newest failed sync. Null unless `status` is `failed` and the sync recorded an error.
+         * @nullable
+         */
+      readonly status_error?: string | null;
     }
 
     /**

@@ -112,6 +112,8 @@ interface AgentSourceState {
     /** True for data-warehouse sources that haven't been connected yet – shows a Connect button. */
     requiresSetup: boolean
     syncStatus: SignalSourceConfigStatus | SyncStatusEnumApi | null | undefined
+    /** Why the last sync failed, when the source reports it. */
+    syncError?: string | null
     entities: RosterEntity[]
     /** The entity list is still loading, so the count would read as a wrong zero. */
     entitiesLoading: boolean
@@ -136,10 +138,12 @@ function StatusDot({
     status,
     product,
     productOff,
+    syncError,
 }: {
     status: AgentRosterStatus
     product?: SourceProductStatus
     productOff: boolean
+    syncError?: string | null
 }): JSX.Element {
     let className = 'bg-border-bold'
     let title = 'Standby'
@@ -147,7 +151,7 @@ function StatusDot({
         title = `${product?.productName} is off, so this source has nothing to read`
     } else if (status === 'sync_failed') {
         className = 'bg-danger'
-        title = 'Sync failed'
+        title = syncError ? `Sync failed: ${syncError}` : 'Sync failed'
     } else if (status === 'syncing') {
         className = 'bg-accent'
         title = 'Syncing'
@@ -512,7 +516,7 @@ const AgentRow = memo(function AgentRow({
     onRetryData,
 }: AgentRowProps): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
-    const { armed, loading, requiresSetup, syncStatus, entities } = state
+    const { armed, loading, requiresSetup, syncStatus, syncError, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
     const productOff = product?.enabled === false
     // An off product blocks arming (the source would watch nothing), never disarming.
@@ -531,7 +535,9 @@ const AgentRow = memo(function AgentRow({
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
-                {!redesign && <StatusDot status={status} product={product} productOff={productOff} />}
+                {!redesign && (
+                    <StatusDot status={status} product={product} productOff={productOff} syncError={syncError} />
+                )}
                 <AgentIcon source={agent} />
                 <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-center gap-2">
@@ -554,9 +560,11 @@ const AgentRow = memo(function AgentRow({
                     <span className="truncate text-xs leading-4 text-muted">{agent.watches}</span>
                 </div>
                 {tag && (
-                    <LemonTag type={tag.type} size="small">
-                        {tag.label}
-                    </LemonTag>
+                    <Tooltip title={status === 'sync_failed' && syncError ? syncError : undefined}>
+                        <LemonTag type={tag.type} size="small">
+                            {tag.label}
+                        </LemonTag>
+                    </Tooltip>
                 )}
                 <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
                     {entities.length > 0 && `${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
@@ -732,6 +740,7 @@ export function AgentsRoster(): JSX.Element {
                 // No config row yet → the source has never been connected; surface a Connect button.
                 requiresSetup: config === null,
                 syncStatus: config?.status,
+                syncError: config?.status_error,
                 steeringConfigs: config ? [config] : [],
             })
             switch (source) {
