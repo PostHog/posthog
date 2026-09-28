@@ -62,3 +62,34 @@ export function useBlockedSessionCount(): (
     [counts],
   );
 }
+
+/**
+ * The tasks whose session is mid-turn with nothing pending for you — the agent
+ * took the reply and went back to work.
+ *
+ * An `awaiting_input` row records a moment, not a state, and nothing rewrites
+ * it when you answer: the server row is re-read a minute later, and the row
+ * this app projects locally from a permission prompt is never re-read at all.
+ * So the feed keeps saying the agent is waiting after you have replied. A
+ * session this app holds is the current answer for its task, and a prompt in
+ * flight with no permission outstanding means the agent is working.
+ *
+ * Selected as a sorted key rather than the session map, for the reason
+ * {@link useBlockedTaskIds} gives.
+ */
+export function useWorkingTaskIds(): ReadonlySet<string> {
+  const workingKey = useSessionStore((state) =>
+    Object.values(state.sessions)
+      .filter(
+        (session) =>
+          session.isPromptPending && session.pendingPermissions.size === 0,
+      )
+      .map((session) => session.taskId)
+      .sort()
+      .join(","),
+  );
+  return useMemo(
+    () => (workingKey ? new Set(workingKey.split(",")) : NO_BLOCKED),
+    [workingKey],
+  );
+}

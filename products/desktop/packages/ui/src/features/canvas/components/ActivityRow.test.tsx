@@ -104,6 +104,7 @@ describe("ActivityRow", () => {
         onMarkRead={vi.fn()}
         onActivate={vi.fn()}
         blockedTaskIds={NO_BLOCKED_TASKS}
+        workingTaskIds={NO_BLOCKED_TASKS}
         compact
       />,
     );
@@ -142,6 +143,7 @@ describe("ActivityRow", () => {
         onMarkRead={vi.fn()}
         onActivate={vi.fn()}
         blockedTaskIds={new Set(["task-1"])}
+        workingTaskIds={NO_BLOCKED_TASKS}
         compact
       />,
     );
@@ -151,6 +153,43 @@ describe("ActivityRow", () => {
         "just now · Agent is waiting for your reply in Personal",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("drops the waiting status once the agent has taken the reply", () => {
+    const { rerender } = render(
+      <ActivityRow
+        menu={taskMenu()}
+        item={item({ activityKind: "awaiting_input", channelName: "personal" })}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={new Set(["task-1"])}
+        workingTaskIds={NO_BLOCKED_TASKS}
+        compact
+      />,
+    );
+
+    expect(
+      screen.getByText("just now · Agent is waiting for your reply in"),
+    ).toBeInTheDocument();
+
+    rerender(
+      <ActivityRow
+        menu={taskMenu()}
+        item={item({ activityKind: "awaiting_input", channelName: "personal" })}
+        onMarkRead={vi.fn()}
+        onActivate={vi.fn()}
+        blockedTaskIds={NO_BLOCKED_TASKS}
+        workingTaskIds={new Set(["task-1"])}
+        compact
+      />,
+    );
+
+    expect(
+      screen.getByText("just now · Agent is working in"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("just now · Agent is waiting for your reply in"),
+    ).not.toBeInTheDocument();
   });
 
   it.each([
@@ -166,6 +205,7 @@ describe("ActivityRow", () => {
           onMarkRead={vi.fn()}
           onActivate={vi.fn()}
           blockedTaskIds={NO_BLOCKED_TASKS}
+          workingTaskIds={NO_BLOCKED_TASKS}
           compact
         />,
       );
@@ -189,6 +229,7 @@ describe("ActivityRow", () => {
         onMarkRead={vi.fn()}
         onActivate={vi.fn()}
         blockedTaskIds={NO_BLOCKED_TASKS}
+        workingTaskIds={NO_BLOCKED_TASKS}
       />,
     );
 
@@ -236,6 +277,7 @@ describe("ActivityRow", () => {
         onMarkRead={vi.fn()}
         onActivate={openActivityItem}
         blockedTaskIds={NO_BLOCKED_TASKS}
+        workingTaskIds={NO_BLOCKED_TASKS}
       />,
     );
     const activityButton = screen
@@ -270,6 +312,7 @@ describe("ActivityRow", () => {
         onMarkRead={vi.fn()}
         onActivate={vi.fn()}
         blockedTaskIds={NO_BLOCKED_TASKS}
+        workingTaskIds={NO_BLOCKED_TASKS}
       />,
     );
 
