@@ -8,7 +8,7 @@ import { RecordingUniversalFilters, ReplayTemplateCategory, ReplayTemplateType }
 
 import {
     ReplayTemplateUsedSource,
-    TEMPLATE_DATE_FROM,
+    TEMPLATE_BASE_FILTERS,
     sessionReplayTemplatesLogic,
 } from './sessionRecordingTemplatesLogic'
 import { SingleTemplateVariable } from './SingleTemplateVariable'
@@ -44,8 +44,7 @@ export function FilterTemplateCard({
         onApply({
             ...(variables.length > 0 ? filterGroup : {}),
             ...(template.order ? { order: template.order } : {}),
-            date_from: TEMPLATE_DATE_FROM,
-            date_to: null,
+            ...TEMPLATE_BASE_FILTERS,
         })
     }
 

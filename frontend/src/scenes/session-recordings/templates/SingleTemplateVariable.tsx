@@ -70,7 +70,11 @@ export const SingleTemplateVariable = ({
                 rootKey={`session-recordings-${variable.key}`}
                 group={{
                     type: FilterLogicalOperator.And,
-                    values: variable.filterGroup ? [variable.filterGroup] : [],
+                    values: !variable.filterGroup
+                        ? []
+                        : isUniversalGroupFilterLike(variable.filterGroup)
+                          ? variable.filterGroup.values
+                          : [variable.filterGroup],
                 }}
                 taxonomicGroupTypes={
                     variable.type === 'event'
@@ -81,7 +85,11 @@ export const SingleTemplateVariable = ({
                     if (thisFilterGroup.values.length === 0) {
                         resetVariable({ ...variable, filterGroup: undefined })
                     } else {
-                        setVariable({ ...variable, filterGroup: thisFilterGroup.values[0] })
+                        setVariable({
+                            ...variable,
+                            filterGroup:
+                                thisFilterGroup.values.length === 1 ? thisFilterGroup.values[0] : thisFilterGroup,
+                        })
                     }
                 }}
             >

@@ -65,7 +65,11 @@ export type sessionReplaySceneLogicType = MakeLogicType<
 >
 
 const templatesInPanelUrl = (): string =>
-    combineUrl(urls.replay(ReplayTabs.Home), { showFilters: true, filtersTab: 'templates' }).url
+    combineUrl(
+        urls.replay(ReplayTabs.Home),
+        { ...router.values.searchParams, showFilters: true, filtersTab: 'templates' },
+        router.values.hashParams
+    ).url
 
 export const sessionReplaySceneLogic = kea<sessionReplaySceneLogicType>([
     path(() => ['scenes', 'session-recordings', 'sessionReplaySceneLogic']),

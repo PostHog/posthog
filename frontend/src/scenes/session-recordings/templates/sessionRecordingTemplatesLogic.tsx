@@ -21,9 +21,18 @@ import {
 
 import type { TeamPublicType, TeamType } from '../../../types'
 import { convertUniversalFiltersToRecordingsQuery } from '../filters/recordingsQueryConversions'
+import { defaultRecordingDurationFilter } from '../playlist/sessionRecordingsPlaylistLogic'
 
 const MATCH_COUNT_LIMIT = 25
-export const TEMPLATE_DATE_FROM = '-7d'
+export const TEMPLATE_BASE_FILTERS: Pick<
+    RecordingUniversalFilters,
+    'date_from' | 'date_to' | 'duration' | 'filter_test_accounts'
+> = {
+    date_from: '-7d',
+    date_to: null,
+    duration: [defaultRecordingDurationFilter],
+    filter_test_accounts: false,
+}
 
 export interface TemplateMatchCount {
     count: number
@@ -199,10 +208,7 @@ export const sessionReplayTemplatesLogic = kea<sessionReplayTemplatesLogicType>(
                     await breakpoint(300)
                     const query = {
                         ...convertUniversalFiltersToRecordingsQuery({
-                            date_from: TEMPLATE_DATE_FROM,
-                            date_to: null,
-                            duration: [],
-                            filter_test_accounts: false,
+                            ...TEMPLATE_BASE_FILTERS,
                             filter_group: values.filterGroup.filter_group ?? {
                                 type: FilterLogicalOperator.And,
                                 values: [],
