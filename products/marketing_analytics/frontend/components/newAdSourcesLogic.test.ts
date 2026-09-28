@@ -1,13 +1,12 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { expectLogic } from 'kea-test-utils'
-
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { expectLogic } from '~/test/keaTestUtils'
 
 import { NEW_AD_SOURCES_SEEN_KEY, newAdSourcesLogic } from './newAdSourcesLogic'
 

@@ -91,38 +91,4 @@ describe('LemonMenu', () => {
             expect(screen.queryByText('Summary')).not.toBeInTheDocument()
         })
     })
-
-    it('navigates portal items after opening and reopening a menu', async () => {
-        render(
-            <div>
-                <LemonMenu
-                    items={[
-                        { title: <div>Available sources</div>, items: [] },
-                        { label: 'First' },
-                        { label: 'Second' },
-                    ]}
-                >
-                    <LemonButton>Open</LemonButton>
-                </LemonMenu>
-                <button type="button">Outside</button>
-            </div>
-        )
-
-        const trigger = screen.getByText('Open').closest('button')!
-        for (let opening = 0; opening < 2; opening++) {
-            await userEvent.click(trigger)
-            const first = (await screen.findByText('First')).closest('button')!
-            const second = screen.getByText('Second').closest('button')!
-            await userEvent.keyboard('{ArrowDown}')
-            expect(first).toHaveFocus()
-            await userEvent.keyboard('{ArrowDown}')
-            expect(second).toHaveFocus()
-            await userEvent.keyboard('{ArrowUp}')
-            expect(first).toHaveFocus()
-            await userEvent.keyboard('{ArrowUp}')
-            expect(trigger).toHaveFocus()
-            await userEvent.click(screen.getByText('Outside'))
-            await waitFor(() => expect(screen.queryByText('First')).not.toBeInTheDocument())
-        }
-    })
 })

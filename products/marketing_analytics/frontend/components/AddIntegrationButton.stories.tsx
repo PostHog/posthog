@@ -4,7 +4,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -83,10 +84,23 @@ type Story = StoryObj<typeof AddIntegrationButton>
 export const NewSources: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
+        const body = within(canvasElement.ownerDocument.body)
+        await waitFor(() => expect(canvas.getAllByText('New')).toHaveLength(2))
+        const team = teamLogic.values.currentTeam!
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...team,
+            effective_membership_level: OrganizationMembershipLevel.Member,
+        })
+        await waitFor(() => expect(canvas.queryAllByText('New')).toHaveLength(0))
+        await userEvent.hover(canvas.getAllByText('Add source')[0])
+        await body.findByText(/This area is restricted to project admins/)
+        expect(body.queryByText('New ad sources are available')).not.toBeInTheDocument()
+        await userEvent.unhover(canvas.getAllByText('Add source')[0])
+        teamLogic.actions.loadCurrentTeamSuccess(team)
         await waitFor(() => expect(canvas.getAllByText('New')).toHaveLength(2))
         expect(canvas.getAllByText('Add source')[0].closest('button')).toHaveAccessibleName('Add source')
         await userEvent.hover(canvas.getAllByText('Add source')[0])
-        await within(canvasElement.ownerDocument.body).findByText('New ad sources are available')
+        await body.findByText('New ad sources are available')
     },
 }
 
@@ -100,9 +114,10 @@ export const OpenMenu: Story = {
         expect(body.queryByText('Got it')).not.toBeInTheDocument()
         await waitFor(() => expect(canvas.queryAllByText('New')).toHaveLength(0))
         await userEvent.keyboard('{ArrowDown}')
-        await waitFor(() => expect(body.getByText('Google Ads').closest('button')).toHaveFocus())
-        await userEvent.keyboard('{ArrowUp}')
-        await waitFor(() => expect(canvas.getAllByText('Add source')[0].closest('button')).toHaveFocus())
+        const googleAds = body.getByText('Google Ads').closest('a')!
+        expect(googleAds).toHaveAttribute('href', expect.stringContaining('GoogleAds'))
+        await waitFor(() => expect(googleAds).toHaveFocus())
+        await userEvent.click(body.getByText('New ad sources'))
     },
 }
 

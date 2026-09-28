@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
@@ -46,13 +45,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
     }
 
     const handleIntegrateClick = (integrationId: string): void => {
-        if (onIntegrationSelect) {
-            onIntegrationSelect(integrationId)
-        } else {
-            router.actions.push(
-                urls.dataWarehouseSourceNew(integrationId, urls.marketingAnalyticsApp(), 'Marketing analytics')
-            )
-        }
+        onIntegrationSelect?.(integrationId)
         handleVisibilityChange(false)
     }
 
@@ -91,6 +84,13 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                             ? ('new' as const)
                             : undefined,
                     disabledReason: restrictedReason,
+                    to: onIntegrationSelect
+                        ? undefined
+                        : urls.dataWarehouseSourceNew(
+                              integrationId,
+                              urls.marketingAnalyticsApp(),
+                              'Marketing analytics'
+                          ),
                     onClick: () => handleIntegrateClick(integrationId),
                 })),
             })),
@@ -113,7 +113,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                 data-attr="add-integration"
                 aria-label="Add source"
                 disabledReason={restrictedReason}
-                tooltip="New ad sources are available"
+                tooltip={restrictedReason ? undefined : 'New ad sources are available'}
                 tooltipForceMount={restrictedReason || (showNewSources && !showPopover) ? undefined : false}
             >
                 <span>Add source</span>

@@ -31,12 +31,6 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
         }
 
         const handleKeyDown = (e: KeyboardEvent): void => {
-            if (
-                e.defaultPrevented ||
-                (e.target !== referenceRef.current && !itemsRef.current.some((item) => item.current === e.target))
-            ) {
-                return
-            }
             if (e.key === 'ArrowDown') {
                 if (focusedItemIndexRef.current < itemCount - 1) {
                     focusedItemIndexRef.current += 1
@@ -54,8 +48,10 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
 
         const controller = new AbortController()
 
-        // Portal items mount after this effect, so resolve their refs when a key is pressed.
-        referenceRef.current?.ownerDocument.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
+        referenceRef.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
+        for (const item of itemsRef.current) {
+            item?.current?.addEventListener('keydown', handleKeyDown, { signal: controller.signal })
+        }
         return () => {
             controller.abort()
         }

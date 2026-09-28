@@ -128,13 +128,3 @@ You'll need to install MS SQL drivers for the PostHog app to connect to a MS SQL
 ```text
 symbol not found in flat namespace '_bcp_batch'
 ```
-
-## New ad sources notice
-
-Marketing analytics highlights newly supported ad platforms in the shared **Add source** menu on Dashboard and Setup.
-Only sources enabled for the current organization receive the **New** label.
-Opening either menu marks the announcement as seen, removes the **New** labels from both buttons, and saves `marketing-new-ad-sources-v1` in the user's `has_seen_product_intro_for` map.
-The notice and source labels stay visible during that first opening, then disappear when the menu closes.
-Opening either menu again does not show the announcement.
-The notice is outside the menu's keyboard navigation, so arrow keys move between the button and available sources.
-The key represents the same announcement across sources, projects, and devices; it does not change the integration feature flags.
