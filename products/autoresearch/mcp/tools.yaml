@@ -21,8 +21,8 @@ tools:
         title: Archive pipeline
         description: >
             Soft-delete a pipeline. Stops daily scoring and training. Prediction history and model artifacts are
-            preserved. Archived pipelines are excluded from autoresearch-list. This is reversible only via direct DB
-            access — use pause instead if you want to temporarily stop a pipeline.
+            preserved. Archived pipelines are excluded from autoresearch-list. Refused while a training run is in
+            progress. There is no unarchive, so use autoresearch-pause-create to stop a pipeline temporarily.
         feature_flag: autoresearch
     autoresearch-create:
         operation: autoresearch_create
@@ -89,6 +89,7 @@ tools:
         enabled: true
         scopes:
             - autoresearch:write
+            - query:read
         annotations:
             readOnly: false
             destructive: false
@@ -160,14 +161,16 @@ tools:
             idempotent: true
         title: Pause pipeline
         description: >
-            Pause a running pipeline. Daily scoring and training stop until the pipeline is resumed. Use
-            autoresearch-resume-create to restart.
+            Pause a running pipeline. Daily scoring and training stop until the pipeline is resumed. A training run
+            already in progress finishes and can promote a new champion, but the pipeline scores nobody until it is
+            resumed. Use autoresearch-resume-create to restart.
         feature_flag: autoresearch
     autoresearch-resolve-template-create:
         operation: autoresearch_resolve_template_create
         enabled: false
         scopes:
             - autoresearch:read
+            - query:read
         annotations:
             readOnly: true
             destructive: false
@@ -251,6 +254,8 @@ tools:
         enabled: true
         scopes:
             - autoresearch:write
+            - query:read
+            - person:write
         annotations:
             readOnly: false
             destructive: false
@@ -258,8 +263,8 @@ tools:
         title: Run inference (score users)
         description: >
             Score the inference population using the champion model and emit 'autoresearch_prediction' events for each
-            user. Returns the inference run object with rows_scored and status. Requires a champion model — run
-            autoresearch-train-create first if the pipeline has no champion. Each scored user gets a '$autoresearch_p_y'
+            user. Returns the inference run object with rows_scored and status. Requires a champion model and a
+            pipeline that is not paused — run autoresearch-train-create first if the pipeline has no champion. Each scored user gets a '$autoresearch_p_y'
             property on their prediction event and a person property update. After scoring, query predictions with
             execute-sql: SELECT distinct_id, properties.$autoresearch_p_y FROM events WHERE event =
             'autoresearch_prediction' AND properties.$autoresearch_pipeline_id = '<pipeline_id>' ORDER BY
@@ -373,6 +378,8 @@ tools:
         enabled: true
         scopes:
             - autoresearch:write
+            - query:read
+            - insight:read
         annotations:
             readOnly: false
             destructive: false
@@ -381,10 +388,12 @@ tools:
         description: >
             Start an asynchronous training run for a pipeline. Launches the autoresearch agent in a sandbox and returns
             the training run immediately with status 'running'. Poll autoresearch-training-runs-list until the run
-            reaches 'completed' or 'failed'; no champion model exists until the run completes and server-side promotion
-            runs. Returns 400 if a training run is already in progress for the pipeline. After a run completes and
-            promotes a champion, call autoresearch-score-create to run inference and emit prediction events. You can
-            optionally override the iteration_budget for this run.
+            reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side
+            promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400
+            if a training run is already in progress or the pipeline is paused. Needs PostHog Desktop access, because
+            the run is a cloud sandbox. After a run completes and promotes a champion, call autoresearch-score-create
+            to run inference and emit prediction events. You can optionally override the iteration_budget for this
+            run.
         feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
@@ -479,10 +488,12 @@ tools:
             idempotent: false
         title: Open a training run
         description: >
-            Open a new training run for a pipeline and return its id. An agent (your own, the in-house sandbox, or a
-            scheduled job) then records iterations against this run with autoresearch-training-runs-iterations-create
-            and finalizes it with autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally
-            override the iteration_budget for this run.
+            Open a new training run for a pipeline and return its id, for a bring-your-own agent that trains outside
+            PostHog. The agent then records iterations against this run with
+            autoresearch-training-runs-iterations-create and finalizes it with
+            autoresearch-training-runs-complete-create. The run starts in 'running'. Optionally override the
+            iteration_budget for this run. Refused from inside a sandbox: the in-house training agent works in the run
+            that autoresearch-train-create opened for it.
         feature_flag: autoresearch
     autoresearch-training-runs-history:
         operation: autoresearch_training_runs_history_retrieve
@@ -560,6 +571,7 @@ tools:
         enabled: true
         scopes:
             - autoresearch:read
+            - query:read
         annotations:
             readOnly: true
             destructive: false
@@ -579,6 +591,7 @@ tools:
         enabled: false
         scopes:
             - autoresearch:write
+            - query:read
         annotations:
             readOnly: false
             destructive: false

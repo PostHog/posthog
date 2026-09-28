@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 29 enabled ops
+ * PostHog API - MCP 25 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -255,21 +255,7 @@ export const AutoresearchSuggestionsCreateBody = () => zod.object({
 })
 
 /**
- * Get details for a specific suggestion including its status and agent_response.
- * @summary Get suggestion
- */
-export const AutoresearchSuggestionsRetrieveParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this autoresearch suggestion.'),
-    pipeline_id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration.
+ * Record how the agent handled a steering suggestion: set status to 'picked_up' (applied as a search constraint), 'acted_on' (spawned iterations), or 'dismissed' (rejected — explain in agent_response), and write the agent_response note the human will read. Call this from the training loop after deciding what to do with a pending suggestion. Recording an iteration with parent_suggestion set already advances a suggestion to 'acted_on'; use this to add the narrative or to mark a suggestion picked_up/dismissed without spawning an iteration. A suggestion only moves forward (queued, picked_up, then acted_on or dismissed); the same status again updates the note.
  * @summary Respond to a suggestion
  */
 export const AutoresearchSuggestionsRespondCreateParams = () => zod.object({
@@ -282,7 +268,6 @@ export const AutoresearchSuggestionsRespondCreateParams = () => zod.object({
         ),
 })
 
-export const autoresearchSuggestionsRespondCreateBodyAgentResponseDefault = ``
 export const autoresearchSuggestionsRespondCreateBodyAgentResponseMax = 2000
 
 export const AutoresearchSuggestionsRespondCreateBody = () => zod
@@ -296,19 +281,18 @@ export const AutoresearchSuggestionsRespondCreateBody = () => zod
         agent_response: zod
             .string()
             .max(autoresearchSuggestionsRespondCreateBodyAgentResponseMax)
-            .default(autoresearchSuggestionsRespondCreateBodyAgentResponseDefault)
+            .optional()
             .describe(
-                'Plain-English note on how the suggestion was interpreted and acted upon (or why it was dismissed).'
+                'Plain-English note on how the suggestion was interpreted and acted upon. A dismissal needs a note, sent now or recorded earlier. Omit it to keep the note already recorded; send an empty string to clear it.'
             ),
     })
     .describe('Input for the agent to record how it interpreted a steering suggestion.')
 
 /**
- * List, retrieve, open, record iterations into, and complete training runs for a pipeline.
+ * List and retrieve training runs for a pipeline.
  *
- * The write endpoints let an external (bring-your-own) agent or a scheduled job drive a
- * training run directly — recording each iteration as it completes rather than via a single
- * terminal sandbox output. Recipe validation and champion promotion stay server-side.
+ * A training run records the agent's search for a model: each iteration's recipe and holdout
+ * score, and the summary of the run once it completes.
  */
 export const AutoresearchTrainingRunsListParams = () => zod.object({
     pipeline_id: zod.string(),
@@ -363,31 +347,6 @@ export const AutoresearchTrainingRunsArtifactsRetrieveParams = () => zod.object(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
-
-/**
- * Remove one file from this training run's artifact bundle. Idempotent — deleting a missing file is a no-op. The bundle is frozen once the run completes or fails.
- * @summary Delete an artifact bundle file
- */
-export const AutoresearchTrainingRunsArtifactsDeleteCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this autoresearch training run.'),
-    pipeline_id: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax = 500
-
-export const AutoresearchTrainingRunsArtifactsDeleteCreateBody = () => zod
-    .object({
-        path: zod
-            .string()
-            .max(autoresearchTrainingRunsArtifactsDeleteCreateBodyPathMax)
-            .describe("Relative path of the file within the bundle, e.g. 'train.py'."),
-    })
-    .describe('Input for fetching or deleting one bundle file by path.')
 
 /**
  * Fetch one file from this training run's artifact bundle, base64-encoded.
@@ -447,7 +406,7 @@ export const AutoresearchTrainingRunsArtifactsUploadCreateBody = () => zod
     .describe("Input for uploading one file of a training run's artifact bundle.")
 
 /**
- * Finalize a training run. The backend selects the best iteration (highest holdout score, or the one you name), decides champion vs challenger via the promotion ladder, and persists the model. Agents cannot set the champion directly — promotion is server-side.
+ * Finalize a training run. The backend selects the kept iteration with the highest holdout score, decides champion vs challenger via the promotion ladder, and persists the model. best_iteration_id is advisory: it breaks a tie at the top score and is otherwise logged and ignored. Agents cannot set the champion directly, because promotion is server-side.
  * @summary Complete a training run
  */
 export const AutoresearchTrainingRunsCompleteCreateParams = () => zod.object({
@@ -472,7 +431,7 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
             .string()
             .nullish()
             .describe(
-                'Iteration to promote as champion candidate. If omitted, the kept iteration with the highest holdout_score is used.'
+                'Advisory nomination. The server promotes the kept iteration with the highest holdout_score; this id only breaks a tie at that score, and a lower-scoring nomination is logged and ignored.'
             ),
         model_explanation: zod
             .looseObject({})
@@ -496,7 +455,7 @@ export const AutoresearchTrainingRunsCompleteCreateBody = () => zod
     .describe('Input for finalizing a training run. The backend selects\/promotes the champion.')
 
 /**
- * Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration. The recipe is validated server-side: model_class must be in the allowlist and feature_sql must be a read-only SELECT keyed on person_id.
+ * Record one iteration of an open training run. Idempotent on iteration_number: re-sending the same number updates that iteration. A new iteration_number is refused once the run's iteration_budget is used. The recipe is validated server-side: feature_sql must be a read-only SELECT from {anchors} keyed on person_id, and model_class must be set. The class allowlist applies only at completion, to a run that uploaded no bundle.
  * @summary Record a training iteration
  */
 export const AutoresearchTrainingRunsIterationsCreateParams = () => zod.object({
@@ -510,6 +469,7 @@ export const AutoresearchTrainingRunsIterationsCreateParams = () => zod.object({
 })
 
 export const autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin = 0
+export const autoresearchTrainingRunsIterationsCreateBodyIterationNumberMax = 2147483647
 
 export const autoresearchTrainingRunsIterationsCreateBodyTrainScoreMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyTrainScoreMax = 1
@@ -518,6 +478,8 @@ export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyHoldoutScoreMax = 1
 
 export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault = ``
+export const autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax = 2000
+
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin = 0
 export const autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax = 1
 
@@ -526,17 +488,36 @@ export const AutoresearchTrainingRunsIterationsCreateBody = () => zod
         iteration_number: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyIterationNumberMin)
+            .max(autoresearchTrainingRunsIterationsCreateBodyIterationNumberMax)
             .describe(
                 'Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).'
             ),
         recipe_snapshot: zod
-            .looseObject({})
+            .object({
+                feature_sql: zod
+                    .string()
+                    .describe('A read-only HogQL SELECT from {anchors}, one row per person, keyed on person_id.'),
+                feature_transforms: zod
+                    .array(zod.looseObject({}))
+                    .nullish()
+                    .describe(
+                        'Transforms the bundle applies to the feature columns; null or absent means none, and the in-process path accepts none.'
+                    ),
+            })
             .describe(
                 'Compact recipe for this iteration: feature_sql (HogQL SELECT keyed on person_id) and transforms.'
             ),
         model_spec: zod
-            .looseObject({})
-            .describe('model_class (must be allowlisted) and model_params tried this iteration.'),
+            .object({
+                model_class: zod.string().describe('Dotted path of the estimator class.'),
+                model_params: zod
+                    .record(zod.string(), zod.unknown())
+                    .nullish()
+                    .describe("Keyword arguments for the estimator's constructor; null or absent means the defaults."),
+            })
+            .describe(
+                'model_class and model_params tried this iteration. Any class is accepted here; the sklearn\/xgboost allowlist applies at completion, to a run that uploaded no bundle.'
+            ),
         status: zod
             .enum(['kept', 'discarded', 'crashed'])
             .describe('\* `kept` - kept\n\* `discarded` - discarded\n\* `crashed` - crashed')
@@ -557,14 +538,15 @@ export const AutoresearchTrainingRunsIterationsCreateBody = () => zod
             .describe('Held-out AUC for this iteration (0-1). Used to pick the champion at completion.'),
         agent_description: zod
             .string()
+            .max(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionMax)
             .default(autoresearchTrainingRunsIterationsCreateBodyAgentDescriptionDefault)
-            .describe("Agent's plain-English rationale for this iteration."),
+            .describe("Agent's plain-English rationale for this iteration. Max 2000 characters."),
         agent_confidence: zod
             .number()
             .min(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMin)
             .max(autoresearchTrainingRunsIterationsCreateBodyAgentConfidenceMax)
             .nullish()
-            .describe("Agent's self-assessed confidence (0–1) that this iteration helps."),
+            .describe("Agent's self-assessed confidence (0-1) that this iteration helps."),
         parent_suggestion: zod
             .string()
             .nullish()
@@ -611,8 +593,16 @@ export const AutoresearchTrainingRunsHistoryRetrieveParams = () => zod.object({
         ),
 })
 
+export const autoresearchTrainingRunsHistoryRetrieveQueryLimitDefault = 5
+export const autoresearchTrainingRunsHistoryRetrieveQueryLimitMax = 20
+
 export const AutoresearchTrainingRunsHistoryRetrieveQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Maximum number of prior runs to return (default 5, capped at 20).'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(autoresearchTrainingRunsHistoryRetrieveQueryLimitMax)
+        .default(autoresearchTrainingRunsHistoryRetrieveQueryLimitDefault)
+        .describe('Maximum number of prior runs to return (default 5, at most 20).'),
 })
 
 /**
@@ -632,7 +622,7 @@ export const AutoresearchRetrieveParams = () => zod.object({
 })
 
 /**
- * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved.
+ * Soft-delete a pipeline. Stops daily scoring and training. Predictions and metrics are preserved. Refused while a training run is in progress.
  * @summary Archive a pipeline
  */
 export const AutoresearchArchiveCreateParams = () => zod.object({
@@ -645,7 +635,7 @@ export const AutoresearchArchiveCreateParams = () => zod.object({
 })
 
 /**
- * Pause daily scoring and training. The pipeline can be resumed later.
+ * Pause daily scoring and training on a running pipeline. The pipeline can be resumed later. A training run already in progress finishes and can promote a new champion, but the pipeline stays paused and scores nobody until it is resumed.
  * @summary Pause a pipeline
  */
 export const AutoresearchPauseCreateParams = () => zod.object({
@@ -671,7 +661,7 @@ export const AutoresearchResumeCreateParams = () => zod.object({
 })
 
 /**
- * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user. Updates the predicted_p_<target> person property. In production this is triggered by the daily Temporal inference workflow.
+ * Score the inference population using the champion model and emit autoresearch_prediction events for each scored user, and sets the pipeline's output_person_property on each scored person. In production this is triggered by the daily Temporal inference workflow.
  * @summary Run inference (score users)
  */
 export const AutoresearchScoreCreateParams = () => zod.object({
@@ -684,7 +674,7 @@ export const AutoresearchScoreCreateParams = () => zod.object({
 })
 
 /**
- * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed); no champion model exists until the run completes and server-side promotion runs.
+ * Start an asynchronous training run for this pipeline. Creates a Task/TaskRun sandbox where the autoresearch agent iterates on features and models, and returns the run immediately with status 'running'. Poll the training run until it reaches a terminal status (completed or failed). A pipeline's first run has no champion until it completes and promotion runs; on a retrain the existing champion stays live and keeps scoring until a new one is promoted.
  * @summary Start a training run
  */
 export const AutoresearchTrainCreateParams = () => zod.object({
@@ -705,62 +695,6 @@ export const AutoresearchTrainCreateBody = () => zod.object({
         .max(autoresearchTrainCreateBodyIterationBudgetMax)
         .optional()
         .describe('Override the pipeline iteration budget for this training run.'),
-})
-
-/**
- * Validate predictions against realized outcomes for all matured prediction dates. A prediction date is matured when today >= prediction_date + horizon_days. Computes realized AUC, Brier score, calibration error (ECE), and lift@10/20 per model. Updates the model's realized_score, calibration_error, and clears the is_preliminary flag. Already-validated dates are skipped. In production this is triggered by the daily Temporal validation workflow after inference runs.
- * @summary Run online validation
- */
-export const AutoresearchValidateOnlineCreateParams = () => zod.object({
-    id: zod.string().describe('A UUID string identifying this autoresearch pipeline.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-/**
- * Resolve a template key and optional overrides into a concrete pipeline config. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target event is auto-resolved from your event schema — check resolved_activity_event and activity_event_alternatives, then override if needed. For 'feature_adoption' and 'repeat_key_behavior', supply target_event. After resolving, call autoresearch-validate-create to check volume and warnings, then autoresearch-create to create the pipeline.
- * @summary Resolve a template
- */
-export const AutoresearchResolveTemplateCreateParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const autoresearchResolveTemplateCreateBodyHorizonDaysMax = 365
-
-export const AutoresearchResolveTemplateCreateBody = () => zod.object({
-    template_key: zod
-        .enum([
-            'likely_active_soon',
-            'at_risk_of_inactivity',
-            'return_after_first_use',
-            'feature_adoption',
-            'repeat_key_behavior',
-        ])
-        .describe(
-            '\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
-        )
-        .describe(
-            'Template to resolve. Use autoresearch-templates-list to see all available templates with descriptions. Required.\n\n\* `likely_active_soon` - Likely Active Soon\n\* `at_risk_of_inactivity` - At Risk Of Inactivity\n\* `return_after_first_use` - Return After First Use\n\* `feature_adoption` - Feature Adoption\n\* `repeat_key_behavior` - Repeat Key Behavior'
-        ),
-    target_event: zod
-        .string()
-        .optional()
-        .describe(
-            "Event name to use as the prediction target. Required for 'feature_adoption' and 'repeat_key_behavior'. Optional override for activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'); omit to use the auto-resolved event. To predict an action, create the pipeline with target_definition after resolving."
-        ),
-    horizon_days: zod
-        .number()
-        .min(1)
-        .max(autoresearchResolveTemplateCreateBodyHorizonDaysMax)
-        .optional()
-        .describe("Override the template's default prediction horizon in days."),
 })
 
 /**

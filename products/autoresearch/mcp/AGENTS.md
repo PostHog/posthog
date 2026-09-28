@@ -8,7 +8,7 @@ During a run, the sandbox agent has no other write path. It records iterations, 
 
 - `tools.yaml`
   The whole surface: 25 enabled tools, `category: Autoresearch`, `feature: autoresearch`, `url_prefix: /` until the list scene lands its route. The family stays at or below 25 tools on purpose: above that the exec tool's compact domain index splits it into sub-domains, and the serialized exec schema crosses the claude.ai registry cap (see `services/mcp/tests/unit/instructions-formatter-snapshot.test.ts`). Duplicative tools (`suggestions-retrieve`, `resolve-template-create`, `validate-online-create`, `artifacts-delete-create`) are disabled rather than removed.
-  Each entry names an `operation` (an operation id from the OpenAPI spec), an `enabled` flag, required `scopes` (`autoresearch:read` / `autoresearch:write`), `annotations` (`readOnly`, `destructive`, `idempotent`), and a `title` + `description`.
+  Each entry names an `operation` (an operation id from the OpenAPI spec), an `enabled` flag, required `scopes` (`autoresearch:read` / `autoresearch:write`, plus every extra scope the endpoint's `required_scopes` names, such as `query:read`: MCP hides a tool whose scopes the key lacks), `annotations` (`readOnly`, `destructive`, `idempotent`), and a `title` + `description`.
 
 Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all` keeps the tool list and operation ids in sync. Everything editorial (description, title, `enrich_url`, `exclude_params`) is yours to write.
 
@@ -16,7 +16,7 @@ Tool entries are scaffolded from the OpenAPI schema — `pnpm --filter=@posthog/
 
 **Agent-facing** — the training loop's own control surface, backed by `AutoresearchTrainingRunViewSet`:
 
-`autoresearch-training-runs-create`, `-iterations-create`, `-materialize-features`, `-artifacts-upload-create`, `-artifacts-get-create`, `-artifacts-retrieve`, `-artifacts-delete-create`, `-complete-create`, `-history`.
+`autoresearch-training-runs-create` (bring-your-own agents only; a sandbox request is refused), `-iterations-create`, `-materialize-features`, `-artifacts-upload-create`, `-artifacts-get-create`, `-artifacts-retrieve`, `-artifacts-delete-create`, `-complete-create`, `-history`.
 
 **User-facing** — managing pipelines: `autoresearch-create`, `-list`, `-retrieve`, `-archive-create`, `-pause-create`, `-resume-create`, `-score-create`, `-train-create`, `-models-list`, `-models-retrieve`, `-runs-list`, `-suggestions-*`, `-templates-list`, `-resolve-template-create`, `-validate-*`.
 
@@ -28,7 +28,7 @@ The descriptions here already do real work, and that is the standard to hold. Ex
 
 - `autoresearch-create` spells out the mutual exclusion — pass `target_event` _or_ `target_definition`, exactly one — and names the next call (`autoresearch-train-create`).
 - It also tells the caller to run `autoresearch-validate-create` first _and_ warns that the endpoint does not block on validation errors, so the model knows the check is advisory.
-- `autoresearch-archive-create` says what is preserved, that it is reversible only via direct DB access, and points at `pause` as the reversible alternative.
+- `autoresearch-archive-create` says what is preserved, that there is no unarchive, and points at `pause` as the reversible alternative.
 
 Write for a model that has read nothing else. Name the prerequisite call, the next call, and the failure mode.
 
