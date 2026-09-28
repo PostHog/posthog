@@ -107,6 +107,9 @@ class RunAgenticReportOutput:
     # writes the metrics they reference — a check naming a metric the report never got is dropped
     # there rather than stored pointing at nothing. `None` predates the field and writes none.
     checks: list[dict[str, Any]] | None = None
+    # The plan of dependent pull requests, as `ReportLayer` dicts. The ready transition turns each
+    # one into a child report. `None` predates the field and creates none.
+    layers: list[dict[str, Any]] | None = None
     # The research sandbox task the check rows are attributed to, so the report's log names what
     # decided the fix was worth re-measuring. `None` for saved fixtures and pre-existing outputs.
     research_task_id: str | None = None
@@ -982,6 +985,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             charts=charts_payload,
             metrics=metrics_payload,
             checks=[check.model_dump(mode="json") for check in result.checks],
+            layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,
         )
