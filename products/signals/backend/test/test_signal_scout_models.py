@@ -203,7 +203,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         save_rubric(self.team.id, str(config.id), revision=1, criteria=criteria[:1])
 
         details = [
-            row.detail
+            row.detail or {}
             for row in ActivityLog.objects.filter(
                 scope="SignalScoutConfig", item_id=str(config.id), activity="updated"
             ).order_by("created_at")
