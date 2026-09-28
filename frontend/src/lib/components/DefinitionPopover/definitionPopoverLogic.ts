@@ -10,7 +10,6 @@ import { resolvePropertyDefinitionId } from 'lib/components/PropertyFilters/util
 import { getDataWarehouseItemWithFieldDefaults } from 'lib/components/TaxonomicFilter/dataWarehouseItemUtils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -466,24 +465,20 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         },
         handleSaveSuccess: () => {
             if (cache.startTime !== undefined) {
-                if (eventUsageLogic.findMounted()) {
-                    posthog.capture('definition save succeeded', {
-                        type: values.type,
-                        load_time: performance.now() - cache.startTime,
-                    })
-                }
+                posthog.capture('definition save succeeded', {
+                    type: values.type,
+                    load_time: performance.now() - cache.startTime,
+                })
                 cache.startTime = undefined
             }
         },
         handleSaveFailure: ({ error }) => {
             if (cache.startTime !== undefined) {
-                if (eventUsageLogic.findMounted()) {
-                    posthog.capture('definition save failed', {
-                        type: values.type,
-                        load_time: performance.now() - cache.startTime,
-                        error: error,
-                    })
-                }
+                posthog.capture('definition save failed', {
+                    type: values.type,
+                    load_time: performance.now() - cache.startTime,
+                    error: error,
+                })
                 cache.startTime = undefined
             }
         },
@@ -491,18 +486,14 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             actions.setPopoverState(DefinitionPopoverState.View)
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
-            if (eventUsageLogic.findMounted()) {
-                posthog.capture('definition cancelled', { type: values.type })
-            }
+            posthog.capture('definition cancelled', { type: values.type })
         },
         recordHoverActivity: async (_, breakpoint) => {
             await breakpoint(IS_TEST_MODE ? 1 : 1000) // Tests will wait for all breakpoints to finish
-            if (eventUsageLogic.findMounted()) {
-                posthog.capture('definition hovered', {
-                    type: values.type,
-                    media_preview_count: values.mediaPreviews.length ?? 0,
-                })
-            }
+            posthog.capture('definition hovered', {
+                type: values.type,
+                media_preview_count: values.mediaPreviews.length ?? 0,
+            })
         },
     })),
     events(({ actions }) => ({

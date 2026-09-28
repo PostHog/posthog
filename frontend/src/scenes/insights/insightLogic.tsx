@@ -27,7 +27,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { InsightEventSource, eventUsageLogic, sanitizeInsight, sanitizeQuery } from 'lib/utils/eventUsageLogic'
+import { InsightEventSource, sanitizeInsight, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { objectsEqual } from 'lib/utils/objects'
 import { isDashboardFilterOverrideEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
@@ -588,7 +588,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             ['activeSceneId'],
         ],
         actions: [tagsModel, ['refreshTags'], teamLogic, ['addProductIntent']],
-        logic: [eventUsageLogic, dashboardsModel],
+        logic: [dashboardsModel],
     })),
 
     actions({

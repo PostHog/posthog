@@ -19,7 +19,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -258,7 +257,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
     key(({ featureFlagId }) => featureFlagId ?? 'new'),
     path(['scenes', 'dashboard', 'newDashboardLogic']),
     connect(() => ({
-        logic: [dashboardsModel, eventUsageLogic],
+        logic: [dashboardsModel],
     })),
     actions({
         setIsLoading: (isLoading: boolean) => ({ isLoading }),

@@ -8,7 +8,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { parseTagsFilter } from 'lib/utils/url'
 import { projectLogic } from 'scenes/projectLogic'
@@ -683,44 +682,36 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         },
         loadEventDefinitionsSuccess: () => {
             if (cache.eventsStartTime !== undefined) {
-                if (eventUsageLogic.findMounted()) {
-                    posthog.capture('event definitions page load succeeded', {
-                        load_time: performance.now() - cache.eventsStartTime,
-                        num_results: values.eventDefinitions.results.length,
-                    })
-                }
+                posthog.capture('event definitions page load succeeded', {
+                    load_time: performance.now() - cache.eventsStartTime,
+                    num_results: values.eventDefinitions.results.length,
+                })
                 cache.eventsStartTime = undefined
             }
         },
         loadEventDefinitionsFailure: ({ error }) => {
             if (cache.eventsStartTime !== undefined) {
-                if (eventUsageLogic.findMounted()) {
-                    posthog.capture('event definitions page load failed', {
-                        load_time: performance.now() - cache.eventsStartTime,
-                        error: error ?? 'There was an unknown error fetching event definitions.',
-                    })
-                }
+                posthog.capture('event definitions page load failed', {
+                    load_time: performance.now() - cache.eventsStartTime,
+                    error: error ?? 'There was an unknown error fetching event definitions.',
+                })
                 cache.eventsStartTime = undefined
             }
         },
         loadPropertiesForEventSuccess: () => {
             if (cache.propertiesStartTime !== undefined) {
-                if (eventUsageLogic.findMounted()) {
-                    posthog.capture('event definitions page event nested properties load succeeded', {
-                        load_time: performance.now() - cache.propertiesStartTime,
-                    })
-                }
+                posthog.capture('event definitions page event nested properties load succeeded', {
+                    load_time: performance.now() - cache.propertiesStartTime,
+                })
                 cache.propertiesStartTime = undefined
             }
         },
         loadPropertiesForEventFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {
-                if (eventUsageLogic.findMounted()) {
-                    posthog.capture('event definitions page event nested properties load failed', {
-                        load_time: performance.now() - cache.propertiesStartTime,
-                        error: error ?? 'There was an unknown error fetching nested property definitions.',
-                    })
-                }
+                posthog.capture('event definitions page event nested properties load failed', {
+                    load_time: performance.now() - cache.propertiesStartTime,
+                    error: error ?? 'There was an unknown error fetching nested property definitions.',
+                })
                 cache.propertiesStartTime = undefined
             }
         },

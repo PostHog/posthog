@@ -2,10 +2,12 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -129,6 +131,8 @@ describe('definitionPopoverLogic', () => {
         })
 
         it('cancel', async () => {
+            expect(eventUsageLogic.findMounted()).toBeFalsy()
+            const capture = jest.spyOn(posthog, 'capture')
             await expectLogic(logic, async () => {
                 logic.actions.setDefinition(mockEventDefinitions[0])
                 logic.actions.setPopoverState(DefinitionPopoverState.Edit)
@@ -152,6 +156,8 @@ describe('definitionPopoverLogic', () => {
                     dirty: false,
                     localDefinition: mockEventDefinitions[0],
                 })
+            expect(capture).toHaveBeenCalledWith('definition cancelled', { type: TaxonomicFilterGroupType.Events })
+            capture.mockRestore()
         })
 
         describe('save', () => {

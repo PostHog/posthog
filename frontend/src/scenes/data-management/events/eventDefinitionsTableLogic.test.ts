@@ -2,8 +2,10 @@ import { MOCK_TEAM_ID, api } from 'lib/api.mock'
 
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -143,6 +145,8 @@ describe('eventDefinitionsTableLogic', () => {
 
     describe('event definitions', () => {
         it('load event definitions on navigate and cache', async () => {
+            expect(eventUsageLogic.findMounted()).toBeFalsy()
+            const capture = jest.spyOn(posthog, 'capture')
             const url = urls.eventDefinitions()
             router.actions.push(url)
             await expectLogic(logic)
@@ -159,6 +163,12 @@ describe('eventDefinitionsTableLogic', () => {
                         next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
                     }),
                 })
+
+            expect(capture).toHaveBeenCalledWith(
+                'event definitions page load succeeded',
+                expect.objectContaining({ num_results: 50 })
+            )
+            capture.mockRestore()
 
             // Check cache directly
             expect(logic.cache.apiCache).toMatchObject({
