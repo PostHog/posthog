@@ -40,6 +40,9 @@ SEED_B = "7c9e6f82-1a2b-4c3d-9e8f-5a6b7c8d9e0f"
 UNKNOWN_RULE = "00000000-0000-4000-8000-000000000000"
 
 
+type JsonValue = bool | int | float | str | None | list["JsonValue"] | dict[str, "JsonValue"]
+
+
 def admit_v2(team_id: int, *, creation: bool = False):
     """Turn the writer flags on for one project the way the local flag client would answer."""
     enabled = {config_writes.V2_WRITES_FLAG} | ({config_writes.V2_CREATION_FLAG} if creation else set())
@@ -322,7 +325,9 @@ class TestAdmittedV2Updates(AdmittedV2TestCase):
             ("object", {"a": 1, "b": [True]}, {"b": [True], "a": 1}),
         ]
     )
-    def test_typed_documents_replace_and_report_warnings(self, return_type: str, upper: Any, lower: Any) -> None:
+    def test_typed_documents_replace_and_report_warnings(
+        self, return_type: str, upper: JsonValue, lower: JsonValue
+    ) -> None:
         flag = self.flag(
             config(targeted(value=upper), rollout(value=upper), return_type=return_type, default_value=None)
         )

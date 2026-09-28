@@ -416,12 +416,15 @@ fn released_schema_and_registry_match_the_parser_contract() {
             assert!(result(&flag).is_ok());
         }
     }
-    for (entry, value) in registry["return_types"].as_array().unwrap().iter().zip([
+    let return_types = registry["return_types"].as_array().unwrap();
+    let samples = [
         json!(true),
         json!("compact"),
         json!(1.25),
         json!({"layout": "compact"}),
-    ]) {
+    ];
+    assert_eq!(return_types.len(), samples.len());
+    for (entry, value) in return_types.iter().zip(samples) {
         let mut document = config();
         document["return_type"] = entry["value"].clone();
         document["default_value"] = Value::Null;

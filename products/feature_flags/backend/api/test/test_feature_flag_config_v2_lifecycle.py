@@ -2,8 +2,6 @@
 work with both writer flags off; creating and enabling need the project's flags on.
 """
 
-from typing import Any
-
 from django.conf import settings
 from django.test import override_settings
 
@@ -19,6 +17,7 @@ from products.approvals.backend.serializers import ApprovalPolicySerializer
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.api.test.test_feature_flag_config_v2_updates import (
     AdmittedV2TestCase,
+    JsonValue,
     V2UpdateTestCase,
     admit_v2,
     config,
@@ -31,8 +30,8 @@ from products.feature_flags.backend.local_evaluation import _get_flags_response_
 from products.feature_flags.backend.models import FeatureFlag
 
 
-def nested_list(levels: int) -> Any:
-    value: Any = 1
+def nested_list(levels: int) -> JsonValue:
+    value: JsonValue = 1
     for _ in range(levels):
         value = [value]
     return value
@@ -137,7 +136,9 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
             ("object", {"layout": "compact", "options": [1, True, None]}, {}),
         ]
     )
-    def test_typed_documents_are_created_and_round_trip(self, return_type: str, value: Any, default: Any) -> None:
+    def test_typed_documents_are_created_and_round_trip(
+        self, return_type: str, value: JsonValue, default: JsonValue
+    ) -> None:
         submitted = config(
             targeted(rule_id=None, value=value), rollout(rule_id=None, seed=None, value=value), return_type=return_type
         )
@@ -161,7 +162,7 @@ class TestAdmittedV2Creation(AdmittedV2TestCase):
         ]
     )
     def test_values_that_do_not_match_the_return_type_are_rejected(
-        self, _name: str, return_type: str, default: Any, value: Any, attr: str
+        self, _name: str, return_type: str, default: JsonValue, value: JsonValue, attr: str
     ) -> None:
         submitted = config(targeted(rule_id=None, value=value), return_type=return_type)
         submitted["default_value"] = default
