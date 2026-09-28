@@ -15,6 +15,7 @@ from unittest.mock import patch
 
 from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_local_evaluation_not_modified_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
     filter_org_reports,
@@ -150,6 +151,27 @@ def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -
     assert all_data == {}
 
 
+def test_load_all_data_defaults_local_evaluation_not_modified_for_unpatched_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_local_evaluation_not_modified_patch_defaults(all_data, [])
+
+    assert all_data == {"teams_with_local_evaluation_not_modified_requests_count_in_period": {}}
+
+
+def test_load_all_data_does_not_default_local_evaluation_not_modified_for_patched_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    results = [
+        RunQueryToS3Result(
+            query_name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+            s3_key="unused",
+            duration_ms=1,
+        )
+    ]
+    add_pre_local_evaluation_not_modified_patch_defaults(all_data, results)
+
+    assert all_data == {}
+
+
 # ---- iter_chunk_lines ----------------------------------------------------
 
 
@@ -276,6 +298,7 @@ def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None
     reports = {
         "with-events": _empty_org_report("with-events", event_count_in_period=1),
         "with-recordings": _empty_org_report("with-recordings", recording_count_in_period=1),
+        "with-304s": _empty_org_report("with-304s", local_evaluation_not_modified_requests_count_in_period=1),
         "idle": _empty_org_report("idle"),
         # Counters not in `has_non_zero_usage` (dashboard counts, query
         # bytes read, etc.) must not keep an org in.
@@ -284,4 +307,4 @@ def test_filter_orgs_with_usage_keeps_only_orgs_with_billable_counters() -> None
 
     out = filter_orgs_with_usage(reports)
 
-    assert set(out.keys()) == {"with-events", "with-recordings"}
+    assert set(out.keys()) == {"with-events", "with-recordings", "with-304s"}

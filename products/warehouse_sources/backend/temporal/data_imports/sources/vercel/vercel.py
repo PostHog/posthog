@@ -181,10 +181,13 @@ def validate_credentials(access_token: str) -> tuple[bool, str | None]:
 
     if response.status_code == 200:
         return True, None
-    if response.status_code in (400, 401):
+    if response.status_code in (400, 401, 404):
         # The probe carries no query string and no body, so a 400 is Vercel rejecting the token
         # itself rather than anything we sent — a token pasted with stray characters reads as
-        # malformed at the gateway before it is ever looked up.
+        # malformed at the gateway before it is ever looked up. A 404 here isn't documented for
+        # this endpoint, but is observed when the token doesn't resolve to a Vercel user at all
+        # (e.g. a team-scoped token used where an account access token is expected); the fix is
+        # the same as an invalid token, so it shares the message.
         return False, _VERCEL_INVALID_TOKEN_ERROR
     if response.status_code == 403:
         return (
