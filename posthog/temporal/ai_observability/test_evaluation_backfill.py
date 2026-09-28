@@ -24,6 +24,7 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     EvaluationBackfillWorkflow,
     FindCandidatesInputs,
     FindCandidatesOutput,
+    MeasureRemainderInputs,
     PrepareTickOutput,
     TickAction,
     advance_evaluation_backfill_cursor_activity,
@@ -39,7 +40,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
 )
 from posthog.temporal.ai_observability.run_aggregate_evaluation import RunAggregateEvaluationInputs
 
-from products.ai_observability.backend.backfill_candidates import BackfillCandidate, CandidatePage
+from products.ai_observability.backend.backfill_candidates import BackfillCandidate, BackfillScope, CandidatePage
 from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill, EvaluationBackfillStatus
 from products.ai_observability.backend.models.evaluations import Evaluation
 
@@ -226,11 +227,6 @@ class TestEvaluationBackfillWorkflow:
         assert called.index(measure_evaluation_backfill_remainder_activity) > called.index(
             advance_evaluation_backfill_cursor_activity
         )
-        measure = next(
-            call for fn, call in mocks.activity_calls if fn is measure_evaluation_backfill_remainder_activity
-        )
-        # The children this tick started have not produced verdicts yet, so the count discounts them.
-        assert measure.in_flight == 1
         continue_as_new.assert_not_called()
 
     @pytest.mark.asyncio
@@ -464,6 +460,30 @@ def _advance(
 
 @pytest.mark.django_db(transaction=True)
 class TestEvaluationBackfillActivities:
+    @pytest.mark.parametrize(
+        "dispatched,skipped,counted,expected",
+        [
+            (1, 15, 14, 0),
+            (3000, 0, 3000, 0),
+            (1, 0, 5, 4),
+        ],
+    )
+    def test_remainder_discounts_every_unit_the_run_covered(
+        self, backfill_data, dispatched: int, skipped: int, counted: int, expected: int
+    ) -> None:
+        _update_backfill(backfill_data, dispatched_count=dispatched, skipped_count=skipped)
+
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_backfill.count_backfill_candidates",
+            return_value=BackfillScope(to_evaluate=counted, already_judged=0),
+        ):
+            async_to_sync(measure_evaluation_backfill_remainder_activity)(
+                MeasureRemainderInputs(backfill_id=str(backfill_data["backfill"].id), team_id=backfill_data["team"].id)
+            )
+
+        backfill_data["backfill"].refresh_from_db()
+        assert backfill_data["backfill"].remaining_count == expected
+
     @pytest.mark.parametrize("status", [EvaluationBackfillStatus.COMPLETED, EvaluationBackfillStatus.CANCELLED, None])
     def test_prepare_returns_finished_for_missing_or_terminal_row(self, backfill_data, status) -> None:
         inputs = _activity_inputs(backfill_data)
