@@ -11,6 +11,7 @@ import { CdpOutput } from '../cdp-services'
 import {
     BatchResolverState,
     MAX_RESOLVER_ATTEMPTS,
+    deserializeResolverState,
     serializeResolverState,
 } from '../services/hogflows/batch-resolver.types'
 import { AudienceFetchTimeoutError } from '../services/hogflows/hogflow-batch-person-query.service'
@@ -469,5 +470,60 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 'hog_flow'
             )
         })
+    })
+
+    describe('workflow deactivated mid-run', () => {
+        const runningState = (): BatchResolverState => ({
+            batchJobId: 'batch-job-inactive',
+            teamId: team.id,
+            hogFlowId: hogFlow.id,
+            cursor: 'page-2',
+            filters: { properties: [] },
+            maxAudienceSize: 100,
+            totalEnqueued: 50,
+            pagesProcessed: 1,
+            attempts: 0,
+            variables: {},
+            startedAt: '2026-08-11T00:00:00.000Z',
+        })
+
+        it.each(['draft', 'archived'] as const)(
+            'stops paging and writes a cancelled terminal when the workflow is %s',
+            async (status) => {
+                const getBlastRadiusPersons = jest.fn()
+                const bulkCreateAndCheckIn = jest.fn()
+                const reschedule = jest.fn().mockResolvedValue(undefined)
+                const queueLogs = jest.fn()
+                const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+                Object.assign(consumer, {
+                    config: { SITE_URL: 'https://us.posthog.com' },
+                    deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
+                    hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue({ ...hogFlow, status }) },
+                    hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                    hogFunctionMonitoringService: { queueAppMetrics: jest.fn(), queueLogs },
+                })
+                const state = runningState()
+
+                await (consumer as any).processOnePage({ bulkCreateAndCheckIn, reschedule }, state)
+
+                expect(getBlastRadiusPersons).not.toHaveBeenCalled()
+                expect(bulkCreateAndCheckIn).not.toHaveBeenCalled()
+                // Terminal write, not a bare cancel: nothing else moves the batch run row
+                // out of its non-terminal status when the workflow is merely deactivated.
+                const [{ state: rescheduledState }] = reschedule.mock.calls[0]
+                expect(deserializeResolverState(rescheduledState).pendingTerminal).toEqual('cancelled')
+                expect(queueLogs).toHaveBeenCalledWith(
+                    [
+                        expect.objectContaining({
+                            log_source_id: 'batch-job-inactive',
+                            message:
+                                'Batch run stopped because the workflow is no longer active. ' +
+                                'The remaining audience did not receive this workflow.',
+                        }),
+                    ],
+                    'hog_flow'
+                )
+            }
+        )
     })
 })
