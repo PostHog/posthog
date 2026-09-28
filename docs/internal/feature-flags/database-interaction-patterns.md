@@ -397,7 +397,9 @@ One database call can wait the full acquire timeout and then run until the state
 Keep `ACQUIRE_TIMEOUT_SECS` plus each pool's statement timeout well under `REQUEST_TIMEOUT_MS`.
 Otherwise the request can time out while its query still runs, and sqlx closes the connection instead of returning it to the pool.
 The service logs a warning at startup for each pool where the sum does not fit.
-Hash key override calls do not retry a timeout, so a retry does not add to this sum.
+Hash key override calls do not retry a timeout.
+They do retry a transient error.
+Each retry waits for a connection and runs the query again, so this sum bounds each attempt, not the whole call.
 
 ## Related files
 

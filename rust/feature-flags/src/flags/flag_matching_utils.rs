@@ -1120,7 +1120,21 @@ pub async fn set_feature_flag_hash_key_overrides(
                 result
             }
             Err(e) => {
-                classify_and_track_error(e, "set_hash_key_overrides", should_retry_on_error(e));
+                let will_retry = should_retry_on_error(e);
+                classify_and_track_error(e, "set_hash_key_overrides", will_retry);
+                if will_retry {
+                    common_metrics::inc(
+                        FLAG_HASH_KEY_RETRIES_COUNTER,
+                        &[
+                            ("team_id".to_string(), team_id.to_string()),
+                            (
+                                "operation".to_string(),
+                                "set_hash_key_overrides".to_string(),
+                            ),
+                        ],
+                        1,
+                    );
+                }
 
                 result
             }
@@ -1435,11 +1449,21 @@ pub async fn should_write_hash_key_override(
                 result
             }
             Err(e) => {
-                classify_and_track_error(
-                    e,
-                    "should_write_hash_key_override",
-                    should_retry_on_error(e),
-                );
+                let will_retry = should_retry_on_error(e);
+                classify_and_track_error(e, "should_write_hash_key_override", will_retry);
+                if will_retry {
+                    common_metrics::inc(
+                        FLAG_HASH_KEY_RETRIES_COUNTER,
+                        &[
+                            ("team_id".to_string(), team_id.to_string()),
+                            (
+                                "operation".to_string(),
+                                "should_write_hash_key_override".to_string(),
+                            ),
+                        ],
+                        1,
+                    );
+                }
 
                 result
             }
