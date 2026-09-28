@@ -61,11 +61,13 @@ describe('broadcastWizardLogic', () => {
     let patchedSubjects: string[]
     let holdPatch: Promise<void> | null
     let onPatchStarted: (() => void) | null
+    let failPatches: number
 
     beforeEach(() => {
         patchedSubjects = []
         holdPatch = null
         onPatchStarted = null
+        failPatches = 0
         const created = new Promise<void>((resolve) => {
             releaseCreate = resolve
         })
@@ -85,6 +87,10 @@ describe('broadcastWizardLogic', () => {
                     const body = (await request.json()) as { actions: any[] }
                     const subject = body.actions.find((action) => action.type === 'function_email').config.inputs.email
                         .value.subject
+                    if (failPatches > 0) {
+                        failPatches -= 1
+                        return [500, { detail: 'Simulated outage' }]
+                    }
                     patchedSubjects.push(subject)
                     onPatchStarted?.()
                     if (holdPatch) {
@@ -160,6 +166,23 @@ describe('broadcastWizardLogic', () => {
         await expectLogic(logic).toDispatchActions(['showSavedDraftUrl']).toFinishAllListeners()
 
         expect(patchedSubjects).toEqual(['Typed during the create'])
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+    })
+
+    it('retries a failed email autosave and moves to the draft URL once it saves', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
+        router.actions.push('/broadcasts/new')
+        failPatches = 1
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Saved on the retry' })
+
+        await expectLogic(logic)
+            .toDispatchActions(['setEmail', 'draftAutosaved', 'showSavedDraftUrl'])
+            .toFinishAllListeners()
+        expect(patchedSubjects).toEqual(['Saved on the retry'])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
     })
 

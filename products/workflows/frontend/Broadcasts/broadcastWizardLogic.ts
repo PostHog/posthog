@@ -57,6 +57,9 @@ import {
 
 export type BroadcastWizardStep = 'recipients' | 'goal' | 'content' | 'schedule' | 'review'
 
+const EMAIL_AUTOSAVE_RETRIES = 3
+const EMAIL_AUTOSAVE_RETRY_MS = 2000
+
 export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goal', 'content', 'schedule', 'review']
 
 export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
@@ -1051,6 +1054,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.draftAutosaved(await saveWithoutClobbering(projectId, values.broadcastId!, values))
                     clearPending()
                 })
+                cache.emailAutosaveRetries = 0
                 actions.showSavedDraftUrl()
             } catch (error: any) {
                 if (error instanceof EditedElsewhereError) {
@@ -1058,8 +1062,15 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     cache.autosaveConflict = true
                     actions.applyExternalEdit(error.latest, values.broadcast)
                     lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
+                } else if ((cache.emailAutosaveRetries ?? 0) < EMAIL_AUTOSAVE_RETRIES) {
+                    // The edit stays pending, which keeps a new draft on /broadcasts/new until it saves, so retry
+                    // a failed save rather than wait for Continue. Continue saves it and reports a lasting failure.
+                    cache.emailAutosaveRetries = (cache.emailAutosaveRetries ?? 0) + 1
+                    actions.replayDeferredEdit()
+                    await breakpoint(EMAIL_AUTOSAVE_RETRY_MS)
+                    actions.setEmail(values.email)
+                    return
                 }
-                // Otherwise Continue saves the same state and reports the failure there.
             }
             actions.replayDeferredEdit()
         },
