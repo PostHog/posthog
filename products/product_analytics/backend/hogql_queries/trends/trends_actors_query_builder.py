@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import cached_property
 from typing import Optional, cast
 
-from dateutil.parser import parse
+from dateutil.parser import ParserError, parse
 from dateutil.relativedelta import relativedelta
 
 from posthog.schema import (
@@ -111,10 +111,16 @@ class TrendsActorsQueryBuilder:
         else:
             self.entity = entity
 
+        if isinstance(time_frame, str) and not time_frame.strip():
+            time_frame = None
+
         if time_frame is None or isinstance(time_frame, datetime):
             self.time_frame = time_frame
         else:
-            parsed_time_frame = parse(time_frame)
+            try:
+                parsed_time_frame = parse(time_frame)
+            except (ParserError, OverflowError):
+                raise QueryError(f"A `day` of {time_frame!r} is not a valid date")
 
             if parsed_time_frame.tzinfo is None:
                 parsed_time_frame = parsed_time_frame.replace(tzinfo=self.team.timezone_info)
