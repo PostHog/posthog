@@ -1071,8 +1071,8 @@ function SuggestedFiltersMessage({
     return (
         <span className={clsx('text-secondary text-center', className)}>
             {examples
-                ? `Search for ${examples} and we'll suggest filters`
-                : "Start searching and we'll suggest filters"}
+                ? `Type a value like ${examples} and we'll suggest a filter for it`
+                : "Start typing and we'll suggest filters"}
         </span>
     )
 }
