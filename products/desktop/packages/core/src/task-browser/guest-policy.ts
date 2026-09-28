@@ -1,3 +1,4 @@
+import { isPrivateIpv4Octets, isPrivateIpv6Literal } from "@posthog/shared";
 import { TASK_PREVIEW_TOKEN_PARAM } from "@posthog/shared/constants";
 
 const SANDBOX_PREVIEW_HOST_SUFFIX = ".modal.host";
@@ -29,50 +30,61 @@ export function isAllowedTaskPreviewUrl(url: string): boolean {
   );
 }
 
+const PRIVATE_HOST_SUFFIXES = [
+  ".local",
+  ".localhost",
+  ".internal",
+  ".lan",
+  ".home",
+  ".home.arpa",
+  ".ts.net",
+];
+const NETWORK_PROTOCOLS = new Set(["http:", "https:", "ws:", "wss:"]);
+
 function normalizeHost(hostname: string): string {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  const mapped =
-    /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(
-      host,
-    );
-  if (!mapped) return host;
-  if (mapped[1]) return mapped[1];
-  const high = Number.parseInt(mapped[2], 16);
-  const low = Number.parseInt(mapped[3], 16);
-  return [high >> 8, high & 255, low >> 8, low & 255].join(".");
+  return hostname
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase()
+    .replace(/\.$/, "");
+}
+
+function parseIpv4(host: string): [number, number, number, number] | null {
+  const match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!match) return null;
+  const octets = match.slice(1).map(Number);
+  if (octets.some((octet) => octet > 255)) return null;
+  return octets as [number, number, number, number];
+}
+
+function mappedIpv4(host: string): [number, number, number, number] | null {
+  const hex = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (hex) {
+    const high = Number.parseInt(hex[1], 16);
+    const low = Number.parseInt(hex[2], 16);
+    return [high >> 8, high & 255, low >> 8, low & 255];
+  }
+  const dotted = host.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  return dotted ? parseIpv4(dotted[1]) : null;
 }
 
 function isPrivateNetworkHost(hostname: string): boolean {
   const host = normalizeHost(hostname);
-  if (host === "localhost" || host.endsWith(".localhost")) return true;
-  if (host === "::1" || host === "::" || host.startsWith("fe80:")) return true;
-  if (host.startsWith("fc") || host.startsWith("fd")) return host.includes(":");
-  const octets = host.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part))) {
-    return false;
-  }
-  const [a, b] = octets;
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    (a === 100 && b >= 64 && b <= 127)
-  );
+  if (!host) return false;
+  if (host === "localhost") return true;
+  if (host.includes(":")) return isPrivateIpv6Literal(host);
+  const octets = parseIpv4(host);
+  if (octets) return isPrivateIpv4Octets(octets[0], octets[1]);
+  if (!host.includes(".")) return true;
+  return PRIVATE_HOST_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
 
 function isLoopbackHost(hostname: string): boolean {
   const host = normalizeHost(hostname);
-  return (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host === "::1" ||
-    host === "::" ||
-    host === "0.0.0.0" ||
-    host.startsWith("127.")
-  );
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1" || host === "::" || host === "::0") return true;
+  const octets = host.includes(":") ? mappedIpv4(host) : parseIpv4(host);
+  if (!octets) return false;
+  return octets[0] === 127 || octets.every((octet) => octet === 0);
 }
 
 function requestPort(url: URL): number {
@@ -106,6 +118,7 @@ export function isBlockedPreviewRequest(
   ) {
     return true;
   }
+  if (!NETWORK_PROTOCOLS.has(request.protocol)) return false;
   if (
     isLoopbackHost(request.hostname) &&
     protectedPorts.has(requestPort(request))
@@ -113,11 +126,11 @@ export function isBlockedPreviewRequest(
     return true;
   }
   const page = parseUrl(pageUrl);
-  if (!page) return false;
-  return (
-    !isPrivateNetworkHost(page.hostname) &&
-    isPrivateNetworkHost(request.hostname)
-  );
+  const pageIsPrivate =
+    !!page &&
+    WEB_PROTOCOLS.has(page.protocol) &&
+    isPrivateNetworkHost(page.hostname);
+  return !pageIsPrivate && isPrivateNetworkHost(request.hostname);
 }
 
 export function createNewWindowLimiter(

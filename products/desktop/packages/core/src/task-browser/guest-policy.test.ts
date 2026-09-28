@@ -27,6 +27,7 @@ describe("guest policy", () => {
       "the debugging port through a mapped address",
       "http://[::ffff:7f00:1]:9222/",
     ],
+    ["the debugging port through a trailing dot", "http://localhost.:9222/"],
   ])("blocks a local page from reaching %s", (_name, requestUrl) => {
     const ports = protectedLoopbackPorts("9222", "http://localhost:5173/");
     expect(
@@ -71,6 +72,40 @@ describe("guest policy", () => {
       true,
     ],
     ["a file", "https://a.modal.host/", "file:///etc/passwd", true],
+    [
+      "localhost with a trailing dot",
+      "https://a.example/",
+      "http://localhost./",
+      true,
+    ],
+    [
+      "an IPv6 link-local address",
+      "https://a.example/",
+      "http://[feb0::1]/",
+      true,
+    ],
+    [
+      "the benchmarking range",
+      "https://a.example/",
+      "http://198.18.0.1/",
+      true,
+    ],
+    ["a bare intranet name", "https://a.example/", "http://nas/", true],
+    ["a .local name", "https://a.example/", "http://printer.local/", true],
+    [
+      "a Tailscale name",
+      "https://a.example/",
+      "https://box.tail1.ts.net/",
+      true,
+    ],
+    [
+      "a private address from a page it cannot read",
+      "not a url",
+      "http://10.0.0.5/",
+      true,
+    ],
+    ["a data URL", "https://a.example/", "data:image/png;base64,AA", false],
+    ["a blob URL", "https://a.example/", "blob:https://a.example/1", false],
     [
       "a public site",
       "https://a.modal.host/",
