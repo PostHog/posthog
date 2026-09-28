@@ -98,7 +98,9 @@ def ablate(agents_md: str, claim: Claim) -> str:
     return "".join(kept)
 
 
-def agents_md_for(agents_md: str, claim: Claim, arm: Arm) -> str:
+def agents_md_for(agents_md: str, claim: Claim, arm: Arm, candidate: str | None = None) -> str:
+    if candidate is not None:
+        return candidate if arm == "with" else agents_md
     return agents_md if arm == "with" else ablate(agents_md, claim)
 
 

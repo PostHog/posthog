@@ -1,6 +1,7 @@
 # ruff: noqa: T201
 import sys
 import json
+import hashlib
 import argparse
 import traceback
 from collections import defaultdict
@@ -15,11 +16,18 @@ from products.tasks.evals.golden_prs.scoring import changed_files
 from products.tasks.evals.golden_prs.workspace import candidate_diff
 
 from .claims import ARMS, REPO_ROOT, Arm, Claim, agents_md_for, build_prompt, load_claims, select_claims
-from .detectors import DEFAULT_JUDGE_MODEL, Candidate, detect
+from .detectors import DEFAULT_JUDGE_MODEL, Candidate, Detection, TaskAssessment, TaskStatus, assess_task, detect
 from .workspace import agents_md_at, checkout_with_agents_md, resolve_ref
 
 DEFAULT_RESULTS_DIR = Path(__file__).with_name("results")
 DEFAULT_CASE_TIMEOUT_SECONDS = 15 * 60
+DEFAULT_MODEL_MATRIX: tuple[tuple[Runtime, str], ...] = (
+    ("claude", "claude-opus-5-5"),
+    ("claude", "claude-fable-5-1"),
+    ("claude", "claude-sonnet-5-5"),
+    ("codex", "gpt-6-astra"),
+    ("codex", "gpt-6-sol"),
+)
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -54,6 +62,11 @@ class JobResult:
     details: list[str]
     usage: dict[str, float | int]
     changed_files: list[str]
+    comparison: str = "rule"
+    instructions_sha256: str = ""
+    task_assessment: TaskStatus = "unmeasured"
+    task_assessment_detail: str = "No task assessment was recorded."
+    hooks_disabled: bool = False
 
 
 def evaluate(
@@ -65,14 +78,24 @@ def evaluate(
     timeout_seconds: int,
     repo: Path,
     ref: str,
+    candidate_agents_md: str | None = None,
 ) -> tuple[JobResult, str, str]:
     prompt = build_prompt(job.claim)
     started_at = datetime.now(UTC).isoformat(timespec="seconds")
-    variant = agents_md_for(agents_md, job.claim, job.arm)
+    variant = agents_md_for(agents_md, job.claim, job.arm, candidate_agents_md)
     with checkout_with_agents_md(repo, ref, variant) as workdir:
-        run = run_agent(runtime, model, prompt, workdir, timeout_seconds)
+        run = run_agent(runtime, model, prompt, workdir, timeout_seconds, disable_hooks=True)
         candidate = Candidate.from_diff(candidate_diff(workdir), workdir)
-        detection = detect(candidate, job.claim, judge_model)
+        failure = agent_failure(run)
+        environment_changes = candidate.changed_files(".flox/*")
+        if environment_changes:
+            failure = f"Environment setup files changed: {', '.join(environment_changes)}"
+        if failure:
+            detection = Detection(violations=None, details=(failure,))
+            assessment = TaskAssessment(status="unmeasured", reasoning=failure)
+        else:
+            detection = detect(candidate, job.claim, judge_model)
+            assessment = assess_task(candidate, job.claim, model=judge_model)
     result = JobResult(
         claim=job.claim.id,
         section=job.claim.section,
@@ -88,20 +111,27 @@ def evaluate(
         duration_seconds=run.duration_seconds,
         exit_code=run.exit_code,
         timed_out=run.timed_out,
-        failure=agent_failure(run),
+        failure=failure,
         violations=detection.violations,
         details=list(detection.details),
         usage=agent_usage(run),
         changed_files=sorted(changed_files(candidate.diff)),
+        comparison="file" if candidate_agents_md is not None else "rule",
+        instructions_sha256=hashlib.sha256(variant.encode()).hexdigest(),
+        task_assessment=assessment.status,
+        task_assessment_detail=assessment.reasoning,
+        hooks_disabled=runtime == "claude",
     )
     return result, candidate.diff, run.stdout + run.stderr
 
 
 def write_result(results_dir: Path, name: str, result: JobResult, candidate: str, agent_log: str) -> None:
     results_dir.mkdir(parents=True, exist_ok=True)
-    (results_dir / f"{name}.json").write_text(json.dumps(asdict(result), indent=2))
     (results_dir / f"{name}.diff").write_text(candidate)
     (results_dir / f"{name}.agent.log").write_text(agent_log)
+    temporary = results_dir / f"{name}.json.tmp"
+    temporary.write_text(json.dumps(asdict(result), indent=2))
+    temporary.replace(results_dir / f"{name}.json")
 
 
 def load_results(results_dir: Path) -> list[dict]:
@@ -160,8 +190,17 @@ def report(results: list[dict]) -> str:
     """One table per agent: violations with the rule, without it, and the difference the rule makes."""
     if not results:
         return "No results found.\n"
+    comparisons = {r.get("comparison", "rule") for r in results}
+    if len(comparisons) != 1:
+        raise ValueError("Report rule removal and whole-file comparisons separately.")
+    file_comparison = comparisons == {"file"}
+    with_label = "Candidate file" if file_comparison else "With rule"
+    without_label = "Current file" if file_comparison else "Without rule"
+    effect_label = "Current minus candidate" if file_comparison else "Rule effect"
+    successful = [r for r in results if not r.get("failure") and not r.get("timed_out") and not r.get("exit_code")]
+    excluded = len(results) - len(successful)
     by_agent: dict[str, list[dict]] = defaultdict(list)
-    for result in results:
+    for result in successful:
         by_agent[f"{result['runtime']} {result['model']}"].append(result)
     sections: list[str] = []
     for agent, agent_results in sorted(by_agent.items()):
@@ -175,16 +214,34 @@ def report(results: list[dict]) -> str:
             f"| {_effect(claim_results)} | {_helped(claim_results)} |"
             for claim, claim_results in sorted(by_claim.items(), key=_largest_effect_first, reverse=True)
         ]
-        header = (
-            "| Claim | Section | With rule | Without rule | Rule effect | Repeats won |\n|---|---|---|---|---|---|\n"
-        )
+        header = f"| Claim | Section | {with_label} | {without_label} | {effect_label} | Repeats won |\n|---|---|---|---|---|---|\n"
         table = "\n".join(rows)
         sections.append(f"### {agent}\n\n{header}{table}\n")
+        assessment_counts = {
+            status: sum(r.get("task_assessment", "unmeasured") == status for r in agent_results)
+            for status in ("issues_found", "no_issues_found", "unmeasured")
+        }
+        sections.append(
+            "Task assessment (separate from rule scores): "
+            + ", ".join(f"{status}: {count}" for status, count in assessment_counts.items())
+            + ".\n"
+        )
+    comparison_description = (
+        "Current minus candidate is positive when the candidate has fewer detected violations in these samples. "
+        if file_comparison
+        else "Rule effect is without minus with: positive means fewer detected violations with the rule in these samples. "
+    )
     return (
-        "\n".join(sections) + "\nViolations are the detector's count per run, averaged over repeats. "
-        "Rule effect is without minus with: positive means the rule reduced violations. "
-        "Repeats won counts the repeats where the run without the rule broke it more than the run with it.\n"
-        + _untempted_traps(results)
+        "\n".join(sections)
+        + "\nViolations are the detector's count per run, averaged over repeats. "
+        + comparison_description
+        + f"Repeats won counts the repeats where {without_label.lower()} had a higher detector score than {with_label.lower()}. "
+        "These comparisons do not establish statistical confidence or task correctness. "
+        "Task assessments are model reviews, not executed tests; no_issues_found does not establish correctness. "
+        "The entrypoint score counts statements, not architectural violations. "
+        "Other instructions, skills, and repository examples remain available in both arms.\n"
+        + _untempted_traps(successful)
+        + (f"\nExcluded {excluded} failed run(s) from detector summaries.\n" if excluded else "")
     )
 
 
@@ -193,10 +250,17 @@ def _untempted_traps(results: list[dict]) -> str:
     by_claim: dict[str, list[dict]] = defaultdict(list)
     for result in results:
         by_claim[result["claim"]].append(result)
-    quiet = sorted(claim for claim, claim_results in by_claim.items() if not _broken(claim_results))
+    quiet = sorted(
+        claim
+        for claim, claim_results in by_claim.items()
+        if any(r["violations"] is not None for r in claim_results) and not _broken(claim_results)
+    )
     if not quiet:
         return ""
-    return f"\nNo model broke these rules in either arm, so the trap did not tempt: {', '.join(quiet)}\n"
+    return (
+        "\nNo violations were detected in the available results for these claims: "
+        f"{', '.join(quiet)}. This does not show that the rules are unnecessary.\n"
+    )
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -212,14 +276,86 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     run.add_argument("--workers", type=int, default=2, help="Agents to run at the same time.")
     run.add_argument("--runtime", choices=("claude", "codex"), default="claude")
     run.add_argument("--model", help=f"Agent model. Defaults: {DEFAULT_MODELS}")
+    run.add_argument("--matrix", action="store_true", help="Run the standard five-model comparison set.")
+    run.add_argument("--dry-run", action="store_true", help="List jobs without calling agents or judges.")
     run.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
     run.add_argument("--case-timeout", type=int, default=DEFAULT_CASE_TIMEOUT_SECONDS, help="Seconds per run.")
     run.add_argument("--ref", default="HEAD", help="The commit whose tree and AGENTS.md the agent works on.")
     run.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     run.add_argument("--repo", type=Path, default=REPO_ROOT)
+    run.add_argument(
+        "--candidate-agents-md",
+        type=Path,
+        help="Compare this complete file against the file at --ref. With is candidate; without is current.",
+    )
     show = commands.add_parser("report", help="Print a markdown summary of results.")
     show.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     return parser.parse_args(argv)
+
+
+def jobs_for(
+    claims: list[Claim], models: tuple[tuple[Runtime, str], ...], arms: list[Arm] | None, repeats: int
+) -> list[tuple[Runtime, str, Job]]:
+    return [
+        (runtime, agent_model, Job(claim=claim, arm=arm, repeat=repeat))
+        for repeat in range(1, repeats + 1)
+        for claim in claims
+        for runtime, agent_model in models
+        for arm in (arms or (ARMS if repeat % 2 else ARMS[::-1]))
+    ]
+
+
+def run_claims(args: argparse.Namespace, selected: list[Claim]) -> int:
+    model = args.model or DEFAULT_MODELS[args.runtime]
+    if args.matrix and args.model:
+        raise SystemExit("Use --matrix or --model, not both.")
+    models = DEFAULT_MODEL_MATRIX if args.matrix else ((args.runtime, model),)
+    jobs = jobs_for(selected, models, args.arm, args.repeats)
+    if args.dry_run:
+        for runtime, agent_model, job in jobs:
+            print(f"{runtime} {agent_model} {job.name}")
+        return 0
+    ref = resolve_ref(args.repo, args.ref)
+    agents_md = agents_md_at(args.repo, ref)
+    candidate_agents_md = args.candidate_agents_md.read_text() if args.candidate_agents_md else None
+    label = "matrix" if args.matrix else f"{args.runtime}-{model}"
+    results_dir = args.results_dir / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{label}"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    (results_dir / "current-agents.md").write_text(agents_md)
+    if candidate_agents_md is not None:
+        (results_dir / "candidate-agents.md").write_text(candidate_agents_md)
+    print(f"{len(jobs)} runs at {ref[:12]}, {args.workers} at a time", flush=True)
+
+    def run_job(item: tuple[Runtime, str, Job]) -> bool:
+        runtime, agent_model, job = item
+        name = f"{runtime}-{agent_model}/{job.name}"
+        print(f"{name}: running", flush=True)
+        try:
+            result, candidate, agent_log = evaluate(
+                job,
+                agents_md,
+                runtime,
+                agent_model,
+                args.judge_model,
+                args.case_timeout,
+                args.repo,
+                ref,
+                candidate_agents_md,
+            )
+        except Exception:
+            print(f"{name}: crashed\n{traceback.format_exc()}", flush=True)
+            return False
+        write_result(results_dir / f"{runtime}-{agent_model}", job.name, result, candidate, agent_log)
+        outcome = "n/a" if result.violations is None else f"{result.violations:.0f}"
+        print(f"{name}: violations {outcome}" + (f" ({result.failure})" if result.failure else ""), flush=True)
+        return result.exit_code == 0 and not result.timed_out and result.failure is None
+
+    # The pool would otherwise hold a crash until iteration, after every other job has run.
+    with ThreadPoolExecutor(max_workers=args.workers) as pool:
+        completed = list(pool.map(run_job, jobs))
+    print(f"\nResults in {results_dir}\n")
+    print(report(load_results(results_dir)))
+    return 0 if all(completed) else 1
 
 
 def main(argv: list[str]) -> int:
@@ -243,37 +379,7 @@ def main(argv: list[str]) -> int:
     untestable = [claim.id for claim in selected if not claim.testable]
     if untestable:
         raise SystemExit(f"These claims have no trap task: {untestable}")
-    model = args.model or DEFAULT_MODELS[args.runtime]
-    ref = resolve_ref(args.repo, args.ref)
-    agents_md = agents_md_at(args.repo, ref)
-    results_dir = args.results_dir / f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{args.runtime}-{model}"
-    jobs = [
-        Job(claim=claim, arm=arm, repeat=repeat)
-        for claim in selected
-        for arm in (args.arm or ARMS)
-        for repeat in range(1, args.repeats + 1)
-    ]
-    print(f"{len(jobs)} runs of {args.runtime} {model} at {ref[:12]}, {args.workers} at a time", flush=True)
-
-    def run_job(job: Job) -> None:
-        print(f"{job.name}: running", flush=True)
-        try:
-            result, candidate, agent_log = evaluate(
-                job, agents_md, args.runtime, model, args.judge_model, args.case_timeout, args.repo, ref
-            )
-        except Exception:
-            print(f"{job.name}: crashed\n{traceback.format_exc()}", flush=True)
-            return
-        write_result(results_dir, job.name, result, candidate, agent_log)
-        outcome = "n/a" if result.violations is None else f"{result.violations:.0f}"
-        print(f"{job.name}: violations {outcome}" + (f" ({result.failure})" if result.failure else ""), flush=True)
-
-    # The pool would otherwise hold a crash until iteration, after every other job has run.
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        list(pool.map(run_job, jobs))
-    print(f"\nResults in {results_dir}\n")
-    print(report(load_results(results_dir)))
-    return 0
+    return run_claims(args, selected)
 
 
 if __name__ == "__main__":

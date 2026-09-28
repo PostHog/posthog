@@ -1,6 +1,7 @@
 import json
 import tempfile
 from collections.abc import Sequence
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
 
@@ -9,16 +10,28 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.tasks.evals.agents_md.__main__ import main, report
+from products.tasks.evals.agents_md.__main__ import Job, evaluate, main, report
 from products.tasks.evals.agents_md.claims import (
     AGENTS_MD_PATH,
+    Arm,
     Claim,
     ablate,
+    agents_md_for,
     build_prompt,
     load_claims,
     review_bullets,
 )
-from products.tasks.evals.agents_md.detectors import DETECTORS, Candidate, RuleVerdict, detect, judge
+from products.tasks.evals.agents_md.detectors import (
+    DETECTORS,
+    Candidate,
+    RuleVerdict,
+    TaskAssessment,
+    TaskStatus,
+    assess_task,
+    detect,
+    judge,
+)
+from products.tasks.evals.golden_prs.agents import AgentRun, Runtime, agent_command
 from products.tasks.evals.golden_prs.scoring import Answer
 
 
@@ -89,6 +102,112 @@ def test_build_prompt_carries_the_task_and_not_the_rule():
     assert "Add a thing." in prompt
     assert "Explain why" not in prompt
     assert "Do not install dependencies" in prompt
+
+
+@parameterized.expand([("with", "Short file"), ("without", "Current file")])
+def test_whole_file_comparison_does_not_remove_an_individual_rule(arm: Arm, expected: str) -> None:
+    assert agents_md_for("Current file", claim(), arm, "Short file") == expected
+
+
+def test_matrix_dry_run_includes_sonnet_without_starting_agents(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch("products.tasks.evals.agents_md.__main__.evaluate") as evaluate:
+        assert main(["run", "--matrix", "--dry-run", "--claim", load_claims()[0].id]) == 0
+    output = capsys.readouterr().out
+    for model in ("claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5", "gpt-6-astra", "gpt-6-sol"):
+        assert model in output
+    evaluate.assert_not_called()
+
+
+@parameterized.expand(
+    [
+        ("posthog/tasks/read.py", 1.0),
+        ("posthog/tasks/test/test_read.py", 0.0),
+        ("posthog/tasks/tests/test_read.py", 0.0),
+        ("posthog/tasks/test_read.py", 0.0),
+    ]
+)
+def test_scoping_check_excludes_test_fixtures(path: str, expected: float) -> None:
+    spec = next(c for c in load_claims() if c.id == "for-team-outside-request").detectors[1]
+    params = {key: value for key, value in spec.items() if key != "name"}
+    observed = DETECTORS[spec["name"]](
+        candidate(diff_for(path, ["Widget.objects.unscoped().create(team_id=2)"])), claim(), **params
+    )
+    assert observed.violations == expected
+    spec = next(c for c in load_claims() if c.id == "for-team-outside-request").detectors[0]
+    params = {key: value for key, value in spec.items() if key != "name"}
+    observed = DETECTORS[spec["name"]](
+        candidate(diff_for(path, ["Widget.objects.for_team(2).count()"])), claim(), **params
+    )
+    assert observed.violations == 1.0 - expected
+
+
+@parameterized.expand([("claude", True), ("codex", False)])
+def test_eval_hook_setting_is_scoped_to_claude(runtime: Runtime, has_settings: bool) -> None:
+    command = agent_command(runtime, "model", disable_hooks=True)
+    assert ("--settings" in command) == has_settings
+    if has_settings:
+        assert json.loads(command[command.index("--settings") + 1])["disableAllHooks"] is True
+    assert "--settings" not in agent_command(runtime, "model")
+
+
+@parameterized.expand(
+    [
+        ("issues_found", False),
+        ("no_issues_found", False),
+        ("unmeasured", True),
+    ]
+)
+def test_task_assessment_preserves_uncertainty(status: TaskStatus, fails: bool) -> None:
+    answer = (
+        Answer(value=None, failure="judge unavailable")
+        if fails
+        else Answer(value=TaskAssessment(status=status, reasoning="Checked the task."))
+    )
+    with patch("products.tasks.evals.agents_md.detectors.structured_answer", return_value=answer):
+        observed = assess_task(candidate(diff_for("example.txt", ["Proposed change"])), claim(), model="judge")
+    assert observed.status == status
+    assert observed.reasoning
+
+
+@parameterized.expand([("a.py", 1), (".flox/env/manifest.lock", 0)])
+def test_failed_or_setup_changed_trials_are_not_scored(path: str, exit_code: int) -> None:
+    run = AgentRun(
+        runtime="claude",
+        model="model",
+        agent_version="version",
+        exit_code=exit_code,
+        timed_out=False,
+        duration_seconds=1,
+        stdout="",
+        stderr="",
+    )
+    diff = diff_for(path, ["changed"])
+    with (
+        patch(
+            "products.tasks.evals.agents_md.__main__.checkout_with_agents_md",
+            return_value=nullcontext(Path("/nonexistent")),
+        ),
+        patch("products.tasks.evals.agents_md.__main__.run_agent", return_value=run),
+        patch("products.tasks.evals.agents_md.__main__.candidate_diff", return_value=diff),
+        patch("products.tasks.evals.agents_md.__main__.detect") as score,
+        patch("products.tasks.evals.agents_md.__main__.assess_task") as assess,
+    ):
+        result, saved_diff, _ = evaluate(
+            Job(claim=claim(), arm="with", repeat=1),
+            "instructions",
+            "claude",
+            "model",
+            "judge",
+            30,
+            Path("/nonexistent"),
+            "ref",
+        )
+    assert result.failure
+    assert result.violations is None
+    assert result.task_assessment == "unmeasured"
+    assert saved_diff == diff
+    score.assert_not_called()
+    assess.assert_not_called()
 
 
 LONG_PROSE = "This sentence goes on for a while so that it is long enough to look like a wrapped paragraph and"
@@ -267,6 +386,40 @@ TWO_DESCRIBES = "describe('a', () => {})\ndescribe('b', () => {})\n"
             1,
         ),
         ("email after atomic", "side_effects_inside_atomic", {}, "a.py", ATOMIC_CLEAN, ATOMIC_CLEAN.splitlines(), 0),
+        *[
+            (
+                name,
+                "side_effects_inside_atomic",
+                {},
+                "a.py",
+                source,
+                source.splitlines(),
+                expected,
+            )
+            for name, expression, expected in [
+                ("deferred lambda", "transaction.on_commit(lambda: send_mail())", 0),
+                ("callback evaluated before registration", "transaction.on_commit(send_mail())", 1),
+                (
+                    "lambda default evaluated before registration",
+                    "transaction.on_commit(lambda value=send_mail(): value)",
+                    1,
+                ),
+                ("lambda called immediately", "(lambda: send_mail())()", 1),
+                (
+                    "named callback",
+                    "def callback():\n            send_mail()\n        transaction.on_commit(callback)",
+                    0,
+                ),
+                (
+                    "function default evaluated immediately",
+                    "def callback(value=send_mail()):\n            return value",
+                    1,
+                ),
+            ]
+            for source in [
+                f"def view():\n    with transaction.atomic():\n        Record.objects.create()\n        {expression}\n"
+            ]
+        ],
         (
             "old email inside an atomic block the agent did not touch",
             "side_effects_inside_atomic",
@@ -344,7 +497,7 @@ def test_run_reports_a_crashed_job_and_finishes_the_others(capsys: pytest.Captur
         patch("products.tasks.evals.agents_md.__main__.evaluate", side_effect=RuntimeError("boom")) as evaluate,
         tempfile.TemporaryDirectory() as results_dir,
     ):
-        assert main(["run", "--claim", first, "--claim", first, "--results-dir", results_dir, "--workers", "1"]) == 0
+        assert main(["run", "--claim", first, "--claim", first, "--results-dir", results_dir, "--workers", "1"]) == 1
     out = capsys.readouterr().out
     assert evaluate.call_count == 2
     assert out.count("crashed") == 2
@@ -377,6 +530,9 @@ def test_report_shows_the_difference_the_rule_makes():
             result(claim="quiet", model="other", arm="without", violations=0.0),
             result(claim="backfire", arm="with", violations=2.0),
             result(claim="backfire", arm="without", violations=0.0),
+            result(claim="missing", violations=None),
+            result(claim="quiet", violations=10.0, failure="agent failed"),
+            result(claim="review", task_assessment="issues_found"),
         ]
     )
     assert "### claude m" in rendered
@@ -385,5 +541,14 @@ def test_report_shows_the_difference_the_rule_makes():
         "| quiet | Comments | 0.00 (n=1) | 0.00 (n=1) | no evidence | 0 of 1 |\n"
         "| backfire | Comments | 2.00 (n=1) | 0.00 (n=1) | -2.00 | 0 of 1 |\n"
     ) in rendered
-    assert "No model broke these rules in either arm, so the trap did not tempt: quiet" in rendered
+    assert "No violations were detected in the available results for these claims: quiet" in rendered
+    assert "claims: missing" not in rendered
+    assert "Excluded 1 failed run" in rendered
+    assert "issues_found: 1" in rendered
+    assert "no_issues_found does not establish correctness" in rendered
     assert report([]) == "No results found.\n"
+    compared = report([result(comparison="file"), result(comparison="file", arm="without", violations=1)])
+    assert "Candidate file | Current file | Current minus candidate" in compared
+    assert "With rule" not in compared
+    with pytest.raises(ValueError, match="separately"):
+        report([result(), result(comparison="file")])

@@ -28,8 +28,36 @@
         "starts_with": "**Reading a fail-closed model outside request context**",
         "task": "Add a Celery task `count_team_message_suppressions(team_id)` in `posthog/tasks/` that returns how many `MessageSuppression` rows (products/messaging/backend/models/message_suppression.py) the team has.",
         "detectors": [
-            { "name": "missing_added_matching", "pattern": "\\.for_team\\(", "files": "*.py" },
-            { "name": "count_added_matching", "pattern": "all_teams\\.|\\.unscoped\\(", "files": "*.py" }
+            {
+                "name": "missing_added_matching",
+                "pattern": "\\.for_team\\(",
+                "files": "*.py",
+                "exclude_files": [
+                    "test_*.py",
+                    "*/test_*.py",
+                    "tests/*",
+                    "test/*",
+                    "*/tests/*",
+                    "*/test/*",
+                    "conftest.py",
+                    "*/conftest.py"
+                ]
+            },
+            {
+                "name": "count_added_matching",
+                "pattern": "all_teams\\.|\\.unscoped\\(",
+                "files": "*.py",
+                "exclude_files": [
+                    "test_*.py",
+                    "*/test_*.py",
+                    "tests/*",
+                    "test/*",
+                    "*/tests/*",
+                    "*/test/*",
+                    "conftest.py",
+                    "*/conftest.py"
+                ]
+            }
         ]
     },
     {

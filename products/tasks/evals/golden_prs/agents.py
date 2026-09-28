@@ -30,9 +30,19 @@ class AgentRun:
     stderr: str
 
 
-def agent_command(runtime: Runtime, model: str) -> list[str]:
+def agent_command(runtime: Runtime, model: str, *, disable_hooks: bool = False) -> list[str]:
     if runtime == "claude":
-        return ["claude", "-p", "--model", model, "--dangerously-skip-permissions", "--output-format", "json"]
+        settings = ["--settings", json.dumps({"disableAllHooks": True})] if disable_hooks else []
+        return [
+            "claude",
+            "-p",
+            "--model",
+            model,
+            "--dangerously-skip-permissions",
+            "--output-format",
+            "json",
+            *settings,
+        ]
     return ["codex", "exec", "--model", model, "--dangerously-bypass-approvals-and-sandbox", "--json", "-"]
 
 
@@ -102,7 +112,9 @@ def agent_failure(run: AgentRun) -> str | None:
     return stderr_lines[-1] if stderr_lines else f"The agent exited with code {run.exit_code}."
 
 
-def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_seconds: int) -> AgentRun:
+def run_agent(
+    runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_seconds: int, *, disable_hooks: bool = False
+) -> AgentRun:
     # Read before the agent runs: a failing version probe after a completed run would otherwise
     # raise past the point where the caller collects the diff and log, discarding both.
     version = agent_version(runtime)
@@ -110,7 +122,7 @@ def run_agent(runtime: Runtime, model: str, prompt: str, workdir: Path, timeout_
     timed_out = False
     try:
         completed = subprocess.run(
-            agent_command(runtime, model),
+            agent_command(runtime, model, disable_hooks=disable_hooks),
             cwd=workdir,
             env=agent_environment(os.environ, runtime),
             input=prompt,
