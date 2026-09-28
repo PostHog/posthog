@@ -13791,7 +13791,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `S3` - S3
      * * `AwsS3` - Aws S3
      * * `S3Compatible` - S3 Compatible
      * * `Snowflake` - Snowflake
@@ -13809,7 +13808,6 @@ export namespace Schemas {
 
 
     export const BatchExportDestinationDestinationEnum = {
-      S3: 'S3',
       AwsS3: 'AwsS3',
       S3Compatible: 'S3Compatible',
       Snowflake: 'Snowflake',
@@ -14090,7 +14088,6 @@ export namespace Schemas {
     export interface BatchExportDestination {
       /** A choice of supported BatchExportDestination types.
        *
-       * * `S3` - S3
        * * `AwsS3` - Aws S3
        * * `S3Compatible` - S3 Compatible
        * * `Snowflake` - Snowflake
@@ -39393,6 +39390,7 @@ export namespace Schemas {
      * * `session_recordings` - Session Recordings
      * * `errortracking` - Errortracking
      * * `clientwarnings` - Clientwarnings
+     * * `heatmaps` - Heatmaps
      * * `ai` - Ai
      */
     export type IngestionPipelineEnum = typeof IngestionPipelineEnum[keyof typeof IngestionPipelineEnum];
@@ -39403,6 +39401,7 @@ export namespace Schemas {
       SessionRecordings: 'session_recordings',
       Errortracking: 'errortracking',
       Clientwarnings: 'clientwarnings',
+      Heatmaps: 'heatmaps',
       Ai: 'ai',
     } as const;
 
@@ -68425,6 +68424,8 @@ export namespace Schemas {
          * @nullable
          */
       task_summary: string | null;
+      /** Latest slug tags for this task, including tags inherited from an earlier run. */
+      task_tags: string[];
       state: TaskRunDetailDTOState;
       readonly artifacts: readonly TaskRunArtifactResponse[];
       /** @nullable */
@@ -78396,6 +78397,13 @@ export namespace Schemas {
          * @maxLength 1500
          */
       summary?: string;
+      /**
+         * Complete set of slug tags that replaces the prior tags. The agent chooses the tags. Omit the field to keep the current tags. Send an empty list to remove them.
+         * @maxItems 10
+         * @items.maxLength 50
+         * @items.pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$(?!\n)
+         */
+      tags?: string[];
     }
 
     /**
@@ -78467,6 +78475,7 @@ export namespace Schemas {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -78495,6 +78504,7 @@ export namespace Schemas {
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
     } as const;
 
     /**
@@ -78553,7 +78563,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -80058,6 +80069,127 @@ export namespace Schemas {
       priority: string | null;
       labels: unknown[];
       createdAt: string | null;
+    }
+
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `cancelled` - Cancelled
+     */
+    export type SandboxPollStatusEnum = typeof SandboxPollStatusEnum[keyof typeof SandboxPollStatusEnum];
+
+
+    export const SandboxPollStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Cancelled: 'cancelled',
+    } as const;
+
+    export interface SandboxSource {
+      /** Source reference the reply relies on. */
+      ref: string;
+      /** Short excerpt that supports the reply. */
+      excerpt: string;
+    }
+
+    /**
+     * * `business-knowledge-documents-search` - Search
+     * * `business-knowledge-document-window-retrieve` - Window
+     */
+    export type SandboxToolNameEnum = typeof SandboxToolNameEnum[keyof typeof SandboxToolNameEnum];
+
+
+    export const SandboxToolNameEnum = {
+      BusinessKnowledgeDocumentsSearch: 'business-knowledge-documents-search',
+      BusinessKnowledgeDocumentWindowRetrieve: 'business-knowledge-document-window-retrieve',
+    } as const;
+
+    export interface SandboxSearch {
+      /** Business knowledge tool the agent called.
+       *
+       * * `business-knowledge-documents-search` - Search
+       * * `business-knowledge-document-window-retrieve` - Window */
+      tool: SandboxToolNameEnum;
+      /** Tool input the agent sent. */
+      input: string;
+    }
+
+    export interface SandboxRun {
+      /** Sandbox task id. */
+      task_id: string;
+      /** Latest run id for this task. */
+      run_id: string;
+      /** running while the agent works. completed carries reply and sources. failed and cancelled carry error.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `cancelled` - Cancelled */
+      status: SandboxPollStatusEnum;
+      /**
+         * Answer text when status is completed. Null otherwise.
+         * @nullable
+         */
+      reply: string | null;
+      /** Sources cited in a completed answer. Empty when the run has not completed. */
+      sources: SandboxSource[];
+      /** Business knowledge search and window calls observed in the run log. */
+      searches: SandboxSearch[];
+      /**
+         * Why the run did not produce an answer. Null while running and on a completed answer.
+         * @nullable
+         */
+      error: string | null;
+      /** True when the run log contains an exact docs-search call. That tool is not granted to this sandbox. */
+      docs_search_called: boolean;
+    }
+
+    export interface PlaygroundTurn {
+      /** Turn id. */
+      id: string;
+      /** Question that started this turn's sandbox run. */
+      question: string;
+      /** Sandbox task id for this turn. */
+      task_id: string;
+      /** Order of this turn in the chat, starting at 0. */
+      position: number;
+      /** Current sandbox run for this turn. Null when the run cannot be loaded. */
+      run: SandboxRun | null;
+      /**
+         * Why this turn could not be loaded. Null when run is present.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface PlaygroundChat {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
+      /** Questions in this chat, oldest first. Each turn's answer comes from its sandbox run. */
+      turns: PlaygroundTurn[];
+    }
+
+    export interface PlaygroundChatList {
+      /** Playground chat id. */
+      id: string;
+      /** First question, truncated. Empty until someone asks. */
+      title: string;
+      /** When this chat was created. */
+      created_at: string;
+      /** When this chat was last asked in. */
+      updated_at: string;
+      /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
+      has_open_turn: boolean;
     }
 
     /**
@@ -88601,6 +88733,21 @@ export namespace Schemas {
       task_id?: string;
     }
 
+    export interface SandboxQuestion {
+      /**
+         * Question to answer from this project's business knowledge. Blank questions are rejected. Maximum 4000 characters.
+         * @maxLength 4000
+         */
+      question: string;
+    }
+
+    export interface SandboxRunStarted {
+      /** Sandbox task id. Poll this id until the run finishes. */
+      task_id: string;
+      /** Run id for this question. */
+      run_id: string;
+    }
+
     export interface SaveRequest {
       /**
          * Label this config computes, e.g. ai_pilled.
@@ -89306,6 +89453,20 @@ export namespace Schemas {
          * @nullable
          */
       last_outcome: string | null;
+      /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
+      run_state: string;
+      /** True while an `agent` check waits on a dispatched run to record its verdict. */
+      waiting_on_run: boolean;
+      /**
+         * The scout run the coordinator dispatched for the check, once it started. Null while queued.
+         * @nullable
+         */
+      dispatched_run_id: string | null;
+      /**
+         * When the coordinator last dispatched a run for the check. Null when no run waits.
+         * @nullable
+         */
+      dispatched_at: string | null;
     }
 
     /**
@@ -97810,7 +97971,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -99441,7 +99603,8 @@ export namespace Schemas {
        * * `signals_chat` - Signals Chat
        * * `task_analysis` - Task Analysis
        * * `workflow` - Workflow
-       * * `space_setup` - Space Setup */
+       * * `space_setup` - Space Setup
+       * * `business_knowledge` - Business Knowledge */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -105641,8 +105804,12 @@ export namespace Schemas {
     }
 
     export interface _TracingTraceAiEventsResponse {
-      /** AI events in the trace, earliest start first. */
+      /** AI events in the trace, earliest start first, up to `limit` of them. */
       results: _TracingTraceAiEvent[];
+      /** The most AI events the lookup returns for one trace. */
+      limit: number;
+      /** Whether the trace has more AI events than `results` holds. The full list is in AI observability under the events' `ai_trace_id`. */
+      has_more: boolean;
     }
 
     export interface _TracingTraceRequest {
@@ -117106,6 +117273,7 @@ export namespace Schemas {
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -117250,6 +117418,7 @@ export namespace Schemas {
       TaskAnalysis: 'task_analysis',
       Workflow: 'workflow',
       SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];

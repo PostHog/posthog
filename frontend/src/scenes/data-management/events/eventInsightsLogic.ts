@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { InsightsResult, SavedInsightFilters, cleanFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -86,7 +85,6 @@ export const eventInsightsLogic = kea<eventInsightsLogicType>([
     key(({ event }) => event),
     connect(() => ({
         values: [teamLogic, ['currentTeamId']],
-        logic: [eventUsageLogic],
     })),
     actions({
         setFilters: (filters: Partial<SavedInsightFilters>) => ({ filters }),

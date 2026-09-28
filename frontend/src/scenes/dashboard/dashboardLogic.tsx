@@ -45,7 +45,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import {
+    DashboardEventSource,
+    dashboardViewedProperties,
+    eventUsageLogic,
+    sanitizeDashboard,
+    sanitizeQuery,
+} from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -159,6 +165,32 @@ import {
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
+
+function reportDashboardTileRefreshed(
+    dashboardId: number,
+    tile: DashboardTile,
+    filters: Record<string, any>,
+    variables: Record<string, any>,
+    refreshDurationMs: number,
+    individualRefresh: boolean
+): void {
+    const insight = tile.insight
+    const sanitizedQuery = insight?.query ? sanitizeQuery(insight.query) : {}
+
+    posthog.capture('dashboard insight refreshed', {
+        dashboard_id: dashboardId,
+        insight_id: insight?.id,
+        insight_short_id: insight?.short_id,
+        was_cached: tile.is_cached,
+        last_refreshed: insight?.last_refresh?.toString(),
+        refresh_age: insight?.last_refresh ? now().diff(insight?.last_refresh, 'seconds') : undefined,
+        filters,
+        variables,
+        refresh_duration_ms: refreshDurationMs,
+        individual_refresh: individualRefresh,
+        ...sanitizedQuery,
+    })
+}
 
 export interface DashboardLogicProps {
     id: number
@@ -706,6 +738,15 @@ export interface dashboardLogicActions {
     }
     reportDashboardViewed: () => {
         value: true
+    }
+    reportDashboardViewedEvent: (
+        dashboard: DashboardType,
+        lastRefreshed: Dayjs | null,
+        delay?: number
+    ) => {
+        dashboard: DashboardType
+        delay: number | undefined
+        lastRefreshed: Dayjs | null
     }
     reportInsightsViewed: (insights: InsightModel[]) => {
         insights: InsightModel<Node<Record<string, any>>>[]
@@ -1326,6 +1367,8 @@ function exitFilterEditModeWhenSaved(
     }
 }
 
+let dashboardViewedTimeout: ReturnType<typeof setTimeout> | undefined
+
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
     connect(() => ({
@@ -1556,6 +1599,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         setShouldReportOnAPILoad: (shouldReport: boolean) => ({ shouldReport }), // See reducer for details
         reportDashboardViewed: true, // Reports `viewed dashboard` and `dashboard analyzed` events
+        reportDashboardViewedEvent: (dashboard: DashboardType, lastRefreshed: Dayjs | null, delay?: number) => ({
+            dashboard,
+            lastRefreshed,
+            delay,
+        }),
         reportInsightsViewed: (insights: InsightModel[]) => ({ insights }),
 
         /**
@@ -1728,18 +1776,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         updatedDashboard.persisted_filters = latestDashboard.persisted_filters
                         updatedDashboard.persisted_variables = latestDashboard.persisted_variables
                         if (scope === 'colors' && breakdownColorsChanged) {
-                            eventUsageLogic.actions.reportDashboardBreakdownColorsSaved(
-                                values.dashboard,
-                                breakdownColorsToSave.filter((c) => c.source !== 'auto').length,
-                                breakdownColorsToSave.filter((c) => c.source === 'auto').length,
-                                Array.from(new Set(breakdownColorsToSave.map((c) => String(c.breakdownType))))
-                            )
+                            const autoCount = breakdownColorsToSave.filter((color) => color.source === 'auto').length
+                            posthog.capture('dashboard breakdown colors saved', {
+                                dashboard_id: values.dashboard?.id,
+                                dashboard: sanitizeDashboard(values.dashboard),
+                                manual_count: breakdownColorsToSave.length - autoCount,
+                                auto_count: autoCount,
+                                breakdown_types: Array.from(
+                                    new Set(breakdownColorsToSave.map((c) => String(c.breakdownType)))
+                                ),
+                            })
                         }
                         if (scope === 'colors' && themeChanged) {
-                            eventUsageLogic.actions.reportDashboardColorThemeSet(
-                                values.dashboard,
-                                values.dataColorThemeId
-                            )
+                            posthog.capture('dashboard color theme set', {
+                                dashboard_id: values.dashboard?.id,
+                                dashboard: sanitizeDashboard(values.dashboard),
+                                theme_id: values.dataColorThemeId,
+                            })
                         }
                         cache.dashboardChangesPersisted = true
                         if (scope === 'layout') {
@@ -1888,11 +1941,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             ])
                         }
 
-                        eventUsageLogic.actions.reportCopiedDashboardTileToDashboard(
-                            fromDashboard,
-                            toDashboard,
-                            widgetType
-                        )
+                        posthog.capture('dashboard widget copied to other dashboard', {
+                            from_dashboard_id: fromDashboard,
+                            to_dashboard_id: toDashboard,
+                            tile_type: widgetType,
+                        })
 
                         lemonToast.success(
                             <>
@@ -3528,13 +3581,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             if (refreshStatus?.timer) {
                 const loadingMilliseconds = new Date().getTime() - refreshStatus.timer.getTime()
-                eventUsageLogic.actions.reportInsightRefreshTime(loadingMilliseconds, shortId)
+                posthog.capture('insight refresh time', {
+                    loadingMilliseconds: loadingMilliseconds,
+                    insightShortId: shortId,
+                })
             }
         },
         reportLoadTiming: () => {
             if (values.loadTimer) {
                 const loadingMilliseconds = new Date().getTime() - values.loadTimer.getTime()
-                eventUsageLogic.actions.reportDashboardLoadingTime(loadingMilliseconds, props.id)
+                posthog.capture('dashboard loading time', {
+                    loadingMilliseconds: loadingMilliseconds,
+                    dashboardId: props.id,
+                })
             }
         },
         handleDashboardLoadComplete: () => {
@@ -3809,9 +3868,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         children: 'Delete insight everywhere',
                         status: 'danger',
                         onClick: () => {
-                            eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalConfirmed(
-                                otherDashboardCount
-                            )
+                            posthog.capture('dashboard insight delete after removal confirmed', {
+                                other_dashboard_count: otherDashboardCount,
+                            })
                             return deleteInsightWithUndo({
                                 object: { ...tile.insight!, dashboards: dashboardIds },
                                 endpoint: `projects/${values.currentTeamId}/insights`,
@@ -4156,7 +4215,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tile.filters_overrides
                 )
 
-                eventUsageLogic.actions.reportDashboardTileRefreshed(
+                reportDashboardTileRefreshed(
                     dashboardId,
                     tile,
                     urlFilters,
@@ -4274,7 +4333,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 if (refreshedInsight.is_cached) {
                                     tilesRefreshedCachedCount++
                                 }
-                                eventUsageLogic.actions.reportDashboardTileRefreshed(
+                                reportDashboardTileRefreshed(
                                     dashboardId,
                                     tile,
                                     urlFilters,
@@ -4329,22 +4388,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                 }
 
-                eventUsageLogic.actions.reportDashboardRefreshed(
-                    dashboardId,
-                    urlFilters,
-                    urlVariables,
-                    lastDashboardRefresh,
-                    action,
-                    !!forceRefresh,
-                    {
-                        totalTileCount,
-                        tilesStaleCount,
-                        tilesRefreshedCount,
-                        tilesErroredCount,
-                        tilesAbortedCount,
-                        refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
-                    }
-                )
+                const refreshDurationMs = Math.floor(performance.now() - dashboardRefreshStartTime)
+                posthog.capture(`dashboard refreshed`, {
+                    dashboard_id: dashboardId,
+                    filters: urlFilters,
+                    variables: urlVariables,
+                    last_refreshed: lastDashboardRefresh?.toString(),
+                    refreshAge: lastDashboardRefresh ? now().diff(lastDashboardRefresh, 'seconds') : undefined,
+                    action: action,
+                    force_refresh: !!forceRefresh,
+                    refresh_duration_ms: refreshDurationMs,
+                    total_tile_count: totalTileCount,
+                    tiles_stale_count: tilesStaleCount,
+                    tiles_refreshed_count: tilesRefreshedCount,
+                    tiles_errored_count: tilesErroredCount,
+                    tiles_aborted_count: tilesAbortedCount,
+                })
 
                 if (
                     (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
@@ -4731,12 +4790,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        reportDashboardViewedEvent: ({ dashboard, lastRefreshed, delay }) => {
+            clearTimeout(dashboardViewedTimeout)
+            const captureDashboardView = (): void => {
+                const properties = dashboardViewedProperties(dashboard, lastRefreshed, userLogic.values.user?.uuid)
+                const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
+                posthog.capture(eventName, { ...properties, source: 'web' })
+            }
+            if (delay) {
+                captureDashboardView()
+            } else {
+                dashboardViewedTimeout = setTimeout(captureDashboardView, 500) // Debounce to avoid noisy events from continuous navigation
+            }
+        },
         reportDashboardViewed: async (_, breakpoint) => {
             // Caching `dashboard`, as the dashboard might have unmounted after the breakpoint,
             // and "values.dashboard" will then fail
             const { dashboard, lastDashboardRefresh, tiles } = values
             if (dashboard) {
-                eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh)
+                actions.reportDashboardViewedEvent(dashboard, lastDashboardRefresh)
 
                 const insights = tiles.map((t) => t.insight).filter((i): i is InsightModel => !!i)
                 actions.reportInsightsViewed(insights)
@@ -4747,7 +4819,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     router.values.location.pathname === urls.projectHomepage() ||
                     router.values.location.pathname.startsWith(urls.sharedDashboard(''))
                 ) {
-                    eventUsageLogic.actions.reportDashboardViewed(dashboard, lastDashboardRefresh, 10)
+                    actions.reportDashboardViewedEvent(dashboard, lastDashboardRefresh, 10)
                 }
             } else {
                 // dashboard has not loaded yet, report after API request is completed
@@ -5017,11 +5089,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     tile.filters_overrides = tileFilterOverrides
                     if (wasIgnored !== isIgnored) {
-                        eventUsageLogic.actions.reportDashboardTileIgnoreDashboardFiltersToggled(
-                            props.id,
-                            tile.insight?.id ?? null,
-                            isIgnored
-                        )
+                        posthog.capture('dashboard tile ignore dashboard filters toggled', {
+                            dashboard_id: props.id,
+                            insight_id: tile.insight?.id ?? null,
+                            ignored: isIgnored,
+                        })
                     }
                     actions.refreshDashboardItem({ tile })
                     lemonToast.success('Tile filters saved')
