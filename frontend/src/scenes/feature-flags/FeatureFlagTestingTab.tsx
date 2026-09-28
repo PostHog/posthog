@@ -12,6 +12,8 @@ import { CodeEditor } from 'lib/monaco/CodeEditor'
 import type { FeatureFlagType, PersonType } from '~/types'
 import { PropertyDefinitionType } from '~/types'
 
+import { asDisplay } from 'products/persons/frontend/person-utils'
+
 import { FeatureFlagNoConditionsWarning } from './FeatureFlagNoConditionsWarning'
 import type { ConditionAnalysis, TestResult } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
@@ -170,7 +172,20 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                 truncate
                                 renderValue={() => {
                                     if (formData.distinct_id) {
-                                        return <span>{selectedPerson?.name || formData.distinct_id}</span>
+                                        // `name` is typed as a string, but a person property can hold an object at runtime
+                                        const name = selectedPerson?.name
+                                        return (
+                                            <span>
+                                                {typeof name === 'string' && name
+                                                    ? name
+                                                    : selectedPerson?.properties
+                                                      ? asDisplay({
+                                                            properties: selectedPerson.properties,
+                                                            distinct_id: formData.distinct_id,
+                                                        })
+                                                      : formData.distinct_id}
+                                            </span>
+                                        )
                                     }
                                     return null
                                 }}

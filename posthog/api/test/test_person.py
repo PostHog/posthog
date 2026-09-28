@@ -1737,6 +1737,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_ids=["distinct_id3"],
             properties={"email": "yet_another_one@gmail.com"},
         )
+        _create_person(
+            team=self.team,
+            distinct_ids=["distinct_id4"],
+            properties={"custom_email": {"address": "object@example.com", "verified": True}},
+        )
         flush_persons_and_events()
 
         response = self.client.get("/api/person/").json()
@@ -1745,6 +1750,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(results[0]["name"], "someone")
         self.assertEqual(results[1]["name"], "another_one@custom.com")
         self.assertEqual(results[2]["name"], "distinct_id3")
+        self.assertEqual(results[3]["name"], '{"address": "object@example.com", "verified": true}')
 
     def test_person_display_name_defaults(self) -> None:
         _create_person(

@@ -1,4 +1,5 @@
 import re
+import json
 import uuid
 import builtins
 import dataclasses
@@ -186,7 +187,8 @@ def get_person_name_helper(
             display_name = person_properties.get(property)
             break
     if display_name:
-        return display_name
+        # Customer data can hold an object in a display-name property, and callers render the name as text
+        return display_name if isinstance(display_name, str) else json.dumps(display_name)
     if len(distinct_ids) > 0:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(distinct_ids, key=is_anonymous_id)[0]
