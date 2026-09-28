@@ -123,6 +123,12 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
+from products.customer_analytics.backend.facade.account_property_pins import (
+    InvalidPinnedAccountProperties,
+    validate_pinned_account_properties,
+)
+from products.customer_analytics.backend.facade.contracts import PinnedAccountProperty
+from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, normalize_context_name
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
@@ -1059,6 +1065,17 @@ class TeamFeatureFlagPolicyConfigSerializer(serializers.ModelSerializer, UserAcc
         fields = ["require_tags"]
 
 
+class TeamCustomerAnalyticsPinnedAccountPropertySerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=AccountPropertyPinKind.choices,
+        help_text="Definition type for this default pinned account property.",
+    )
+    id = serializers.UUIDField(help_text="Project-scoped custom property or relationship definition UUID.")
+
+    class Meta:
+        ref_name = "TeamCustomerAnalyticsPinnedAccountProperty"
+
+
 class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     activity_event = serializers.JSONField(required=False, help_text="Event used as the activity signal (DAU/WAU/MAU).")
     signup_pageview_event = serializers.JSONField(
@@ -1077,6 +1094,15 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "Must reference an existing group type configured for the project."
         ),
     )
+    default_pinned_properties = TeamCustomerAnalyticsPinnedAccountPropertySerializer(
+        many=True,
+        allow_empty=True,
+        required=False,
+        help_text=(
+            "Ordered account properties shown until a user saves a personal pinned-property selection. "
+            "Pass an empty list to show no properties by default."
+        ),
+    )
 
     class Meta:
         model = TeamCustomerAnalyticsConfig
@@ -1087,6 +1113,7 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
             "subscription_event",
             "payment_event",
             "account_group_type_index",
+            "default_pinned_properties",
         ]
 
     def update(
@@ -1102,6 +1129,19 @@ class TeamCustomerAnalyticsConfigSerializer(serializers.ModelSerializer, UserAcc
     @staticmethod
     def validate_account_group_type_index(value):
         return validate_group_type_index("account_group_type_index", value)
+
+    def validate_default_pinned_properties(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if self.instance is None:
+            return value
+        pinned_properties = [PinnedAccountProperty(kind=reference["kind"], id=reference["id"]) for reference in value]
+        try:
+            validate_pinned_account_properties(
+                team_id=self.instance.team_id,
+                pinned_properties=pinned_properties,
+            )
+        except InvalidPinnedAccountProperties as error:
+            raise serializers.ValidationError(error.errors)
+        return [{"kind": reference["kind"], "id": str(reference["id"])} for reference in value]
 
 
 _VALID_TRIGGER_PROPERTY_OPERATORS = {
@@ -2427,6 +2467,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "subscription_event": instance.customer_analytics_config.subscription_event,
             "payment_event": instance.customer_analytics_config.payment_event,
             "account_group_type_index": instance.customer_analytics_config.account_group_type_index,
+            "default_pinned_properties": instance.customer_analytics_config.default_pinned_properties,
         }
 
         serializer = TeamCustomerAnalyticsConfigSerializer(

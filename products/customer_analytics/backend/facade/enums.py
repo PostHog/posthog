@@ -1,11 +1,9 @@
-from enum import Enum
-
 from django.db import models
 
 
-class AccountPropertyPinKind(str, Enum):
-    CUSTOM_PROPERTY = "custom_property"
-    RELATIONSHIP = "relationship"
+class AccountPropertyPinKind(models.TextChoices):
+    CUSTOM_PROPERTY = "custom_property", "Custom property"
+    RELATIONSHIP = "relationship", "Relationship"
 
 
 class TaskDigestCadence(models.TextChoices):

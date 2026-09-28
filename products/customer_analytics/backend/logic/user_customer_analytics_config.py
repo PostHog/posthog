@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from datetime import datetime, time
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -9,24 +9,12 @@ from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.customer_analytics.backend.facade import contracts
 from products.customer_analytics.backend.facade.enums import AccountPropertyPinKind, TaskDigestCadence
-from products.customer_analytics.backend.models import (
-    AccountRelationshipDefinition,
-    CustomPropertyDefinition,
-    TargetType,
-    UserCustomerAnalyticsConfig,
-)
+from products.customer_analytics.backend.logic.account_property_pins import validate_pinned_properties
+from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig, UserCustomerAnalyticsConfig
 
 PINNED_PROPERTIES_KEY = "pinned_properties"
-MAX_PINNED_PROPERTIES = 50
-
 TASK_DIGEST_KEY = "task_digest"
 DEFAULT_TASK_DIGEST = contracts.TaskDigestPreferences()
-
-
-class InvalidPinnedAccountProperties(ValueError):
-    def __init__(self, errors: list[str]) -> None:
-        super().__init__("; ".join(errors))
-        self.errors = errors
 
 
 @transaction.atomic
@@ -38,7 +26,7 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
     config, _ = UserCustomerAnalyticsConfig.objects.for_team(canonical_team_id, canonical=True).get_or_create(
         team_id=canonical_team_id,
         user_id=user_id,
-        defaults={"properties": {PINNED_PROPERTIES_KEY: []}},
+        defaults={"properties": {}},
     )
     config = (
         UserCustomerAnalyticsConfig.objects.for_team(canonical_team_id, canonical=True)
@@ -46,6 +34,9 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
         .get(pk=config.pk)
     )
     if PINNED_PROPERTIES_KEY in config.properties:
+        return config
+
+    if not config.pinned_custom_property_definition_ids:
         return config
 
     legacy_references = [
@@ -61,7 +52,7 @@ def get_or_create_config(*, team_id: int, user_id: int) -> UserCustomerAnalytics
 def update_pinned_properties(
     *, team_id: int, user_id: int, references: Sequence[tuple[AccountPropertyPinKind, UUID]]
 ) -> UserCustomerAnalyticsConfig:
-    _validate_pinned_properties(team_id=team_id, references=references)
+    validate_pinned_properties(team_id=team_id, references=references)
     config = get_or_create_config(team_id=team_id, user_id=user_id)
     config.properties = {
         **config.properties,
@@ -72,6 +63,18 @@ def update_pinned_properties(
     ]
     config.save(update_fields=["properties", "pinned_custom_property_definition_ids", "updated_at"])
     return config
+
+
+def read_pinned_properties(config: UserCustomerAnalyticsConfig) -> list[dict[str, str]]:
+    stored = config.properties.get(PINNED_PROPERTIES_KEY)
+    if isinstance(stored, list):
+        return cast(list[dict[str, str]], stored)
+    defaults = (
+        TeamCustomerAnalyticsConfig.objects.filter(team_id=config.team_id)
+        .values_list("default_pinned_properties", flat=True)
+        .first()
+    )
+    return cast(list[dict[str, str]], defaults) if isinstance(defaults, list) else []
 
 
 def read_task_digest(config: UserCustomerAnalyticsConfig) -> contracts.TaskDigestPreferences:
@@ -124,49 +127,3 @@ def _read_send_time(stored: dict[str, Any]) -> str:
             return DEFAULT_TASK_DIGEST.send_time
         return parsed.strftime(contracts.TASK_DIGEST_SEND_TIME_FORMAT)
     return DEFAULT_TASK_DIGEST.send_time
-
-
-def _validate_pinned_properties(*, team_id: int, references: Sequence[tuple[AccountPropertyPinKind, UUID]]) -> None:
-    if len(references) > MAX_PINNED_PROPERTIES:
-        raise InvalidPinnedAccountProperties([f"Pin at most {MAX_PINNED_PROPERTIES} account properties."])
-
-    errors: list[str] = []
-    first_index_by_reference: dict[tuple[AccountPropertyPinKind, UUID], int] = {}
-    for index, reference in enumerate(references):
-        if reference in first_index_by_reference:
-            errors.append(f"Item {index + 1} duplicates item {first_index_by_reference[reference] + 1}.")
-        else:
-            first_index_by_reference[reference] = index
-
-    referenced_ids = {definition_id for _, definition_id in references}
-    custom_property_targets = dict(
-        CustomPropertyDefinition.objects.for_team(team_id)
-        .filter(id__in=referenced_ids)
-        .values_list("id", "target_type")
-    )
-    matching_relationship_ids = set(
-        AccountRelationshipDefinition.objects.for_team(team_id)
-        .filter(id__in=referenced_ids)
-        .values_list("id", flat=True)
-    )
-
-    for index, (kind, definition_id) in enumerate(references):
-        item = index + 1
-        if kind == AccountPropertyPinKind.CUSTOM_PROPERTY:
-            target_type = custom_property_targets.get(definition_id)
-            if target_type is not None:
-                if target_type != TargetType.ACCOUNT.value:
-                    errors.append(f"Item {item} must reference an account property.")
-            elif definition_id in matching_relationship_ids:
-                errors.append(f"Item {item} is a relationship, not a custom property.")
-            else:
-                errors.append(f"Item {item} custom property was not found in this project.")
-        elif definition_id in matching_relationship_ids:
-            continue
-        elif definition_id in custom_property_targets:
-            errors.append(f"Item {item} is a custom property, not a relationship.")
-        else:
-            errors.append(f"Item {item} relationship was not found in this project.")
-
-    if errors:
-        raise InvalidPinnedAccountProperties(errors)

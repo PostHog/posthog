@@ -50,6 +50,7 @@ const handleNameConflict = (error: unknown, setManualErrors: (errors: { name: st
 export interface relationshipDefinitionsLogicValues {
     currentProjectId: number | null // projectLogic
     definitions: AccountRelationshipDefinitionApi[]
+    definitionsLoadFailed: boolean
     definitionsLoading: boolean
     editingDefinition: AccountRelationshipDefinitionApi | null
     isRelationshipDefinitionFormSubmitting: boolean
@@ -175,6 +176,14 @@ export const relationshipDefinitionsLogic = kea<relationshipDefinitionsLogicType
         closeModal: true,
     }),
     reducers({
+        definitionsLoadFailed: [
+            false,
+            {
+                loadDefinitions: () => false,
+                loadDefinitionsSuccess: () => false,
+                loadDefinitionsFailure: () => true,
+            },
+        ],
         modalVisible: [
             false,
             {

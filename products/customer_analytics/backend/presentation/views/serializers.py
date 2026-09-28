@@ -2098,10 +2098,7 @@ class CustomPropertyValueSuggestionsResponseSerializer(serializers.Serializer):
 
 class PinnedAccountPropertySerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=[
-            (AccountPropertyPinKind.CUSTOM_PROPERTY.value, "Custom property"),
-            (AccountPropertyPinKind.RELATIONSHIP.value, "Relationship"),
-        ],
+        choices=AccountPropertyPinKind.choices,
         help_text="Definition type for this pinned account property.",
     )
     id = serializers.UUIDField(

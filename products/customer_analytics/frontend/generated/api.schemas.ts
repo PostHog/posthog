@@ -4337,10 +4337,10 @@ export interface PatchedGroupUsageMetricApi {
  * * `custom_property` - Custom property
  * * `relationship` - Relationship
  */
-export type PinnedAccountPropertyKindEnumApi =
-    (typeof PinnedAccountPropertyKindEnumApi)[keyof typeof PinnedAccountPropertyKindEnumApi]
+export type AccountPropertyPinKindEnumApi =
+    (typeof AccountPropertyPinKindEnumApi)[keyof typeof AccountPropertyPinKindEnumApi]
 
-export const PinnedAccountPropertyKindEnumApi = {
+export const AccountPropertyPinKindEnumApi = {
     CustomProperty: 'custom_property',
     Relationship: 'relationship',
 } as const
@@ -4350,7 +4350,7 @@ export interface PinnedAccountPropertyApi {
      *
      * * `custom_property` - Custom property
      * * `relationship` - Relationship */
-    kind: PinnedAccountPropertyKindEnumApi
+    kind: AccountPropertyPinKindEnumApi
     /** Team-scoped custom property or relationship definition UUID. */
     id: string
 }
