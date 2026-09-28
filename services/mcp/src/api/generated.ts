@@ -10514,7 +10514,7 @@ export namespace Schemas {
          */
       target_id?: string | null;
       /**
-         * Destination template: 'slack', 'discord', 'webhook', 'teams', or 'pagerduty'. Null for email.
+         * Destination template: 'slack', 'discord', 'webhook', or 'teams'. Null for email.
          * @nullable
          */
       template?: string | null;

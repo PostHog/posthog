@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 from urllib.parse import urlsplit
 
 from products.alerts.backend.facade.contracts import (
@@ -12,10 +12,8 @@ from products.alerts.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationValidationError,
-    AlertIncidentRole,
     DestinationType,
     EventKindSpec,
-    PagerDutySeverity,
 )
 
 WEBHOOK_HEADERS = {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}
@@ -108,8 +106,6 @@ class DestinationSpec(ABC):
     type: ClassVar[DestinationType]
     template_id: ClassVar[str]
     required_fields: ClassVar[tuple[str, ...]]
-    # Accepted on create but stored in a secret input, so `read` never returns them.
-    write_only_fields: ClassVar[tuple[str, ...]] = ()
 
     @abstractmethod
     def build_name(self, data: AlertDestinationData) -> str: ...
@@ -127,11 +123,7 @@ class DestinationSpec(ABC):
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData: ...
 
     def redact(self, data: AlertDestinationData) -> AlertDestinationData:
-        if not any(field in data for field in self.write_only_fields):
-            return data
-        return cast(
-            AlertDestinationData, {key: value for key, value in data.items() if key not in self.write_only_fields}
-        )
+        return data
 
 
 class SlackDestination(DestinationSpec):
@@ -253,91 +245,8 @@ class TeamsDestination(_WebhookUrlDestination):
         }
 
 
-# Stable per alert, so the resolve closes the incident that the trigger opened. A check
-# failure has its own key, so a resolve does not close it and repeated failures collapse.
-PAGERDUTY_DEDUP_KEY = "posthog-alert-{event.properties.alert_id}"
-PAGERDUTY_CHECK_FAILURE_DEDUP_KEY = "posthog-alert-{event.properties.alert_id}-check-failure"
-
-_PAGERDUTY_EVENT_ACTIONS: dict[AlertIncidentRole, str] = {
-    AlertIncidentRole.OPEN: "trigger",
-    AlertIncidentRole.RESOLVE: "resolve",
-    AlertIncidentRole.CHECK_FAILURE: "trigger",
-}
-
-
-def pagerduty_summary(spec: EventKindSpec) -> str:
-    if not spec.details:
-        return spec.header
-    return f"{spec.header}: {spec.details[0][1]}"
-
-
-class PagerDutyDestination(DestinationSpec):
-    type = DestinationType.PAGERDUTY
-    template_id = "template-pagerduty"
-    required_fields = ("pagerduty_routing_key",)
-    write_only_fields = ("pagerduty_routing_key",)
-
-    def build_name(self, data: AlertDestinationData) -> str:
-        return "PagerDuty"
-
-    def build_inputs(
-        self,
-        event_kind_spec: EventKindSpec,
-        data: AlertDestinationData,
-        *,
-        slack_context_elements: tuple[str, ...],
-    ) -> dict[str, Any]:
-        role = event_kind_spec.incident_role
-        if role is None:
-            raise ValueError(
-                f"Event kind {event_kind_spec.event_id} has no incident_role, so it cannot go to PagerDuty."
-            )
-        # Every row of one destination stores the same severity, because grouping reads it back.
-        severity = data.get("pagerduty_severity", PagerDutySeverity.ERROR)
-        return {
-            "routing_key": {"value": data["pagerduty_routing_key"]},
-            "event_action": {"value": _PAGERDUTY_EVENT_ACTIONS[role]},
-            "dedup_key": {
-                "value": PAGERDUTY_CHECK_FAILURE_DEDUP_KEY
-                if role == AlertIncidentRole.CHECK_FAILURE
-                else PAGERDUTY_DEDUP_KEY
-            },
-            "summary": {"value": pagerduty_summary(event_kind_spec)},
-            "source": {"value": "{project.name}"},
-            "severity": {"value": str(severity)},
-            "component": {"value": event_kind_spec.product_label},
-            "event_class": {"value": event_kind_spec.display_kind},
-            "custom_details": {"value": event_kind_spec.webhook_body},
-            "links": {
-                "value": [
-                    {"href": action.url, "text": action.label}
-                    for action in (
-                        AlertDestinationAction(
-                            url=event_kind_spec.primary_action_url, label=event_kind_spec.primary_action_label
-                        ),
-                        *event_kind_spec.additional_actions,
-                    )
-                ]
-            },
-        }
-
-    def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
-        data: AlertDestinationData = {"type": self.type}
-        severity = _input_value(inputs, "severity")
-        if severity in set(PagerDutySeverity):
-            data["pagerduty_severity"] = PagerDutySeverity(severity)
-        return data
-
-
 DESTINATION_SPECS: dict[DestinationType, DestinationSpec] = {
-    spec.type: spec
-    for spec in (
-        SlackDestination(),
-        DiscordDestination(),
-        WebhookDestination(),
-        TeamsDestination(),
-        PagerDutyDestination(),
-    )
+    spec.type: spec for spec in (SlackDestination(), DiscordDestination(), WebhookDestination(), TeamsDestination())
 }
 
 SPEC_BY_TEMPLATE_ID: dict[str, DestinationSpec] = {spec.template_id: spec for spec in DESTINATION_SPECS.values()}

@@ -237,7 +237,6 @@ class DestinationType(StrEnum):
     DISCORD = "discord"
     WEBHOOK = "webhook"
     TEAMS = "teams"
-    PAGERDUTY = "pagerduty"
 
     @property
     def label(self) -> str:
@@ -250,7 +249,6 @@ _DESTINATION_TYPE_LABELS: Final[dict[DestinationType, str]] = {
     DestinationType.DISCORD: "Discord",
     DestinationType.WEBHOOK: "Webhook",
     DestinationType.TEAMS: "Microsoft Teams",
-    DestinationType.PAGERDUTY: "PagerDuty",
 }
 
 # A type without a label would only surface as a KeyError inside a validation message a
@@ -259,21 +257,12 @@ if _DESTINATION_TYPE_LABELS.keys() != set(DestinationType):
     raise RuntimeError("Every DestinationType needs an entry in _DESTINATION_TYPE_LABELS.")
 
 
-class PagerDutySeverity(StrEnum):
-    CRITICAL = "critical"
-    ERROR = "error"
-    WARNING = "warning"
-    INFO = "info"
-
-
 class AlertDestinationData(TypedDict):
     type: DestinationType
     slack_workspace_id: NotRequired[int]
     slack_channel_id: NotRequired[str]
     slack_channel_name: NotRequired[str]
     webhook_url: NotRequired[str]
-    pagerduty_routing_key: NotRequired[str]
-    pagerduty_severity: NotRequired[PagerDutySeverity]
 
 
 class AlertDestinationValidationError(Exception):
@@ -292,19 +281,6 @@ class AlertDestinationAction:
     label: str
 
 
-class AlertIncidentRole(StrEnum):
-    """What an event kind does to the incident an on-call destination keeps for the alert.
-
-    An event kind without a role cannot go to an on-call destination, because PostHog cannot tell
-    whether it opens or resolves the incident.
-    """
-
-    OPEN = "open"
-    RESOLVE = "resolve"
-    # The check itself failed. It opens its own incident, so a later resolve does not close it.
-    CHECK_FAILURE = "check_failure"
-
-
 @frozen
 class EventKindSpec:
     """Everything one alert event kind (firing, resolved, ...) says in a notification."""
@@ -319,7 +295,6 @@ class EventKindSpec:
     product_label: str = "alert"
     intro_lines: tuple[str, ...] = ()
     additional_actions: tuple[AlertDestinationAction, ...] = ()
-    incident_role: AlertIncidentRole | None = None
 
     def destination_description(self, alert_name: str) -> str:
         return f'Sends {self.display_kind} notifications for {self.product_label} "{alert_name}".'
@@ -365,6 +340,6 @@ class AlertDelivery:
     channel: str  # "email" | "hog_function"
     target: str  # email address or destination name
     target_id: str | None = None  # hog function id
-    template: str | None = None  # "slack" | "discord" | "webhook" | "teams" | "pagerduty"
+    template: str | None = None  # "slack" | "discord" | "webhook" | "teams"
     status: str = "accepted"
     at: str  # ISO-8601 timestamp

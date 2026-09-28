@@ -1,4 +1,4 @@
-import { KeyboardEvent, ReactNode } from 'react'
+import { ReactNode } from 'react'
 
 import { IconExternal, IconTrash } from '@posthog/icons'
 import {
@@ -55,15 +55,6 @@ export interface AlertNotificationUrlInput {
     helpText?: ReactNode
 }
 
-export type AlertNotificationPagerDutySeverity = 'critical' | 'error' | 'warning' | 'info'
-
-const PAGERDUTY_SEVERITY_OPTIONS: LemonSelectOptions<AlertNotificationPagerDutySeverity> = [
-    { label: 'Critical', value: 'critical' },
-    { label: 'Error', value: 'error' },
-    { label: 'Warning', value: 'warning' },
-    { label: 'Info', value: 'info' },
-]
-
 interface AlertNotificationDestinationEditorProps<NotificationType extends string> {
     description?: ReactNode
     destinations: {
@@ -94,12 +85,6 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
         input: AlertNotificationUrlInput
         value: string
         onChange: (value: string) => void
-    }
-    pagerduty?: {
-        routingKey: string
-        onRoutingKeyChange: (value: string) => void
-        severity: AlertNotificationPagerDutySeverity
-        onSeverityChange: (value: AlertNotificationPagerDutySeverity) => void
     }
     add: {
         onClick: () => void
@@ -242,7 +227,6 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
     notificationType,
     slack,
     url,
-    pagerduty,
     add,
 }: AlertNotificationDestinationEditorProps<NotificationType>): JSX.Element {
     const addDestinationButton = (
@@ -256,19 +240,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
             Add
         </LemonButton>
     )
-    const addDestinationButtonIsInline =
-        notificationType.value === slack.notificationType || Boolean(url) || Boolean(pagerduty)
-    const addOnEnter = (event: KeyboardEvent<HTMLInputElement>): void => {
-        if (event.nativeEvent.isComposing) {
-            event.stopPropagation()
-            return
-        }
-        event.preventDefault()
-        event.stopPropagation()
-        if (!add.disabledReason) {
-            add.onClick()
-        }
-    }
+    const addDestinationButtonIsInline = notificationType.value === slack.notificationType || Boolean(url)
 
     let slackDestinationInput: JSX.Element | null = null
     if (notificationType.value === slack.notificationType) {
@@ -364,54 +336,22 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                                 placeholder={url.input.placeholder}
                                 value={url.value}
                                 onChange={url.onChange}
-                                onPressEnter={addOnEnter}
+                                onPressEnter={(event) => {
+                                    if (event.nativeEvent.isComposing) {
+                                        event.stopPropagation()
+                                        return
+                                    }
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    if (!add.disabledReason) {
+                                        add.onClick()
+                                    }
+                                }}
                                 fullWidth
                             />
                             {addDestinationButton}
                         </div>
                         {url.input.helpText ? <p className="text-xs text-muted-alt m-0">{url.input.helpText}</p> : null}
-                    </div>
-                ) : null}
-
-                {pagerduty ? (
-                    <div className="space-y-3">
-                        <fieldset className="space-y-1">
-                            <legend className="text-sm font-medium">Routing key</legend>
-                            <LemonInput
-                                type="password"
-                                placeholder="Integration key"
-                                value={pagerduty.routingKey}
-                                onChange={pagerduty.onRoutingKeyChange}
-                                onPressEnter={addOnEnter}
-                                autoComplete="off"
-                                fullWidth
-                                aria-label="PagerDuty routing key"
-                                data-attr="alert-notification-pagerduty-routing-key"
-                            />
-                            <p className="text-xs text-muted-alt m-0">
-                                The Events API v2 integration key from your PagerDuty service. PostHog stores it
-                                encrypted.
-                            </p>
-                        </fieldset>
-                        <fieldset className="space-y-1">
-                            <legend className="text-sm font-medium">Severity</legend>
-                            <div className="flex flex-col sm:flex-row items-start gap-2">
-                                <div className="flex-1 min-w-0 w-full">
-                                    <LemonSelect
-                                        fullWidth
-                                        options={PAGERDUTY_SEVERITY_OPTIONS}
-                                        value={pagerduty.severity}
-                                        onChange={pagerduty.onSeverityChange}
-                                        aria-label="PagerDuty severity"
-                                        data-attr="alert-notification-pagerduty-severity"
-                                    />
-                                </div>
-                                {addDestinationButton}
-                            </div>
-                            <p className="text-xs text-muted-alt m-0">
-                                PostHog opens an incident when the alert fires and resolves it when the alert resolves.
-                            </p>
-                        </fieldset>
                     </div>
                 ) : null}
 
