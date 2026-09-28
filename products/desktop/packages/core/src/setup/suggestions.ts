@@ -58,8 +58,8 @@ export function buildStaleFlagSuggestion(
     title: `Check if flag "${flag.flagKey}" can be cleaned up`,
     description: `PostHog recorded no calls to \`${flag.flagKey}\` in the last ${CALL_LOOKBACK_DAYS} days, and this repo references it in ${flag.referenceCount} place${plural}. That is not proof the flag is unused: local evaluation and disabled event capture both hide real calls.`,
     impact:
-      "A flag nobody checks any more leaves dead branches behind and hides what is really live in production. A flag that is still evaluated looks the same in this scan, so the code stays untouched until the flag's definition in PostHog says which behavior to keep.",
-    recommendation: `Click "Implement as new task". The agent reads the flag's current definition in PostHog, confirms its evaluation scope covers these references, and checks for blockers such as experiments, surveys, dependent flags, and scheduled changes. It only edits code once those checks come back clear, and it does not change the flag in PostHog. Repository references found:\n${formatReferences(flag)}`,
+      "Dead flag branches make the code harder to change and hide what is live in production. This scan cannot tell a dead flag from one that is still evaluated, so the code stays untouched until the flag's definition in PostHog says which behavior to keep.",
+    recommendation: `Click "Implement as new task". The agent reads the flag's current definition in PostHog, confirms its evaluation scope covers these references, and checks for blockers such as experiments, surveys, dependent flags, and scheduled changes. It edits code only when those checks pass, and it does not change the flag in PostHog. Repository references found:\n${formatReferences(flag)}`,
     file: first.file,
     lineHint: first.line,
     prompt: buildAssessmentPrompt(flag),
