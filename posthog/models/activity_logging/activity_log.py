@@ -19,7 +19,12 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.activity_logging.utils import ACTIVITY_LOG_CLIENT_MAX_LENGTH, activity_storage
+from posthog.models.activity_logging.utils import (
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
+    ActivityCredential,
+    activity_storage,
+)
 from posthog.models.utils import ActivityDetailEncoder, UUIDTModel
 
 if TYPE_CHECKING:
@@ -104,6 +109,7 @@ ActivityScope = Literal[
     "LogsAlertConfiguration",
     "LogsExclusionRule",
     "LogsRetentionRule",
+    "TracesRetentionRule",
     "DashboardWidget",
     "ProductTour",
     "Ticket",
@@ -248,6 +254,15 @@ class ActivityLog(UUIDTModel):
     client = models.CharField(max_length=ACTIVITY_LOG_CLIENT_MAX_LENGTH, null=True, blank=True)
     # Client IP captured at request time. Null for non-HTTP activity (system, Celery).
     ip_address = models.GenericIPAddressField(null=True, blank=True)
+    # The credential that authenticated the request, from `ActivityCredential`. Unlike `client`,
+    # the caller cannot set these, so they answer which key, OAuth application or session made a
+    # change. Null outside a request. A project secret key row has no user but keeps its credential.
+    credential_type = models.CharField(max_length=32, null=True, blank=True)
+    credential_id = models.CharField(max_length=ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH, null=True, blank=True)
+    # The staff user behind an impersonated change. A plain integer rather than a foreign key:
+    # `SET_NULL` would make every user deletion update this table through a full scan, because
+    # nothing indexes the column.
+    impersonated_by_id = models.BigIntegerField(null=True, blank=True)
 
     activity = models.fields.CharField(max_length=79, null=False)
     # if scoped to a model this activity log holds the id of the model being logged
@@ -315,6 +330,9 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         # `before` against the stripped `after`, leaking the secret. Record that actions changed, never
         # the contents — the per-version content audit lives in the revisions feature instead.
         "actions",
+        # Reverse FK into WorkflowProposal's fail-closed manager, and a suggestion filed or resolved
+        # is not a workflow edit.
+        "proposals",
     ],
     "OrganizationDomain": [
         "_scim_bearer_token",
@@ -359,7 +377,6 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "allow_publicly_shared_resources": "public sharing permissions",
         "is_member_join_email_enabled": "member join email notifications",
         "session_cookie_age": "session cookie age",
-        "default_experiment_stats_method": "default experiment stats method",
         "is_ai_data_processing_approved": "third-party AI services",
         "uses_most_specific_access_resolution": "most-specific access resolution",
     },
@@ -371,6 +388,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "full_refresh_interval_days": "full refresh interval (days)",
     },
     "SignalScoutConfig": {
         "run_interval_minutes": "run interval (minutes)",
@@ -389,6 +407,8 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "issue_tracking_config": "issue tracker target",
         "default_open_pull_request_ready": "PRs open as",
         "github_issue_writeback_enabled": "comment back on GitHub issues",
+        "pull_request_label_enabled": "label self-driving PRs",
+        "pull_request_label": "self-driving PR label",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -507,6 +527,7 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
 # Activity visibility restrictions - controls which users can see certain activity logs
 # Used to hide sensitive activities (e.g., impersonated logins, user account changes) from non-staff users
 activity_visibility_restrictions: list[dict[str, Any]] = [
+    {"scope": "Integration", "activities": ["github_diagnostic"], "allow_staff": True},
     {
         "scope": "User",
         "activities": ["logged_in", "logged_out"],
@@ -582,7 +603,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "ReplayScanner": [*replay_scanner_machine_fields, "observations", "backfills", "prompt_suggestions", "alerts"],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
-    # The generic pointer mirrors whichever per-model foreign key is set, so it is never a user edit.
+    # The pointer names the tagged object, which a row never changes, and content_type and team
+    # are model objects the diff cannot serialize.
     "TaggedItem": ["content_type", "object_id", "object_uuid", "team"],
     "StamphogRepoConfig": [
         # Reverse relation to the repo's review history. The diff would read every pull request row
@@ -673,6 +695,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "Notebook": [
         "text_content",
         "widget_instances",
+        "widget_snapshots",
     ],
     "FeatureFlag": [
         "experiment",
@@ -884,6 +907,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
         # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
         "facet_settings",
+        # Same fail-closed manager, on the WorkflowProposal relation a user can resolve.
+        "resolved_workflow_proposals",
     ],
     "AlertConfiguration": [
         "last_checked_at",
@@ -934,6 +959,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # second change on the entry that turns syncing on or off, which makes the schema
         # activity feed read "updated schema" in place of "enabled schema".
         "auto_disabled_at",
+        # Derived from full_refresh_interval_days and moved by every full resync, so it is not user intent.
+        "next_full_refresh_at",
     ],
     "Evaluation": [
         # The fail-closed relation cannot be resolved outside a team scope; the handler diffs IDs instead.
@@ -1255,6 +1282,11 @@ def log_activity(
         client = activity_storage.get_client()
     if ip_address is None:
         ip_address = activity_storage.get_ip_address()
+    credential = activity_storage.get_credential()
+    if credential is None and activity_storage.is_request_scoped():
+        # The request was anonymous, or an authentication class that records no credential verified
+        # it. Say so, so that the row does not read like one written outside a request.
+        credential = ActivityCredential(type="unattributed")
     if detail.trigger is None:
         # A product that sets its own trigger already says what drove the write.
         detail = _with_agent_trigger(detail)
@@ -1279,39 +1311,30 @@ def log_activity(
             )
             return None
 
-        def _create_activity_log_instance():
-            return ActivityLog(
-                organization_id=organization_id,
-                team_id=team_id,
-                user=user,
-                was_impersonated=was_impersonated,
-                is_system=user is None,
-                item_id=str(item_id),
-                scope=scope,
-                activity=activity,
-                detail=detail,
-                client=client,
-                ip_address=ip_address,
-            )
+        fields: dict[str, Any] = {
+            "organization_id": organization_id,
+            "team_id": team_id,
+            "user": user,
+            "was_impersonated": was_impersonated,
+            "is_system": user is None,
+            "item_id": str(item_id),
+            "scope": scope,
+            "activity": activity,
+            "detail": detail,
+            "client": client,
+            "ip_address": ip_address,
+            "credential_type": credential.type if credential else None,
+            # Postgres rejects a NUL in text, and a failed insert drops the whole audit row. An ID-JAG
+            # client id is a claim from the organization's identity provider, so it can carry one.
+            "credential_id": credential.id.replace("\x00", "") if credential and credential.id else None,
+            "impersonated_by_id": credential.impersonated_by_id if credential else None,
+        }
 
         def _do_log_activity():
-            log = _create_activity_log_instance()
-            return ActivityLog.objects.create(
-                organization_id=log.organization_id,
-                team_id=log.team_id,
-                user=log.user,
-                was_impersonated=log.was_impersonated,
-                is_system=log.is_system,
-                item_id=log.item_id,
-                scope=log.scope,
-                activity=log.activity,
-                detail=log.detail,
-                client=log.client,
-                ip_address=log.ip_address,
-            )
+            return ActivityLog.objects.create(**fields)
 
         if instance_only:
-            return _create_activity_log_instance()
+            return ActivityLog(**fields)
 
         return _handle_activity_log_transaction(
             _do_log_activity,

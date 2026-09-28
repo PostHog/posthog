@@ -1,5 +1,5 @@
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
-import { createPrefetchStep } from '~/ingestion/pipelines/analytics/steps/createPrefetchStep'
+import { createPrefetchStep } from '~/ingestion/common/steps/create-prefetch-step'
 import { Team } from '~/types'
 
 type PrefetchEventSchemasStepInput = { team: Pick<Team, 'id'> }

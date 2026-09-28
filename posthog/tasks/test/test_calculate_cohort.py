@@ -55,6 +55,12 @@ from products.cohorts.backend.models.util import (
     list_cohort_member_ids,
 )
 
+# The catalog drops a leaf with no bytecode, and `_calculate_realtime_support` grants
+# `cohort_type=REALTIME` only when every leaf compiled to bytecode. A fixture without it is a
+# cohort shape no realtime cohort can have.
+_BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
+
+
 MISSING_COHORT_ID = 12345
 
 BACKFILL_KINDS = [("behavioral", CohortBackfillKind.BEHAVIORAL), ("person", CohortBackfillKind.PERSON_PROPERTY)]
@@ -1124,6 +1130,7 @@ class TestCohortCalculationTasks(APIBaseTest):
                             "conditionHash": "behavior00000001",
                             "time_value": 7,
                             "time_interval": "day",
+                            "bytecode": _BYTECODE,
                         },
                         {
                             "type": "person",
@@ -1131,6 +1138,7 @@ class TestCohortCalculationTasks(APIBaseTest):
                             "value": ["person@example.com"],
                             "operator": "exact",
                             "conditionHash": "person0000000001",
+                            "bytecode": _BYTECODE,
                         },
                     ],
                 }

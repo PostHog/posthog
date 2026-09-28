@@ -16,7 +16,12 @@ import pytest
 
 from click.testing import CliRunner
 from hogli_commands.workflow_lint.check import CheckResult, WorkflowCheck
-from hogli_commands.workflow_lint.checks import CHECKS, _build_lookup, get_check
+from hogli_commands.workflow_lint.checks import (
+    CHECKS,
+    _build_lookup,
+    get_check,
+    shell_split_action_args as _ssaa,
+)
 from hogli_commands.workflow_lint.checks.cache_writes import (
     _can_run_on_branch_ref,
     _is_gated,
@@ -34,6 +39,12 @@ from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutChe
 from hogli_commands.workflow_lint.checks.required_gates import RequiredGateCheck
 from hogli_commands.workflow_lint.checks.reusable_secret_passthrough import ReusableSecretPassthroughCheck
 from hogli_commands.workflow_lint.checks.semgrep_services_coverage import SemgrepServicesCoverageCheck
+from hogli_commands.workflow_lint.checks.shell_split_action_args import (
+    SHELL_SPLIT_INPUTS,
+    ShellSplitActionArgsCheck,
+    derive_shell_split_inputs,
+    unparseable_actions,
+)
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -2198,3 +2209,517 @@ class TestReusableSecretPassthroughCheck:
         )
         issues = ReusableSecretPassthroughCheck().run(_read_all(tmp_path)).issues
         assert issues == [], [i.render() for i in issues]
+
+
+# ---------------------------------------------------------------------------
+# ShellSplitActionArgsCheck
+# ---------------------------------------------------------------------------
+
+
+def _write_table_actions(repo_root: Path, *, declared: bool = True) -> None:
+    for action, names in _ssaa.SHELL_SPLIT_INPUTS.items():
+        directory = repo_root / action
+        directory.mkdir(parents=True, exist_ok=True)
+        declarations = sorted(names) if declared else ["renamed"]
+        lines = ["name: A", "description: A", "inputs:"]
+        lines += [f"  {name}:\n    description: d\n    required: true" for name in declarations]
+        lines += ["runs:", "  using: composite", "  steps:", "    - shell: bash", "      env:"]
+        lines += [f"        {name.upper()}: ${{{{ inputs.{name} }}}}" for name in declarations]
+        refs = " ".join(f"${name.upper()}" for name in declarations)
+        lines += [f'      run: sh -c "echo {refs}"']
+        (directory / "action.yml").write_text("\n".join(lines) + "\n")
+
+
+def _caller(args: str, *, uses: str = "./.github/actions/semgrep-ci") -> str:
+    return f"""
+    name: Security
+    on: [pull_request]
+    jobs:
+      semgrep:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+          - uses: {uses}
+            with:
+              image: semgrep/semgrep:1.0.0
+              args: >-
+                {args}
+    """
+
+
+class TestShellSplitActionArgsCheck:
+    @pytest.fixture(autouse=True)
+    def _hazardous_action(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The live table is empty because semgrep-ci stopped splicing. Enforcement
+        # still has to work for any action that has not been fixed yet, so these
+        # tests supply one.
+        monkeypatch.setattr(_ssaa, "SHELL_SPLIT_INPUTS", {".github/actions/semgrep-ci": frozenset({"args"})})
+
+    @staticmethod
+    def _run(repo_root: Path, workflow: str) -> list[str]:
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True, exist_ok=True)
+        _write(workflows_dir, "ci-security.yaml", workflow)
+        check = ShellSplitActionArgsCheck(repo_root=repo_root)
+        return [issue.render() for issue in check.run(_read_all(workflows_dir)).issues]
+
+    def test_flags_a_hash_in_a_listed_input(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        [issue] = self._run(
+            tmp_path,
+            _caller("--config p/security-audit\n                # temporarily off\n                --config p/python"),
+        )
+        assert "with.args" in issue, issue
+        assert "'#'" in issue and "hands this value to a shell" in issue, issue
+
+    def test_flags_a_semicolon_the_inner_shell_would_treat_as_a_terminator(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        [issue] = self._run(tmp_path, _caller("--config p/python ; --include /posthog"))
+        assert "';'" in issue, issue
+
+    def test_flags_a_newline_a_more_indented_line_leaves_unfolded(self, tmp_path: Path) -> None:
+        # A folded scalar does not fold a MORE-INDENTED line: YAML keeps the breaks
+        # around it, so an author indenting one flag for readability ships a literal
+        # newline, which truncates the command exactly as a '#' does.
+        _write_table_actions(tmp_path)
+        [issue] = self._run(
+            tmp_path,
+            _caller("--config p/python\n                  --indented /posthog\n                --jobs 4"),
+        )
+        assert "\\n" in issue or "newline" in issue, issue
+
+    def test_derivation_reads_a_single_quoted_shell_c_operand(self, tmp_path: Path) -> None:
+        # Actions substitutes `${{ inputs.x }}` before the shell parses, so a
+        # single-quoted script splices an input exactly as a double-quoted one does.
+        action_dir = tmp_path / ".github" / "actions" / "singlequoted"
+        action_dir.mkdir(parents=True)
+        (action_dir / "action.yml").write_text(
+            "name: A\ndescription: A\ninputs:\n  flags:\n    description: d\n    required: true\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n"
+            "      run: sh -c 'tool ${{ inputs.flags }}'\n",
+            encoding="utf-8",
+        )
+        derived = derive_shell_split_inputs(tmp_path)
+        assert derived.get(".github/actions/singlequoted") == frozenset({"flags"}), derived
+
+    @staticmethod
+    def _shipped_split() -> str:
+        """The `set -f` … `set +f` block from the real action, so these cannot drift from it."""
+        from hogli.manifest import REPO_ROOT
+
+        text = (REPO_ROOT / ".github" / "actions" / "semgrep-ci" / "action.yml").read_text(encoding="utf-8")
+        lines = text.splitlines()
+        first = next(i for i, line in enumerate(lines) if line.strip() == "set -f")
+        last = next(i for i in range(first, len(lines)) if lines[i].strip() == "set +f")
+        return textwrap.dedent("\n".join(line.strip() for line in lines[first : last + 1]))
+
+    @staticmethod
+    def _dispatch(script: str, args: str) -> str:
+        done = subprocess.run(
+            ["bash", "-c", script + '\nsh -c \'printf "[%s]" "$@"\' sh "${semgrep_args[@]}"'],
+            env={"SEMGREP_ARGS": args, "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+        )
+        assert done.returncode == 0, done.stderr
+        return done.stdout
+
+    def test_the_shipped_action_still_passes_arguments_positionally(self) -> None:
+        from hogli.manifest import REPO_ROOT
+
+        text = (REPO_ROOT / ".github" / "actions" / "semgrep-ci" / "action.yml").read_text(encoding="utf-8")
+        assert '"$@"' in text, "the action must hand semgrep positional parameters"
+        assert "$SEMGREP_ARGS" not in text.split("docker run")[1], (
+            "the value must not be spliced into the command the container shell parses"
+        )
+
+    @pytest.mark.parametrize(
+        ("args", "expected"),
+        [
+            ("--config p/python --jobs 4", "[--config][p/python][--jobs][4]"),
+            # the three terminators that used to truncate the scan silently
+            ("--config p/python # note --jobs 4", "[--config][p/python][#][note][--jobs][4]"),
+            ("--config p/python ; --jobs 4", "[--config][p/python][;][--jobs][4]"),
+            ("--config p/python\n--jobs 4", "[--config][p/python][--jobs][4]"),
+            # globs reach semgrep unexpanded; semgrep does its own matching
+            ("--include *.py --exclude tests/**", "[--include][*.py][--exclude][tests/**]"),
+            ("--config p/python\t--jobs 4", "[--config][p/python][--jobs][4]"),
+        ],
+    )
+    def test_the_shipped_split_hands_over_every_argument(self, args: str, expected: str) -> None:
+        assert self._dispatch(self._shipped_split(), args) == expected
+
+    @pytest.mark.parametrize("args", ["", "   ", "\n"])
+    def test_an_empty_args_value_passes_no_arguments_at_all(self, args: str) -> None:
+        # An empty string must not become one EMPTY argument: semgrep would read
+        # that as a target path and scan the wrong tree. Count the arguments
+        # rather than rendering them -- `printf "[%s]"` runs its format once even
+        # with nothing to substitute, so a rendering cannot tell 0 from 1 here.
+        script = self._shipped_split() + '\nsh -c \'printf %s "$#"\' sh "${semgrep_args[@]}"'
+        done = subprocess.run(
+            ["bash", "-c", script],
+            env={"SEMGREP_ARGS": args, "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+        )
+        assert done.stdout == "0", done.stdout
+
+    def test_the_shipped_split_leaves_globbing_enabled_afterwards(self) -> None:
+        # `set -f` suppresses expansion for the split. Leaving it set would change
+        # every later command in the step.
+        script = self._shipped_split() + "\ncase $- in *f*) echo LEAKED ;; *) echo restored ;; esac"
+        done = subprocess.run(
+            ["bash", "-c", script],
+            env={"SEMGREP_ARGS": "--config p/python", "PATH": "/usr/bin:/bin"},
+            capture_output=True,
+            text=True,
+        )
+        assert done.stdout.strip() == "restored", done.stdout
+
+    def test_derivation_follows_an_input_through_an_env_hop(self, tmp_path: Path) -> None:
+        # The shape the real action used: `env:` binds the input, the script reads
+        # the variable. Derivation has to follow that hop, not just direct interpolation.
+        action_dir = tmp_path / ".github" / "actions" / "envhop"
+        action_dir.mkdir(parents=True)
+        (action_dir / "action.yml").write_text(
+            "name: A\ndescription: A\ninputs:\n  flags:\n    description: d\n    required: true\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n"
+            "        FLAGS: ${{ inputs.flags }}\n"
+            '      run: sh -c "tool $FLAGS"\n',
+            encoding="utf-8",
+        )
+        assert derive_shell_split_inputs(tmp_path).get(".github/actions/envhop") == frozenset({"flags"})
+
+    @staticmethod
+    def _write_action(repo_root: Path, name: str, run: str, *, env: bool = True) -> None:
+        directory = repo_root / ".github" / "actions" / name
+        directory.mkdir(parents=True, exist_ok=True)
+        env_block = "      env:\n        ARGS: ${{ inputs.flags }}\n" if env else ""
+        (directory / "action.yml").write_text(
+            "name: A\ndescription: A\ninputs:\n  flags:\n    description: d\n    required: true\n"
+            f"runs:\n  using: composite\n  steps:\n    - shell: bash\n{env_block}      run: {run}\n",
+            encoding="utf-8",
+        )
+
+    @pytest.mark.parametrize(
+        ("run", "spliced"),
+        [
+            # unquoted: the action, not the caller, decides where the value
+            # splits into flags, and a `*` in it globs against the container
+            ('sh -c "tool $ARGS"', True),
+            ("sh -c 'tool $ARGS'", True),
+            # double-quoted -- ONE argument, nothing re-parses it
+            ("sh -c 'tool \"$ARGS\"'", False),
+            ("sh -c 'tool --flag \"${ARGS}\" --other'", False),
+            # quoted somewhere, unquoted somewhere else: still listed
+            ("sh -c 'tool \"$OTHER\" $ARGS'", True),
+            # A GitHub expression is NOT a shell variable: Actions substitutes it into
+            # the script text before any shell parses, so a quote in the value closes the
+            # quote around it. Quoting cannot protect it -- both forms are hazards.
+            ("sh -c \"tool '${{ inputs.flags }}'\"", True),
+            ('sh -c "tool ${{ inputs.flags }}"', True),
+        ],
+    )
+    def test_derivation_ignores_a_reference_the_inner_shell_cannot_split(
+        self, tmp_path: Path, run: str, spliced: bool
+    ) -> None:
+        self._write_action(tmp_path, "probe", run)
+        derived = derive_shell_split_inputs(tmp_path)
+        assert (".github/actions/probe" in derived) is spliced, derived
+
+    @pytest.mark.parametrize("metadata", ["action.yml", "action.yaml"])
+    def test_an_action_whose_metadata_does_not_parse_is_reported(self, tmp_path: Path, metadata: str) -> None:
+        # An unreadable action returns None exactly as an absent one does, so
+        # without this the derivation finds nothing and the check passes clean --
+        # the check silently doing nothing, which is what it exists to catch.
+        # Both spellings are reported under the name actually on disk, so the
+        # annotation has a real file to attach to.
+        broken = tmp_path / ".github" / "actions" / "broken"
+        broken.mkdir(parents=True)
+        (broken / metadata).write_text("name: A\n  bad: [unclosed\n", encoding="utf-8")
+        assert unparseable_actions(tmp_path) == [f".github/actions/broken/{metadata}"]
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert any(f"broken/{metadata}: does not parse" in issue for issue in issues), issues
+
+    def test_derivation_reads_an_unquoted_shell_c_operand(self, tmp_path: Path) -> None:
+        # `sh -c $FLAGS` is if anything worse than a quoted operand: the value is
+        # split before the inner shell even sees it. It must not go uninspected.
+        self._write_action(tmp_path, "bare", "sh -c $ARGS")
+        assert derive_shell_split_inputs(tmp_path).get(".github/actions/bare") == frozenset({"flags"})
+
+    @pytest.mark.parametrize(
+        ("run", "spliced"),
+        [
+            # quoting makes the reference one argument, but `eval` parses that
+            # argument a second time, so the value is read as script anyway
+            ("""sh -c 'eval "$ARGS"'""", True),
+            ("""sh -c 'tool "$OTHER" && eval "$ARGS"'""", True),
+            # eval's command ends at the terminator: $ARGS is tool's argument
+            ("""sh -c 'eval "$OTHER"; tool "$ARGS"'""", False),
+            # `eval` as a literal or an argument re-parses nothing
+            ("""sh -c 'echo "eval $ARGS"'""", False),
+            ("""sh -c 'tool --eval "$ARGS"'""", False),
+            # a nested `-c` parses its argument exactly as `eval` does
+            ("""sh -c 'bash -c "$ARGS"'""", True),
+            ("""sh -c 'docker exec c sh -c "$ARGS"'""", True),
+            ("""sh -c 'sh -c "$OTHER"; tool "$ARGS"'""", False),
+        ],
+    )
+    def test_derivation_reads_a_quoted_reference_handed_to_a_second_parse(
+        self, tmp_path: Path, run: str, spliced: bool
+    ) -> None:
+        # The quoted-reference skip cleared these as safe, which is worse than
+        # missing them: the check affirmatively said a hazardous script had none.
+        self._write_action(tmp_path, "evaluator", run)
+        assert (".github/actions/evaluator" in derive_shell_split_inputs(tmp_path)) is spliced, run
+
+    @pytest.mark.parametrize(
+        ("run", "spliced"),
+        [
+            # a shell joins adjacent segments into ONE word, and the outer shell
+            # expands the double-quoted and bare ones while doing so
+            ("sh -c 'tool '\"$ARGS\"", True),
+            ('sh -c "tool "$ARGS', True),
+            # both segments single-quoted: the text reaches the inner shell
+            # untouched, so its own quotes still protect the variable
+            ("sh -c 'tool \"$ARGS\"'' --flag'", False),
+        ],
+    )
+    def test_derivation_reads_a_concatenated_shell_c_operand(self, tmp_path: Path, run: str, spliced: bool) -> None:
+        # Reading only the first segment left the rest of the operand uninspected.
+        self._write_action(tmp_path, "joined", run)
+        assert (".github/actions/joined" in derive_shell_split_inputs(tmp_path)) is spliced, run
+
+    @pytest.mark.parametrize(
+        "invocation",
+        [
+            "bash -lc",
+            "sh -lc",
+            "bash -euxc",
+            "sh -c",
+            "bash --norc -c",
+            # options whose value is a separate token: the value is not a flag, so
+            # a repetition that accepted only flags stopped there
+            "bash -O extglob -c",
+            "bash -o pipefail -c",
+            "bash +o history -c",
+            "bash --rcfile /dev/null -c",
+        ],
+    )
+    def test_derivation_reads_shell_options_before_c(self, tmp_path: Path, invocation: str) -> None:
+        # `bash -lc "..."` is the same hazard as `bash -l -c "..."`; requiring a
+        # separate -c left those actions uninspected.
+        self._write_action(tmp_path, "bundled", f'{invocation} "tool $ARGS"')
+        assert derive_shell_split_inputs(tmp_path).get(".github/actions/bundled") == frozenset({"flags"}), invocation
+
+    @pytest.mark.parametrize("content", ["", "- a list\n", "just a scalar\n"])
+    def test_action_metadata_that_parses_but_is_unusable_is_reported(self, tmp_path: Path, content: str) -> None:
+        # Parsing is not the bar. These parse fine and are then discarded exactly
+        # as an absent action is, so without this they read as safe.
+        directory = tmp_path / ".github" / "actions" / "odd"
+        directory.mkdir(parents=True)
+        (directory / "action.yml").write_text(content, encoding="utf-8")
+        assert unparseable_actions(tmp_path) == [".github/actions/odd/action.yml"], content
+
+    @pytest.mark.parametrize(
+        ("run", "spliced"),
+        [
+            # single-quoted OPERAND: the outer shell passes the text through, the
+            # inner shell expands "$ARGS" itself -> genuinely one argument
+            ("sh -c 'tool \"$ARGS\"'", False),
+            # double-quoted or bare OPERAND: the OUTER shell expands $ARGS into the
+            # script text first, so inner quoting cannot protect it
+            ("sh -c \"tool '$ARGS'\"", True),
+            ('sh -c "tool \\"$ARGS\\""', True),
+            ('sh -c "$ARGS"', True),
+        ],
+    )
+    def test_inner_quotes_only_protect_inside_a_single_quoted_operand(
+        self, tmp_path: Path, run: str, spliced: bool
+    ) -> None:
+        self._write_action(tmp_path, "operand", run)
+        assert (".github/actions/operand" in derive_shell_split_inputs(tmp_path)) is spliced, run
+
+    @pytest.mark.parametrize(
+        "expression",
+        [
+            "${{ inputs.flags }}",
+            "${{ inputs.flags || '' }}",
+            "${{ format('{0}', inputs.flags) }}",
+            "${{ inputs['flags'] }}",
+        ],
+    )
+    def test_derivation_reads_a_transformed_input_expression(self, tmp_path: Path, expression: str) -> None:
+        # These interpolate exactly the same text as a bare reference; matching
+        # only the bare form left the transformed ones unchecked.
+        self._write_action(tmp_path, "expr", f'sh -c "tool {expression}"', env=False)
+        assert derive_shell_split_inputs(tmp_path).get(".github/actions/expr") == frozenset({"flags"}), expression
+
+    def test_undecodable_action_metadata_is_reported_not_raised(self, tmp_path: Path) -> None:
+        # read_text raises UnicodeDecodeError, which is a ValueError and not an
+        # OSError -- so this used to take the whole lint down rather than report.
+        directory = tmp_path / ".github" / "actions" / "binary"
+        directory.mkdir(parents=True)
+        (directory / "action.yml").write_bytes(b"name: A\ndescription: \xff\xfe\n")
+        assert unparseable_actions(tmp_path) == [".github/actions/binary/action.yml"]
+
+    def test_a_nested_action_with_unreadable_metadata_is_reported(self, tmp_path: Path) -> None:
+        # The derivation scans `.github/actions/**` recursively; this alarm has to
+        # reach as far, or a nested action it would have scanned goes unmentioned.
+        nested = tmp_path / ".github" / "actions" / "group" / "inner"
+        nested.mkdir(parents=True)
+        (nested / "action.yml").write_text("name: A\n  bad: [unclosed\n", encoding="utf-8")
+        assert unparseable_actions(tmp_path) == [".github/actions/group/inner/action.yml"]
+
+    def test_a_parseable_action_is_not_reported_as_unparseable(self, tmp_path: Path) -> None:
+        self._write_action(tmp_path, "fine", """sh -c 'tool "$ARGS"'""")
+        assert unparseable_actions(tmp_path) == []
+
+    def test_reverse_drift_stays_quiet_while_the_action_still_splices(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert not any("no longer splices" in issue or "nothing there splices" in issue for issue in issues), issues
+
+    def test_flags_a_table_entry_the_tree_no_longer_splices(self, tmp_path: Path) -> None:
+        # Reverse drift. Without this, a table entry outlives the hazard and keeps
+        # callers being checked against something that is gone.
+        action_dir = tmp_path / ".github" / "actions" / "semgrep-ci"
+        action_dir.mkdir(parents=True)
+        (action_dir / "action.yml").write_text(
+            "name: A\ndescription: A\ninputs:\n  args:\n    description: d\n    required: true\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n"
+            "      run: sh -c 'tool \"$@\"' sh $ARGS\n",
+            encoding="utf-8",
+        )
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert any("no longer splices" in issue or "nothing there splices" in issue for issue in issues), issues
+
+    def test_a_foreign_action_sharing_our_layout_is_not_matched(self, tmp_path: Path) -> None:
+        # `OtherOrg/repo/.github/actions/semgrep-ci` is a different action. Matching it
+        # would fail a workflow over semantics that action does not have.
+        _write_table_actions(tmp_path)
+        assert (
+            self._run(
+                tmp_path,
+                _caller("--config p/python # off", uses="OtherOrg/repo/.github/actions/semgrep-ci@abc123"),
+            )
+            == []
+        )
+
+    def test_allows_a_value_with_no_hash(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        assert self._run(tmp_path, _caller("--config p/python\n                --include /posthog")) == []
+
+    def test_ignores_an_input_the_table_does_not_list(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-security.yaml",
+            """
+            name: Security
+            on: [pull_request]
+            jobs:
+              semgrep:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 5
+                steps:
+                  - uses: ./.github/actions/semgrep-ci
+                    with:
+                      image: semgrep/semgrep@sha256:abc # pinned
+                      args: --config p/python
+            """,
+        )
+        check = ShellSplitActionArgsCheck(repo_root=tmp_path)
+        assert check.run(_read_all(workflows_dir)).issues == []
+
+    def test_ignores_an_action_the_table_does_not_list(self, tmp_path: Path) -> None:
+        # 38 `with:` inputs in this repo carry a `#` legitimately, so the rule
+        # has to stay per-input rather than blanket.
+        _write_table_actions(tmp_path)
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(
+            workflows_dir,
+            "ci-other.yml",
+            """
+            name: Other
+            on: [pull_request]
+            jobs:
+              changes:
+                runs-on: ubuntu-24.04
+                timeout-minutes: 5
+                steps:
+                  - uses: dorny/paths-filter@v3
+                    with:
+                      filters: |
+                        # the backend tree, minus docs
+                        backend:
+                          - 'posthog/**'
+                  - uses: actions/github-script@v7
+                    with:
+                      script: |
+                        // #1 in the queue
+                        core.info('ok')
+            """,
+        )
+        check = ShellSplitActionArgsCheck(repo_root=tmp_path)
+        assert check.run(_read_all(workflows_dir)).issues == []
+
+    def test_matches_a_repo_qualified_uses(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        issues = self._run(
+            tmp_path,
+            _caller("--config p/python # off", uses="PostHog/posthog/.github/actions/semgrep-ci@abc123"),
+        )
+        assert len(issues) == 1, issues
+
+    def test_reports_an_action_missing_from_the_table(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path)
+        made_up = tmp_path / ".github" / "actions" / "made-up"
+        made_up.mkdir(parents=True)
+        (made_up / "action.yml").write_text(
+            "name: M\ndescription: M\ninputs:\n  flags:\n    description: d\n    required: true\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n"
+            '        FLAGS: ${{ inputs.flags }}\n      run: sh -c "tool $FLAGS"\n'
+        )
+        [issue] = self._run(tmp_path, _caller("--config p/python"))
+        assert ".github/actions/made-up" in issue, issue
+        assert "missing from SHELL_SPLIT_INPUTS" in issue, issue
+
+    def test_reports_a_table_entry_whose_action_was_renamed_away(self, tmp_path: Path) -> None:
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert len(issues) == len(_ssaa.SHELL_SPLIT_INPUTS), issues
+        assert all("no action there" in issue for issue in issues), issues
+
+    def test_reports_a_table_input_the_action_no_longer_declares(self, tmp_path: Path) -> None:
+        _write_table_actions(tmp_path, declared=False)
+        issues = self._run(tmp_path, _caller("--config p/python"))
+        assert any("no longer declares" in issue for issue in issues), issues
+
+    def test_derivation_reads_only_the_shell_c_operand(self, tmp_path: Path) -> None:
+        # Harvesting the whole run body would derive `image` too and fire a
+        # drift alarm on a correctly written action.
+        action = tmp_path / ".github" / "actions" / "runner"
+        action.mkdir(parents=True)
+        (action / "action.yml").write_text(
+            "name: R\ndescription: R\ninputs:\n  args:\n    description: d\n  image:\n    description: d\n"
+            "runs:\n  using: composite\n  steps:\n    - shell: bash\n      env:\n"
+            "        A: ${{ inputs.args }}\n        I: ${{ inputs.image }}\n"
+            '      run: |\n        docker run "$I" sh -c "tool $A"\n'
+        )
+        assert derive_shell_split_inputs(tmp_path) == {".github/actions/runner": frozenset({"args"})}
+
+    def test_live_tree_is_clean(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The real table, not the class fixture's hazardous stand-in.
+        monkeypatch.setattr(_ssaa, "SHELL_SPLIT_INPUTS", SHELL_SPLIT_INPUTS)
+        from hogli.manifest import REPO_ROOT
+
+        workflows_dir = REPO_ROOT / ".github" / "workflows"
+        if not workflows_dir.exists():
+            pytest.skip("no .github/workflows directory in this checkout")
+        check = ShellSplitActionArgsCheck(repo_root=REPO_ROOT)
+        issues = check.run(list(read_workflows(workflows_dir))).issues
+        assert issues == [], [issue.render() for issue in issues]
+        assert derive_shell_split_inputs(REPO_ROOT) == SHELL_SPLIT_INPUTS

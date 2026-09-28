@@ -40,6 +40,7 @@ use crate::{
         body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
+        flag_definitions::DefinitionsBillableCache,
         flag_definitions_rate_limiter::{FlagDefinitionsRateLimiter, RemoteConfigRateLimiter},
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
         remote_config,
@@ -93,7 +94,10 @@ pub struct State {
     pub feature_flags_billing_limiter: FeatureFlagsLimiter,
     pub session_replay_billing_limiter: SessionReplayLimiter,
     pub cookieless_manager: Arc<CookielessManager>,
-    pub(crate) flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    pub(crate) flag_definitions_full_limiter: FlagDefinitionsRateLimiter,
+    /// Per-team limiter for flag definitions requests with an ETag in If-None-Match.
+    /// Separate budget so ETag revalidation polls don't consume the full-response budget.
+    pub(crate) flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
     /// Per-credential limiter (keyed on the personal API key id) for the remote_config endpoint,
     /// mirroring Django's RemoteConfigThrottle. Separate budget from flag definitions.
     pub(crate) remote_config_limiter: RemoteConfigRateLimiter,
@@ -106,6 +110,10 @@ pub struct State {
     /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
     /// Used by the /flags/definitions endpoint
     pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    /// Billable status of each team's current flag definitions, keyed by ETag, so a 304 on
+    /// /flags/definitions for survey-only or product-tour-only definitions goes unbilled
+    /// without a payload read on every poll
+    pub definitions_billable_cache: DefinitionsBillableCache,
     /// Pre-initialized HyperCacheReader for team metadata (full_metadata.json)
     /// Uses token-based lookup instead of team_id
     pub team_hypercache_reader: Arc<HyperCacheReader>,
@@ -276,7 +284,7 @@ where
     C: clock::Clock + Clone + Send + Sync + 'static,
 {
     // Initialize flag definitions rate limiter with default and custom team rates
-    let flag_definitions_limiter = FlagDefinitionsRateLimiter::new(
+    let flag_definitions_full_limiter = FlagDefinitionsRateLimiter::new(
         config.flag_definitions_default_rate_per_minute,
         config.flag_definitions_rate_limits.0.clone(),
         config.rate_limiting_allow_list_teams.0.clone(),
@@ -284,7 +292,20 @@ where
         FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
         FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
     )
-    .expect("Failed to initialize flag definitions rate limiter");
+    .expect("Failed to initialize flag definitions rate limiter")
+    .with_labels(&[("budget", "full")]);
+
+    // Both limiters share metric names, so dashboards that sum the counters still see every request.
+    let flag_definitions_conditional_limiter = FlagDefinitionsRateLimiter::new(
+        config.flag_definitions_conditional_rate_per_minute,
+        config.flag_definitions_conditional_rate_limits.0.clone(),
+        config.rate_limiting_allow_list_teams.0.clone(),
+        FLAG_DEFINITIONS_REQUESTS_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMITED_COUNTER,
+        FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER,
+    )
+    .expect("Failed to initialize flag definitions conditional rate limiter")
+    .with_labels(&[("budget", "conditional")]);
 
     // Per-credential limiter for the remote_config endpoint (mirrors Django's
     // RemoteConfigThrottle, which buckets per hashed bearer token). The team allowlist is
@@ -348,7 +369,8 @@ where
     spawn_rate_limiter_cleanup_task(
         flags_rate_limiter.clone(),
         ip_rate_limiter.clone(),
-        flag_definitions_limiter.clone(),
+        flag_definitions_full_limiter.clone(),
+        flag_definitions_conditional_limiter.clone(),
         remote_config_limiter.clone(),
         config.rate_limiter_cleanup_interval_secs,
     );
@@ -400,7 +422,8 @@ where
         feature_flags_billing_limiter,
         session_replay_billing_limiter,
         cookieless_manager,
-        flag_definitions_limiter,
+        flag_definitions_full_limiter,
+        flag_definitions_conditional_limiter,
         remote_config_limiter,
         config: config.clone(),
         flags_hypercache_reader,
@@ -410,6 +433,10 @@ where
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        definitions_billable_cache: DefinitionsBillableCache::new(
+            config.definitions_billable_cache_capacity,
+            std::time::Duration::from_secs(config.definitions_billable_cache_ttl_seconds),
+        ),
         cohort_membership_provider,
         auth_token_cache,
         billing_aggregator,
@@ -627,7 +654,8 @@ fn resolve_rate_limit_capacities(
 fn spawn_rate_limiter_cleanup_task<C>(
     flags_rate_limiter: FlagsRateLimiter<C>,
     ip_rate_limiter: IpRateLimiter<C>,
-    flag_definitions_limiter: FlagDefinitionsRateLimiter,
+    flag_definitions_full_limiter: FlagDefinitionsRateLimiter,
+    flag_definitions_conditional_limiter: FlagDefinitionsRateLimiter,
     remote_config_limiter: RemoteConfigRateLimiter,
     cleanup_interval_secs: u64,
 ) where
@@ -642,21 +670,25 @@ fn spawn_rate_limiter_cleanup_task<C>(
                 // Remove stale entries and reclaim memory
                 flags_rate_limiter.cleanup();
                 ip_rate_limiter.cleanup();
-                flag_definitions_limiter.cleanup();
+                flag_definitions_full_limiter.cleanup();
+                flag_definitions_conditional_limiter.cleanup();
                 remote_config_limiter.cleanup();
 
                 // Report metrics for monitoring
                 gauge!("flags_rate_limiter_token_entries").set(flags_rate_limiter.len() as f64);
                 gauge!("flags_rate_limiter_ip_entries").set(ip_rate_limiter.len() as f64);
-                gauge!("flags_rate_limiter_definitions_entries")
-                    .set(flag_definitions_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries", "budget" => "full")
+                    .set(flag_definitions_full_limiter.len() as f64);
+                gauge!("flags_rate_limiter_definitions_entries", "budget" => "conditional")
+                    .set(flag_definitions_conditional_limiter.len() as f64);
                 gauge!("flags_rate_limiter_remote_config_entries")
                     .set(remote_config_limiter.len() as f64);
 
                 tracing::debug!(
                     token_entries = flags_rate_limiter.len(),
                     ip_entries = ip_rate_limiter.len(),
-                    definitions_entries = flag_definitions_limiter.len(),
+                    definitions_full_entries = flag_definitions_full_limiter.len(),
+                    definitions_conditional_entries = flag_definitions_conditional_limiter.len(),
                     remote_config_entries = remote_config_limiter.len(),
                     "Rate limiter cleanup completed"
                 );

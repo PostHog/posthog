@@ -5,6 +5,7 @@ import { useHotkeys, useHotkeysContext } from "react-hotkeys-hook";
 import { useBlurOnEscape } from "../../../hooks/useBlurOnEscape";
 import { useSetHeaderContent } from "../../../hooks/useSetHeaderContent";
 import { logger } from "../../../shell/logger";
+import { useArchiveShortcut } from "../../archive/useArchiveShortcut";
 import { useTaskArchive } from "../../archive/useTaskArchive";
 import { ChannelBreadcrumb } from "../../canvas/components/ChannelBreadcrumb";
 import { CopyThreadLinkButton } from "../../canvas/components/CopyThreadLinkButton";
@@ -15,7 +16,6 @@ import {
 } from "../../code-review/components/LazyReviewPages";
 import { useReviewNavigationStore } from "../../code-review/reviewNavigationStore";
 import { useFileSearchStore } from "../../command/fileSearchStore";
-import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { useRepoFileWatcher } from "../../file-watcher/useRepoFileWatcher";
 import { clearGitReviewQueries } from "../../git-interaction/gitCacheKeys";
 import { useRightPanelStore } from "../../navigation/rightPanelStore";
@@ -68,20 +68,12 @@ export function TaskDetail({
     navigateUnscoped: !channelId,
   });
 
-  useHotkeys(
-    SHORTCUTS.ARCHIVE_TASK,
-    (event) => {
-      event.preventDefault();
-      requestArchive();
-    },
-    {
-      scopes: ["taskDetail"],
-      enabled: !inBackgroundTile,
-      enableOnContentEditable: true,
-      enableOnFormTags: true,
-    },
-    [requestArchive],
-  );
+  useArchiveShortcut({
+    onArchive: requestArchive,
+    enabled: !inBackgroundTile,
+    priority: "visible-task",
+    scopes: ["taskDetail"],
+  });
 
   useEffect(() => {
     if (inBackgroundTile) return;

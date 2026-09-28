@@ -11,7 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     MessageAssetApi,
     PaginatedAsyncDeletionStatusListApi,
-    PaginatedPersonRecordListApi,
+    PaginatedPersonListRecordListApi,
     PatchedPersonRecordApi,
     PersonBulkDeleteRequestApi,
     PersonBulkDeleteResponseApi,
@@ -84,8 +84,8 @@ export const personsList = async (
     projectId: string,
     params?: PersonsListParams,
     options?: RequestInit
-): Promise<PaginatedPersonRecordListApi> => {
-    return apiMutator<PaginatedPersonRecordListApi>(getPersonsListUrl(projectId, params), {
+): Promise<PaginatedPersonListRecordListApi> => {
+    return apiMutator<PaginatedPersonListRecordListApi>(getPersonsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

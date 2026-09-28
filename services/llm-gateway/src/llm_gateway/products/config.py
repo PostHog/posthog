@@ -89,6 +89,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-opus-4-7",
         "claude-opus-4-8",
         "claude-opus-5",
+        "claude-opus-5-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
         "claude-sonnet-5",
@@ -102,6 +103,8 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.2",
         "gpt-5-mini",
         "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-6-luna",
         "@cf/zai-org/glm-5.2",
         "zai-org/glm-5.3",
         "zai-org/glm-5.3-flash",
@@ -158,6 +161,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-7",
                 "claude-opus-4-8",
                 "claude-opus-5",
+                "claude-opus-5-5",
                 "claude-sonnet-4-5",
                 "claude-sonnet-5",
                 "claude-haiku-4-5",
@@ -171,6 +175,8 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 # agent's gateway.ts), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
                 "gpt-6-astra",
+                "gpt-6-sol",
+                "gpt-6-luna",
             }
             | BEDROCK_MODELS
         ),

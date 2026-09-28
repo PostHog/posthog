@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 40 enabled ops
+ * PostHog API - MCP 41 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -5606,7 +5606,7 @@ export const ExperimentsCreateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -6648,7 +6648,7 @@ export const ExperimentsCreateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -6714,8 +6714,18 @@ export const ExperimentsCreateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -11569,7 +11579,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -12615,7 +12625,7 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -12685,8 +12695,18 @@ export const ExperimentsPartialUpdateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -17511,7 +17531,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -18557,7 +18577,7 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 ])
                                 .optional()
                                 .describe(
-                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; start_handling and conversion window are ignored then.'
+                                    'For retention metrics: start event. Pass {\"kind\": \"ExperimentExposureNode\"} to start retention from the experiment\'s exposure event; a conversion window or \'last_seen\' start_handling is rejected then, because the start is always the user\'s first exposure.'
                                 ),
                             start_handling: zod.union([zod.enum(['first_seen', 'last_seen']), zod.null()]).optional(),
                             threshold: zod
@@ -18627,8 +18647,18 @@ export const ExperimentsDuplicateCreateBody = () => zod
             .describe(
                 "GitHub repository holding this experiment's feature-flag code, in `organization\/repository` format. Used as the target of the flag-cleanup pull request opened via open_cleanup_pr on end\/ship_variant. When not set, cleanup targets the team's only connected repository and is skipped if the team has several."
             ),
-        primary_metrics_ordered_uuids: zod.unknown().optional(),
-        secondary_metrics_ordered_uuids: zod.unknown().optional(),
+        primary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the primary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
+        secondary_metrics_ordered_uuids: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'Display order of the secondary metrics, as metric uuids. This is a display hint only: a metric not in the list renders after the listed ones in stored order, and an entry that matches no metric is ignored. Send it only to reorder metrics. Adding or removing metrics does not need it.'
+            ),
         only_count_matured_users: zod.boolean().optional(),
         update_feature_flag_params: zod
             .boolean()
@@ -18840,6 +18870,32 @@ export const ExperimentsMetricsRecalculationRetrieveParams = () => zod.object({
  * produces (see decorators._result_to_response), so both paths share one contract.
  */
 export const ExperimentsMetricsRecalculationLatestRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this experiment.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Move a legacy experiment onto the new experiments engine.
+ *
+ * Creates a new experiment with the same configuration and its metrics converted
+ * to the new format, and returns it. The legacy experiment is left untouched and
+ * keeps its results, so the project ends up with two experiments. Both point at
+ * the same feature flag, so no new rollout is needed and users keep the variant
+ * they already have.
+ *
+ * Legacy shared metrics used by the experiment are converted as part of the same
+ * call. Each one gets a new shared metric, and the new experiment links to that.
+ *
+ * Calling this again returns the experiment created the first time instead of
+ * making another copy.
+ *
+ * Returns 400 if the experiment already uses the new engine.
+ */
+export const ExperimentsMigrateCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this experiment.'),
     project_id: zod
         .string()

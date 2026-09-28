@@ -52,11 +52,11 @@ export function LeadTimeComparisonCard({
                     title={
                         <div className="flex flex-col gap-1">
                             <div>
-                                Merged pull requests (bots and drafts excluded), each matched once to the first
-                                successful deploy that contains its merge, in the environments named under the headline.
-                                Open to merge includes draft time. The three stages use the same pull requests. For each
-                                one, open to merge and merge to deploy add up to open to deploy, but their medians do
-                                not.
+                                Pull requests merged in the window (bots and drafts excluded), each matched once to the
+                                first successful deploy that contains its merge by the window end, in the environments
+                                named under the headline. Open to merge includes draft time. The three stages use the
+                                same pull requests. For each one, open to merge and merge to deploy add up to open to
+                                deploy, but their medians do not.
                             </div>
                             <div>
                                 Box: the middle half of the pull requests. Line: median. Dot: mean. Whiskers: 5th to

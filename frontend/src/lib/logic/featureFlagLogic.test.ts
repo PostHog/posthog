@@ -1,29 +1,54 @@
+import posthog from 'posthog-js'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import type { AppContext } from '~/types'
+import { initKeaTests } from '~/test/init'
 
-import { areClientFeatureFlagsHonored, getPersistedFeatureFlags } from './featureFlagLogic'
+import { areClientFeatureFlagsHonored, featureFlagLogic, getPersistedFeatureFlags } from './featureFlagLogic'
 
-describe('areClientFeatureFlagsHonored', () => {
-    it.each([
-        [null, false],
-        [{ cloud: false, is_debug: false }, false],
-        [{ cloud: true, is_debug: false }, true],
-        [{ cloud: false, is_debug: true }, true],
-        [{ cloud: true, is_debug: true }, true],
-    ])('preflight %s returns %s', (preflight, expected) => {
-        expect(areClientFeatureFlagsHonored(preflight)).toBe(expected)
+describe('featureFlagLogic', () => {
+    describe('areClientFeatureFlagsHonored', () => {
+        it.each([
+            [null, false],
+            [{ cloud: false, is_debug: false }, false],
+            [{ cloud: true, is_debug: false }, true],
+            [{ cloud: false, is_debug: true }, true],
+            [{ cloud: true, is_debug: true }, true],
+        ])('preflight %s returns %s', (preflight, expected) => {
+            expect(areClientFeatureFlagsHonored(preflight)).toBe(expected)
+        })
     })
-})
 
-describe('getPersistedFeatureFlags', () => {
-    it('maps server-persisted flags to the enabled frontend baseline', () => {
-        const appContext = {
-            persisted_feature_flags: [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES],
-        } as AppContext
+    describe('getPersistedFeatureFlags', () => {
+        it('maps server-persisted flags to the enabled frontend baseline', () => {
+            const appContext = {
+                persisted_feature_flags: [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES],
+            } as AppContext
 
-        expect(getPersistedFeatureFlags(appContext)).toEqual({
-            [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: true,
+            expect(getPersistedFeatureFlags(appContext)).toEqual({
+                [FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES]: true,
+            })
+        })
+    })
+
+    describe('receivedFeatureFlags', () => {
+        afterEach(() => {
+            delete (posthog as any).config
+        })
+
+        // The mocked onFeatureFlags never calls back, as posthog-js does not when flags are off.
+        it.each([
+            ['flags disabled', { advanced_disable_flags: true }, true],
+            ['flags enabled', { advanced_disable_flags: false }, false],
+        ])('with %s is %s before any flags arrive', (_name, config, expected) => {
+            ;(posthog as any).config = config
+            initKeaTests()
+
+            const logic = featureFlagLogic()
+            logic.mount()
+
+            expect(logic.values.receivedFeatureFlags).toBe(expected)
         })
     })
 })

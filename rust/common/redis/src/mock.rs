@@ -17,6 +17,7 @@ pub struct MockRedisClient {
     set_nx_ex_ret: HashMap<String, Result<bool, CustomRedisError>>,
     batch_incr_by_expire_nx_ret: Option<Result<(), CustomRedisError>>,
     batch_incr_by_expire_ret: Option<Result<(), CustomRedisError>>,
+    batch_incr_by_expire_at_ret: Option<Result<(), CustomRedisError>>,
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
@@ -43,6 +44,7 @@ impl Default for MockRedisClient {
             set_nx_ex_ret: HashMap::new(),
             batch_incr_by_expire_nx_ret: None,
             batch_incr_by_expire_ret: None,
+            batch_incr_by_expire_at_ret: None,
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
@@ -166,6 +168,11 @@ impl MockRedisClient {
 
     pub fn batch_incr_by_expire_ret(&mut self, ret: Result<(), CustomRedisError>) -> Self {
         self.batch_incr_by_expire_ret = Some(ret);
+        self.clone()
+    }
+
+    pub fn batch_incr_by_expire_at_ret(&mut self, ret: Result<(), CustomRedisError>) -> Self {
+        self.batch_incr_by_expire_at_ret = Some(ret);
         self.clone()
     }
 
@@ -503,6 +510,28 @@ impl Client for MockRedisClient {
         });
 
         match &self.batch_incr_by_expire_ret {
+            Some(ret) => ret.clone(),
+            None => Ok(()),
+        }
+    }
+
+    async fn batch_incr_by_expire_at(
+        &self,
+        items: Vec<(String, i64, i64)>,
+    ) -> Result<(), CustomRedisError> {
+        // Record each key's deadline so a test can assert the epoch math.
+        let recorded = items
+            .iter()
+            .map(|(k, by, expire_at)| format!("{k}={by}@{expire_at}"))
+            .collect::<Vec<_>>()
+            .join(",");
+        self.lock_calls().push(MockRedisCall {
+            op: "batch_incr_by_expire_at".to_string(),
+            key: recorded,
+            value: MockRedisValue::None,
+        });
+
+        match &self.batch_incr_by_expire_at_ret {
             Some(ret) => ret.clone(),
             None => Ok(()),
         }
