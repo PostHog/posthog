@@ -1454,13 +1454,17 @@ class TestAnalyticsSnapshotBackfill:
             segment_payloads={"https://r.s3.amazonaws.com/o1": payload},
         )
         recorded_owed: list[bool] = []
+        recorded_coverage: list[dict[str, date] | None] = []
 
         full_refresh_rows = _collect_analytics(
-            pending_api, _FakeManager(), record_snapshot_owed=lambda owed, _: recorded_owed.append(owed)
+            pending_api,
+            _FakeManager(),
+            record_snapshot_owed=lambda owed, coverage: (recorded_owed.append(owed), recorded_coverage.append(coverage)),
         )
 
         assert [(row["processing_date"], row["_line"]) for row in full_refresh_rows] == [(date(2026, 8, 1), 1)]
         assert recorded_owed == [True]
+        assert recorded_coverage == [{"A1": date(2026, 8, 1)}]
 
         incremental_rows = _collect_analytics(
             self._ready_api(),
