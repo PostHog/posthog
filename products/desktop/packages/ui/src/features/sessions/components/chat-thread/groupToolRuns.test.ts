@@ -305,6 +305,41 @@ describe("groupToolRuns", () => {
     expect(out.map((row) => row.type)).toEqual(["tool_group"]);
   });
 
+  it("stands the last chart alone once the session goes idle, even with nothing to supersede the implicit turn", () => {
+    const turnContext = {
+      toolCalls: new Map(),
+      childItems: new Map(),
+      turnCancelled: false,
+      turnComplete: true,
+      isImplicit: true,
+    };
+    const chart = (id: string) => {
+      const item = toolItem(id, { toolCallId: id });
+      item.turnContext = turnContext;
+      turnContext.toolCalls.set(id, {
+        toolCallId: id,
+        title: id,
+        kind: "execute",
+        status: "completed",
+        rawOutput: {
+          _meta: { ui: { resourceUri: "ui://posthog/mock-app.html" } },
+        },
+      });
+      return item;
+    };
+
+    const out = groupToolRuns(
+      [chart("chart-1"), chart("chart-2")],
+      /* isPromptPending */ false,
+    );
+
+    expect(out.map((row) => row.type)).toEqual([
+      "session_update",
+      "session_update",
+    ]);
+    expect(out[1]).toMatchObject({ id: "chart-2" });
+  });
+
   it("stands the last chart alone once a later turn supersedes the implicit one", () => {
     const turnContext = {
       toolCalls: new Map(),

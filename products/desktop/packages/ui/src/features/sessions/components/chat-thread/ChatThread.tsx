@@ -214,18 +214,23 @@ function isTurnDecided(
   turnContext: TurnContext,
   erroredTurns: Set<TurnContext>,
   supersededTurns: Set<TurnContext>,
+  isSessionIdle: boolean,
 ): boolean {
   // A cloud turn that errors out never gets a `turn_completed` event, so `turnComplete`
   // alone would leave a finished chart stuck collapsed forever.
   if (erroredTurns.has(turnContext)) return true;
   if (!turnContext.turnComplete) return false;
   // An implicit turn is marked `turnComplete` the moment it opens, so trust that only once
-  // a later turn has taken its place and it can no longer grow.
-  return turnContext.isImplicit ? supersededTurns.has(turnContext) : true;
+  // a later turn has taken its place, or nothing is generating anymore — otherwise a
+  // trailing implicit turn that never gets superseded would stay collapsed forever.
+  return turnContext.isImplicit
+    ? supersededTurns.has(turnContext) || isSessionIdle
+    : true;
 }
 
 function lastRenderableIdsByTurn(
   items: ConversationItem[],
+  isSessionIdle: boolean,
 ): Map<TurnContext, string> {
   const erroredTurns = new Set<TurnContext>();
   const lastIndexByTurn = new Map<TurnContext, number>();
@@ -245,7 +250,14 @@ function lastRenderableIdsByTurn(
   const out = new Map<TurnContext, string>();
   for (const item of items) {
     if (!isToolCallItem(item)) continue;
-    if (!isTurnDecided(item.turnContext, erroredTurns, supersededTurns)) {
+    if (
+      !isTurnDecided(
+        item.turnContext,
+        erroredTurns,
+        supersededTurns,
+        isSessionIdle,
+      )
+    ) {
       continue;
     }
     if (!hasUiAppResult(item)) continue;
@@ -313,8 +325,16 @@ function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
   return run;
 }
 
-export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
-  const lastRenderableIds = lastRenderableIdsByTurn(items);
+export function groupToolRuns(
+  items: ConversationItem[],
+  isPromptPending: boolean | null = true,
+): ThreadItem[] {
+  // Mirrors the same `=== false` check `incrementalConversationItems` uses to decide the
+  // conversation isn't actively streaming — `null` means "unknown yet" for a cloud session.
+  const lastRenderableIds = lastRenderableIdsByTurn(
+    items,
+    isPromptPending === false,
+  );
   const out: ThreadItem[] = [];
   // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
   // items interleaved with either.
@@ -1444,8 +1464,11 @@ function ChatThreadRenderer({
   );
 
   const rows = useMemo<TurnRow[]>(
-    () => groupIntoTurns(groupToolCalls ? groupToolRuns(items) : items),
-    [items, groupToolCalls],
+    () =>
+      groupIntoTurns(
+        groupToolCalls ? groupToolRuns(items, isPromptPending) : items,
+      ),
+    [items, groupToolCalls, isPromptPending],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and
