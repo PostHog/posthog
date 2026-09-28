@@ -73,6 +73,8 @@ The output configuration defines `options` as `{key, label}` pairs, `selection_m
 Each evaluation supports 1 to 100 categories, enforced by the API and editor.
 Keys must be unique lowercase identifiers; labels are for display.
 Keep keys stable when changing labels so historical results retain their meaning.
+In the editor, **Categories per result** controls the number of returned categories independently of the passing rule.
+Category errors appear below the category table; passing-rule errors appear below the passing categories.
 
 Hog returns a list of keys, or a single key string for single selection.
 The editor updates the untouched Hog example when its category key changes, is removed, or the draft's output type changes.

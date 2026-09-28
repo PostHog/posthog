@@ -135,7 +135,7 @@ export function categoricalEvaluationPassedHogQL(evaluation: Pick<EvaluationConf
 
 export const MAX_CATEGORICAL_OPTIONS = 100
 
-export function categoricalOutputConfigError(config: EvaluationOutputConfig): string | null {
+export function categoricalOptionsError(config: EvaluationOutputConfig): string | null {
     if (!config.options?.length) {
         return 'Add at least one category.'
     }
@@ -153,6 +153,10 @@ export function categoricalOutputConfigError(config: EvaluationOutputConfig): st
     if (new Set(config.options.map(({ key }) => key)).size !== config.options.length) {
         return 'Use a different key for each category.'
     }
+    return null
+}
+
+export function categoricalPassingRuleError(config: EvaluationOutputConfig): string | null {
     const rule = config.passing_rule
     if (rule && 'categories' in rule && config.selection_mode !== 'multiple' && rule.categories.length === 0) {
         return 'Choose at least one passing category.'
@@ -165,6 +169,10 @@ export function categoricalOutputConfigError(config: EvaluationOutputConfig): st
         return 'Choose passing categories from the configured categories.'
     }
     return null
+}
+
+export function categoricalOutputConfigError(config: EvaluationOutputConfig): string | null {
+    return categoricalOptionsError(config) ?? categoricalPassingRuleError(config)
 }
 
 export function categoricalEvaluationsPassedHogQL(
