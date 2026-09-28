@@ -216,6 +216,9 @@ def run_saved_case(saved: SavedScoutCase, options: HarnessOptions, target_cutoff
         LLM_GATEWAY_POSTHOG_AI_LANE_CAPTURE="false",
         LLM_GATEWAY_POSTHOG_PROJECT_TOKEN="",
         LLM_GATEWAY_POSTHOG_SECONDARY_PROJECT_TOKEN="",
+        # Explicit blanks prevent the MCP subprocess's .env from re-enabling capture.
+        POSTHOG_ANALYTICS_API_KEY="",
+        POSTHOG_ANALYTICS_HOST="",
     )
     setup_django()
 

@@ -9,6 +9,7 @@ from typing import cast
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -20,6 +21,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import EventDefinition, PropertyDefinition
+from posthog.models.event.util import create_event
 
 from products.data_catalog.backend.facade.api import Metric, compute_drift
 from products.posthog_ai.eval_harness.data_setup import create_empty_team
@@ -401,7 +403,7 @@ class TestSavedCaseValidation(SimpleTestCase):
                 SavedScoutCase.load(path)
 
 
-class TestSavedCaseRestore(BaseTest):
+class TestSavedCaseRestore(ClickhouseTestMixin, BaseTest):
     def test_restore_preserves_history_and_isolates_local_writes(self) -> None:
         self.organization.name = "Eval (saved-case-test)"
         self.organization.save(update_fields=["name"])
@@ -505,6 +507,7 @@ class TestSavedCaseRestore(BaseTest):
             self.assertFalse(team_config.autostart_enabled)
             self.assertFalse(team_config.github_issue_writeback_enabled)
             self.assertEqual(result["restored_reports"], 1)
+            self.assertEqual(result["event_validation"], {"matched": True, "query_performed": True, "by_event": {}})
             metric = Metric.objects.for_team(self.team.id).get()
             self.assertNotEqual(str(metric.id), metric_id)
             self.assertEqual(metric.definition, metric_definition)
@@ -522,6 +525,28 @@ class TestSavedCaseRestore(BaseTest):
 
 
 class TestSavedCaseEventRestore(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand(
+        [
+            ("query_failed", RuntimeError, "HogQL unavailable"),
+            ("stray_event", ValueError, "Restored event counts or timestamp bounds differ"),
+        ]
+    )
+    def test_empty_restore_requires_successful_empty_query(
+        self, failure: str, error: type[Exception], message: str
+    ) -> None:
+        self.organization.name = "Eval (empty-event-test)"
+        self.organization.save(update_fields=["name"])
+        if failure == "query_failed":
+            self.enterContext(patch("posthog.hogql.query.execute_hogql_query", side_effect=RuntimeError(message)))
+        else:
+            create_event(event_uuid=uuid4(), event="unexpected", team=self.team, distinct_id="reader")
+        with tempfile.TemporaryDirectory() as temporary:
+            case = SavedScoutCase.load(write_case(Path(temporary)))
+            context = CustomPromptSandboxContext(team_id=self.team.id, user_id=self.user.id)
+
+            with self.assertRaisesRegex(error, message):
+                case.restore(context, target_cutoff=TARGET)
+
     def test_repeated_restore_isolates_events_and_preserves_ingestion_time(self) -> None:
         self.organization.name = "Eval (saved-event-test)"
         self.organization.save(update_fields=["name"])

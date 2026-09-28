@@ -176,15 +176,21 @@ def test_workflow_timeout_is_scored_as_a_case_result(tmp_path: Path, monkeypatch
     assert execution["metadata"]["seed"] == seed
 
 
-@pytest.mark.parametrize("error_type", [EvalTaskError, EvalTaskCancelled, asyncio.CancelledError])
+@pytest.mark.parametrize("error_type", [EvalTaskError, EvalTaskCancelled, asyncio.CancelledError, None])
 def test_workflow_failure_retains_partial_output(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[EvalTaskError] | type[asyncio.CancelledError]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: type[EvalTaskError] | type[asyncio.CancelledError] | None,
 ) -> None:
-    partial_output = {"artifacts": {"memory": {"cursor": "saved"}}}
+    partial_output: dict[str, Any] = {"artifacts": {"memory": {"cursor": "saved"}}}
+    if error_type is None:
+        partial_output["raw_log"] = "null\n"
     seed = {"team_id": 1, "shift_seconds": 3600, "id_map": {"saved-report": "restored-report"}}
 
     async def task(case, sandbox_context, ctx, hooks):
         assert hooks.metadata["seed"] == seed
+        if error_type is None:
+            return partial_output.copy()
         if error_type is asyncio.CancelledError:
             raise asyncio.CancelledError("stopped")
         raise error_type("stopped", partial_output)
@@ -195,16 +201,20 @@ def test_workflow_failure_retains_partial_output(
     assert isinstance(case, SandboxedEvalCase)
     case.setup = lambda _: seed
     hooks = NullCaseHooks()
-    with pytest.raises(error_type):
+    with pytest.raises(error_type or EvalTaskError):
         asyncio.run(run._task({"name": "case-one", "prompt": "investigate"}, hooks))
 
     trial_dir = Path(hooks.metadata["artifact_dir"])
-    assert json.loads((trial_dir / "output.json").read_text()) == (
-        None if error_type is asyncio.CancelledError else partial_output
-    )
+    expected = None if error_type is asyncio.CancelledError else partial_output
+    if error_type is None:
+        expected = partial_output | {"prompt": "investigate", "seed": seed}
+    assert json.loads((trial_dir / "output.json").read_text()) == expected
     execution = json.loads((trial_dir / "execution.json").read_text())
     assert execution["status"] == "error"
-    assert execution["error"] == "stopped"
+    if error_type is None:
+        assert execution["error"].startswith("Could not process workflow transcript:")
+    else:
+        assert execution["error"] == "stopped"
     assert execution["metadata"]["seed"] == seed
     assert ctx.reporter.done == [("case-one", "error")]  # type: ignore[attr-defined]
 

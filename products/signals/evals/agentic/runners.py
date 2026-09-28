@@ -10,10 +10,12 @@ from django.core.serializers.json import DjangoJSONEncoder
 
 from pydantic import BaseModel, Field, model_validator
 
+from posthog.temporal.common.client import async_connect
+
 from products.posthog_ai.eval_harness.base import EvalTaskCancelled, EvalTaskError
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.log_parser import LogParser
-from products.posthog_ai.eval_harness.runner import parse_agent_artifacts
+from products.posthog_ai.eval_harness.runner import finish_workflow, parse_agent_artifacts
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.models import (
     SignalReport,
@@ -312,11 +314,8 @@ async def _collect_scout_output(
     before: dict[str, list[dict[str, Any]]],
     result: RunResult | None = None,
 ) -> dict[str, Any]:
-    after = await asyncio.to_thread(_capture_scout_state, sandbox_context.team_id, case.skill_name)
     artifacts: dict[str, Any] = {
         "before": before,
-        "after": after,
-        "changes": _scout_state_changes(before, after),
         "requested": {
             "skill_name": case.skill_name,
             "skill_version": case.skill_version,
@@ -328,36 +327,69 @@ async def _collect_scout_output(
         },
         "result": asdict(result) if result is not None else None,
     }
-    initial_run_ids = {row["id"] for row in before["scout_runs"]}
-    new_runs = [row for row in after["scout_runs"] if row["id"] not in initial_run_ids]
-    run_id = result.run_id if result is not None else (new_runs[0]["id"] if len(new_runs) == 1 else None)
-    if run_id is None:
-        return ScoutOutput(
-            outcome="no_output", summary=result.skip_reason or "" if result else "", artifacts=artifacts
-        ).model_dump(mode="json")
-
-    previous_keys = {row["key"] for row in before["scratchpad"]}
-    output = await asyncio.to_thread(_read_scout_output, sandbox_context.team_id, run_id, previous_keys)
+    output = ScoutOutput(
+        outcome="no_output",
+        summary=(result.last_message or result.skip_reason or "") if result else "",
+        run_id=result.run_id if result else None,
+        task_run_id=result.task_run_id if result else None,
+    )
     output.artifacts = artifacts
-    output.run_id = run_id
-    run_row = next(row for row in after["scout_runs"] if row["id"] == run_id)
-    task_run_id = run_row.get("task_run_id")
-    output.task_run_id = task_run_id
     provider = ctx.provider_strategy
     task_id: str | None = None
     try:
+        after = await asyncio.to_thread(_capture_scout_state, sandbox_context.team_id, case.skill_name)
+        artifacts["after"] = after
+        artifacts["changes"] = _scout_state_changes(before, after)
+        initial_run_ids = {row["id"] for row in before["scout_runs"]}
+        new_runs = [row for row in after["scout_runs"] if row["id"] not in initial_run_ids]
+        run_id = result.run_id if result is not None else (new_runs[0]["id"] if len(new_runs) == 1 else None)
+        if run_id is None:
+            return output.model_dump(mode="json")
+
+        output.run_id = run_id
+        run_row = next(row for row in after["scout_runs"] if row["id"] == run_id)
+        task_run_id = run_row.get("task_run_id")
+        output.task_run_id = task_run_id
+        previous_keys = {row["key"] for row in before["scratchpad"]}
+        output = await asyncio.to_thread(_read_scout_output, sandbox_context.team_id, run_id, previous_keys)
+        output.artifacts = artifacts
+        output.run_id = run_id
+        output.task_run_id = task_run_id
         if task_run_id:
             task_run = await asyncio.to_thread(
-                lambda: (
-                    TaskRun.objects.filter(team_id=sandbox_context.team_id, id=task_run_id)
-                    .values("id", "task_id", "status", "error_message", "created_at", "completed_at")
-                    .get()
-                )
+                lambda: TaskRun.objects.get(team_id=sandbox_context.team_id, id=task_run_id)
             )
-            task_id = str(task_run["task_id"])
+            task_id = str(task_run.task_id)
             if provider is not None:
                 provider.register_task(task_id)
-            artifacts["task_run"] = json.loads(json.dumps(task_run, cls=DjangoJSONEncoder))
+            workflow: dict[str, Any] = {"id": task_run.workflow_id, "terminal": False}
+            artifacts["workflow"] = workflow
+            try:
+                client = await async_connect()
+                workflow["terminal"] = await finish_workflow(
+                    client.get_workflow_handle(task_run.workflow_id), status=None, reason=None
+                )
+            except Exception as exc:
+                workflow["error"] = str(exc)
+
+            # The scout signals completion before the task flushes its final logs and state.
+            after = await asyncio.to_thread(_capture_scout_state, sandbox_context.team_id, case.skill_name)
+            artifacts["after"] = after
+            artifacts["changes"] = _scout_state_changes(before, after)
+            output = await asyncio.to_thread(_read_scout_output, sandbox_context.team_id, run_id, previous_keys)
+            output.artifacts = artifacts
+            output.run_id = run_id
+            output.task_run_id = task_run_id
+            await asyncio.to_thread(task_run.refresh_from_db)
+            artifacts["task_run"] = json.loads(
+                json.dumps(
+                    {
+                        field: getattr(task_run, field)
+                        for field in ("id", "task_id", "status", "error_message", "created_at", "completed_at")
+                    },
+                    cls=DjangoJSONEncoder,
+                )
+            )
             try:
                 output.raw_log = await _read_task_logs(sandbox_context.team_id, task_id, task_run_id)
             except Exception as exc:
@@ -371,7 +403,13 @@ async def _collect_scout_output(
             output.emitted_finding_ids,
             output.scratchpad_keys,
         )
+        if task_run_id and not artifacts["workflow"]["terminal"]:
+            raise EvalTaskError("Could not confirm scout task workflow completion", output.model_dump(mode="json"))
         return output.model_dump(mode="json")
+    except EvalTaskError:
+        raise
+    except Exception as exc:
+        raise EvalTaskError(f"Could not collect scout output: {exc}", output.model_dump(mode="json")) from exc
     finally:
         if provider is not None and task_id is not None:
             try:
@@ -388,6 +426,8 @@ async def run_scout(
     from products.signals.backend.scout_harness.runner import arun_signals_scout
 
     before = await asyncio.to_thread(_capture_scout_state, sandbox_context.team_id, case.skill_name)
+    result = None
+    failure: Exception | asyncio.CancelledError | None = None
     try:
         result = await arun_signals_scout(
             team_id=sandbox_context.team_id,
@@ -399,10 +439,33 @@ async def run_scout(
             triggered_by="manual",
             agent_runtime=_runtime(ctx),
         )
-    except asyncio.CancelledError as exc:
-        output = await _collect_scout_output(case, sandbox_context, ctx, before)
-        raise EvalTaskCancelled("Scout execution cancelled", output) from exc
-    except Exception as exc:
-        output = await _collect_scout_output(case, sandbox_context, ctx, before)
-        raise EvalTaskError(str(exc), output) from exc
-    return await _collect_scout_output(case, sandbox_context, ctx, before, result)
+    except (Exception, asyncio.CancelledError) as exc:
+        failure = exc
+
+    collection = asyncio.create_task(_collect_scout_output(case, sandbox_context, ctx, before, result))
+    collection_failure: EvalTaskError | None = None
+    try:
+        try:
+            output = await asyncio.shield(collection)
+        except asyncio.CancelledError as exc:
+            failure = exc
+            output = await asyncio.shield(collection)
+    except EvalTaskError as exc:
+        collection_failure = exc
+        output = exc.output
+        output["artifacts"]["collection_error"] = str(exc)
+
+    if isinstance(failure, asyncio.CancelledError):
+        raise EvalTaskCancelled("Scout execution cancelled", output) from failure
+    task_status = output.get("artifacts", {}).get("task_run", {}).get("status")
+    if task_status == TaskRun.Status.CANCELLED:
+        raise EvalTaskError("Scout task was cancelled", output) from failure
+    if failure is not None:
+        raise EvalTaskError(str(failure), output) from failure
+    if collection_failure is not None:
+        raise collection_failure
+    if task_status is not None and task_status != TaskRun.Status.COMPLETED:
+        raise EvalTaskError(f"Scout task did not complete: {task_status}", output)
+    if result is not None and result.status in {TaskRun.Status.FAILED, TaskRun.Status.CANCELLED}:
+        raise EvalTaskError(f"Scout execution {result.status}", output)
+    return output

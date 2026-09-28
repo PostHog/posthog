@@ -28,6 +28,7 @@ from products.posthog_ai.eval_harness.harness.cli import parse_args
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.ports import LLM_GATEWAY_PORT
 from products.posthog_ai.eval_harness.harness.providers import PreflightError
+from products.posthog_ai.eval_harness.harness.services import start_mcp_server
 from products.signals.backend.test.test_saved_case import SOURCE, write_case
 from products.signals.evals.agentic.datasets import ScoutCase
 from products.signals.evals.agentic.saved_case import SavedRepository, SavedScoutCase
@@ -183,6 +184,47 @@ class TestSavedScoutPreflight(SimpleTestCase):
             history = json.loads(history_paths[0].read_text())
             self.assertEqual(history["case_sha256"], saved.manifest_sha256)
             self.assertEqual(history["case"]["manifest_sha256"], saved.manifest_sha256)
+
+    def test_private_run_disables_inherited_mcp_capture_and_preserves_accounting_settings(self) -> None:
+        saved = SavedScoutCase.load(self.case_path)
+        options = parse_args(["--agent-runtime", "codex"])
+        (self.directory / "services" / "mcp" / "node_modules").mkdir(parents=True)
+
+        def start_services() -> int:
+            start_mcp_server("http://localhost:18000", None, exec_skills_enabled=False)
+            return 0
+
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "POSTHOG_ANALYTICS_API_KEY": "phc_invented_fixture",
+                    "POSTHOG_ANALYTICS_HOST": "https://analytics.example.com",
+                    "LLM_GATEWAY_METRICS_ENABLED": "true",
+                    "LLM_GATEWAY_REDIS_URL": "redis://localhost:6379/5",
+                },
+            ),
+            patch("products.signals.evals.saved_scout.setup_django"),
+            patch("products.signals.evals.saved_scout.configure_logging"),
+            patch("products.posthog_ai.eval_harness.harness.services.settings.BASE_DIR", self.directory),
+            patch(
+                "products.posthog_ai.eval_harness.harness.lifecycle.SandboxedEvalHarness.run",
+                side_effect=start_services,
+            ),
+            patch(
+                "products.posthog_ai.eval_harness.harness.services.LONG_LIVED_SUBPROCESSES.start",
+                return_value=(Mock(), Mock()),
+            ) as start,
+        ):
+            self.assertEqual(run_saved_case(saved, options, SOURCE, self.output_dir), 0)
+
+        environment = start.call_args.kwargs["env"]
+        self.assertEqual(environment["POSTHOG_ANALYTICS_API_KEY"], "")
+        self.assertEqual(environment["POSTHOG_ANALYTICS_HOST"], "")
+        self.assertEqual(environment["LLM_GATEWAY_METRICS_ENABLED"], "true")
+        self.assertEqual(environment["LLM_GATEWAY_REDIS_URL"], "redis://localhost:6379/5")
+        self.assertEqual(environment["LLM_GATEWAY_ANTHROPIC_API_KEY"], "test-anthropic-key")
+        self.assertEqual(environment["LLM_GATEWAY_OPENAI_API_KEY"], "test-openai-key")
 
 
 class TestSavedScoutSuite(BaseTest):

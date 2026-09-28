@@ -7,6 +7,7 @@ import asyncio
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -31,12 +32,17 @@ from products.tasks.backend.facade.agents import TurnPollResult
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import mcp_exec_skills_env_vars
 
+if TYPE_CHECKING:
+    from temporalio.client import WorkflowHandle
+
 
 class _FakeWorkflowHandle:
-    def __init__(self, *, complete_on_signal: bool, complete_on_cancel: bool = False) -> None:
+    def __init__(self, *, complete_on_signal: bool, complete_on_cancel: bool = False, result_timeouts: int = 0) -> None:
         self.complete_on_signal = complete_on_signal
         self.complete_on_cancel = complete_on_cancel
+        self.result_timeouts = result_timeouts
         self.signal_received = asyncio.Event()
+        self.result_requested = asyncio.Event()
         self.terminal = asyncio.Event()
         self.signals: list[list[str | None]] = []
         self.cancelled = False
@@ -48,6 +54,10 @@ class _FakeWorkflowHandle:
             self.terminal.set()
 
     async def result(self) -> None:
+        self.result_requested.set()
+        if self.result_timeouts:
+            self.result_timeouts -= 1
+            raise TimeoutError
         await self.terminal.wait()
 
     async def cancel(self) -> None:
@@ -234,7 +244,10 @@ async def test_eval_run_preserves_bundled_skills_unless_exec_is_selected(
 
 
 @pytest.mark.asyncio
-async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("signal_completion", [True, False])
+async def test_success_waits_for_workflow_cleanup_before_returning(
+    monkeypatch: pytest.MonkeyPatch, signal_completion: bool
+) -> None:
     handle = _FakeWorkflowHandle(complete_on_signal=False)
     provider = _Provider()
     _patch_runner_boundaries(
@@ -253,16 +266,23 @@ async def test_success_waits_for_workflow_cleanup_before_returning(monkeypatch: 
             MagicMock(),
             provider=provider,
         )
+        if signal_completion
+        else runner.finish_workflow(cast("WorkflowHandle", handle), status=None, reason=None)
     )
-    await asyncio.wait_for(handle.signal_received.wait(), timeout=1)
+    await asyncio.wait_for(handle.result_requested.wait(), timeout=1)
 
     assert not case_task.done()
+    assert not handle.cancelled
     handle.terminal.set()
     result = await asyncio.wait_for(case_task, timeout=1)
 
-    assert result.artifacts.exit_code == 0
-    assert handle.signals == [["completed", None]]
-    assert provider.cleaned_task_ids == ["task-id"]
+    if signal_completion:
+        assert isinstance(result, runner.EvalCaseResult)
+        assert result.artifacts.exit_code == 0
+    else:
+        assert result is True
+    assert handle.signals == ([["completed", None]] if signal_completion else [])
+    assert provider.cleaned_task_ids == (["task-id"] if signal_completion else [])
 
 
 @pytest.mark.asyncio
@@ -312,8 +332,16 @@ async def test_cancellation_finishes_workflow_before_propagating(monkeypatch: py
 
 
 @pytest.mark.asyncio
-async def test_unconfirmed_success_is_an_infrastructure_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    handle = _FakeWorkflowHandle(complete_on_signal=False)
+@pytest.mark.parametrize("signal_completion", [True, False])
+@pytest.mark.parametrize("complete_on_cancel", [True, False])
+async def test_workflow_completion_timeout_cancels_before_returning(
+    monkeypatch: pytest.MonkeyPatch, signal_completion: bool, complete_on_cancel: bool
+) -> None:
+    handle = _FakeWorkflowHandle(
+        complete_on_signal=False,
+        complete_on_cancel=complete_on_cancel,
+        result_timeouts=1 if complete_on_cancel else 2,
+    )
     provider = _Provider()
     _patch_runner_boundaries(
         monkeypatch,
@@ -324,18 +352,25 @@ async def test_unconfirmed_success_is_an_infrastructure_error(monkeypatch: pytes
             )
         ),
     )
-    monkeypatch.setattr(runner, "WORKFLOW_COMPLETION_GRACE_SECONDS", 0.01)
-    monkeypatch.setattr(runner, "WORKFLOW_CANCELLATION_GRACE_SECONDS", 0.01)
-
-    with pytest.raises(runner.WorkflowCleanupError, match="cleanup could not be confirmed"):
-        await runner.run_eval_case(
+    if signal_completion:
+        case_run = runner.run_eval_case(
             SandboxedEvalCase(name="case", prompt="prompt"),
             MagicMock(),
             provider=provider,
         )
+        if complete_on_cancel:
+            result = await case_run
+            assert result.artifacts.exit_code == 0
+        else:
+            with pytest.raises(runner.WorkflowCleanupError, match="cleanup could not be confirmed"):
+                await case_run
+    else:
+        confirmed = await runner.finish_workflow(cast("WorkflowHandle", handle), status=None, reason=None)
+        assert confirmed is complete_on_cancel
 
     assert handle.cancelled
-    assert provider.cleaned_task_ids == ["task-id"]
+    assert handle.signals == ([["completed", None]] if signal_completion else [])
+    assert provider.cleaned_task_ids == (["task-id"] if signal_completion else [])
 
 
 def test_modal_cleanup_case_terminates_only_the_task_sandboxes(monkeypatch: pytest.MonkeyPatch) -> None:

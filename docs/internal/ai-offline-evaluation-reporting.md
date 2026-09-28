@@ -91,6 +91,8 @@ Use the same runtime, model, effort, skill delivery, and cutoff for preflight an
 Before execution, coordinate use of the backing development services, eval ports, and test databases.
 Separate worktrees still share those resources, so do not run the harness alongside another saved-case invocation or DB-backed pytest.
 `--create-db` rebuilds the test database and is unnecessary for an ordinary repeat.
+Keep the execution checkout and saved inputs unchanged until the invocation finishes.
+The MCP development server reloads when its source changes; the recorded source hashes describe the start of the invocation, not changes made during it.
 
 The JSON case manifest requires `schema_version: 2` and declares the saved skill, initial state, Parquet event files, source cutoff, and optional pinned repository.
 It stores `state.checkpoint`, `state.complete`, `state.gaps`, and `state.timezone` inline.
@@ -123,8 +125,12 @@ Both check-only modes leave the output directory untouched.
 The command uses the existing harness for service startup, fresh projects, production scout execution, concurrency, timeouts, and repetitions.
 The private engine rejects uploads.
 The command disables gateway capture tokens and routes both the scout and backend report checks through the private harness gateway.
+It also overrides inherited MCP analytics credentials with empty values so the tool service cannot capture private tool inputs or results.
 Backend calls use a temporary scoped credential, which is removed when the suite exits.
 Private data still goes to the configured model providers as part of scout execution and report checks.
+
+Before launching a scout, restoration queries HogQL to verify event counts and timestamp bounds in the new project.
+An empty case must return no events; a failed query is an infrastructure error, not evidence that the project is empty.
 
 Use the same target cutoff for every configuration and repetition in a comparison.
 Restoration shifts typed timestamps and only the explicitly inventoried date strings.
@@ -135,6 +141,10 @@ Each invocation retains its manifest and skill hashes, source commit and local c
 Case metadata records `schema_version`, `manifest_sha256`, `state_table_sha256` by table name, and `event_sha256` in event-file order.
 Execution attempts that fail the prerequisite checks retain this invocation history and transcript too.
 Each trial has its own reports, scratchpad changes, session log, and execution result.
+The runner waits for the task workflow to terminate before collecting final state and logs, then cleans up that task's sandbox.
+Artifacts record the scout result, persisted task status, and workflow completion separately.
+A task marked completed does not count as a successful execution if workflow termination cannot be confirmed.
+Cancellation and transcript-processing errors retain the output already collected for diagnosis.
 A skipped scout, failed task, or missing transcript fails the saved-case run.
 Successful execution alone does not measure finding quality; reviewed references and a consistent rubric are separate inputs.
 

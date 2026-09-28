@@ -799,8 +799,6 @@ class SavedScoutCase:
         from posthog.models import Team  # noqa: PLC0415
 
         expected: dict[str, JsonValue] = {event: summary.as_json() for event, summary in summaries.items()}
-        if not expected:
-            return {"matched": True, "query_performed": False, "by_event": {}}
         result = execute_hogql_query(
             "SELECT event, count(), "
             "formatDateTime(min(timestamp), '%Y-%m-%dT%H:%i:%S.%fZ', 'UTC'), "
