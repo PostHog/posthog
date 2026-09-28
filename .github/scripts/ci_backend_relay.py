@@ -278,11 +278,9 @@ def poll(
         wait = newest_live(reader.read(event_name))
         checks = reader.read(check_name) if wait and wait.state == "success" else []
         current = progress(wait, checks)
-        if (
-            (current.phase == Phase.CANCELLED or (current.phase == Phase.FINISHED and current.state == "failure"))
-            and wait
-            and wait.state == "success"
-        ):
+        # Depot cancels its own run only after a deterministic prerequisite failure. A gate that
+        # failed without the cancel can follow a retryable one, so it keeps the retry options.
+        if current.phase == Phase.CANCELLED and wait and wait.state == "success":
             current = prerequisite_failure(reader, wait, current)
         sys.stdout.write(f"Depot run for this event: {current.phase.value} {current.state}".rstrip() + "\n")
         elapsed = clock() - start

@@ -393,3 +393,30 @@ def test_cancelled_gate_reports_only_current_selected_prerequisite(
     else:
         assert result.phase == relay.Phase.CANCELLED
         assert clock.now == 900
+
+
+@pytest.mark.parametrize("name", relay.PREREQUISITES)
+def test_failed_gate_keeps_retry_options_after_a_prerequisite_failure(name: str) -> None:
+    # Without Depot's self-cancel, the prerequisite may have failed on a retryable setup step.
+    clock = FakeClock()
+    result = relay.poll(
+        FakeReader(
+            [
+                {
+                    EVENT_WAIT: [run(1, "success")],
+                    relay.GATE_CHECK: [run(5, "failure")],
+                    f"{relay.DEPOT_WORKFLOW} / {name}": [run(2, "failure")],
+                }
+            ]
+        ),
+        EVENT,
+        relay.GATE_CHECK,
+        deadline_minutes=90,
+        absent_minutes=15,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    code, lines = relay.relay_gate(result, EVENT, "123")
+    assert code == 1
+    assert not result.root_failure
+    assert not any("a retry will not help" in line for line in lines)
