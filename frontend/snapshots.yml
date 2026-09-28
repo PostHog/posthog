@@ -10884,6 +10884,14 @@ snapshots:
         hash: v1.k794b7964.06e920f3a71ee2545cb54428cb780afcff032596a6a547fe0fc25401eb90eeca.w-Tu3nUGALKjrAGCCZEfGfiSfYU_GQ8_QgYASdzxnDM
     scenes-app-people-personsearchmatchtags--every-field--light:
         hash: v1.k794b7964.6f61abcf8ca31c767cbcd09be5e43c0833400575f5f59b42287361a7946a30ab.Eu4q1mhlQZZ6hyZxQE7cSl_nxqsGnYPICMMnw9s7F3k
+    scenes-app-persons-modal--direct-query-preparing--dark:
+        hash: v1.k794b7964.4594b364f36ae234ecb9ddfc34a333fb64bc08230e72598cb05c143f66f93d53.lfiRu7qVMhO4JnO5Vonh1UUFPzTPsyTjrdGz9sFuzlM
+    scenes-app-persons-modal--direct-query-preparing--light:
+        hash: v1.k794b7964.b739ab7d34a2f64a5a45589058584115fe0179683f63e59e06a39a29eb56e10a.jEHj36AavsJmVaZIPgDa5stLgqyUak6qyJzNynPk9p8
+    scenes-app-persons-modal--direct-query-with-results--dark:
+        hash: v1.k794b7964.a6c15ce84d57f9fabe232cb279a596a41e831aebc97d729815acb9fc63cff480.3cbIie4Nsdeez9OS3QtewqssxUxm7jzoM5VLw1n_lGs
+    scenes-app-persons-modal--direct-query-with-results--light:
+        hash: v1.k794b7964.7e70ef22a4fa6fecbd218f4e01185dfc6f842f721df2c1a1e0aa57f8140fe6ac.IVLkg9nenydMu7ETS35b4cxk2xe3f66qhOMYZxHxEBI
     scenes-app-persons-modal--empty--dark:
         hash: v1.k794b7964.00a95f7411a59b96d96cd23b8f4da1eca9053e7c391a2c4db52f27526fc842d2.OhWCw6o84czmOJ-2Q_tWWo_OmFLiEf7hCAfs9UWltco
     scenes-app-persons-modal--empty--light:
