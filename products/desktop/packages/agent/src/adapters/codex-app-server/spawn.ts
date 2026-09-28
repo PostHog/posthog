@@ -136,7 +136,6 @@ function getUnixProcessTreePids(rootPid: number): number[] | undefined {
   return processTreePids;
 }
 
-/** Serialize a string map as a TOML basic string (escapes `\` and `"`). */
 /** Render a `Record<string, string>` as a TOML inline table. */
 function tomlInlineTable(entries: Record<string, string>): string {
   const pairs = Object.entries(entries).map(

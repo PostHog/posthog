@@ -16,8 +16,9 @@ function escapeLiteral(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-// Not after a letter or digit, unless it ends an escape such as "\n" or "%20".
-const WORD_START = String.raw`(?<!(?<!\\|%[0-9A-Fa-f]?)[A-Za-z0-9])`;
+// Not after a letter or digit, unless it ends an escape: "\n", "%20", "\u00e9",
+// "\xe9", or an ANSI colour code such as ESC[32m (raw or JSON-escaped).
+const WORD_START = String.raw`(?<!(?<!\\|%[0-9A-Fa-f]?|\\[ux][0-9A-Fa-f]{0,3}|(?:\x1b|\\u001[bB]|\\x1[bB]|\\033|\\e)\[[0-9;]*)[A-Za-z0-9])`;
 
 function tokenSource(rule: TokenRule, repeat: "+" | "*"): string {
   const start = rule.wordStart ? WORD_START : "";
@@ -194,16 +195,9 @@ function withText(event: TextEvent, text: string): TextEvent {
   };
 }
 
-// Enough emitted text for WORD_START's lookbehind: one character plus an escape ("%3", "\\").
-const CONTEXT_LENGTH = 3;
-
-/** Redacts `text` as if `context` preceded it; `context` was already emitted. */
-function redactAfter(context: string, text: string): string {
-  const out = redactSecrets(context + text);
-  return out.startsWith(context)
-    ? out.slice(context.length)
-    : redactSecrets(text);
-}
+// Emitted text kept for WORD_START's lookbehind: the character before a prefix
+// plus the escape or colour code ahead of it.
+const CONTEXT_LENGTH = 32;
 
 export class SecretEventRedactor {
   private pending: TextEvent | null = null;
@@ -268,9 +262,10 @@ export class SecretEventRedactor {
         return host + REDACTED;
       },
     );
+    // The rule loop has already redacted the text; this covers the other fields.
     const redacted = withText(
       redactSecrets(withText(event, "")) as TextEvent,
-      redactAfter(context, text),
+      text,
     );
     const held = this.active
       ? heldDots

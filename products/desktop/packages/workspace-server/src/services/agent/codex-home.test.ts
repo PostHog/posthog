@@ -460,6 +460,18 @@ describe("writeCodexGatewayProvider", () => {
     }
   });
 
+  it("keeps a base URL with a newline inside one TOML string", async () => {
+    await writeCodexGatewayProvider(
+      home,
+      'http://127.0.0.1:5000/x"\n[evil]',
+      noopLog,
+    );
+
+    expect(readFileSync(path.join(home, "config.toml"), "utf-8")).toBe(
+      '[model_providers.posthog]\nbase_url = "http://127.0.0.1:5000/x\\"\\n[evil]"\n',
+    );
+  });
+
   it("replaces the user's provider tables and keeps everything else", async () => {
     await writeFile(
       path.join(home, "config.toml"),

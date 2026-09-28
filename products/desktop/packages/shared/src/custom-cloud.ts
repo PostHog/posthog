@@ -151,11 +151,12 @@ export function isCredentialOriginAllowed(
   const targetHost = target.hostname.replace(/\.+$/, "").toLowerCase();
   const apiHostname = api.hostname.replace(/\.+$/, "").toLowerCase();
   if (isLoopbackHost(targetHost)) return isLoopbackHost(apiHostname);
-  // Only PostHog's own domains are trusted by name, and only the API host's
-  // own one, so a prod token never reaches a dev host or the reverse.
+  // Only PostHog's own domains on the default port are trusted by name, and
+  // only the API host's own one, so a prod token never reaches a dev host.
   const domain = postHogDomain(apiHostname);
   return (
     target.protocol === "https:" &&
+    target.port === "" &&
     domain !== undefined &&
     postHogDomain(targetHost) === domain
   );

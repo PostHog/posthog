@@ -181,6 +181,7 @@ describe("isCredentialOriginAllowed", () => {
     ["https://mcp.posthog.com/mcp", "https://app.dev.posthog.dev"],
     ["https://gateway.dev.posthog.dev/x", "https://us.posthog.com"],
     ["http://[::1]:8787/mcp", "https://us.posthog.com"],
+    ["https://mcp.posthog.com:8443/mcp", "https://us.posthog.com"],
   ])("refuses %s for %s", (url, apiHost) => {
     expect(isCredentialOriginAllowed(url, apiHost)).toBe(false);
   });

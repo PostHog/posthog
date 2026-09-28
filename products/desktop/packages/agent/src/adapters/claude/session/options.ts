@@ -45,6 +45,8 @@ import {
 } from "../hooks";
 import {
   applyMachineClaudeAuth,
+  CLAUDE_PROVIDER_ENV_KEYS,
+  CLAUDE_TRANSPORT_ENV_KEYS,
   CLOUD_AUTH_STRIPPED_KEYS,
   MACHINE_AUTH_STRIPPED_KEYS,
   type MachineClaudeAuth,
@@ -345,10 +347,8 @@ function applyGatewayAuth(
   // are pinned rather than inherited — an ambient OTEL_TRACES_EXPORTER=none or
   // unknown protocol registers no tracer and silently drops the traceparent;
   // the endpoint stays overridable for a real collector.
-  // Residual risk: a repo's .claude/settings.json `env` is applied over these
-  // inside the CLI and can redirect the endpoint or turn on content capture
-  // (OTEL_LOG_TOOL_CONTENT, …) — pre-existing settingSources exposure, not
-  // closable from here; hardening tracked separately.
+  // A gateway session pins these in --settings so a repo's settings env
+  // cannot redirect the endpoint or turn on content capture.
   env.CLAUDE_CODE_ENABLE_TELEMETRY = "1";
   env.CLAUDE_CODE_ENHANCED_TELEMETRY_BETA = "1";
   env.CLAUDE_CODE_PROPAGATE_TRACEPARENT = "1";
@@ -599,33 +599,52 @@ const PINNED_GATEWAY_ENV_KEYS = [
   "ANTHROPIC_CUSTOM_HEADERS",
 ] as const;
 
-// Each selects the CLI's provider, endpoint or transport without touching
-// ANTHROPIC_BASE_URL; pinned to the session's value, or empty when unset.
-const PINNED_ROUTING_ENV_KEYS = [
-  "CLAUDE_CODE_USE_BEDROCK",
-  "CLAUDE_CODE_USE_VERTEX",
-  "CLAUDE_CODE_USE_FOUNDRY",
-  "CLAUDE_CODE_USE_ANTHROPIC_AWS",
-  "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
-  "CLAUDE_CODE_USE_MANTLE",
-  "CLAUDE_CODE_USE_GATEWAY",
-  "ANTHROPIC_BEDROCK_BASE_URL",
-  "ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
-  "ANTHROPIC_AWS_BASE_URL",
-  "ANTHROPIC_VERTEX_BASE_URL",
-  "ANTHROPIC_GOOGLE_CLOUD_BASE_URL",
-  "ANTHROPIC_FOUNDRY_BASE_URL",
-  "AWS_ENDPOINT_URL",
-  "AWS_ENDPOINT_URL_BEDROCK",
-  "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
-  "ANTHROPIC_UNIX_SOCKET",
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "ALL_PROXY",
-  "http_proxy",
-  "https_proxy",
-  "all_proxy",
-] as const;
+const OTLP_SIGNALS = ["", "TRACES_", "LOGS_", "METRICS_"] as const;
+
+// Where telemetry goes and what it carries; the CLI builds the per-signal names.
+const TELEMETRY_ENV_KEYS = [
+  "CLAUDE_CODE_ENABLE_TELEMETRY",
+  "OTEL_TRACES_EXPORTER",
+  "OTEL_LOGS_EXPORTER",
+  "OTEL_METRICS_EXPORTER",
+  ...OTLP_SIGNALS.flatMap((signal) =>
+    ["ENDPOINT", "HEADERS", "PROTOCOL"].map(
+      (field) => `OTEL_EXPORTER_OTLP_${signal}${field}`,
+    ),
+  ),
+  "OTEL_LOG_USER_PROMPTS",
+  "OTEL_LOG_ASSISTANT_RESPONSES",
+  "OTEL_LOG_TOOL_DETAILS",
+  "OTEL_LOG_TOOL_CONTENT",
+  "OTEL_LOG_RAW_API_BODIES",
+];
+
+// Keys that send content or credentials elsewhere without ANTHROPIC_BASE_URL.
+export const PINNED_ROUTING_ENV_KEYS: readonly string[] = [
+  ...CLAUDE_PROVIDER_ENV_KEYS,
+  ...CLAUDE_TRANSPORT_ENV_KEYS,
+  ...TELEMETRY_ENV_KEYS,
+];
+
+const PROXY_CASE_TWINS: Record<string, string> = {
+  HTTP_PROXY: "http_proxy",
+  HTTPS_PROXY: "https_proxy",
+  ALL_PROXY: "all_proxy",
+  http_proxy: "HTTP_PROXY",
+  https_proxy: "HTTPS_PROXY",
+  all_proxy: "ALL_PROXY",
+};
+
+// The pin outranks user settings too, so it keeps the user's own value.
+function routingPinValue(
+  key: string,
+  env: Record<string, string | undefined>,
+  userEnv: Record<string, string>,
+): string {
+  const own = (name: string) => env[name] ?? userEnv[name];
+  const twin = PROXY_CASE_TWINS[key];
+  return own(key) ?? (twin ? own(twin) : undefined) ?? "";
+}
 
 export function settingsFlagIncludes(options: Options, nonce: string): boolean {
   const settings = options.extraArgs?.settings;
@@ -653,14 +672,18 @@ export function removePinnedSettings(options: Options): void {
  * local settings. Written to an owner-only file because argv is readable by
  * any local user and the base URL carries the proxy's path token.
  */
-function pinGatewayEnvSettings(options: Options, sessionId: string): boolean {
+function pinGatewayEnvSettings(
+  options: Options,
+  sessionId: string,
+  userEnv: Record<string, string>,
+): boolean {
   const pins: Record<string, string> = {};
   for (const key of PINNED_GATEWAY_ENV_KEYS) {
     const value = options.env?.[key];
     if (value !== undefined) pins[key] = value;
   }
   for (const key of PINNED_ROUTING_ENV_KEYS) {
-    pins[key] = options.env?.[key] ?? "";
+    pins[key] = routingPinValue(key, options.env ?? {}, userEnv);
   }
   if (typeof options.settings === "string") return false;
   let base: Settings = options.settings ?? {};
@@ -825,7 +848,11 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
   if (
     params.gatewayEnv?.anthropicBaseUrl &&
     !params.machineAuth &&
-    !pinGatewayEnvSettings(options, params.sessionId)
+    !pinGatewayEnvSettings(
+      options,
+      params.sessionId,
+      params.settingsManager.getUserEnv(),
+    )
   ) {
     // Without the pin, repo settings could repoint the gateway env.
     params.logger.warn(

@@ -8,6 +8,7 @@ import { SUBAGENT_REWRITES } from "../hooks";
 import {
   buildSessionOptions,
   buildSystemPrompt,
+  PINNED_ROUTING_ENV_KEYS,
   removePinnedSettings,
   settingsFlagIncludes,
   toEffortFlagSettings,
@@ -941,20 +942,47 @@ describe("buildSessionOptions", () => {
       );
     });
 
-    it("pins provider, endpoint and proxy keys so repo settings cannot reroute", () => {
+    it("pins every routing key so repo settings cannot reroute", () => {
       const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
 
       const env = flagSettings(options).env;
-      for (const key of [
-        "CLAUDE_CODE_USE_VERTEX",
-        "CLAUDE_CODE_USE_GATEWAY",
-        "ANTHROPIC_BEDROCK_BASE_URL",
-        "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
-        "ANTHROPIC_UNIX_SOCKET",
-        "HTTPS_PROXY",
-      ]) {
-        expect(env[key]).toBe(options.env?.[key] ?? "");
+      for (const key of PINNED_ROUTING_ENV_KEYS) {
+        expect(env[key], key).toBe(options.env?.[key] ?? "");
       }
+      expect(PINNED_ROUTING_ENV_KEYS).toEqual(
+        expect.arrayContaining([
+          "CLAUDE_CODE_USE_GATEWAY",
+          "ANTHROPIC_VERTEX_BASE_URL",
+          "https_proxy",
+          "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+          "OTEL_LOG_RAW_API_BODIES",
+        ]),
+      );
+    });
+
+    it("pins the session's own telemetry endpoint over a repo's", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      const env = flagSettings(options).env;
+      expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).toBe(
+        options.env?.OTEL_EXPORTER_OTLP_ENDPOINT,
+      );
+      expect(env.OTEL_EXPORTER_OTLP_ENDPOINT).not.toBe("");
+      expect(env.OTEL_LOG_TOOL_CONTENT).toBe("");
+    });
+
+    it("keeps routing values from the user's own settings", () => {
+      const params = makeParams();
+      vi.spyOn(params.settingsManager, "getUserEnv").mockReturnValue({
+        HTTPS_PROXY: "http://corp-proxy.example:3128",
+        ANTHROPIC_VERTEX_BASE_URL: "https://vertex.corp.example",
+      });
+      const options = buildSessionOptions({ ...params, gatewayEnv });
+
+      const env = flagSettings(options).env;
+      expect(env.HTTPS_PROXY).toBe("http://corp-proxy.example:3128");
+      expect(env.https_proxy).toBe("http://corp-proxy.example:3128");
+      expect(env.ANTHROPIC_VERTEX_BASE_URL).toBe("https://vertex.corp.example");
     });
 
     it("keeps an inherited routing value in the pin", () => {
@@ -963,8 +991,10 @@ describe("buildSessionOptions", () => {
       try {
         const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
         expect(options.env?.HTTPS_PROXY).toBe("http://corp-proxy.example:3128");
-        expect(flagSettings(options).env.HTTPS_PROXY).toBe(
-          "http://corp-proxy.example:3128",
+        const env = flagSettings(options).env;
+        expect(env.HTTPS_PROXY).toBe("http://corp-proxy.example:3128");
+        expect(env.https_proxy).toBe(
+          options.env?.https_proxy ?? "http://corp-proxy.example:3128",
         );
       } finally {
         if (saved === undefined) delete process.env.HTTPS_PROXY;

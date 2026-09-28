@@ -212,6 +212,17 @@ describe("buildAppServerArgs", () => {
     );
   });
 
+  it("escapes control characters in a pinned value", () => {
+    const args = buildAppServerArgs(
+      { binaryPath: "/bundle/codex" },
+      { IS_SANDBOX: "1", BASH_ENV: '/tmp/a"\nb' },
+    );
+
+    expect(args).toContain(
+      'shell_environment_policy.set.BASH_ENV="/tmp/a\\"\\nb"',
+    );
+  });
+
   it("does not override BASH_ENV outside a managed sandbox", () => {
     const args = buildAppServerArgs(
       { binaryPath: "/bundle/codex" },
