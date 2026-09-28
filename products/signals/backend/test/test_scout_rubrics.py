@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
@@ -208,11 +208,33 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.assertFalse(update_generation(self.team.id, str(self.config.id), old))
         self.assertEqual(self.client.get(self.url).json()["generation"]["status"], "queued")
 
-    def test_dispatch_failure_keeps_rubric_and_allows_retry(self) -> None:
+    @parameterized.expand(
+        [
+            ("workflow_start", True, None),
+            ("limit_check", False, "incr"),
+            ("refund", True, "decr"),
+        ]
+    )
+    def test_dispatch_failure_keeps_rubric_and_allows_retry(
+        self, _name: str, connect_fails: bool, failing_cache_call: str | None
+    ) -> None:
         save_rubric(self.team.id, str(self.config.id), revision=0, criteria=[custom_criterion()])
-        with patch("products.signals.backend.scout_harness.rubrics.sync_connect", side_effect=RuntimeError("offline")):
+        cache = MagicMock()
+        cache.incr.return_value = 1
+        if failing_cache_call:
+            getattr(cache, failing_cache_call).side_effect = ConnectionError("cache offline")
+        client = SimpleNamespace(start_workflow=AsyncMock())
+        with (
+            patch("products.signals.backend.scout_chat.cache", cache),
+            patch(
+                "products.signals.backend.scout_harness.rubrics.sync_connect",
+                side_effect=RuntimeError("offline") if connect_fails else None,
+                return_value=client,
+            ),
+        ):
             response = self.client.post(self.url + "generate/")
         self.assertEqual(response.status_code, 500)
+        client.start_workflow.assert_not_awaited()
         state = self.client.get(self.url).json()
         self.assertEqual(state["generation"]["status"], "failed")
         self.assertEqual(state["revision"], 1)

@@ -277,7 +277,18 @@ def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> Scou
         return _to_document(config)
     generation = read_rubric_state(config).generation
     assert generation is not None
-    if not consume_daily_attempt("signals_scout_rubrics", team_id, 20):
+    try:
+        within_limit = consume_daily_attempt("signals_scout_rubrics", team_id, 20)
+    except Exception:
+        logger.exception(
+            "signals.scout_rubrics.limit_check_failed",
+            team_id=team_id,
+            config_id=config_id,
+            generation_id=generation.id,
+        )
+        fail_generation(team_id, config_id, generation.id, "Generation could not start. Try again.")
+        raise ScoutRubricGenerationUnavailable from None
+    if not within_limit:
         fail_generation(team_id, config_id, generation.id, "Daily generation limit reached. Try tomorrow.")
         raise ScoutRubricGenerationLimitExceeded
     try:
@@ -299,7 +310,10 @@ def generate_scout_rubric(team_id: int, config_id: str, *, user_id: int) -> Scou
             config_id=config_id,
             generation_id=generation.id,
         )
-        refund_daily_attempt("signals_scout_rubrics", team_id)
+        try:
+            refund_daily_attempt("signals_scout_rubrics", team_id)
+        except Exception:
+            logger.warning("signals.scout_rubrics.refund_failed", team_id=team_id, exc_info=True)
         fail_generation(team_id, config_id, generation.id, "Generation could not start. Try again.")
         raise ScoutRubricGenerationUnavailable from None
     return _to_document(config)
