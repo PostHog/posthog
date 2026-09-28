@@ -127,9 +127,9 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
     type ExperimentUpdatePayload,
+    getDisplayOrderedIndices,
     getExperimentVariants,
     getOrderedMetricsWithResults,
-    initializeMetricOrdering,
     conflictPreservedFields,
     isExperimentConflictError,
     isLegacyExperiment,
@@ -263,48 +263,6 @@ function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: bool
     } catch {
         return { detail: error.detail || error.message, hasDiagnostics: false }
     }
-}
-
-/**
- * Returns metric indices in display order. Metrics whose UUID appears in
- * orderedUuids come first (in that order), followed by any remaining metrics
- * in their original array position. Each entry is the original index into the
- * metrics array so callers can write results to the correct positional slot.
- */
-export function getDisplayOrderedIndices(
-    metrics: { uuid?: string }[],
-    orderedUuids: string[] | null | undefined
-): number[] {
-    if (!orderedUuids || orderedUuids.length === 0) {
-        return metrics.map((_, i) => i)
-    }
-
-    const uuidToIndex = new Map<string, number>()
-    for (let i = 0; i < metrics.length; i++) {
-        const uuid = metrics[i].uuid
-        if (uuid) {
-            uuidToIndex.set(uuid, i)
-        }
-    }
-
-    const ordered: number[] = []
-    const seen = new Set<number>()
-
-    for (const uuid of orderedUuids) {
-        const idx = uuidToIndex.get(uuid)
-        if (idx !== undefined && !seen.has(idx)) {
-            ordered.push(idx)
-            seen.add(idx)
-        }
-    }
-
-    for (let i = 0; i < metrics.length; i++) {
-        if (!seen.has(i)) {
-            ordered.push(i)
-        }
-    }
-
-    return ordered
 }
 
 /**
@@ -2342,12 +2300,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 const experiment: Experiment = await api.create(
                     `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/launch`
                 )
-                const experimentWithMetricOrdering = initializeMetricOrdering(experiment)
-                actions.setExperiment(experimentWithMetricOrdering)
+                actions.setExperiment(experiment)
                 refreshTreeItem('experiment', String(values.experimentId))
                 // Trigger results refresh so the metrics table doesn't get stuck in "loading" state
                 actions.refreshExperimentResults(false, 'manual')
-                actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
+                actions.setUnmodifiedExperiment(structuredClone(experiment))
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
                 // Prefer the flag key — it's the shorter handle someone would actually type at an agent.
                 const experimentHandle = experiment.feature_flag_key || experiment.name
@@ -2838,7 +2795,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         update_feature_flag_params: false,
                     }
                 )
-                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
@@ -2869,7 +2826,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         update_feature_flag_params: false,
                     }
                 )
-                actions.setUnmodifiedExperiment(structuredClone(initializeMetricOrdering(response)))
+                actions.setUnmodifiedExperiment(structuredClone(response))
                 actions.setExperiment({
                     parameters: updatedParameters,
                 })
@@ -3297,11 +3254,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 )
                 // A newer reorder may have started while this request was in flight.
                 breakpoint()
-                const responseWithMetricsOrdering = initializeMetricOrdering(response)
                 // Refreshing unmodifiedExperiment too, so a later edit-cancel doesn't revert the
                 // order the user just set.
-                actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                actions.setExperiment(responseWithMetricsOrdering)
+                actions.setUnmodifiedExperiment(structuredClone(response))
+                actions.setExperiment(response)
             } catch (error) {
                 // Swallowing the breakpoint would roll a superseded reorder back over a newer one.
                 if (isBreakpoint(error as Error)) {
@@ -3347,12 +3303,16 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !(m.uuid && (moved.has(m.uuid) || removed.has(m.uuid)))
             )
 
-            // The backend appends moved metrics to the target section's ordering
-            // from the metric list changes, so only the source ordering is sent.
+            // The ordering arrays are a display hint: a removed metric's stale entry matches nothing,
+            // and a moved metric needs no entry in the target section, where it renders last. The
+            // source array is pruned on a move so readers that rank across both sections do not keep
+            // placing the metric among its old neighbours.
             const update: Partial<Experiment> & { update_feature_flag_params?: boolean } = {
                 [sourceField]: remainingInlineMetrics,
-                [orderingField]: orderedUuids.filter((uuid) => !removed.has(uuid) && !moved.has(uuid)),
                 update_feature_flag_params: false,
+            }
+            if (moved.size > 0) {
+                update[orderingField] = orderedUuids.filter((uuid) => !removed.has(uuid) && !moved.has(uuid))
             }
             if (movedInlineMetrics.length > 0) {
                 update[targetField] = [...(values.experiment[targetField] || []), ...movedInlineMetrics]
@@ -3640,10 +3600,8 @@ export const experimentLogic = kea<experimentLogicType>([
                             `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
                         )
 
-                        const responseWithMetricsOrdering = initializeMetricOrdering(response)
-
-                        actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
-                        return responseWithMetricsOrdering
+                        actions.setUnmodifiedExperiment(structuredClone(response))
+                        return response
                     } catch (error: any) {
                         if (error.status === 404) {
                             actions.setExperimentMissing()
@@ -3670,12 +3628,11 @@ export const experimentLogic = kea<experimentLogicType>([
                                 `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                                 { ...toConcurrencyPayload(values.unmodifiedExperiment), ...update }
                             )
-                            const responseWithMetricsOrdering = initializeMetricOrdering(response)
                             refreshTreeItem('experiment', String(values.experimentId))
-                            actions.setUnmodifiedExperiment(structuredClone(responseWithMetricsOrdering))
+                            actions.setUnmodifiedExperiment(structuredClone(response))
                             // Also update the main experiment state
-                            actions.setExperiment(responseWithMetricsOrdering)
-                            return responseWithMetricsOrdering
+                            actions.setExperiment(response)
+                            return response
                         } catch (error: any) {
                             if (isExperimentConflictError(error)) {
                                 lemonToast.error(
@@ -3691,9 +3648,8 @@ export const experimentLogic = kea<experimentLogicType>([
                                     const fresh: Experiment = await api.get(
                                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`
                                     )
-                                    const freshWithOrdering = initializeMetricOrdering(fresh)
-                                    actions.setUnmodifiedExperiment(structuredClone(freshWithOrdering))
-                                    actions.setExperiment({ ...freshWithOrdering, ...preserved })
+                                    actions.setUnmodifiedExperiment(structuredClone(fresh))
+                                    actions.setExperiment({ ...fresh, ...preserved })
                                 } catch {
                                     actions.loadExperiment()
                                 }

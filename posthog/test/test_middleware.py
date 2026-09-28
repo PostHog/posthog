@@ -411,7 +411,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.user.current_organization = self.organization
 
     def app_context(self, response) -> dict:
-        return json.loads(response.context["posthog_app_context"])
+        return response.context["posthog_app_context"]
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):

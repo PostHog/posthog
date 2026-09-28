@@ -29,6 +29,7 @@ import {
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
     getBaselineVariantKey,
+    getDisplayOrderedIndices,
     getEventCountQuery,
     getFunnelDropoffReason,
     getOrderedMetricsWithResults,
@@ -1096,6 +1097,30 @@ describe('getOrderedMetricsWithResults', () => {
     })
 })
 
+describe('getDisplayOrderedIndices', () => {
+    it.each([
+        ['null orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], null, [0, 1, 2]],
+        ['undefined orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], undefined, [0, 1]],
+        ['empty orderedUuids — identity order', [{ uuid: 'a' }, { uuid: 'b' }], [], [0, 1]],
+        ['reorders by orderedUuids', [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }], ['c', 'a', 'b'], [2, 0, 1]],
+        [
+            'appends missing metrics at end',
+            [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }],
+            ['c', 'a'],
+            [2, 0, 1, 3],
+        ],
+        ['ignores uuids not in metrics', [{ uuid: 'a' }, { uuid: 'b' }], ['x', 'b', 'y', 'a'], [1, 0]],
+        ['handles metrics without uuids', [{ uuid: 'a' }, {}, { uuid: 'c' }], ['c', 'a'], [2, 0, 1]],
+    ])('%s', (_desc, metrics, orderedUuids, expected) => {
+        expect(getDisplayOrderedIndices(metrics, orderedUuids)).toEqual(expected)
+    })
+
+    it('returns all indices exactly once', () => {
+        const metrics = [{ uuid: 'a' }, { uuid: 'b' }, { uuid: 'c' }, { uuid: 'd' }, { uuid: 'e' }]
+        expect(getDisplayOrderedIndices(metrics, ['d', 'b']).sort()).toEqual([0, 1, 2, 3, 4])
+    })
+})
+
 describe('metricResults', () => {
     const baseExperiment = {
         ...experimentJson,
@@ -1121,14 +1146,34 @@ describe('metricResults', () => {
         expect(metricResults(baseExperiment)([], [], 'primary')).toEqual([])
     })
 
-    it('returns an empty array when no ordered uuids reference existing metrics', () => {
+    it.each([
+        {
+            name: 'a null ordering renders the stored order',
+            ordering: null,
+            expectedIndexes: [0, 1, 2],
+        },
+        {
+            name: 'an ordering with a stale uuid and a missing metric renders the listed metric first, the rest after',
+            ordering: ['metric-3', 'stale-uuid'],
+            expectedIndexes: [2, 0, 1],
+        },
+    ])('$name', ({ ordering, expectedIndexes }) => {
         const experiment = {
             ...baseExperiment,
-            metrics: [inlineMetric('metric-1', 'test')],
-            // ordered uuids point at a metric that no longer exists
-            primary_metrics_ordered_uuids: ['stale-uuid'],
+            metrics: [inlineMetric('metric-1', 'a'), inlineMetric('metric-2', 'b'), inlineMetric('metric-3', 'c')],
+            primary_metrics_ordered_uuids: ordering,
         }
-        expect(metricResults(experiment)([mockResult({ result: 'data' })], [null], 'primary')).toEqual([])
+        const results = [
+            mockResult({ result: 'data1' }),
+            mockResult({ result: 'data2' }),
+            mockResult({ result: 'data3' }),
+        ]
+
+        const ordered = metricResults(experiment)(results, [null, null, null], 'primary')
+
+        expect(ordered.map((o) => o.metricIndex)).toEqual(expectedIndexes)
+        // Results stay paired with their metric by original position, whatever the display order.
+        expect(ordered.map((o) => o.result)).toEqual(expectedIndexes.map((index) => results[index]))
     })
 
     it('zips inline metrics with their results and errors', () => {
@@ -1228,7 +1273,7 @@ describe('metricResults', () => {
         expect(zip([mockResult({ r: 2 })], [null], 'secondary').map((o) => o.metric.uuid)).toEqual(['s-uuid'])
     })
 
-    it('drops metrics that have no uuid', () => {
+    it('keeps a metric without a uuid, after the ordered ones', () => {
         const experiment = {
             ...baseExperiment,
             metrics: [
@@ -1244,11 +1289,9 @@ describe('metricResults', () => {
             'primary'
         )
 
-        expect(ordered).toHaveLength(1)
-        expect(ordered[0].metric.uuid).toBe('metric-2')
-        // metric-2 is at original index 1, so it picks results[1]
-        expect(ordered[0].result).toEqual({ result: 'data2' })
-        expect(ordered[0].metricIndex).toBe(1)
+        expect(ordered.map((o) => o.metric.uuid)).toEqual(['metric-2', undefined])
+        expect(ordered.map((o) => o.result)).toEqual([{ result: 'data2' }, { result: 'data1' }])
+        expect(ordered.map((o) => o.metricIndex)).toEqual([1, 0])
     })
 
     it('yields undefined result/error when the arrays are shorter than the metric list', () => {
