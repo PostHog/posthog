@@ -14,6 +14,11 @@ Returns sampled events with plural exception fields (`$exception_types`, `$excep
 - `onlyAppFrames`: defaults to true to reduce vendor-frame noise.
 - `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.
 
+# Stack traces
+
+- A stack trace keeps at most the 50 frames closest to the error. `frames_omitted` gives the number of older frames that were left out.
+- When a stack trace is the same as one returned earlier on the page, its `stacktrace` is `{"same_as_event": "<uuid>", "same_as_exception": <index>}`. Read the frames from that event, at that index of its `$exception_list`. The event can be the same event, when two of its exceptions share a stack.
+
 # Session recordings
 
 When `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.
