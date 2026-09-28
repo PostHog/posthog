@@ -6,17 +6,9 @@ import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { getEventPropertiesForExperiment } from 'lib/utils/eventUsageLogic'
 
-import type { Experiment } from '~/types'
-
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
-
-function reportExperimentBiasWarningShown(experiment: Experiment): void {
-    posthog.capture('experiment bias warning shown', {
-        ...getEventPropertiesForExperiment(experiment),
-    })
-}
 
 /**
  * Surfaces empirically observed multi-variant exclusion bias: uneven split + `EXCLUDE`
@@ -32,7 +24,7 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
 
     useEffect(() => {
         if (risk) {
-            reportExperimentBiasWarningShown(experiment)
+            posthog.capture('experiment bias warning shown', { ...getEventPropertiesForExperiment(experiment) })
         }
     }, [risk, experiment])
 

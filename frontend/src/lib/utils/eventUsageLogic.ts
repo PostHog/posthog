@@ -2352,9 +2352,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 error,
             })
         },
-        // Personal integrations are a separate table with their own connect surface, so they get
-        // their own event: saved insights already count `integration_connect_clicked` unfiltered and
-        // would silently start including personal links.
         reportTimeToSeeData: async ({ payload }) => {
             posthog.capture('time to see data', payload)
         },

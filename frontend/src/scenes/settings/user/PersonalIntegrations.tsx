@@ -19,6 +19,9 @@ import {
     PersonalSlackIntegration,
 } from './personalIntegrationsLogic'
 
+// Personal integrations are a separate table with their own connect surface, so they get
+// their own event: saved insights already count `integration_connect_clicked` unfiltered and
+// would silently start including personal links.
 function reportPersonalIntegrationConnectClicked(kind: string): void {
     posthog.capture('personal integration connect clicked', { integration_kind: kind })
 }
