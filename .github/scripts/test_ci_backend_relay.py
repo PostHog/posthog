@@ -34,7 +34,7 @@ def run(id: int, state: str, workflow: str = "live", started_at: str = "2026-09-
             "status": "completed" if completed else state,
             "conclusion": state if completed else None,
             "started_at": started_at,
-            "details_url": f"https://depot.dev/orgs/org1/workflows/{workflow}?job=j1&repo=PostHog%2Fposthog",
+            "details_url": f"https://depot.dev/orgs/ntsdt08fpt/workflows/{workflow}?job=j1&repo=PostHog%2Fposthog",
         }
     )
 
@@ -283,13 +283,26 @@ def test_relay_gate_names_the_failed_depot_run_to_retry() -> None:
     assert "  gh run rerun 123 --repo PostHog/posthog --failed   # relays the new Depot result" in lines
 
 
+def api_check() -> dict[str, Any]:
+    return {
+        "id": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "app": {"id": relay.DEPOT_APP_ID},
+        "name": relay.GATE_CHECK,
+        "head_sha": "abc",
+        "pull_requests": [{"number": PR}],
+        "details_url": "https://depot.dev/orgs/ntsdt08fpt/workflows/live?job=j1&repo=PostHog%2Fposthog",
+    }
+
+
 class FakeResponse:
     def __init__(self, body: bytes, etag: str) -> None:
         self.status = 200
         self.headers = {"ETag": etag}
         self._body = body
 
-    def read(self) -> bytes:
+    def read(self, limit: int = -1) -> bytes:
         return self._body
 
     def __enter__(self) -> "FakeResponse":
@@ -302,7 +315,7 @@ class FakeResponse:
 def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> None:
     sent: list[dict[str, str]] = []
     answers: list[Any] = [
-        FakeResponse(b'{"check_runs": [{"id": 1, "status": "completed", "conclusion": "success"}]}', '"e1"'),
+        FakeResponse(json.dumps({"check_runs": [api_check()]}).encode(), '"e1"'),
         urllib.error.HTTPError("url", 304, "Not Modified", {}, None),  # type: ignore[arg-type]
         *[urllib.error.HTTPError("url", 403, "Forbidden", {}, None) for _ in range(relay.MAX_REFUSALS)],  # type: ignore[arg-type]
     ]
@@ -330,7 +343,7 @@ def test_reader_reuses_its_answer_on_304_and_stops_on_repeated_refusals() -> Non
     [ConnectionResetError("reset"), http.client.IncompleteRead(b""), ValueError("invalid JSON")],
 )
 def test_reader_retries_interrupted_pages_without_reusing_a_stale_verdict(page: int, error: Exception) -> None:
-    payload = {"id": 1, "status": "completed", "conclusion": "success"}
+    payload = api_check()
     answers: list[Any] = [FakeResponse(json.dumps({"check_runs": [payload]}).encode(), '"e1"')]
     if page == 2:
         answers.append(FakeResponse(json.dumps({"check_runs": [payload] * relay.PAGE_SIZE}).encode(), '"e2"'))
@@ -420,3 +433,25 @@ def test_failed_gate_keeps_retry_options_after_a_prerequisite_failure(name: str)
     assert code == 1
     assert not result.root_failure
     assert not any("a retry will not help" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("app", {"id": 99}),
+        ("name", "other check"),
+        ("head_sha", "other"),
+        ("pull_requests", [{"number": PR + 1}]),
+        ("details_url", "https://depot.dev/orgs/other/workflows/live"),
+    ],
+)
+def test_reader_rejects_wrong_identity(field: str, value: Any) -> None:
+    payload = {**api_check(), field: value}
+    reader = relay.CheckRunReader(
+        "PostHog/posthog",
+        "abc",
+        "token",
+        pr_number=PR,
+        opener=lambda *a, **kw: FakeResponse(json.dumps({"check_runs": [payload]}).encode(), ""),
+    )
+    assert reader.read(relay.GATE_CHECK) == []
