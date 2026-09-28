@@ -202,6 +202,8 @@ COPY products/tasks/backend/sandbox/images/hogli-shim.sh /opt/posthog/bin/hogli
 RUN chmod +x /opt/posthog/bin/hogli
 COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
 RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
+COPY products/tasks/backend/sandbox/images/memory_watchdog.py /usr/local/bin/posthog-memory-watchdog
+RUN chmod +x /usr/local/bin/posthog-memory-watchdog
 COPY --from=agent-shadow-builder /agent-shadow /usr/local/bin/agent-shadow
 ENV PATH="/opt/posthog/bin:${PATH}"
 

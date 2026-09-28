@@ -121,6 +121,9 @@ TASKS_RUN_TURNS_HISTOGRAM_BUCKETS = [
     256.0,
 ]
 
+TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_METRICS = ("tasks_sandbox_memory_peak_ratio",)
+TASKS_MEMORY_PEAK_RATIO_HISTOGRAM_BUCKETS = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 1.0]
+
 _RUN_TOKEN_KINDS = {
     "input": "input_tokens",
     "output": "output_tokens",
@@ -341,6 +344,38 @@ def increment_sandbox_wedge_probe(verdict: str, write_stage: str) -> None:
             "tasks_sandbox_wedge_probe",
             "Sandbox pressure probe results after credential file write failures",
         ).add(1)
+    except Exception:
+        pass
+
+
+def increment_memory_watchdog_events(event: str, count: int) -> None:
+    if count <= 0:
+        return
+    try:
+        _metric_meter({"event": event}).create_counter(
+            "tasks_sandbox_memory_watchdog_events",
+            "Sandbox memory watchdog events read at teardown",
+        ).add(count)
+    except Exception:
+        pass
+
+
+def increment_memory_watchdog_teardown(status: str) -> None:
+    try:
+        _metric_meter({"status": status}).create_counter(
+            "tasks_sandbox_memory_watchdog_teardown",
+            "Sandbox memory watchdog heartbeat status at teardown",
+        ).add(1)
+    except Exception:
+        pass
+
+
+def record_memory_peak_ratio(ratio: float) -> None:
+    try:
+        _metric_meter().create_histogram_float(
+            "tasks_sandbox_memory_peak_ratio",
+            "Peak sandbox memory use as a fraction of the limit, read at teardown",
+        ).record(ratio)
     except Exception:
         pass
 
