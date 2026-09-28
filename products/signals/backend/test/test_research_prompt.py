@@ -486,17 +486,22 @@ class TestReportPresentationOutputCharts:
         assert parsed.summary == "Signups fell 60% over the week."
 
 
+_WINDOW_GOAL = {"goal_value": 0.01, "goal_direction": "at_most", "decision_window_days": 7}
+
+
 class TestReportPresentationOutputMetrics:
     @pytest.mark.parametrize(
-        "goal, goal_kept",
+        "goal, kept_goal",
         [
-            ({"goal_value": 0.01, "goal_direction": "at_most", "decision_window_days": 7}, True),
-            ({"goal_value": 0.01, "goal_direction": "at_most"}, False),
-            ({"goal_direction": "at_most", "decision_window_days": 7}, False),
-            ({"goal_value": 5, "goal_direction": "at_most", "minimum_data_points": 100}, False),
+            (_WINDOW_GOAL, _WINDOW_GOAL),
+            ({"goal_value": 0.01, "goal_direction": "at_most"}, {}),
+            ({"goal_direction": "at_most", "decision_window_days": 7}, {}),
+            ({"goal_value": 5, "goal_direction": "at_most", "minimum_data_points": 100}, {}),
+            ({**_WINDOW_GOAL, "minimum_data_points": 30}, _WINDOW_GOAL),
+            ({"goal_value": 0.01, "goal_direction": "at_most", "minimum_data_points": 30}, {}),
         ],
     )
-    def test_an_invalid_goal_is_cleared_without_failing_the_response(self, goal, goal_kept):
+    def test_an_invalid_goal_is_cleared_without_failing_the_response(self, goal, kept_goal):
         query = trends_metric_query(series=[{"kind": "EventsNode", "event": "checkout_failed"}])
         query["source"]["trendsFilter"] = {"aggregationAxisFormat": "percentage_scaled"}
         parsed = ReportPresentationOutput.model_validate(
@@ -519,9 +524,7 @@ class TestReportPresentationOutputMetrics:
 
         assert parsed.title == "fix(checkout): Handle the payment timeout"
         assert [metric.metric_id for metric in parsed.metrics] == ["checkout-error-rate"]
-        assert {field: getattr(parsed.metrics[0], field) for field in goal} == (
-            goal if goal_kept else dict.fromkeys(goal)
-        )
+        assert {field: getattr(parsed.metrics[0], field) for field in goal} == {**dict.fromkeys(goal), **kept_goal}
 
 
 class TestOwnPullRequestCarveOut:

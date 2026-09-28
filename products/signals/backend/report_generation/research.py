@@ -261,6 +261,13 @@ Hard rules:
             if not isinstance(entry, dict) or all(entry.get(field) is None for field in REPORT_METRIC_GOAL_FIELDS):
                 kept.append(entry)
                 continue
+            if entry.get("minimum_data_points") is not None and entry.get("eligibility_query") is None:
+                # A saved plan rejects a minimum-data rule with no opportunities to count. Drop the rule
+                # so that a decision window can still carry the goal into a plan.
+                entry = {**entry, "minimum_data_points": None}
+                logger.warning(
+                    "presentation: dropped minimum data points without an eligibility query at index %d", index
+                )
             try:
                 kept.append(ReportMetric.model_validate(entry))
                 continue
