@@ -120,11 +120,18 @@ class TestExternalAccountAPI(APIBaseTest):
         read_psak = self._create_psak_token(scopes=["account:read"], label="read")
         wrong_scope_psak = self._create_psak_token(scopes=["endpoint:read"], label="wrong-scope")
         self.mock_csp_enabled.return_value = False
+        write_psak = self._create_psak_token(scopes=["account:write"], label="write")
         for token in [self.team.secret_api_token, read_psak, wrong_scope_psak]:
             with self.subTest(token=token):
                 response = self._get(token=token)
                 self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
                 self.assertEqual(response.json(), {"error": "Invalid API key"})
+        for token in [self.team.secret_api_token, write_psak]:
+            with self.subTest(token=token, method="post"):
+                response = self._post({"external_id": "acme-2"}, token=token)
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+                self.assertEqual(response.json(), {"error": "Invalid API key"})
+        self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
 
     def test_get_accepts_project_secret_api_key_with_account_read_scope(self):
         response = self._get(token=self._create_psak_token(scopes=["account:read"]))
@@ -138,8 +145,9 @@ class TestExternalAccountAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("post_read_scope", "_post", ["account:read"], {"external_id": "acme-2"}),
-            ("post_write_scope", "_post", ["account:write"], {"external_id": "acme-2"}),
+            ("post_unrelated_scope", "_post", ["endpoint:read"], {"external_id": "acme-2"}),
             ("patch_read_scope", "_patch", ["account:read"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
+            ("patch_write_scope", "_patch", ["account:write"], {"external_id": "acme-1", "churned_at": "2026-08-01"}),
         ]
     )
     def test_writes_reject_project_secret_api_key(self, _name, request_method, scopes, payload):
@@ -149,6 +157,18 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertFalse(Account.objects.for_team(self.team.id).filter(external_id="acme-2").exists())
         self.account.refresh_from_db()
         self.assertIsNone(self.account.churned_at)
+
+    def test_post_accepts_project_secret_api_key_with_account_write_scope(self):
+        token = self._create_psak_token(scopes=["account:write"])
+
+        created = self._post({"external_id": "acme-2", "name": "Acme Two"}, token=token)
+        repeated = self._post({"external_id": "acme-2", "name": "Renamed"}, token=token)
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(repeated.status_code, status.HTTP_200_OK)
+        self.assertEqual(repeated.json()["id"], created.json()["id"])
+        accounts = Account.objects.for_team(self.team.id).filter(external_id="acme-2")
+        self.assertEqual([account.name for account in accounts], ["Acme Two"])
 
     def test_project_secret_api_keys_share_a_team_rate_limit(self):
         cache.clear()
@@ -525,6 +545,23 @@ class TestExternalAccountAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("supplied_name", {"name": " Supplied Corp "}, "Supplied Corp"),
+            ("blank_name", {"name": "   "}, "New Corp"),
+            ("null_name", {"name": None}, "New Corp"),
+        ]
+    )
+    def test_post_supplied_name_overrides_group_name(self, _name, extra_payload, expected_name):
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save()
+        create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"name": "New Corp"})
+
+        response = self._post({"external_id": "new-1", **extra_payload})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], expected_name)
+
+    @parameterized.expand(
+        [
             ("no_group_type_configured", False, False),
             ("group_missing", True, False),
             ("group_has_no_name_property", True, True),
@@ -537,13 +574,13 @@ class TestExternalAccountAPI(APIBaseTest):
         if create_nameless_group:
             create_group(team=self.team, group_type_index=0, group_key="new-1", group_properties={"plan": "free"})
 
-        response = self._post({"external_id": "new-1"})
+        response = self._post({"external_id": "new-1", "name": ""})
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "new-1")
 
     def test_post_existing_account_is_a_noop(self):
-        response = self._post({"external_id": "acme-1"})
+        response = self._post({"external_id": "acme-1", "name": "Renamed"})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Acme Corp")
         self.account.refresh_from_db()

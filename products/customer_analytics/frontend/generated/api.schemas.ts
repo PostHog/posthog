@@ -161,6 +161,20 @@ export interface ExternalAccountErrorApi {
     error: string
 }
 
+export interface ExternalAccountCreateApi {
+    /**
+     * External ID (group key) for the account. An account with this ID already existing is a no-op. Without a `name`, the account name is derived from the matching group's `name` property, falling back to this ID.
+     * @maxLength 400
+     */
+    external_id: string
+    /**
+     * Name for a new account. Ignored when the account already exists. Blank means no name.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+}
+
 export interface ExternalAccountListAssignmentApi {
     /** PostHog user id of the assigned user. */
     user_id: number
@@ -4410,6 +4424,8 @@ export type CustomerAnalyticsExternalAccountRetrieveParams = {
      */
     external_id: string
 }
+
+export type CustomerAnalyticsExternalAccountCreate400 = { [key: string]: unknown }
 
 export type CustomerAnalyticsExternalAccountsRetrieveParams = {
     /**

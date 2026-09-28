@@ -158,8 +158,16 @@ class ExternalAccountCreateSerializer(serializers.Serializer):
         max_length=400,
         help_text=(
             "External ID (group key) for the account. An account with this ID already existing is a no-op. "
-            "The account name is derived from the matching group's `name` property, falling back to this ID."
+            "Without a `name`, the account name is derived from the matching group's `name` property, "
+            "falling back to this ID."
         ),
+    )
+    name = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Name for a new account. Ignored when the account already exists. Blank means no name.",
     )
 
 
@@ -246,6 +254,7 @@ def handle_account_create(request: Request, team: Team) -> Response:
         account, created = facade.create_external_account(
             team,
             external_id=external_id,
+            name=data.get("name") or None,
             workflow_id=_workflow_id_from_request(request),
         )
     except facade.AccountConflictError:

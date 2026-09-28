@@ -580,11 +580,12 @@ def list_account_external_ids_for_audience(
 
 
 def create_external_account(
-    team: Team, *, external_id: str, workflow_id: str | None = None
+    team: Team, *, external_id: str, name: str | None = None, workflow_id: str | None = None
 ) -> tuple[contracts.ExternalAccount, bool]:
     """Get-or-create an account by external id for the external API. Returns the account and
-    whether it was created; an existing account is returned untouched. The name comes from the
-    matching group's ``name`` property (fallback: the external id). Attribution goes to the
+    whether it was created; an existing account is returned untouched, so a supplied ``name``
+    never renames it. Without a ``name``, the name comes from the matching group's ``name``
+    property (fallback: the external id). Attribution goes to the
     originating workflow (activity-log trigger) — there is no acting user on this path.
     On workflow-originated creates, warehouse-backed custom properties are synced inline
     (best-effort) so the response already carries them.
@@ -594,7 +595,10 @@ def create_external_account(
         return _to_external_account(existing), False
     trigger = Trigger(job_type="hog_flow", job_id=workflow_id, payload={}) if workflow_id else None
     account = create_account(
-        team=team, name=_account_name_from_group(team, external_id), external_id=external_id, trigger=trigger
+        team=team,
+        name=name or _account_name_from_group(team, external_id),
+        external_id=external_id,
+        trigger=trigger,
     )
     if workflow_id is not None:
         # Synchronous so the workflow can read the values in its next step; best-effort inside —

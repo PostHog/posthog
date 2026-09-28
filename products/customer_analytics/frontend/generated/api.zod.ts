@@ -9,6 +9,28 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * @summary Create an external customer analytics account
+ */
+export const customerAnalyticsExternalAccountCreateBodyExternalIdMax = 400
+
+export const customerAnalyticsExternalAccountCreateBodyNameMax = 400
+
+export const CustomerAnalyticsExternalAccountCreateBody = /* @__PURE__ */ zod.object({
+    external_id: zod
+        .string()
+        .max(customerAnalyticsExternalAccountCreateBodyExternalIdMax)
+        .describe(
+            "External ID (group key) for the account. An account with this ID already existing is a no-op. Without a `name`, the account name is derived from the matching group's `name` property, falling back to this ID."
+        ),
+    name: zod
+        .string()
+        .max(customerAnalyticsExternalAccountCreateBodyNameMax)
+        .nullish()
+        .describe('Name for a new account. Ignored when the account already exists. Blank means no name.'),
+})
+
 export const accountRelationshipDefinitionsCreateBodyNameMax = 400
 
 export const accountRelationshipDefinitionsCreateBodyIsSingleHolderDefault = true

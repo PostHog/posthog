@@ -6,7 +6,8 @@ authenticate via the team secret API token passed as a Bearer token in the
 Authorization header. The bulk account list instead authenticates via a project
 secret API key or personal API key carrying the ``account:read`` scope, because the team token is
 readable by every project member and must not unlock a team-wide account export.
-The single-account GET accepts either credential; its writes stay team-token only.
+The single-account GET accepts either credential, and so does POST, where a project secret
+API key needs the ``account:write`` scope. PATCH stays team-token only.
 
 The team token deliberately grants single-account writes (create, tags,
 relationships, custom property values) without per-user ``account`` scope checks:
@@ -53,6 +54,7 @@ from products.customer_analytics.backend.facade import api as facade
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 from products.customer_analytics.backend.presentation.views.account_actions import (
     ACCOUNT_ACTION_AUTH_COUNTER,
+    ExternalAccountCreateSerializer,
     ExternalAccountCustomPropertiesSerializer,
     handle_account_create,
     handle_account_get,
@@ -67,6 +69,7 @@ logger = structlog.get_logger(__name__)
 
 EXTERNAL_ACCOUNT_LIST_MAX_LIMIT = 100
 EXTERNAL_ACCOUNT_READ_SCOPE = "account:read"
+EXTERNAL_ACCOUNT_WRITE_SCOPE = "account:write"
 
 
 class _ExternalAccountThrottle(SimpleRateThrottle):
@@ -193,8 +196,8 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     return team, None
 
 
-def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None, Response]:
-    """Resolve the team from a project secret API key with the ``account:read`` scope."""
+def _authenticate_psak_team(request: Request, required_scope: str) -> tuple[Team, None] | tuple[None, Response]:
+    """Resolve the team from a project secret API key with ``required_scope``."""
     if not is_authenticated_via_project_secret_api_key(request):
         return None, Response({"error": "Missing or invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
@@ -203,22 +206,30 @@ def _authenticate_psak_team(request: Request) -> tuple[Team, None] | tuple[None,
 
     key_scopes = set(get_authenticator_scopes(authenticator) or [])
     # A key that may write accounts may read them too; the reverse does not hold.
-    valid_scopes = {EXTERNAL_ACCOUNT_READ_SCOPE, "account:write"}
+    valid_scopes = {required_scope, EXTERNAL_ACCOUNT_WRITE_SCOPE}
     if "*" not in key_scopes and key_scopes.isdisjoint(valid_scopes):
         return None, Response(
-            {"error": f"API key missing required scope '{EXTERNAL_ACCOUNT_READ_SCOPE}'"},
+            {"error": f"API key missing required scope '{required_scope}'"},
             status=status.HTTP_403_FORBIDDEN,
         )
 
     return psak.team, None
 
 
-def _authenticate_team_for_write(request: Request) -> tuple[Team, None] | tuple[None, Response]:
-    """Writes stay team-token only. A project secret API key is rejected explicitly, because
-    the team-token lookup treats it as an unknown token and answers 401 instead of 403."""
+def _authenticate_team_or_psak(request: Request, psak_scope: str) -> tuple[Team | None, Response | None, str]:
+    """Also returns the auth method label for ``ACCOUNT_ACTION_AUTH_COUNTER``."""
+    if is_authenticated_via_project_secret_api_key(request):
+        return *_authenticate_psak_team(request, psak_scope), "project_secret_api_key"
+    return *_authenticate_team(request), "secret_api_token"
+
+
+def _authenticate_team_for_update(request: Request) -> tuple[Team, None] | tuple[None, Response]:
+    """Updates stay team-token only: they change tags, relationships and churn state. A project
+    secret API key is rejected explicitly, because the team-token lookup treats it as an
+    unknown token and answers 401 instead of 403."""
     if is_authenticated_via_project_secret_api_key(request):
         return None, Response(
-            {"error": "Project secret API keys can only read accounts on this route"},
+            {"error": "Project secret API keys cannot update accounts on this route"},
             status=status.HTTP_403_FORBIDDEN,
         )
     return _authenticate_team(request)
@@ -277,7 +288,8 @@ class ExternalAccountView(APIView):
     PATCH /api/customer_analytics/external/account — Update an account's relationships, tags, and churn state
 
     GET accepts either the team secret_api_token or a project secret API key with the
-    ``account:read`` scope as a Bearer token. POST and PATCH accept only the team
+    ``account:read`` scope as a Bearer token. POST accepts the team secret_api_token or a
+    project secret API key with the ``account:write`` scope. PATCH accepts only the team
     secret_api_token.
     """
 
@@ -325,12 +337,7 @@ class ExternalAccountView(APIView):
         ),
     )
     def get(self, request: Request) -> Response:
-        if is_authenticated_via_project_secret_api_key(request):
-            team, error = _authenticate_psak_team(request)
-            auth_method = "project_secret_api_key"
-        else:
-            team, error = _authenticate_team(request)
-            auth_method = "secret_api_token"
+        team, error, auth_method = _authenticate_team_or_psak(request, EXTERNAL_ACCOUNT_READ_SCOPE)
         if error:
             return error
 
@@ -343,22 +350,41 @@ class ExternalAccountView(APIView):
 
         return handle_account_get(team, external_id)
 
-    # The write operations stay out of the generated schema. drf-spectacular renders a PATCH body
-    # as fully optional although this route requires external_id, and validation failures return
-    # field-keyed errors that ExternalAccountErrorSerializer does not describe.
-    @extend_schema(exclude=True)
+    @extend_schema(
+        request=ExternalAccountCreateSerializer,
+        responses={
+            200: OpenApiResponse(response=ExternalAccountSerializer, description="The account already existed."),
+            201: OpenApiResponse(response=ExternalAccountSerializer, description="The account was created."),
+            400: OpenApiResponse(response=OpenApiTypes.OBJECT, description="Invalid request body."),
+            401: OpenApiResponse(
+                response=ExternalAccountErrorSerializer, description="Missing or invalid Bearer token."
+            ),
+            403: OpenApiResponse(
+                response=ExternalAccountErrorSerializer,
+                description="Project secret API key does not carry the account:write scope.",
+            ),
+        },
+        summary="Create an external customer analytics account",
+        description=(
+            "Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. "
+            "Accepts the team secret API token or a project secret API key with the `account:write` scope."
+        ),
+    )
     def post(self, request: Request) -> Response:
-        team, error = _authenticate_team_for_write(request)
+        team, error, auth_method = _authenticate_team_or_psak(request, EXTERNAL_ACCOUNT_WRITE_SCOPE)
         if error:
             return error
 
         assert team is not None
-        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method="secret_api_token", http_method="post").inc()
+        ACCOUNT_ACTION_AUTH_COUNTER.labels(auth_method=auth_method, http_method="post").inc()
         return handle_account_create(request, team)
 
+    # PATCH stays out of the generated schema. drf-spectacular renders its body as fully optional
+    # although this route requires external_id, and validation failures return field-keyed errors
+    # that ExternalAccountErrorSerializer does not describe.
     @extend_schema(exclude=True)
     def patch(self, request: Request) -> Response:
-        team, error = _authenticate_team_for_write(request)
+        team, error = _authenticate_team_for_update(request)
         if error:
             return error
 
@@ -549,7 +575,7 @@ class ExternalAccountListView(APIView):
         team = None
         access = None
         if not personal_key:
-            team, error = _authenticate_psak_team(request)
+            team, error = _authenticate_psak_team(request, EXTERNAL_ACCOUNT_READ_SCOPE)
             if error:
                 return error
         query_serializer = ExternalAccountListQuerySerializer(data=request.query_params)
