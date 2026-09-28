@@ -70,6 +70,10 @@ The panel's text follows the check results. It claims that all data quality chec
 
 A project that has no models and no saved views gets the first-view text instead of a status claim.
 
+## Model detail
+
+A model in the lineage graph opens a detail page with a Data quality tab. The tab reads the checks of the model's own subject: a saved view answers as a view, and an imported warehouse table answers as a table. The node carries the table's identifier, which the dependency sync refreshes whenever it resolves a saved query, so a table that was deleted and imported again is followed to its new row. A node with no table identifier, such as a PostHog table or a node written before the identifier existed, has no subject to audit and gets no Data quality tab.
+
 ## Subject schedules
 
 A subject whose checks run on a recurring schedule has one Temporal Schedule in its canonical project. Metrics and PostHog tables are those subjects; a warehouse table's and a view's checks run when their data changes instead. A PostHog table is never synced or materialized, so a schedule is the only trigger its checks have. The first check creates an enabled daily schedule after the check transaction commits and starts an initial run. Available intervals are one hour, six hours, twelve hours, one day, and one week. A deterministic offset spreads recurring executions across each interval.
