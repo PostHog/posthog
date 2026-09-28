@@ -183,9 +183,12 @@ def set_flag_active(
 def _set_trashed_flag_active(flag_id: int, *, team_id: int, active: bool) -> None:
     """Flip ``active`` on a flag the file system trashes or restores. UNGATED on purpose.
 
-    A queryset update, so it emits no signals: the file system mutes them around its own
-    save, and a serializer write here would both fire them and add the dependents check,
-    filter validation and the approval gate. Trash never had any of those.
+    A queryset update fires no signals. The file system then saves the flag inside
+    ``mute_selected_signals()``. That silences only the activity-log receiver, because the file
+    system writes its own trash and restore entries. The post_save receivers, such as flags cache
+    invalidation, still fire on that save. A serializer write here would log a second activity
+    entry and add the dependents check, filter validation and the approval gate. Trash never had
+    any of those.
 
     The caller reads the row back, because the file system saves the whole instance after
     this and would otherwise write the stale value over it.
@@ -204,6 +207,8 @@ def deactivate_trashed_flag(flag_id: int, *, team_id: int) -> None:
 
 def reactivate_restored_flag(flag_id: int, *, team_id: int) -> None:
     """Enable a flag that the file system restores from trash. See ``_set_trashed_flag_active``."""
+    # TODO: restore enables a flag without passing a feature_flag.enable policy. It does so even
+    # when the flag was off before trash, because trash does not record the prior state.
     _set_trashed_flag_active(flag_id, team_id=team_id, active=True)
 
 

@@ -723,7 +723,9 @@ class TestFileSystemDeletion(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert FileSystem.objects.filter(team=self.team, path="Unfiled/Unknown/Item").exists()
 
-    @parameterized.expand([("plain",), ("active_dependent_flag",), ("disable_and_enable_policies",)])
+    @parameterized.expand(
+        [("plain",), ("active_dependent_flag",), ("depends_on_inactive_flag",), ("disable_and_enable_policies",)]
+    )
     @patch("products.approvals.backend.decorators._is_approvals_enabled", return_value=True)
     def test_undo_delete_restores_feature_flag(self, setup: str, _mock_approvals_enabled) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="undo-flag", created_by=self.user)
@@ -743,6 +745,28 @@ class TestFileSystemDeletion(APIBaseTest):
                     ]
                 },
             )
+        elif setup == "depends_on_inactive_flag":
+            # Restore skips the serializer's enable-side check, which refuses to turn on a flag
+            # whose conditions depend on a disabled flag.
+            dependency = FeatureFlag.objects.create(
+                team=self.team, key="dependency-flag", created_by=self.user, active=False
+            )
+            flag.filters = {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": str(dependency.id),
+                                "type": "flag",
+                                "value": True,
+                                "operator": "flag_evaluates_to",
+                            }
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            }
+            flag.save()
         elif setup == "disable_and_enable_policies":
             for action_key in ("feature_flag.disable", "feature_flag.enable"):
                 ApprovalPolicy.objects.create(

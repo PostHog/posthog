@@ -25,6 +25,7 @@ GATED_PATH = {
 ALLOWED_REASONS: dict[str, str] = {
     "products/surveys/backend/api/survey.py": "targeting flag writes and the start/stop mirror of active",
     "products/feature_flags/backend/facade/api.py": "file-system trash and restore flip active",
+    "posthog/api/file_system/registrations.py": "calls the ungated trash and restore helpers",
     "products/early_access_features/backend/api.py": "never-fail cleanup when stored filters fail validation",
     "posthog/management/commands/generate_random_product_tours.py": "local data generator",
     "posthog/management/commands/reencrypt_flag_payloads.py": "payload re-encryption command",
@@ -151,6 +152,9 @@ def _names_gated_field(values: list[ast.expr]) -> bool:
     return any(not isinstance(v, ast.Constant) or v.value in GATED_FIELDS for v in values)
 
 
+UNGATED_FACADE_WRITES = {"deactivate_trashed_flag", "reactivate_restored_flag"}
+
+
 def _write_target(
     node: ast.AST, flag_names: set[str], models: set[str], serializers: set[str], *, serializer_exempt: bool
 ) -> str | None:
@@ -163,6 +167,12 @@ def _write_target(
 
     if not isinstance(node, ast.Call):
         return None
+
+    # These facade helpers write `active` without the gate, so a call to one is itself an
+    # ungated write. Without this the write would be recorded only where it is defined, and a
+    # new caller anywhere in the tree would add no baseline entry.
+    if _terminal_name(node.func) in UNGATED_FACADE_WRITES:
+        return f"{_terminal_name(node.func)}()"
 
     if _terminal_name(node.func) in serializers:
         # Positional data or **kwargs cannot be resolved, so they count as a write.
