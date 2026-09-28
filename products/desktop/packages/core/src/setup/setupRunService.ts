@@ -130,8 +130,10 @@ export class SetupRunService {
     try {
       const flags = await this.port.findStaleFlagSuggestions(directory);
       for (const flag of flags) {
+        const suggestion = buildStaleFlagSuggestion(flag);
+        if (!suggestion) continue;
         this.store.addEnricherSuggestionIfMissing({
-          ...buildStaleFlagSuggestion(flag),
+          ...suggestion,
           repoPath: directory,
         });
       }
