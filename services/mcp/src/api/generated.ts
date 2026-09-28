@@ -47747,7 +47747,10 @@ export namespace Schemas {
     }
 
     export interface FileSystemShortcutBulkUpdate {
-      /** Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped. */
+      /**
+         * Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.
+         * @maxItems 500
+         */
       add?: FileSystemShortcutBulkItem[];
       /**
          * IDs of the current user's shortcuts to delete.

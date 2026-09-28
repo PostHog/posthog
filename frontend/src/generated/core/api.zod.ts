@@ -949,6 +949,8 @@ export const FileSystemShortcutPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const fileSystemShortcutBulkUpdateCreateBodyAddItemTypeDefault = ``
 export const fileSystemShortcutBulkUpdateCreateBodyAddItemRefMax = 4000
 
+export const fileSystemShortcutBulkUpdateCreateBodyAddMax = 500
+
 export const fileSystemShortcutBulkUpdateCreateBodyRemoveIdsMax = 500
 
 export const FileSystemShortcutBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
@@ -971,6 +973,7 @@ export const FileSystemShortcutBulkUpdateCreateBody = /* @__PURE__ */ zod.object
                     .describe('Destination URL the shortcut opens. Null when the shortcut points at an item by ref.'),
             })
         )
+        .max(fileSystemShortcutBulkUpdateCreateBodyAddMax)
         .optional()
         .describe(
             'Shortcuts to create, appended to the end of the current order in the given sequence. An item identical to a shortcut the user already has is skipped.'

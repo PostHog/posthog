@@ -236,7 +236,9 @@ def preserve_starred_products_setup(
     Sending the key explicitly, even as false, still wins.
     """
     stored = user.ui_configuration if user else None
-    stored_sidebar = stored.get("sidebar") if isinstance(stored, dict) else None
+    if not isinstance(stored, dict):
+        return configuration
+    stored_sidebar = stored.get("sidebar")
     if not (isinstance(stored_sidebar, dict) and stored_sidebar.get("starred_products_setup_completed")):
         return configuration
     if configuration is None:

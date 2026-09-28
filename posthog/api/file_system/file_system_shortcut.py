@@ -103,8 +103,8 @@ class FileSystemShortcutBulkItemSerializer(serializers.Serializer):
 
 
 class FileSystemShortcutBulkUpdateSerializer(serializers.Serializer):
-    add = FileSystemShortcutBulkItemSerializer(
-        many=True,
+    add = serializers.ListField(
+        child=FileSystemShortcutBulkItemSerializer(),
         required=False,
         default=list,
         max_length=500,
