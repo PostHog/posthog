@@ -60,9 +60,13 @@ from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
+from posthog.utils import get_trusted_client_ip
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
+from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.signals.backend.facade.activity_client import resolve_scout_client_tag
 
 
@@ -184,6 +188,18 @@ class SessionAuthentication(authentication.SessionAuthentication):
             user, auth = auth_result
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
+            try:
+                security_shadow_check(
+                    SecuritySubject(
+                        email=user.email,
+                        user_uuid=str(user.uuid),
+                        ip=get_trusted_client_ip(getattr(request, "_request", request)),
+                    ),
+                    SecuritySurface.APP,
+                    call_site="session",
+                )
+            except Exception:
+                structlog_logger.exception("security_shadow_check_site_failed", call_site="session")
 
             return (user, auth)
 
@@ -1560,7 +1576,11 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Webhook integration not found or disabled.")
 
         django_request = getattr(request, "_request", request)
-        raw_body = django_request.body.decode()
+        try:
+            raw_body = django_request.body.decode()
+        except UnicodeDecodeError:
+            # The signed input is text, so a body that is not UTF-8 cannot carry a valid signature.
+            raise AuthenticationFailed("Invalid webhook signature.")
 
         hmac_input = self.build_hmac_input(timestamp, raw_body)
         expected = hmac_sha256_signature(signing_secret, hmac_input.encode())

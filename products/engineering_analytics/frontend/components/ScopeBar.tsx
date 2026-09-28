@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment, ReactNode, useState } from 'react'
 
-import { IconX } from '@posthog/icons'
+import { IconChevronDown, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonDropdown,
@@ -33,7 +33,7 @@ import {
 import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
 import { workflowSwitcherLogic } from '../scenes/workflowSwitcherLogic'
 
-// The endpoints require a window start (no "all time") — relative windows + Custom only.
+// The endpoints require a window start (no "all time"), so offer relative windows and Custom only.
 export const SCOPE_DATE_OPTIONS = dateMapping.filter(({ key }) =>
     [
         'Custom',
@@ -92,7 +92,7 @@ export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }
             />
         )
     }
-    // No repo name yet — render nothing rather than a dead "Repository" pill.
+    // No repo name yet: render nothing rather than a dead "Repository" pill.
     if (pickerOnly || !repoLabel) {
         return null
     }
@@ -199,14 +199,15 @@ export function WorkflowScopeChip({
                 </div>
             }
         >
-            <span
-                className={cn(CHIP_CLASS, 'cursor-pointer')}
+            <LemonButton
+                size="small"
+                type="secondary"
+                sideIcon={<IconChevronDown />}
                 title="Switch to another workflow in this repository"
                 data-attr="engineering-analytics-workflow-switcher"
             >
-                <strong className="font-semibold text-primary">{workflowName}</strong>
-                <span className="text-[8px] text-tertiary">▼</span>
-            </span>
+                {workflowName}
+            </LemonButton>
         </LemonDropdown>
     )
 }
@@ -278,7 +279,7 @@ export function ScopeBar({
     repoSlot: ReactNode
     /** Hierarchy below the repo (workflow › run); empty on the repo hub itself. */
     crumbs?: ScopeCrumb[]
-    /** The active cross-cutting lens (pr: #N) — dismissible, zooms out to `to`. */
+    /** The active cross-cutting lens (pr: #N). Dismissing it zooms out to `to`. */
     lensFilter?: LensChip
     showDate?: boolean
     extra?: ReactNode

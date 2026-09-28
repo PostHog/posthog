@@ -128,7 +128,7 @@ export function PullRequestDayView({
                     />
                 </div>
             </div>
-            {loading && !timelines ? (
+            {loading ? (
                 <div className="flex flex-col gap-2">
                     {Array.from({ length: 6 }).map((_, index) => (
                         <LemonSkeleton key={index} className="h-3.5 w-full" />

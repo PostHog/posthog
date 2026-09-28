@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta, timezone
 from typing import Any, Optional
 
 import pytest
@@ -10,29 +11,51 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub import dockerhub
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.dockerhub import (
     DOCKERHUB_BASE_URL,
+    PAGE_SIZE,
     DockerhubAuthExpiredError,
     DockerHubClient,
     DockerhubResumeConfig,
     DockerhubRetryableError,
+    _audit_logs_url,
+    _org_groups_url,
+    _org_members_url,
     _repositories_url,
     _tags_url,
     check_access,
+    check_endpoint_access,
     dockerhub_source,
+    format_incremental_start,
     get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dockerhub.settings import (
     DOCKERHUB_ENDPOINTS,
     ENDPOINTS,
+    ORG_SCOPED_ENDPOINTS,
 )
 
 # Call the undecorated functions so the tenacity retry/backoff wrappers don't slow failure-path tests.
 _fetch_page_unwrapped = dockerhub._fetch_page.__wrapped__  # type: ignore[attr-defined]
 _fetch_jwt_unwrapped = dockerhub._fetch_jwt.__wrapped__  # type: ignore[attr-defined]
+_fetch_object_unwrapped = dockerhub._fetch_object.__wrapped__  # type: ignore[attr-defined]
 
 REPOS_URL = _repositories_url("acme")
 ALPHA_TAGS_URL = _tags_url("acme", "alpha")
 BETA_TAGS_URL = _tags_url("acme", "beta")
+MEMBERS_URL = _org_members_url("acme")
+GROUPS_URL = _org_groups_url("acme")
+ACTIONS_URL = f"{DOCKERHUB_BASE_URL}/v2/auditlogs/acme/actions"
+
+
+def _audit_page(page: int, since: str | None = None) -> str:
+    return _audit_logs_url("acme", page, since)
+
+
+def _audit_events(count: int, *, action: str = "repo.tag.push") -> list[dict[str, Any]]:
+    return [
+        {"account": "acme", "action": action, "actor": "tom", "timestamp": f"2026-01-01T00:{i:02d}:00Z"}
+        for i in range(count)
+    ]
 
 
 class _FakeResumableManager:
@@ -51,8 +74,13 @@ class _FakeResumableManager:
 
 
 class _FakeClient:
-    def __init__(self, pages: Mapping[str, tuple[list[dict[str, Any]], Optional[str]]]) -> None:
+    def __init__(
+        self,
+        pages: Mapping[str, tuple[list[dict[str, Any]], Optional[str]]],
+        objects: Mapping[str, dict[str, Any]] | None = None,
+    ) -> None:
         self._pages = pages
+        self._objects = objects or {}
         self.fetched: list[str] = []
         self.login_calls = 0
 
@@ -63,6 +91,10 @@ class _FakeClient:
         self.fetched.append(url)
         return self._pages[url]
 
+    def get_object(self, url: str) -> dict[str, Any]:
+        self.fetched.append(url)
+        return self._objects[url]
+
 
 class TestGetRows:
     @staticmethod
@@ -71,8 +103,10 @@ class TestGetRows:
         monkeypatch: Any,
         pages: Mapping[str, tuple[list[dict[str, Any]], Optional[str]]],
         endpoint: str,
+        objects: Mapping[str, dict[str, Any]] | None = None,
+        incremental_start: str | None = None,
     ) -> tuple[list[dict[str, Any]], _FakeClient]:
-        client = _FakeClient(pages)
+        client = _FakeClient(pages, objects)
         monkeypatch.setattr(dockerhub, "DockerHubClient", lambda *args, **kwargs: client)
 
         rows: list[dict[str, Any]] = []
@@ -83,6 +117,7 @@ class TestGetRows:
             endpoint=endpoint,
             logger=MagicMock(),
             resumable_source_manager=manager,  # type: ignore[arg-type]
+            incremental_start=incremental_start,
         ):
             rows.extend(batch)
         return rows, client
@@ -100,33 +135,51 @@ class TestGetRows:
                 )
             )
 
-    def test_repositories_single_page_yields_and_stops(self, monkeypatch: Any) -> None:
+    # pytest.mark.parametrize, not parameterized.expand: these cases take the monkeypatch fixture.
+    @pytest.mark.parametrize(
+        ("endpoint", "initial_url"),
+        [("repositories", REPOS_URL), ("org_members", MEMBERS_URL), ("org_groups", GROUPS_URL)],
+    )
+    def test_cursor_endpoint_single_page_yields_and_stops(
+        self, endpoint: str, initial_url: str, monkeypatch: Any
+    ) -> None:
         manager = _FakeResumableManager()
-        pages = {REPOS_URL: ([{"namespace": "acme", "name": "alpha"}], None)}
-        rows, client = self._collect(manager, monkeypatch, pages, "repositories")
-        assert rows == [{"namespace": "acme", "name": "alpha"}]
+        pages = {initial_url: ([{"id": "1", "namespace": "acme", "name": "alpha"}], None)}
+        rows, client = self._collect(manager, monkeypatch, pages, endpoint)
+        assert rows == [{"id": "1", "namespace": "acme", "name": "alpha"}]
+        assert client.fetched == [initial_url]
         assert client.login_calls == 1
         # A null next link ends the sync without persisting resume state.
         assert manager.saved == []
 
-    def test_repositories_follows_next_url_until_null(self, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "initial_url"),
+        [("repositories", REPOS_URL), ("org_members", MEMBERS_URL), ("org_groups", GROUPS_URL)],
+    )
+    def test_cursor_endpoint_follows_next_url_until_null(
+        self, endpoint: str, initial_url: str, monkeypatch: Any
+    ) -> None:
         manager = _FakeResumableManager()
-        second = f"{DOCKERHUB_BASE_URL}/v2/namespaces/acme/repositories?ordering=name&page=2&page_size=100"
+        second = f"{initial_url}&page=2"
         pages = {
-            REPOS_URL: ([{"name": "alpha"}], second),
+            initial_url: ([{"name": "alpha"}], second),
             second: ([{"name": "beta"}], None),
         }
-        rows, _ = self._collect(manager, monkeypatch, pages, "repositories")
+        rows, _ = self._collect(manager, monkeypatch, pages, endpoint)
         assert rows == [{"name": "alpha"}, {"name": "beta"}]
-        # State is saved once — after the first page, pointing at the next cursor — then we stop.
+        # State is saved once, after the first page and pointing at the next cursor, then we stop.
         assert [(s.next_url, s.repository) for s in manager.saved] == [(second, None)]
 
-    def test_repositories_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        second = f"{DOCKERHUB_BASE_URL}/v2/namespaces/acme/repositories?ordering=name&page=2&page_size=100"
+    @pytest.mark.parametrize(
+        ("endpoint", "initial_url"),
+        [("repositories", REPOS_URL), ("org_members", MEMBERS_URL), ("org_groups", GROUPS_URL)],
+    )
+    def test_cursor_endpoint_resumes_from_saved_cursor(self, endpoint: str, initial_url: str, monkeypatch: Any) -> None:
+        second = f"{initial_url}&page=2"
         manager = _FakeResumableManager(DockerhubResumeConfig(next_url=second))
         # The first page URL must never be fetched on resume.
         pages = {second: ([{"name": "beta"}], None)}
-        rows, client = self._collect(manager, monkeypatch, pages, "repositories")
+        rows, client = self._collect(manager, monkeypatch, pages, endpoint)
         assert rows == [{"name": "beta"}]
         assert client.fetched == [second]
 
@@ -485,10 +538,17 @@ class TestDockerhubSourceResponse:
             logger=MagicMock(),
             resumable_source_manager=MagicMock(),
         )
+        config = DOCKERHUB_ENDPOINTS[endpoint]
         assert response.name == endpoint
-        assert response.primary_keys == DOCKERHUB_ENDPOINTS[endpoint].primary_keys
-        # Repositories and tags carry mutable last_updated timestamps only; we don't partition.
-        assert response.partition_mode is None
+        assert response.primary_keys == config.primary_keys
+        assert response.sort_mode == config.sort_mode
+        # Only the audit log has an immutable event timestamp to partition on. Repositories, tags,
+        # members and groups carry mutable last_updated fields, which would rewrite partitions on
+        # every sync.
+        if config.partition_key:
+            assert (response.partition_mode, response.partition_keys) == ("datetime", [config.partition_key])
+        else:
+            assert response.partition_mode is None
 
     def test_tags_primary_key_includes_parent_identifiers(self) -> None:
         # Tag names are only unique within a repository; without the injected parent identifiers in
@@ -497,3 +557,260 @@ class TestDockerhubSourceResponse:
 
     def test_repositories_primary_key_is_namespace_scoped(self) -> None:
         assert DOCKERHUB_ENDPOINTS["repositories"].primary_keys == ["namespace", "name"]
+
+
+class TestAuditLogs:
+    def test_short_page_ends_the_walk(self, monkeypatch: Any) -> None:
+        # The endpoint returns no next link and no total count, so a page shorter than page_size is
+        # the only end-of-collection signal. Missing it loops forever on an empty page.
+        manager = _FakeResumableManager()
+        objects = {_audit_page(1): {"logs": _audit_events(2)}}
+        rows, client = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
+        assert len(rows) == 2
+        assert client.fetched == [_audit_page(1)]
+        assert manager.saved == []
+
+    def test_full_page_advances_and_saves_the_page_cursor(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        objects = {
+            _audit_page(1): {"logs": _audit_events(PAGE_SIZE)},
+            _audit_page(2): {"logs": _audit_events(1)},
+        }
+        rows, client = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
+        assert len(rows) == PAGE_SIZE + 1
+        assert client.fetched == [_audit_page(1), _audit_page(2)]
+        assert [state.page for state in manager.saved] == [2]
+
+    def test_resumes_from_the_saved_page(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager(DockerhubResumeConfig(page=3))
+        objects = {_audit_page(3): {"logs": _audit_events(1)}}
+        _, client = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
+        assert client.fetched == [_audit_page(3)]
+
+    def test_null_logs_ends_the_walk(self, monkeypatch: Any) -> None:
+        # Docker Hub serializes an empty event list as null rather than [].
+        manager = _FakeResumableManager()
+        objects: dict[str, Any] = {_audit_page(1): {"logs": None}}
+        rows, _ = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
+        assert rows == []
+
+    def test_non_list_logs_is_retryable(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        objects: dict[str, Any] = {_audit_page(1): {"logs": {"unexpected": True}}}
+        with pytest.raises(DockerhubRetryableError):
+            TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
+
+    def test_incremental_run_sends_the_watermark_as_from(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        since = "2026-01-01T00:00:00Z"
+        objects = {_audit_page(1, since): {"logs": _audit_events(1)}}
+        _, client = TestGetRows._collect(
+            manager, monkeypatch, {}, "audit_logs", objects=objects, incremental_start=since
+        )
+        assert "from=2026-01-01T00%3A00%3A00Z" in client.fetched[0]
+
+    def test_full_refresh_run_omits_from(self, monkeypatch: Any) -> None:
+        manager = _FakeResumableManager()
+        objects = {_audit_page(1): {"logs": _audit_events(1)}}
+        _, client = TestGetRows._collect(manager, monkeypatch, {}, "audit_logs", objects=objects)
+        assert "from=" not in client.fetched[0]
+
+    def test_synthetic_id_is_stable_for_identical_events(self, monkeypatch: Any) -> None:
+        # The endpoint returns no event id. An id that is not a pure function of the row's content
+        # would make every incremental run re-insert the boundary rows instead of merging onto them.
+        event = _audit_events(1)[0]
+        first, _ = TestGetRows._collect(
+            _FakeResumableManager(), monkeypatch, {}, "audit_logs", objects={_audit_page(1): {"logs": [event]}}
+        )
+        second, _ = TestGetRows._collect(
+            _FakeResumableManager(), monkeypatch, {}, "audit_logs", objects={_audit_page(1): {"logs": [dict(event)]}}
+        )
+        assert first[0]["id"] == second[0]["id"]
+
+    def test_synthetic_id_changes_with_the_event(self, monkeypatch: Any) -> None:
+        rows, _ = TestGetRows._collect(
+            _FakeResumableManager(),
+            monkeypatch,
+            {},
+            "audit_logs",
+            objects={_audit_page(1): {"logs": _audit_events(2)}},
+        )
+        assert rows[0]["id"] != rows[1]["id"]
+
+    def test_synthetic_id_ignores_an_id_the_api_starts_returning(self, monkeypatch: Any) -> None:
+        # If Docker Hub ever adds its own `id`, hashing it in would change every key at once and
+        # re-insert the whole table. The hash covers the event body only.
+        event = _audit_events(1)[0]
+        plain, _ = TestGetRows._collect(
+            _FakeResumableManager(), monkeypatch, {}, "audit_logs", objects={_audit_page(1): {"logs": [event]}}
+        )
+        with_id, _ = TestGetRows._collect(
+            _FakeResumableManager(),
+            monkeypatch,
+            {},
+            "audit_logs",
+            objects={_audit_page(1): {"logs": [{**event, "id": "hub-side-id"}]}},
+        )
+        assert plain[0]["id"] == with_id[0]["id"]
+
+
+class TestAuditLogActions:
+    def test_action_map_is_flattened_into_joinable_rows(self, monkeypatch: Any) -> None:
+        # An audit event names its action as "<group>.<name>", so the catalog is only usable as a
+        # lookup once the joined form is on the row.
+        objects = {
+            ACTIONS_URL: {
+                "actions": {
+                    "repo": {
+                        "label": "Repository",
+                        "actions": [{"name": "tag.push", "label": "Tag Pushed", "description": "Tags pushed"}],
+                    },
+                    "org": {"label": "Organization", "actions": [{"name": "member.add", "label": "Member Added"}]},
+                }
+            }
+        }
+        rows, _ = TestGetRows._collect(_FakeResumableManager(), monkeypatch, {}, "audit_log_actions", objects=objects)
+        assert rows == [
+            {
+                "action_group": "repo",
+                "action_group_label": "Repository",
+                "name": "tag.push",
+                "qualified_name": "repo.tag.push",
+                "label": "Tag Pushed",
+                "description": "Tags pushed",
+            },
+            {
+                "action_group": "org",
+                "action_group_label": "Organization",
+                "name": "member.add",
+                "qualified_name": "org.member.add",
+                "label": "Member Added",
+                "description": None,
+            },
+        ]
+
+    @pytest.mark.parametrize("body", [{}, {"actions": []}])
+    def test_unexpected_payload_is_retryable(self, body: Any, monkeypatch: Any) -> None:
+        with pytest.raises(DockerhubRetryableError):
+            TestGetRows._collect(
+                _FakeResumableManager(), monkeypatch, {}, "audit_log_actions", objects={ACTIONS_URL: body}
+            )
+
+    def test_group_without_actions_yields_nothing(self, monkeypatch: Any) -> None:
+        objects: dict[str, Any] = {ACTIONS_URL: {"actions": {"repo": {"label": "Repository"}}}}
+        rows, _ = TestGetRows._collect(_FakeResumableManager(), monkeypatch, {}, "audit_log_actions", objects=objects)
+        assert rows == []
+
+
+class TestFormatIncrementalStart:
+    @parameterized.expand(
+        [
+            ("none", None, None),
+            ("aware_datetime", datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02T03:04:05Z"),
+            # A naive watermark is UTC; reading it as local time would shift the window by hours and
+            # either skip events or re-pull a day of them.
+            ("naive_datetime", datetime(2026, 1, 2, 3, 4, 5), "2026-01-02T03:04:05Z"),
+            (
+                "other_zone_datetime",
+                datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone(timedelta(hours=2))),
+                "2026-01-02T01:04:05Z",
+            ),
+            ("string_passthrough", "2026-01-02T03:04:05Z", "2026-01-02T03:04:05Z"),
+            ("blank_string", "   ", None),
+        ]
+    )
+    def test_watermark_is_rendered_as_an_rfc_3339_instant(self, _name: str, value: Any, expected: Any) -> None:
+        assert format_incremental_start(value) == expected
+
+
+class TestCheckEndpointAccess:
+    def _sessions(self, login_status: int = 200, probe: Any = None) -> MagicMock:
+        session = MagicMock()
+        login = MagicMock()
+        login.ok = login_status < 400
+        login.json.return_value = {"token": "jwt-1"}
+        session.post.return_value = login
+        if isinstance(probe, Exception):
+            session.get.side_effect = probe
+        elif probe is not None:
+            response = MagicMock()
+            response.status_code = probe
+            session.get.return_value = response
+        return session
+
+    def _check(self, session: MagicMock, endpoints: list[str] | None = None) -> dict[str, str | None]:
+        with patch.object(dockerhub, "make_tracked_session", return_value=session):
+            return check_endpoint_access("tom", "token", "acme", endpoints or list(ENDPOINTS))
+
+    def test_repositories_and_tags_are_never_probed(self) -> None:
+        # Both read the namespace endpoints that `validate_credentials` already covered, so probing
+        # them again would spend requests to report what the source-level check reports.
+        session = self._sessions()
+        assert self._check(session, ["repositories", "tags"]) == {"repositories": None, "tags": None}
+        session.post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("personal_namespace", 404, "returned no organization named"),
+            ("missing_org_scope", 403, "cannot read organization data"),
+        ]
+    )
+    def test_unreachable_org_endpoints_report_what_to_change(
+        self, _name: str, status: int, expected_substr: str
+    ) -> None:
+        permissions = self._check(self._sessions(probe=status))
+        assert permissions["repositories"] is None
+        for endpoint in ORG_SCOPED_ENDPOINTS:
+            reason = permissions[endpoint]
+            assert reason is not None and expected_substr in reason
+
+    def test_reachable_org_endpoints_report_no_reason(self) -> None:
+        assert self._check(self._sessions(probe=200)) == dict.fromkeys(ENDPOINTS)
+
+    @parameterized.expand(
+        [
+            ("rejected_login", 401, None),
+            ("probe_connection_error", 200, requests.ConnectionError("boom")),
+        ]
+    )
+    def test_transient_and_credential_failures_do_not_block_the_picker(
+        self, _name: str, login_status: int, probe: Any
+    ) -> None:
+        # A bad credential is reported by validate_credentials, and a network blip is not a missing
+        # permission. Either one marking every org table unavailable would be a false alarm.
+        assert self._check(self._sessions(login_status=login_status, probe=probe)) == dict.fromkeys(ENDPOINTS)
+
+
+class TestFetchObject:
+    def test_non_object_payload_is_retryable(self) -> None:
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        response.json.return_value = [{"name": "alpha"}]
+        session = MagicMock()
+        session.get.return_value = response
+        with pytest.raises(DockerhubRetryableError):
+            _fetch_object_unwrapped(session, ACTIONS_URL, MagicMock())
+
+    def test_expired_jwt_triggers_a_relogin_and_retry(self) -> None:
+        # The audit log endpoints go through get_object, so they need the same mid-sync JWT refresh
+        # the list endpoints get. Without it a long audit log walk dies at token expiry.
+        session = MagicMock()
+        session.headers = {}
+        login = MagicMock()
+        login.status_code = 200
+        login.ok = True
+        login.json.return_value = {"token": "jwt-2"}
+        session.post.return_value = login
+
+        expired = MagicMock(status_code=401, ok=False, text="")
+        expired.raise_for_status.side_effect = requests.HTTPError("401 error", response=expired)
+        fresh = MagicMock(status_code=200, ok=True, text="")
+        fresh.json.return_value = {"actions": {}}
+        session.get.side_effect = [expired, fresh]
+
+        with patch.object(dockerhub, "make_tracked_session", return_value=session):
+            client = DockerHubClient("tom", "dckr_pat_token", MagicMock())
+
+        assert client.get_object(ACTIONS_URL) == {"actions": {}}
+        assert session.headers["Authorization"] == "Bearer jwt-2"

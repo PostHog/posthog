@@ -427,7 +427,9 @@ def _review_already_posted(
                 or (
                     legacy_marker is not None
                     and legacy_marker in (review.get("body") or "")
-                    and (review.get("body") or "").startswith(message_prefix_for_mode(REVIEW_MODE_FLASH))
+                    and (review.get("body") or "").startswith(
+                        ("FLASH MODE\n", message_prefix_for_mode(REVIEW_MODE_FLASH))
+                    )
                     == (review_mode == REVIEW_MODE_FLASH)
                 )
             )

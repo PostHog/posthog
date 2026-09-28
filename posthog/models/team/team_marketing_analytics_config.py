@@ -1,11 +1,9 @@
-import logging
 from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.team.extensions import register_team_extension_signal
 from posthog.rbac.decorators import field_access_control
 from posthog.schema_enums import AttributionMode, NodeKind
 
@@ -17,8 +15,6 @@ if TYPE_CHECKING:
 # ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 
 # Based on team_revenue_analytics_config.py
-
-logger = logging.getLogger(__name__)
 
 
 def validate_sources_map(sources_map: dict) -> None:
@@ -496,6 +492,3 @@ class TeamMarketingAnalyticsConfig(models.Model):
             # Without this the flag isn't a kill switch: flipping it leaves the old numbers cached.
             "costs_dedup_v2": costs_dedup_v2_enabled(self.team),
         }
-
-
-register_team_extension_signal(TeamMarketingAnalyticsConfig, logger=logger)

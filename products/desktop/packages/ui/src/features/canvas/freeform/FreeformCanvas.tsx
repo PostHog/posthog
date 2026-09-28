@@ -2,7 +2,6 @@ import {
   type CanvasAnalyticsConfig,
   type CanvasCommentHighlight,
   type CanvasNavIntent,
-  type CanvasTextSelection,
   canvasToHostMessageSchema,
 } from "@posthog/core/canvas/freeformSchemas";
 import { logger } from "@posthog/ui/shell/logger";
@@ -16,7 +15,10 @@ import {
   useRef,
 } from "react";
 import { createCanvasHostMessageRouter } from "./canvasHostMessageRouter";
-import { translateCanvasTextSelection } from "./canvasSelection";
+import {
+  type HostCanvasTextSelection,
+  translateCanvasTextSelection,
+} from "./canvasSelection";
 import { buildSandboxDocument } from "./sandboxRuntime";
 
 const log = logger.scope("freeform-canvas");
@@ -42,7 +44,7 @@ export interface FreeformCanvasProps {
    * just forwards it — the caller maps it to actual routing.
    */
   onNavigate?: (intent: CanvasNavIntent) => void;
-  onTextSelection?: (selection: CanvasTextSelection | null) => void;
+  onTextSelection?: (selection: HostCanvasTextSelection | null) => void;
   onCommentActivate?: (id: string) => void;
   commentHighlights?: CanvasCommentHighlight[];
   clearTextSelectionKey?: number;

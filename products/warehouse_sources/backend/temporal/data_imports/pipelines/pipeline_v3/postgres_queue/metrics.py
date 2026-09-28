@@ -84,6 +84,13 @@ ORPHANED_BATCHES_DRAINED_TOTAL = Counter(
     "is the standing population, this counter is the drain rate.",
 )
 
+DRAINED_AFTER_FAILURE_TOTAL = Counter(
+    "warehouse_pg_consumer_drained_after_failure_total",
+    "Batches loaded even though their job had already failed, because the run was incremental "
+    "and the rows were already extracted and staged. Rising here means work that used to be "
+    "discarded now lands.",
+)
+
 RUNS_TERMINALIZED_STALE_TOTAL = Counter(
     "warehouse_pg_consumer_runs_terminalized_stale_total",
     "Runs the loader abandoned (non-terminal batches, no live lease, no progress past the "

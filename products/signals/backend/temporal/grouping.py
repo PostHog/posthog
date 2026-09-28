@@ -31,14 +31,15 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import ReportLink
+from products.signals.backend.artefact_schemas import MAX_REPORT_LINK_REASON_LENGTH, ReportLink
 from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import fixed_dismissal_at, latest_recurrence_report
+from products.signals.backend.recurrence import fixed_dismissal_at
+from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -509,7 +510,7 @@ async def match_signal_to_report_activity(input: MatchSignalToReportInput) -> Ma
         if isinstance(result, ExistingReportMatch) and input.team_id is not None:
             report = await SignalReport.objects.filter(team_id=input.team_id, id=result.report_id).afirst()
             if report is not None and report.status != SignalReport.Status.DELETED:
-                current = await database_sync_to_async(latest_recurrence_report, thread_sensitive=False)(report)
+                current = await database_sync_to_async(signal_target_report, thread_sensitive=False)(report)
                 if current.id != report.id:
                     result.report_id = str(current.id)
                     unsafe = await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(
@@ -705,6 +706,37 @@ class AssignAndEmitDbResult:
     report_signals_researched: int = 0
 
 
+def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
+    """Point a report born from a failed follow-up check at the report that check was written on.
+
+    A `metric_threshold` check that fails on a resolved report emits a `signals_check` signal, and
+    this is the report that signal landed on. Without the edge the fresh report carries neither the
+    verdict nor the report whose fix the check was measuring, so research starts from nothing.
+
+    Distinct from the `recurrence_of` row the resolved-report fork writes: that one says the issue
+    came back, this one says a measurement of the fix breached. A report can hold both.
+
+    Best-effort. The signal is already assigned, and losing the edge must not fail the assignment.
+    """
+    if source_product != SignalSourceProduct.SIGNALS_CHECK:
+        return
+    origin_id = extra.get("report_id")
+    if not origin_id or str(origin_id) == report_id:
+        return
+    reason = (extra.get("explanation") or "")[:MAX_REPORT_LINK_REASON_LENGTH] or None
+    try:
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=ReportLink(kind=ReportLinkKind.FOLLOW_UP_OF, report_id=str(origin_id), reason=reason),
+            attribution=ArtefactAttribution.system(),
+        )
+    except Exception:
+        logger.exception(
+            "signals.report_check.follow_up_link_failed", report_id=report_id, team_id=team_id, origin_id=origin_id
+        )
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -769,7 +801,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 # does, so this signal contradicts it and must not be absorbed. The other dismissal
                 # codes state a preference about the report, and a sink is the right answer for
                 # them (see recurrence.py).
-                report = latest_recurrence_report(report, lock=True)
+                report = signal_target_report(report, lock=True)
                 dismissed_as_fixed_at = (
                     fixed_dismissal_at(report) if report.status == SignalReport.Status.SUPPRESSED else None
                 )
@@ -864,6 +896,12 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     promoted = True
 
             report_id = str(report.id)
+            _link_check_follow_up(
+                team_id=input.team_id,
+                report_id=report_id,
+                source_product=input.source_product,
+                extra=input.extra,
+            )
 
             metadata = {
                 "source_product": input.source_product,
