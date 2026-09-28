@@ -100,24 +100,29 @@ class TestQueryFailureCache(SimpleTestCase):
             assert record is not None
             assert record.open_until == datetime.now(UTC) + BASE_BACKOFF * 2
 
-    def test_backoff_is_capped_and_survives_high_failure_counts(self):
+    def test_backoff_is_capped_and_survives_high_failure_counts(self) -> None:
         # 50 failures is past the point where uncapped backoff math overflows timedelta.
         failure_cache = QueryFailureCache("cache_key_2")
-        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
             record = None
             for _ in range(50):
                 record = failure_cache.record_failure("timeout", "failed")
             assert record is not None
             assert record.consecutive_failures == 50
             assert record.open_until == datetime.now(UTC) + KIND_POLICIES["timeout"].max_backoff
+            frozen.shift(KIND_POLICIES["timeout"].max_backoff - timedelta(microseconds=1))
+            assert WarmingQueryFailureCache("cache_key_2").get_open() is not None
+            frozen.shift(timedelta(microseconds=1))
+            assert WarmingQueryFailureCache("cache_key_2").get_open() is None
 
-    def test_kind_change_resets_the_consecutive_count(self):
+    def test_kind_change_resets_the_consecutive_count(self) -> None:
         failure_cache = QueryFailureCache("cache_key_kind_change")
         failure_cache.record_failure("timeout", "failed")
         failure_cache.record_failure("timeout", "failed")
         record = failure_cache.record_failure("too_slow", "failed")
         assert record is not None
         assert record.consecutive_failures == 1
+        assert WarmingQueryFailureCache("cache_key_kind_change").get_open() is None
 
     def test_clear_closes_breaker_and_resets_count(self):
         failure_cache = QueryFailureCache("cache_key_3")
@@ -186,19 +191,6 @@ class TestQueryFailureCache(SimpleTestCase):
             record = failure_cache.record_failure("memory_limit", "failed", budget=BUDGET_EXTENDED)
             assert record is not None
             assert record.consecutive_failures == 1
-
-    def test_warming_backoff_handles_large_counts_and_kind_changes(self) -> None:
-        failure_cache = QueryFailureCache("warming_kind_change")
-        warming_cache = WarmingQueryFailureCache("warming_kind_change")
-        with time_machine.travel("2026-01-01T00:00:00Z", tick=False) as frozen:
-            for _ in range(100):
-                failure_cache.record_failure("memory_limit", "failed", budget=BUDGET_EXTENDED)
-            frozen.shift(timedelta(hours=4) - timedelta(microseconds=1))
-            assert warming_cache.get_open() is not None
-            frozen.shift(timedelta(microseconds=1))
-            assert warming_cache.get_open() is None
-            failure_cache.record_failure("timeout", "failed", budget=BUDGET_EXTENDED)
-            assert warming_cache.get_open() is None
 
     def test_warming_fails_open_when_cache_is_unavailable(self) -> None:
         warming_cache = WarmingQueryFailureCache("warming_unavailable")
