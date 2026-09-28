@@ -181,6 +181,8 @@ Only the activity log uses the rules below. Throttles, IP allowlists, and reques
   The `posthog_mcp_client_ip_verifications` counter records each outcome.
 - **Sandbox agents.** A row written with an OAuth token bound to a sandbox task keeps the request IP.
   The token can leave the sandbox, so the IP is what tells a sandbox write apart from a write made elsewhere with the same token.
+  The audit log IP address column shows a dash for these rows, with the IP in its tooltip.
+  The User column tags a scout run "via scout <skill_name>" and any other sandbox task "via sandbox".
 
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
 The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.
