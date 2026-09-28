@@ -4559,7 +4559,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     tabs.push(FeatureFlagsTab.PERMISSIONS)
                 }
                 tabs.push(FeatureFlagsTab.FEEDBACK, FeatureFlagsTab.EXPERIMENTS)
-                if (props.id) {
+                // The testing logic is keyed by the loaded id, which a deep link can reach first
+                if (featureFlag.id) {
                     tabs.push(FeatureFlagsTab.TESTING)
                 }
                 return tabs
