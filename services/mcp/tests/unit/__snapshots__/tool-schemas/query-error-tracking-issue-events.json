@@ -181,6 +181,12 @@
             "minimum": 1,
             "type": "number"
         },
+        "mode": {
+            "default": "events",
+            "description": "events returns sampled exception events. summary returns one compact aggregate over all matching events: counts, first and last seen, the most common URLs, browsers, OS, libraries, and library versions, and sample $session_id values. summary ignores limit, offset, include, and onlyAppFrames. Defaults to events.\n\n* `events` - events\n* `summary` - summary",
+            "enum": ["events", "summary"],
+            "type": "string"
+        },
         "offset": {
             "default": 0,
             "description": "Pagination offset.",
