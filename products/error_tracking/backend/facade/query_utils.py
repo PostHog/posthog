@@ -538,6 +538,40 @@ def build_issue_where(issue_id: str) -> list[str]:
     return [f"issue_id = toUUID({escape_hogql_string(issue_id)})"]
 
 
+def build_issue_event_coverage_selects(issue_id: str) -> list[str]:
+    escaped_issue_id = escape_hogql_string(issue_id)
+    return [
+        f"countIf(issue_id = toUUID({escaped_issue_id}))",
+        f"countIf(event_issue_id = toUUID({escaped_issue_id}))",
+    ]
+
+
+def build_issue_event_coverage_where(issue_id: str) -> list[str]:
+    escaped_issue_id = escape_hogql_string(issue_id)
+    return [f"(issue_id = toUUID({escaped_issue_id}) OR event_issue_id = toUUID({escaped_issue_id}))"]
+
+
+def build_empty_issue_events_warning(coverage_row: object, filter_test_accounts: bool) -> str | None:
+    """Explain why an issue has no sampled events when the events table has events for it."""
+    if not isinstance(coverage_row, list) or len(coverage_row) < 2:
+        return None
+    issue_count = to_number(coverage_row[0]) or 0
+    captured_count = to_number(coverage_row[1]) or 0
+    if issue_count > 0 and filter_test_accounts:
+        return (
+            f"No events matched because test accounts are filtered out. {int(issue_count)} events match this issue "
+            "when test accounts are included. Set filterTestAccounts to false to sample them."
+        )
+    if issue_count == 0 and captured_count > 0:
+        return (
+            f"{int(captured_count)} events in this date range have $exception_issue_id set to this issue, "
+            "but the issue index does not map their $exception_fingerprint to this issue. "
+            "This happens after an issue merge or split, or while the index catches up. "
+            "To inspect these events, use execute-sql with properties.$exception_issue_id."
+        )
+    return None
+
+
 def build_issue_event_where(issue_id: str, search_query: str | None) -> list[str]:
     return add_event_search_where(build_issue_where(issue_id), search_query)
 

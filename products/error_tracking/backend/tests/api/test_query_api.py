@@ -611,7 +611,8 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert response.status_code == 200
-        assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY)]
+        # an empty page also runs the coverage query behind the warning
+        assert observed_tags == [(Product.ERROR_TRACKING, Feature.QUERY), (Product.ERROR_TRACKING, Feature.QUERY)]
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_events_matches_by_fingerprint(self) -> None:
@@ -658,6 +659,33 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json() == {"results": [], "hasMore": False, "limit": 1, "offset": 0}
+
+    @parameterized.expand(
+        [
+            ("test_account_only", "issue-fingerprint", {"is_test": True}, "Set filterTestAccounts to false"),
+            ("fingerprint_not_mapped", "unmapped-fingerprint", {}, "properties.$exception_issue_id"),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_events_warns_when_events_exist_outside_the_sample(
+        self, _name: str, fingerprint: str, properties: dict[str, object], expected_hint: str
+    ) -> None:
+        self.team.test_account_filters = [{"key": "is_test", "operator": "is_not_set", "type": "event"}]
+        self.team.save()
+        self.create_issue()
+        self.create_exception_event(fingerprint=fingerprint, properties=properties)
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issue_events",
+            data={"issueId": self.issue_id, "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"}},
+            format="json",
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["results"] == []
+        assert expected_hint in body["warning"]
 
     def test_issue_events_honors_user_property_access(self) -> None:
         self.organization.available_product_features = [
