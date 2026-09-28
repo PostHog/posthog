@@ -1210,6 +1210,7 @@ class TaskRunSetSummaryRequestSerializer(serializers.Serializer):
         child=serializers.RegexField(
             regex=r"^[a-z0-9]+(?:-[a-z0-9]+)*$",
             max_length=tasks_facade.TASK_RUN_TAG_MAX_CHARS,
+            trim_whitespace=False,
             help_text="A lowercase kebab-case slug, for example `feature-flags` or `bug-fix`.",
         ),
         required=False,

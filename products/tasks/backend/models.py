@@ -2513,9 +2513,10 @@ class TaskRun(models.Model):
     @property
     def task_tags(self) -> list[str]:
         state = self.state if isinstance(self.state, dict) else {}
+        # An explicit list on this run wins, even an empty one, so clearing tags hides inherited ones.
         for key in (TASK_RUN_TAGS_STATE_KEY, PRIOR_RUN_TAGS_STATE_KEY):
             tags = state.get(key)
-            if isinstance(tags, list) and tags:
+            if isinstance(tags, list):
                 return [tag for tag in tags if isinstance(tag, str)]
         return []
 

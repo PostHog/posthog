@@ -6486,7 +6486,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             task=task,
             team=self.team,
             status=TaskRun.Status.IN_PROGRESS,
-            state={"prior_run_summary": "Reading the existing code"},
+            state={"prior_run_summary": "Reading the existing code", "prior_run_tags": ["research"]},
         )
         client = self._sandbox_oauth_client(task.id)
 
@@ -6504,13 +6504,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(initial.status_code, status.HTTP_200_OK)
         self.assertEqual(initial.json()["task_summary"], "Reading the existing code")
-        self.assertEqual(initial.json()["task_tags"], [])
+        self.assertEqual(initial.json()["task_tags"], ["research"])
         self.assertEqual(updated.status_code, status.HTTP_200_OK)
         self.assertEqual(updated.json()["task_summary"], "Writing the fix")
         self.assertEqual(updated.json()["task_tags"], ["bug-fix", "feature-flags"])
         self.assertEqual(summary_only.status_code, status.HTTP_200_OK)
         self.assertEqual(summary_only.json()["task_summary"], "Opening the PR")
         self.assertEqual(summary_only.json()["task_tags"], ["bug-fix", "feature-flags"])
+
+        cleared = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_summary/",
+            {"summary": "Opening the PR", "tags": []},
+            format="json",
+        )
+
+        self.assertEqual(cleared.status_code, status.HTTP_200_OK)
+        self.assertEqual(cleared.json()["task_tags"], [])
 
     def test_unbound_sandbox_scope_does_not_bypass_task_visibility(self):
         owner = self.create_organization_user("sandbox-owner")
@@ -7559,6 +7568,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("over_the_cap", {"summary": "x" * (tasks_facade.TASK_RUN_SUMMARY_MAX_CHARS + 1)}),
             ("not_a_string", {"summary": {"state": "halfway"}}),
             ("tag_not_a_slug", {"summary": "Reading", "tags": ["Feature Flags"]}),
+            ("tag_with_padding", {"summary": "Reading", "tags": [" bug-fix "]}),
             ("tag_over_the_cap", {"summary": "Reading", "tags": ["x" * (tasks_facade.TASK_RUN_TAG_MAX_CHARS + 1)]}),
             (
                 "too_many_tags",
