@@ -509,6 +509,69 @@ describe('hogvm execute', () => {
         )
     })
 
+    const billionRange = ['_H', 1, op.INTEGER, 0, op.INTEGER, 1_000_000_000, op.CALL_GLOBAL, 'range', 2, op.RETURN]
+
+    test.each([
+        ['range(0, 1000000000)', billionRange, {}],
+        [
+            '(range)(0, 1000000000)',
+            [
+                '_H',
+                1,
+                op.INTEGER,
+                0,
+                op.INTEGER,
+                1_000_000_000,
+                op.STRING,
+                'range',
+                op.GET_GLOBAL,
+                1,
+                op.CALL_LOCAL,
+                2,
+                op.RETURN,
+            ],
+            {},
+        ],
+        ['range(0, 1000000000) with the memory limit off', billionRange, { memoryLimit: 0 }],
+        [
+            'range(0, 200) after a retained string',
+            [
+                '_H',
+                1,
+                op.STRING,
+                'x'.repeat(1000),
+                op.INTEGER,
+                0,
+                op.INTEGER,
+                200,
+                op.CALL_GLOBAL,
+                'range',
+                2,
+                op.RETURN,
+                op.POP,
+            ],
+            { memoryLimit: 2048 },
+        ],
+    ])('%s is refused before the array is built', (_name, bytecode, options) => {
+        // The spy fails every allocation, because a real range that the heap cannot hold stops the whole
+        // process with a fatal V8 error that no catch can stop.
+        const arrayFrom = jest.spyOn(Array, 'from').mockImplementation(() => {
+            throw new Error('Allocated range')
+        })
+        let error: unknown
+        try {
+            execSync(bytecode, options)
+        } catch (e) {
+            error = e
+        } finally {
+            arrayFrom.mockRestore()
+        }
+        expect(error).toMatchObject({
+            kind: 'limit',
+            message: expect.stringMatching(/^Memory limit of \d+ bytes exceeded/),
+        })
+    })
+
     test('should execute user-defined stringify function correctly', async () => {
         const functions = {
             stringify: (arg: any) => {

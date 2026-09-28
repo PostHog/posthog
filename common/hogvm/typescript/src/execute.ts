@@ -16,6 +16,7 @@ import {
     ExecOptions,
     ExecResult,
     HogUpValue,
+    STLFunction,
     Telemetry,
     ThrowFrame,
     VMState,
@@ -292,17 +293,33 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
         return stack.pop()
     }
 
+    function memoryLimitExceeded(attempted: number): HogVMException {
+        return new HogVMException(
+            `Memory limit of ${memLimit} bytes exceeded. Tried to allocate ${attempted} bytes.`,
+            'limit'
+        )
+    }
+
     function pushStack(value: any): any {
         memStack.push(calculateCost(value))
         memUsed += memStack[memStack.length - 1]
         maxMemUsed = Math.max(maxMemUsed, memUsed)
         if (memUsed > memLimit && memLimit > 0) {
-            throw new HogVMException(
-                `Memory limit of ${memLimit} bytes exceeded. Tried to allocate ${memUsed} bytes.`,
-                'limit'
-            )
+            throw memoryLimitExceeded(memUsed)
         }
         return stack.push(value)
+    }
+
+    // pushStack charges a result only after the STL function has built it. A result that the heap
+    // cannot hold stops the process with a fatal V8 error first, so check the declared cost before the call.
+    function callStlWithinMemory(stlFn: STLFunction, args: any[], name: string): any {
+        if (stlFn.memoryCost && memLimit > 0) {
+            const attempted = memUsed + stlFn.memoryCost(args)
+            if (attempted > memLimit) {
+                throw memoryLimitExceeded(attempted)
+            }
+        }
+        return callStl(stlFn.fn, args, name, options)
     }
 
     function spliceStack2(start: number, deleteCount?: number): any[] {
@@ -941,7 +958,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                           .fill(null)
                                           .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
-                            pushStack(callStl(stlFn.fn, args, name, options))
+                            pushStack(callStlWithinMemory(stlFn, args, name))
                         } else if (Object.hasOwn(BYTECODE_STL, name)) {
                             const argNames = BYTECODE_STL[name][0]
                             if (argNames.length !== temp) {
@@ -1053,7 +1070,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                 args.push(null)
                             }
                         }
-                        pushStack(callStl(stlFn.fn, args, closure.callable.name, options))
+                        pushStack(callStlWithinMemory(stlFn, args, closure.callable.name))
                     } else if (closure.callable.__hogCallable__ === 'async') {
                         if (asyncSteps >= maxAsyncSteps) {
                             throw new HogVMException(
