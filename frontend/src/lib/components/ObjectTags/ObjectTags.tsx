@@ -12,6 +12,8 @@ interface ObjectTagsPropsBase {
     tags: string[]
     saving?: boolean
     style?: CSSProperties
+    /** Set on whichever control is showing — the add/edit trigger, or the editor's input while
+     * editing — so a `<label htmlFor>` keeps a target in both states. */
     id?: string
     className?: string
     actionButtonSize?: ComponentProps<typeof LemonTag>['size']
@@ -30,6 +32,11 @@ interface ObjectTagsPropsBase {
     maxVisibleTags?: number
     /** Adds "more" to the overflow tag count. */
     showOverflowLabel?: boolean
+    /**
+     * In a flex column, keep the container as narrow as the tags instead of letting it stretch. A
+     * stretched container puts dead click area beside the action button. The editor still stretches.
+     */
+    shrinkToContent?: boolean
     /**
      * Let a long tag wrap and shrink rather than overflow its container. For narrow containers like a
      * sidebar column — off by default, since it lowers the min-content width and so shifts how much
@@ -66,6 +73,7 @@ export function ObjectTags({
     tags,
     onChange, // Required unless `staticOnly`
     onEdit,
+    id,
     onBlur,
     saving, // Required unless `staticOnly`
     tagsAvailable,
@@ -80,6 +88,7 @@ export function ObjectTags({
     onTagClick,
     maxVisibleTags,
     showOverflowLabel = false,
+    shrinkToContent = false,
     wrap = false,
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
@@ -103,7 +112,12 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap gap-0.5 items-center', wrap && 'min-w-0 max-w-full')}
+            className={clsx(
+                className,
+                'inline-flex flex-wrap gap-0.5 items-center',
+                shrinkToContent && (editingTags ? 'self-stretch' : 'self-start'),
+                wrap && 'min-w-0 max-w-full'
+            )}
             data-attr={dataAttr}
         >
             {editingTags ? (
@@ -119,6 +133,7 @@ export function ObjectTags({
                     }}
                     loading={saving}
                     data-attr="new-tag-input"
+                    id={id}
                     placeholder={inputPlaceholder}
                     autoFocus
                     popoverClassName="click-outside-block"
@@ -167,21 +182,25 @@ export function ObjectTags({
                         </Popover>
                     )}
                     {!staticOnly && onChange && saving !== undefined && (
-                        <span className="inline-flex font-normal">
+                        <button
+                            type="button"
+                            id={id}
+                            className="inline-flex font-normal cursor-pointer"
+                            onClick={() => {
+                                onEdit?.()
+                                setEditingTags(true)
+                            }}
+                            data-attr="button-add-tag"
+                        >
                             <LemonTag
                                 type="none"
-                                onClick={() => {
-                                    onEdit?.()
-                                    setEditingTags(true)
-                                }}
-                                data-attr="button-add-tag"
                                 icon={hasTags ? <IconPencil /> : <IconPlus />}
                                 className="border border-dashed"
                                 size={actionButtonSize}
                             >
                                 {hasTags ? editLabel : addLabel}
                             </LemonTag>
-                        </span>
+                        </button>
                     )}
                 </>
             )}

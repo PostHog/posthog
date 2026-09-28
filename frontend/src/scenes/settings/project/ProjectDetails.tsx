@@ -1,7 +1,7 @@
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { TeamDisplayName } from 'scenes/settings/environment/TeamSettings'
 
-import { ProjectTags } from './ProjectTags'
+import { PROJECT_TAGS_TRIGGER_ID, ProjectTags } from './ProjectTags'
 
 export function ProjectDetails(): JSX.Element {
     return (
@@ -11,7 +11,7 @@ export function ProjectDetails(): JSX.Element {
                 <TeamDisplayName />
             </div>
             <div className="flex flex-col gap-1">
-                <LemonLabel>Tags</LemonLabel>
+                <LemonLabel htmlFor={PROJECT_TAGS_TRIGGER_ID}>Tags</LemonLabel>
                 <ProjectTags />
             </div>
         </div>
