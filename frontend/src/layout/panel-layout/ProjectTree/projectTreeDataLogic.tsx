@@ -1070,15 +1070,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         item_type: shortcutItem.type ?? 'unknown',
                         item_name: shortcutPath,
                     })
-                    lemonToast.success('Added to starred', {
-                        button: {
-                            label: 'View',
-                            dataAttr: 'project-tree-view-shortcuts',
-                            action: () => {
-                                actions.setActivePanelIdentifier('Shortcuts')
-                            },
-                        },
-                    })
+                    lemonToast.success('Added to starred')
                     return [...values.shortcutData, response]
                 },
                 reorderShortcuts: async ({ orderedIds }) => {
