@@ -275,6 +275,14 @@ def google_tag_manager_source(
         session = google_tag_manager_session(refresh_token)
         throttle = RequestThrottle()
 
+        if account_ids is not None:
+            accessible_ids, _ = get_accessible_account_ids(session, account_ids)
+            missing = sorted(account_ids - accessible_ids)
+            if missing:
+                raise ValueError(
+                    f"The connected Google user can't access these Tag Manager account IDs: {', '.join(missing)}"
+                )
+
         if endpoint.parent_level == "root":
             for page in _iter_pages(session, throttle, endpoint.path_suffix, endpoint.data_key, endpoint.params):
                 rows = [row for row in page if account_ids is None or row.get("accountId") in account_ids]

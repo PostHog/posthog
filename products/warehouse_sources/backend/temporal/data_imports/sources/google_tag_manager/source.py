@@ -132,9 +132,7 @@ class GoogleTagManagerSource(SimpleSource[GoogleTagManagerSourceConfig], OAuthMi
 
         account_ids = parse_account_ids(config.account_ids)
         try:
-            accessible_ids, _ = get_accessible_account_ids(
-                google_tag_manager_session(refresh_token), account_ids
-            )
+            accessible_ids, _ = get_accessible_account_ids(google_tag_manager_session(refresh_token), account_ids)
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):

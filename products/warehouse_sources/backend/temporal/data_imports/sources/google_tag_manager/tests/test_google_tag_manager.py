@@ -202,6 +202,17 @@ def test_accounts_rows_respect_account_filter():
     assert [row["accountId"] for row in rows] == ["2"]
 
 
+def test_filtered_source_rejects_missing_account_before_extraction():
+    pages: dict[tuple[str, str | None], dict[str, Any]] = {
+        ("accounts", None): {"account": [{"accountId": "1", "path": "accounts/1"}]},
+    }
+
+    with mock.patch(SESSION_PATCH_TARGET, return_value=_fake_session(pages)):
+        source = google_tag_manager_source(_config(account_ids="1,2"), "accounts", refresh_token="rt")
+        with pytest.raises(ValueError, match="can't access these Tag Manager account IDs: 2"):
+            _rows(source)
+
+
 def test_tags_fan_out_walks_every_workspace():
     pages: dict[tuple[str, str | None], dict[str, Any]] = {
         ("accounts", None): {"account": [{"accountId": "1", "path": "accounts/1"}]},
