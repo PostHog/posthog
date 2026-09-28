@@ -43,8 +43,9 @@ export default function SignupRoleSelect({
             className={className}
             showOptional={showOptional}
         >
-            {({ value, onChange }) => (
+            {({ value, onChange, error, id }) => (
                 <LemonSelect
+                    id={id}
                     fullWidth
                     data-attr="signup-role-at-organization"
                     options={roleOptions}
@@ -53,6 +54,7 @@ export default function SignupRoleSelect({
                     value={value || undefined}
                     onChange={onChange}
                     placeholder="Select your role"
+                    status={error ? 'danger' : 'default'}
                 />
             )}
         </LemonField>
