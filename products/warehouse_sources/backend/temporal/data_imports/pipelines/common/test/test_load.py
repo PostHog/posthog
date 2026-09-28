@@ -68,6 +68,7 @@ async def _run_post_load(
     helper: MagicMock,
     *,
     cdc_write_mode: str | None = None,
+    resource: Optional[MagicMock] = None,
 ) -> tuple[AsyncMock, AsyncMock]:
     job = MagicMock()
     job.id = uuid.uuid4()
@@ -97,6 +98,7 @@ async def _run_post_load(
             table_schema_dict={},
             resource_name="orders",
             logger=logger,
+            resource=resource,
             cdc_write_mode=cdc_write_mode,
         )
     return run_scheduled, prepare_s3
@@ -118,6 +120,17 @@ class TestRunPostLoadDeltaMaintenance:
         run_scheduled, _ = await _run_post_load(schema, _make_helper(), cdc_write_mode=cdc_write_mode)
 
         run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=None)
+
+    @pytest.mark.asyncio
+    async def test_forwards_resource_partition_count_as_fallback(self):
+        # A first sync has no schema.partition_count persisted yet; the fallback comes from the
+        # synced resource instead, so this must actually reach run_scheduled and not silently drop.
+        schema = _make_schema(is_cdc=False, sync_type_config={"last_vacuum_version": 41}, partition_count=None)
+        resource = MagicMock(partition_count=12)
+
+        run_scheduled, _ = await _run_post_load(schema, _make_helper(), resource=resource)
+
+        run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=12)
 
     @pytest.mark.asyncio
     async def test_cdc_companion_write_runs_companion_maintenance(self):

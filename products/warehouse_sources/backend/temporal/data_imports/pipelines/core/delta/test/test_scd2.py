@@ -39,7 +39,7 @@ class TestScd2Write:
 
         await _make_writer(delta_path).write(data=batch, primary_keys=["id"])
 
-        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "10"
+        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "25"
 
     @pytest.mark.asyncio
     async def test_write_misaligned_decimal_to_local_delta(self, tmp_path: Path) -> None:

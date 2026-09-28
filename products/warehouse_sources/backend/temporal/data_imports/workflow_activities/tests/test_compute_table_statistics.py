@@ -313,6 +313,10 @@ class TestComputeTableStatisticsSync:
             ("same_version_within_max_age_skips", dt.timedelta(days=2), 7, "skipped"),
             ("same_version_past_max_age_recomputes", dt.timedelta(days=8), 7, "done"),
             ("new_version_recomputes", dt.timedelta(days=2), 8, "done"),
+            # A full refresh/reset restarts the Delta version at 0, so a stored version ahead of the
+            # table's current one means the table was recreated since the last computation — the stored
+            # version must not be trusted as a match even though it hasn't changed monotonically.
+            ("version_behind_stored_from_reset_recomputes", dt.timedelta(days=2), 1, "done"),
         ]
     )
     def test_version_gate(self, _name: str, age: dt.timedelta, table_version: int, expected_status: str) -> None:
@@ -346,6 +350,93 @@ class TestComputeTableStatisticsSync:
         else:
             assert row.row_count == 99
             assert row.computed_for_delta_version == table_version
+
+    def test_recomputes_when_one_column_still_carries_an_earlier_version(self) -> None:
+        # `_upsert_statistics` writes one column at a time and only retries the whole batch on a
+        # transient DB error; any other failure partway through a recompute can leave one column
+        # stamped with the new version while another is still on the old one. The gate must not read
+        # that mixed state as "version unchanged" just because the column it did reach agrees.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(
+            team,
+            columns={
+                "amount": {"clickhouse": "Nullable(Int64)"},
+                "currency": {"clickhouse": "Nullable(String)"},
+            },
+        )
+        computed_at = timezone.now() - dt.timedelta(days=2)
+        WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name="amount",
+            row_count=1,
+            computed_at=computed_at,
+            computed_for_delta_version=7,
+        )
+        WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name="currency",
+            row_count=1,
+            computed_at=computed_at,
+            computed_for_delta_version=6,
+        )
+        add_actions = pa.table(
+            {
+                "num_records": [99],
+                "null_count.amount": [0],
+                "min.amount": [1],
+                "max.amount": [1],
+                "null_count.currency": [0],
+                "min.currency": ["usd"],
+                "max.currency": ["usd"],
+            }
+        )
+        helper = self._mock_delta(add_actions, version=7)
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        rows = {r.column_name: r for r in WarehouseColumnStatistics.objects.for_team(team.id).filter(table_id=table.id)}
+        assert rows["amount"].computed_for_delta_version == 7
+        assert rows["currency"].computed_for_delta_version == 7
+
+    def test_a_dropped_columns_stale_row_does_not_block_the_gate_forever(self) -> None:
+        # A column removed from the table keeps its old stats row (`existing` still holds it, since
+        # nothing deletes it). The gate must not let that permanently-stale row hold the version/time
+        # minimum open forever — it has to be excluded, not just outvoted.
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team, columns={"amount": {"clickhouse": "Nullable(Int64)"}})
+        computed_at = timezone.now() - dt.timedelta(days=2)
+        WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name="amount",
+            row_count=1,
+            computed_at=computed_at,
+            computed_for_delta_version=7,
+        )
+        WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team,
+            table=table,
+            column_name="legacy_col",
+            row_count=1,
+            computed_at=computed_at - dt.timedelta(days=100),
+            computed_for_delta_version=1,
+        )
+        add_actions = pa.table({"num_records": [99], "null_count.amount": [0], "min.amount": [1], "max.amount": [1]})
+        helper = self._mock_delta(add_actions, version=7)
+        with (
+            patch.object(comp, "statistics_enabled", return_value=True),
+            patch(DELTA_HELPER_PATH, return_value=helper),
+        ):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "skipped"
+        assert result["reason"] == "version_unchanged"
 
     def test_skipped_when_no_columns_without_reading_add_actions(self) -> None:
         # Nothing is written for a table with no registered columns, so the recency gate never

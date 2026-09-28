@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import ensure_table_properties
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
     decimal_array,
@@ -751,7 +752,7 @@ class TestCheckpointIntervalProperty:
         )
 
         stored = deltalake.DeltaTable(delta_path)
-        assert stored.metadata().configuration.get("delta.checkpointInterval") == "10"
+        assert stored.metadata().configuration.get("delta.checkpointInterval") == "25"
         # Set at creation, so no separate metadata commit was needed.
         assert "SET TBLPROPERTIES" not in _commit_operations(delta_path)
 
@@ -771,8 +772,22 @@ class TestCheckpointIntervalProperty:
                 primary_keys=None,
             )
 
-        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "10"
+        assert deltalake.DeltaTable(delta_path).metadata().configuration.get("delta.checkpointInterval") == "25"
         assert _commit_operations(delta_path).count("SET TBLPROPERTIES") == 1
+
+    @pytest.mark.asyncio
+    async def test_a_persistently_failing_commit_is_swallowed_not_propagated(self, tmp_path: Path, mocker) -> None:
+        # The data write has already committed by the time this runs, so a property commit that can
+        # never succeed (an incompatible backend, an unexpected metadata shape, any bug in this path)
+        # must not fail the write call it's attached to.
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
+        table = deltalake.DeltaTable(delta_path)
+        mocker.patch.object(type(table.alter), "set_table_properties", side_effect=RuntimeError("boom"), create=True)
+
+        result = await ensure_table_properties(table, make_logger())
+
+        assert result is False
 
 
 class TestCreateRaceWithExistingTable:

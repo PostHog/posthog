@@ -932,6 +932,17 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         "Repartition activity failed; continuing with sync on existing layout",
                         extra={"schema_id": str(inputs.external_data_schema_id)},
                     )
+            elif job_id is not None:
+                # Logged so the Syncs UI/log stream still shows the repartition check ran for the
+                # common no-op case — the activity's own start/finish logs only fire when it's called.
+                workflow.logger.info(
+                    "Repartition scheduling skipped",
+                    extra={
+                        "schema_id": str(inputs.external_data_schema_id),
+                        "repartition_needed": repartition_needed,
+                        "scheduled_full_refresh": scheduled_full_refresh,
+                    },
+                )
 
             job_inputs = ImportDataActivityInputs(
                 team_id=inputs.team_id,

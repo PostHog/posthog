@@ -17,6 +17,7 @@ import os
 import json
 import uuid
 import dataclasses
+from collections.abc import Iterable
 from datetime import timedelta
 from typing import Any
 
@@ -167,16 +168,41 @@ def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tu
     return row_count, result
 
 
-def _most_recent_computed_at(existing: dict[str, WarehouseColumnStatistics]) -> Any | None:
-    times = [s.computed_at for s in existing.values() if s.computed_at is not None]
-    return max(times) if times else None
+def _most_recent_computed_at(
+    existing: dict[str, WarehouseColumnStatistics], current_columns: Iterable[str]
+) -> Any | None:
+    """Oldest `computed_at` among currently-registered columns, not the newest.
+
+    `_upsert_statistics` writes one column at a time and only retries the whole batch on a transient
+    DB error (`OperationalError`/`InterfaceError`); any other failure partway through a run leaves some
+    columns stamped with a fresh `computed_at` while others still carry an earlier one. Taking the max
+    would read that mixed, partially-written state as "computed recently" and skip the columns that are
+    actually still stale; the min only reports fresh once every currently-registered column agrees.
+    Scoped to `current_columns` so a column dropped from the table doesn't hold a stale row open
+    forever and block this gate on a time that can never be reached again.
+    """
+    times = [s.computed_at for name, s in existing.items() if name in current_columns and s.computed_at is not None]
+    return min(times) if times else None
 
 
-def _most_recent_computed_version(existing: dict[str, WarehouseColumnStatistics]) -> int | None:
-    # One recompute stamps every column row with the same version. A column dropped from the table
-    # keeps its old row, so the maximum is the version of the last recompute.
-    versions = [s.computed_for_delta_version for s in existing.values() if s.computed_for_delta_version is not None]
-    return max(versions) if versions else None
+def _most_recent_computed_version(
+    existing: dict[str, WarehouseColumnStatistics], current_columns: Iterable[str]
+) -> int | None:
+    """Oldest `computed_for_delta_version` among currently-registered columns, not the newest.
+
+    Same partial-write hazard as `_most_recent_computed_at`, and the same fix: a recompute that aborts
+    after updating only some columns must not read as "version unchanged" just because the columns it
+    did reach now carry the current version. Scoped to `current_columns` for the same reason — a column
+    dropped from the table keeps its old row, which the maximum used to rely on to avoid it; the
+    minimum has to exclude it explicitly instead, or a dropped column's stale version would hold this
+    gate open indefinitely.
+    """
+    versions = [
+        s.computed_for_delta_version
+        for name, s in existing.items()
+        if name in current_columns and s.computed_for_delta_version is not None
+    ]
+    return min(versions) if versions else None
 
 
 @retry_on_operational_error
@@ -227,11 +253,12 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         emit_completed("skipped", reason="no_table")
         return {"status": "skipped", "reason": "no_table"}
     event_props["table_id"] = str(table.id)
+    columns = table.columns or {}
 
     existing = {
         stat.column_name: stat for stat in WarehouseColumnStatistics.objects.for_team(team_id).filter(table_id=table.id)
     }
-    latest = _most_recent_computed_at(existing)
+    latest = _most_recent_computed_at(existing, columns)
     if latest is not None and timezone.now() - latest < MIN_RECOMPUTE_INTERVAL:
         emit_completed("skipped", reason="computed_recently")
         return {"status": "skipped", "reason": "computed_recently"}
@@ -258,9 +285,17 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
         return {"status": "skipped", "reason": "no_delta_table"}
 
     delta_version = delta_table.version()
+    stored_version = _most_recent_computed_version(existing, columns)
+    # Delta versions are only monotonic within one incarnation (see vacuum_if_stale's identical
+    # caveat): reset_table() purges the log and restarts numbering at 0 for full-refresh/reset tables,
+    # so a stored version ahead of the table's current one means the table was recreated since the
+    # last computation. Treat that stored version as stale rather than a match, or a table whose
+    # refresh always produces the same low version number would skip recomputation indefinitely.
+    version_is_stale = stored_version is not None and stored_version > delta_version
     if (
         latest is not None
-        and _most_recent_computed_version(existing) == delta_version
+        and not version_is_stale
+        and stored_version == delta_version
         and timezone.now() - latest < MAX_RECOMPUTE_INTERVAL
     ):
         emit_completed("skipped", reason="version_unchanged", delta_version=delta_version)
@@ -268,7 +303,6 @@ def compute_table_statistics_sync(team_id: int, schema_id: uuid.UUID) -> dict[st
 
     # Checked before the Add-action scan: a table with no registered columns writes no rows, so
     # nothing would stop the scan from repeating on every sync.
-    columns = table.columns or {}
     if not columns:
         emit_completed("skipped", reason="no_columns")
         return {"status": "skipped", "reason": "no_columns"}

@@ -8,7 +8,12 @@ import deltalake
 import deltalake.exceptions
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import is_invalid_version_race
+from posthog.exceptions_capture import capture_exception
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_invalid_version_race,
+    is_transient_maintenance_error,
+)
 
 T = TypeVar("T")
 
@@ -133,9 +138,14 @@ async def execute_with_conflict_retry(
 
 # delta-rs replays every commit after the latest checkpoint when it opens a table, and it reads that
 # uncheckpointed tail twice. Its default checkpoints every 100 commits, so a table that takes many
-# small commits pays a long replay on every open. Ten keeps the tail short. deltalite reads the same
+# small commits pays a long replay on every open. A checkpoint write itself is O(live file count),
+# not O(commits since last checkpoint) — it serializes the table's whole current add-action listing —
+# so dropping the interval too far raises checkpoint-write frequency on exactly the large/hot tables
+# (hundreds to tens of thousands of files, see maintenance.py's documented p90/p99/pathological file
+# counts) where that rewrite is most expensive. 25 shortens the uncheckpointed tail well below the
+# default without quadrupling checkpoint-write frequency the way 10 would. deltalite reads the same
 # property when it commits, so both writers checkpoint on the same cadence.
-DELTA_TABLE_PROPERTIES: dict[str, str] = {"delta.checkpointInterval": "10"}
+DELTA_TABLE_PROPERTIES: dict[str, str] = {"delta.checkpointInterval": "25"}
 
 
 async def ensure_table_properties(table: deltalake.DeltaTable, logger: FilteringBoundLogger) -> bool:
@@ -154,7 +164,16 @@ async def ensure_table_properties(table: deltalake.DeltaTable, logger: Filtering
         await execute_with_conflict_retry(
             table, lambda: table.alter.set_table_properties(missing), "set_table_properties", logger
         )
+    except ObjectStorePermissionDeniedError as e:
+        await logger.awarning(
+            f"set_table_properties: could not set {sorted(missing)}, will retry on the next write: {e}"
+        )
+        return False
     except Exception as e:  # noqa: BLE001 - best-effort; the data commit already landed
+        if not is_transient_maintenance_error(e):
+            # Not a known transient/permission case, so this commit can never succeed on its own —
+            # every write would otherwise retry it forever with nothing surfacing to error tracking.
+            capture_exception(e)
         await logger.awarning(
             f"set_table_properties: could not set {sorted(missing)}, will retry on the next write: {e}"
         )

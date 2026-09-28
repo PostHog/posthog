@@ -491,7 +491,14 @@ async def _run(
             # so that case only checks storage_delta_mib was computed at all, above.
             assert run.storage_delta_mib != 0
 
-        mock_run_scheduled.assert_called()
+        if existing_schema_id is not None:
+            # A genuine re-sync also runs the pre-write defensive maintenance pass (see
+            # DeltaMaintenance.run_scheduled's callers in pipeline_v2/pipeline_v3), so both that call
+            # and the post-load call must land — asserting only "called" would still pass if the
+            # post-load call were dropped, since the pre-write call alone satisfies it.
+            assert mock_run_scheduled.call_count == 2
+        else:
+            mock_run_scheduled.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(
             source_type=source_type, status=ExternalDataJobStatus.COMPLETED.lower()
         )
