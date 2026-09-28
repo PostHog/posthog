@@ -33,6 +33,7 @@ from products.access_control.backend.facade.user_access_control import (
 )
 from products.approvals.backend.exceptions import ApprovalRequired, PolicyConflict
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
+from products.approvals.backend.transactions import gated_atomic
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from products.feature_flags.backend.encrypted_flag_payloads import (
@@ -518,7 +519,7 @@ class OrganizationFeatureFlagView(
                 )
                 continue
             try:
-                with transaction.atomic():
+                with gated_atomic():
                     target_flag_access_context = (
                         self._get_accessible_target_flags_by_key(
                             [source_flag.key for source_flag in copy_source_flags],

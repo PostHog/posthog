@@ -23,6 +23,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.approvals.backend.models import ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
@@ -3982,6 +3983,10 @@ class TestOrganizationFeatureFlagCopyApprovalGate(APIBaseTest):
         assert len(body["failed"]) == 1
         assert body["failed"][0]["project_id"] == self.team_2.id
         assert not FeatureFlag.objects.filter(team=self.team_2, key=self.source_flag.key).exists()
+
+        # The reported change request has to be one an approver can still act on.
+        assert body["failed"][0]["approval_pending"] is True
+        assert ChangeRequest.objects.filter(pk=body["failed"][0]["change_request_id"]).exists()
 
     def test_copy_active_flag_onto_existing_active_target_is_gated(self, _mock_enabled):
         # Existing destination flag is enabled via update() — covered by Task 2; assert it here too.
