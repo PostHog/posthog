@@ -23,6 +23,7 @@ export function BroadcastSendActivity({ runId, runStartedAt }: BroadcastPerforma
             logicKey: `broadcast-send-activity-${runId}`,
             loadOnMount: true,
             loadOnChanges: true,
+            loadPreviousPeriod: false,
             forceParams: sendActivityParams(runId, runStartedAt),
         })
     )
