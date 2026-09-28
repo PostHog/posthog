@@ -4,6 +4,9 @@ import { Form } from 'kea-forms'
 import { LemonButton, LemonInput, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { canEditEmailMatching } from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
 
 import { ACCOUNT_ID_FIELDS, customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
 
@@ -12,6 +15,10 @@ export function AccountEditModal(): JSX.Element {
         customerAnalyticsAccountSceneLogic
     )
     const { closeAccountEditor, submitAccountForm } = useActions(customerAnalyticsAccountSceneLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const emailMatchingDisabledReason = canEditEmailMatching(currentTeam)
+        ? undefined
+        : 'Only project admins can edit email domains and known emails.'
 
     return (
         <LemonModal
@@ -63,6 +70,7 @@ export function AccountEditModal(): JSX.Element {
                                 value={value}
                                 onChange={onChange}
                                 placeholder="example.com"
+                                disabledReason={emailMatchingDisabledReason}
                                 data-attr="account-edit-email-domains"
                             />
                         )}
@@ -76,6 +84,7 @@ export function AccountEditModal(): JSX.Element {
                                 value={value}
                                 onChange={onChange}
                                 placeholder="jane@example.com"
+                                disabledReason={emailMatchingDisabledReason}
                                 data-attr="account-edit-known-emails"
                             />
                         )}

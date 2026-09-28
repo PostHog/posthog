@@ -2,7 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,7 +18,7 @@ import type {
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { cleanDomains, cleanEmails } from './accountEmailMatching'
+import { canEditEmailMatching, cleanDomains, cleanEmails } from './accountEmailMatching'
 import { accountLinksLogic } from './accountLinksLogic'
 import { AccountsEvents } from './constants'
 
@@ -225,9 +224,7 @@ export const accountMeetingsLogic = kea<accountMeetingsLogicType>([
     selectors({
         canEditMeetingMatching: [
             (selectors) => [selectors.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean =>
-                !!currentTeam?.effective_membership_level &&
-                currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+            (currentTeam: TeamPublicType | TeamType | null): boolean => canEditEmailMatching(currentTeam),
         ],
     }),
     listeners(({ actions, values, props }) => ({
