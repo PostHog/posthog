@@ -154,6 +154,9 @@ export function categoricalOutputConfigError(config: EvaluationOutputConfig): st
         return 'Use a different key for each category.'
     }
     const rule = config.passing_rule
+    if (rule && 'categories' in rule && config.selection_mode !== 'multiple' && rule.categories.length === 0) {
+        return 'Choose at least one passing category.'
+    }
     if (
         rule &&
         (!('categories' in rule) ||

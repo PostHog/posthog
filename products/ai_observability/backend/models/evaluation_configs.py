@@ -143,7 +143,7 @@ class CategoricalPassingRule(BaseModel):
         return set(categories) <= set(self.categories)
 
 
-class UnknownEvaluationCategory(ValueError):
+class InvalidEvaluationCategories(ValueError):
     pass
 
 
@@ -162,6 +162,8 @@ class CategoricalOutputConfig(BaseModel):
             raise ValueError("Category keys must be unique")
         if self.passing_rule is not None:
             rule = self.passing_rule
+            if self.selection_mode == "single" and not rule.categories:
+                raise ValueError("Choose at least one passing category.")
             if not set(rule.categories) <= keys:
                 raise ValueError("Passing rules must use configured category keys")
         return self
@@ -172,12 +174,12 @@ class CategoricalOutputConfig(BaseModel):
         if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
             raise ValueError("Return category keys as a list, or one category key for single selection")
         if self.selection_mode == "single" and len(value) != 1:
-            raise ValueError("Single selection must return exactly one category")
+            raise InvalidEvaluationCategories("Single selection must return exactly one category")
         keys = {option.key for option in self.options}
         if not set(value) <= keys:
-            raise UnknownEvaluationCategory("Return only configured category keys")
+            raise InvalidEvaluationCategories("Return only configured category keys")
         if len(value) != len(set(value)):
-            raise ValueError("Return each category only once")
+            raise InvalidEvaluationCategories("Return each category only once")
         return value
 
 

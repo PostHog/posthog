@@ -81,13 +81,15 @@ Single selection requires exactly one key; multiple selection accepts `[]` as an
 Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
 `null` means N/A only when `allows_na` is enabled.
 Unknown or duplicate keys are invalid results.
-Invalid model responses and unknown category keys from Hog skip the run.
+Invalid model responses and Hog results with unknown keys, duplicate keys, or the wrong number of selections skip the run without disabling the evaluation.
 Wrong Hog return types follow the existing return-contract error path.
 
 An optional `passing_rule: {categories: [key]}` marks the passing categories.
 With passing categories selected, a result passes only when it contains at least one category and every returned category is marked as passing.
-With an empty passing-categories list, only `[]` passes.
-N/A is excluded from pass rates.
+Single selection requires at least one passing category when a rule is enabled.
+Multiple selection allows an empty passing-categories list; only `[]` passes that rule.
+N/A and skipped runs are excluded from pass rates.
+Skipped runs display as "Skipped" in run details and text representations, even when N/A is disabled.
 Without a rule, results stay ungraded and new reports are unavailable.
 Rule edits reclassify stored results, while each report retains its own configuration snapshot.
 

@@ -92,9 +92,18 @@ class TestCategoricalOutputConfig:
         _, validated = validate_evaluation_configs(runtime, "categorical", evaluation_config, output_config)
         assert validated == output_config
 
-    @pytest.mark.parametrize("value", [[], ["resolved", "resolved"], ["unknown"], [1], True, None, {"resolved": True}])
-    def test_single_selection_rejects_invalid_results(self, value: object) -> None:
-        config = CategoricalOutputConfig.model_validate({"options": [{"key": "resolved", "label": "Resolved"}]})
+    @pytest.mark.parametrize(
+        "mode,value",
+        [
+            ("single", value)
+            for value in [[], ["resolved", "resolved"], ["unknown"], [1], True, None, {"resolved": True}]
+        ]
+        + [("multiple", ["resolved", "resolved"])],
+    )
+    def test_selection_rejects_invalid_results(self, mode: str, value: object) -> None:
+        config = CategoricalOutputConfig.model_validate(
+            {"options": [{"key": "resolved", "label": "Resolved"}], "selection_mode": mode}
+        )
         with pytest.raises(ValueError):
             config.validate_result(value)
 
@@ -107,6 +116,7 @@ class TestCategoricalOutputConfig:
             {"options": [{"key": "A", "label": "A"}]},
             {"options": [{"key": "a", "label": " "}]},
             {"passing_rule": {"categories": ["unknown"]}},
+            {"passing_rule": {"categories": []}},
             {"passing_rule": {"categories": ["resolved", "resolved"]}},
             {"passing_rule": {"categories": ["resolved"], "operator": "any"}},
             {"selection_mode": "other"},

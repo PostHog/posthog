@@ -203,7 +203,10 @@ def format_evaluation_text_repr(event: dict[str, Any], options: FormatterOptions
     model = props.get("$ai_evaluation_model")
 
     # Result line
-    if applicable is False or applicable == "false":
+    skipped = props.get("$ai_evaluation_skipped")
+    if skipped is True or skipped == "true":
+        result_str = "Skipped"
+    elif applicable is False or applicable == "false":
         result_str = "N/A"
     elif props.get("$ai_evaluation_result_type") == "categorical" and isinstance(
         props.get("$ai_evaluation_categorical_result"), list

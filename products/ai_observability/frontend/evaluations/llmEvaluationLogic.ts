@@ -868,7 +868,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         return state
                     }
                     const output_config = { ...state.output_config, ...patch }
-                    // boffin: Only the untouched example follows category edits; custom code belongs to the user.
+                    // Only the untouched example follows category edits; custom code belongs to the user.
                     if (
                         state.output_type === 'categorical' &&
                         state.evaluation_type === 'hog' &&
