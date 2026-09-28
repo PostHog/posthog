@@ -29,6 +29,16 @@ class FinnhubRetryableError(Exception):
     """Raised for 429 / 5xx responses so tenacity backs off and retries."""
 
 
+class FinnhubRowCapExceededError(Exception):
+    """Raised when a windowed response hits Finnhub's documented per-request row cap.
+
+    These endpoints (sec_filings, insider_transactions) have no pagination, so a response at
+    the cap means the API silently dropped the rest of the window. Continuing would let the
+    incremental cursor advance past the missing rows and permanently skip them, so the sync
+    fails loudly here instead of checkpointing incomplete data.
+    """
+
+
 def _headers(api_key: str) -> dict[str, str]:
     return {"X-Finnhub-Token": api_key, "Accept": "application/json"}
 
@@ -192,16 +202,19 @@ def _emit(rows: list[dict[str, Any]], symbol: str | None, config: FinnhubEndpoin
     return rows
 
 
-def _warn_if_capped(
+def _check_row_cap(
     rows: list[dict[str, Any]], config: FinnhubEndpointConfig, symbol: str | None, logger: FilteringBoundLogger
 ) -> None:
     if config.max_rows_per_request is None or len(rows) < config.max_rows_per_request:
         return
-    logger.warning(
+    message = (
         f"Finnhub: endpoint '{config.name}' returned its per-request cap of {config.max_rows_per_request} rows"
-        f"{f' for {symbol}' if symbol else ''}; anything else in this window was dropped by the API. "
-        "Sync this table incrementally so each window stays under the cap."
+        f"{f' for {symbol}' if symbol else ''}; the API silently dropped anything else in this window. Failing "
+        "the sync rather than checkpointing past the missing rows — narrow the sync window (e.g. sync more "
+        "often, or split a large Symbols list across sources) so each request stays under the cap."
     )
+    logger.error(message)
+    raise FinnhubRowCapExceededError(message)
 
 
 def get_rows(
@@ -229,14 +242,14 @@ def get_rows(
                 config, ticker, exchange, should_use_incremental_field, db_incremental_field_last_value
             )
             rows = _extract_rows(_fetch(session, config.path, params, logger), config)
-            _warn_if_capped(rows, config, ticker, logger)
+            _check_row_cap(rows, config, ticker, logger)
             if rows:
                 yield _emit(rows, ticker, config)
         return
 
     params = _request_params(config, None, exchange, should_use_incremental_field, db_incremental_field_last_value)
     rows = _extract_rows(_fetch(session, config.path, params, logger), config)
-    _warn_if_capped(rows, config, None, logger)
+    _check_row_cap(rows, config, None, logger)
     if rows:
         yield _emit(rows, None, config)
 

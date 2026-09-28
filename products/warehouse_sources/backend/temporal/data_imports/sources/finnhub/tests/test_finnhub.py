@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import finnhub
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.finnhub import (
     FINNHUB_BASE_URL,
+    FinnhubRowCapExceededError,
     _expand_columnar,
     _extract_rows,
     _fetch,
@@ -276,21 +277,23 @@ class TestGetRows:
         # Sorted ascending on the declared `t` watermark, with the requested ticker injected.
         assert batches == [[{"t": 100, "c": 1.0, "symbol": "AAPL"}, {"t": 200, "c": 2.0, "symbol": "AAPL"}]]
 
-    def test_warns_when_a_response_hits_the_documented_cap(self, monkeypatch: Any) -> None:
+    def test_raises_when_a_response_hits_the_documented_cap(self, monkeypatch: Any) -> None:
         # Insider transactions cap at 100 rows per call with no pagination — a full page means
-        # the API silently dropped the rest of the window.
+        # the API silently dropped the rest of the window. Emitting that subset would let the
+        # cursor advance past the missing rows, so the sync must fail instead of checkpointing.
         rows = [{"symbol": "AAPL", "transactionDate": f"2024-01-{i % 28 + 1:02d}"} for i in range(100)]
         self._patch_fetch(monkeypatch, {"AAPL": {"data": rows}})
         logger = MagicMock()
-        list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
-        logger.warning.assert_called_once()
+        with pytest.raises(FinnhubRowCapExceededError):
+            list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
+        logger.error.assert_called_once()
 
-    def test_no_cap_warning_below_the_cap(self, monkeypatch: Any) -> None:
+    def test_no_cap_error_below_the_cap(self, monkeypatch: Any) -> None:
         rows = [{"symbol": "AAPL", "transactionDate": "2024-01-01"}]
         self._patch_fetch(monkeypatch, {"AAPL": {"data": rows}})
         logger = MagicMock()
         list(get_rows(api_key="k", endpoint="insider_transactions", symbols="AAPL", exchange="US", logger=logger))
-        logger.warning.assert_not_called()
+        logger.error.assert_not_called()
 
     def test_calendar_unwraps_data_key(self, monkeypatch: Any) -> None:
         self._patch_fetch(
