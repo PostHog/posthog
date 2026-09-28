@@ -169,23 +169,24 @@ export function ActivityRow({
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
           </span>
           <span className="flex min-w-0 items-center gap-1 text-muted-foreground text-xxs">
+            <span className="shrink-0">{presentation.time}</span>
             <span
-              className="truncate"
+              className="ml-auto flex min-w-0 items-center gap-1"
               title={[presentation.metadata, presentation.spaceLabel]
                 .filter(Boolean)
                 .join(" ")}
             >
-              {presentation.metadata}
+              <span className="truncate">{presentation.action}</span>
+              {presentation.spaceLabel && (
+                <Badge
+                  variant="default"
+                  className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
+                  title={presentation.spaceLabel}
+                >
+                  <span className="truncate">{presentation.spaceLabel}</span>
+                </Badge>
+              )}
             </span>
-            {presentation.spaceLabel && (
-              <Badge
-                variant="default"
-                className="min-w-0 shrink rounded-xs bg-muted/70 p-0"
-                title={presentation.spaceLabel}
-              >
-                <span className="truncate">{presentation.spaceLabel}</span>
-              </Badge>
-            )}
           </span>
           {item.snippet && !compact && (
             <MentionText

@@ -19,7 +19,7 @@ const BASE_FILTER_OPTIONS: FilterOption[] = [
 const NA_FILTER_OPTION: FilterOption = { value: 'na', label: 'N/A' }
 
 export function EvaluationRunsFilters(): JSX.Element | null {
-    const { evaluation, runsSummary, evaluationRunsFilter } = useValues(llmEvaluationLogic)
+    const { originalEvaluation: evaluation, runsSummary, evaluationRunsFilter } = useValues(llmEvaluationLogic)
     const { setEvaluationRunsFilter } = useActions(llmEvaluationLogic)
 
     if (!runsSummary || runsSummary.total === 0) {
@@ -32,7 +32,12 @@ export function EvaluationRunsFilters(): JSX.Element | null {
             onChange={(value) => {
                 setEvaluationRunsFilter(value, evaluationRunsFilter)
             }}
-            options={[...BASE_FILTER_OPTIONS, ...(evaluation?.output_config?.allows_na ? [NA_FILTER_OPTION] : [])]}
+            options={[
+                ...(evaluation?.output_type === 'numeric' && !evaluation.output_config.passing_rule
+                    ? BASE_FILTER_OPTIONS.filter((option) => option.value === 'all')
+                    : BASE_FILTER_OPTIONS),
+                ...(evaluation?.output_config?.allows_na ? [NA_FILTER_OPTION] : []),
+            ]}
             size="small"
             // pinned: autocapture data-attr - existing dashboards depend on it
             data-attr="llma-evaluation-summary-filter"

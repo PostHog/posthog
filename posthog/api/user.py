@@ -6,6 +6,7 @@ import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, NoReturn, Optional, cast
 
@@ -82,6 +83,8 @@ from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, Ava
 from posthog.email import is_email_available
 from posthog.event_usage import (
     report_user_deleted_account,
+    report_user_email_change_requested,
+    report_user_identity_change_refused,
     report_user_logged_in,
     report_user_updated,
     report_user_verified_email,
@@ -134,7 +137,12 @@ from posthog.session.activity import (
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
-from posthog.session.reauth import sensitive_action_reference, step_up_required
+from posthog.session.reauth import (
+    fresh_reauth_expires_at,
+    reauth_is_fresh,
+    sensitive_action_reference,
+    step_up_required,
+)
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -232,6 +240,12 @@ class UserSerializer(serializers.ModelSerializer):
         help_text="The reason the operator gave when the current impersonation session started (or was last up/downgraded). Null when not impersonating."
     )
     sensitive_session_expires_at = serializers.SerializerMethodField()
+    fresh_reauth_expires_at = serializers.SerializerMethodField(
+        help_text=(
+            "When the last re-authentication stops counting as fresh. Changing `email` after this needs a new "
+            "re-authentication. Null when the session has none on record."
+        )
+    )
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
     has_sso_enforcement = serializers.SerializerMethodField()
@@ -331,6 +345,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated_read_only",
             "is_impersonated_reason",
             "sensitive_session_expires_at",
+            "fresh_reauth_expires_at",
             "team",
             "organization",
             "organizations",
@@ -378,6 +393,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_impersonated_read_only",
             "is_impersonated_reason",
             "sensitive_session_expires_at",
+            "fresh_reauth_expires_at",
             "team",
             "organization",
             "organizations",
@@ -478,6 +494,16 @@ class UserSerializer(serializers.ModelSerializer):
         )
 
         return session_expiry_time.replace(tzinfo=UTC).isoformat()
+
+    def get_fresh_reauth_expires_at(self, instance: User) -> Optional[str]:
+        if "request" not in self.context:
+            return None
+
+        expires_at = fresh_reauth_expires_at(self.context["request"].session)
+        if expires_at is None:
+            return None
+
+        return datetime.fromtimestamp(expires_at, tz=UTC).isoformat()
 
     @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
@@ -713,11 +739,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         # Fold both sides: `validate_email` hands back the stored address for an edit of the case
         # alone, and a legacy row can hold that address in any case.
-        if (
-            "email" in validated_data
-            and EmailNormalizer.normalize(validated_data["email"]) != EmailNormalizer.normalize(instance.email)
-            and is_email_available()
-        ):
+        changes_email = "email" in validated_data and EmailNormalizer.normalize(
+            validated_data["email"]
+        ) != EmailNormalizer.normalize(instance.email)
+
+        if changes_email and is_email_available():
             new_email = validated_data["email"]
             # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
             # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
@@ -751,6 +777,7 @@ class UserSerializer(serializers.ModelSerializer):
             # The code is bound to the captured address, so a concurrent email change cannot
             # redirect this code: once a different address is staged, the code stops verifying.
             email_verification_code_verifier.send_code(instance, target_email=new_email)
+            report_user_email_change_requested(cast(User, instance), verification_required=True)
 
         if validated_data.get("notification_settings"):
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
@@ -783,6 +810,11 @@ class UserSerializer(serializers.ModelSerializer):
         if credential_changed:
             # Revoke other sessions after update_session_auth_hash so the current (rotated) session is kept.
             revoke_other_sessions_for_request(self.context["request"], instance)
+
+        if changes_email and "email" in validated_data:
+            # Without email configured the new address lands on the account directly, so the change
+            # completes here rather than at verification.
+            report_user_email_change_requested(instance, verification_required=False)
 
         report_user_updated(instance, updated_attrs)
 
@@ -923,6 +955,19 @@ class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
     revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
 
 
+class TwoFactorStatusSerializer(serializers.Serializer):
+    is_enabled = serializers.BooleanField(help_text="Whether the user has any 2FA method enabled.")
+    backup_codes_remaining = serializers.IntegerField(
+        help_text="Number of unused backup codes. The codes themselves are only returned when they are generated."
+    )
+    method = serializers.CharField(
+        allow_null=True, help_text='The primary 2FA method: "TOTP" or "passkey". Null when 2FA is off.'
+    )
+    has_passkeys = serializers.BooleanField(help_text="Whether the user has at least one verified passkey.")
+    has_totp = serializers.BooleanField(help_text="Whether the user has an authenticator app set up.")
+    passkeys_enabled_for_2fa = serializers.BooleanField(help_text="Whether passkeys count as a 2FA method.")
+
+
 class UserGithubLoginSerializer(serializers.Serializer):
     github_login = serializers.CharField(
         allow_null=True,
@@ -1007,7 +1052,7 @@ class UserViewSet(
     time_sensitive_allow_actions = ["hedgehog_config"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
-    queryset = User.objects.filter(is_active=True)
+    queryset = User.objects.filter(is_active=True).order_by("id")
     lookup_field = "uuid"
 
     def dangerously_get_required_scopes(self, request, view) -> list[str] | None:
@@ -1046,6 +1091,52 @@ class UserViewSet(
             **super().get_serializer_context(),
             "user_permissions": UserPermissions(cast(User, self.request.user)),
         }
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        self.guard_identity_change(request)
+        return super().update(request, *args, **kwargs)
+
+    def guard_identity_change(self, request: Request) -> None:
+        """Refuse an email or password change that the request cannot prove the account holder wants.
+
+        This runs before serializer validation, because an email validation error would tell the
+        caller which addresses already have an account.
+        """
+        # DRF types `request.data` as a mapping, but a JSON array or string body parses to a list or a
+        # str. Such a body carries neither field, and the serializer rejects it with a 400.
+        data = cast(Any, request.data)
+        if not isinstance(data, Mapping):
+            return
+
+        email = data.get("email")
+        changes_email = "email" in data and not (
+            isinstance(email, str)
+            and EmailNormalizer.normalize(email) == EmailNormalizer.normalize(self.get_object().email)
+        )
+
+        # The login email and the password decide who can sign in, so a leaked personal API key or
+        # OAuth token must not reset either of them.
+        if not isinstance(request.successful_authenticator, SessionAuthentication):
+            if changes_email or "password" in data:
+                report_user_identity_change_refused(
+                    cast(User, request.user),
+                    field="email" if changes_email else "password",
+                    reason="token_auth",
+                )
+                raise exceptions.PermissionDenied(
+                    "You can only change your email or password from the PostHog app, not with an API key or token."
+                )
+            return
+
+        # A session alone is not enough for the email, because the freshness window of
+        # TimeSensitiveActionPermission is hours wide. The account holder re-authenticates first, which
+        # for an account without a password means a passkey or an SSO round trip.
+        if changes_email and not reauth_is_fresh(request.session):
+            report_user_identity_change_refused(cast(User, request.user), field="email", reason="stale_reauth")
+            raise exceptions.PermissionDenied(
+                "Confirm it's you before changing your email.",
+                code="sensitive_action_required_reauth",
+            )
 
     def perform_destroy(self, user: User) -> None:
         report_user_deleted_account(user)
@@ -1511,9 +1602,10 @@ class UserViewSet(
 
         return Response({"success": True})
 
+    @extend_schema(responses={200: TwoFactorStatusSerializer})
     @action(methods=["GET"], detail=True)
     def two_factor_status(self, request, **kwargs):
-        """Get current 2FA status including backup codes if enabled"""
+        """Get current 2FA status, including how many backup codes are left."""
         from posthog.helpers.two_factor_session import has_passkeys
 
         user = self.get_object()
@@ -1522,9 +1614,7 @@ class UserViewSet(
         user_has_passkeys = has_passkeys(user)
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
 
-        backup_codes = []
-        if static_device:
-            backup_codes = [token.token for token in static_device.token_set.all()]
+        backup_codes_remaining = static_device.token_set.count() if static_device else 0
 
         # Determine 2FA method
         method = None
@@ -1536,7 +1626,7 @@ class UserViewSet(
         return Response(
             {
                 "is_enabled": default_device(user) is not None or passkeys_enabled_for_2fa,
-                "backup_codes": backup_codes if totp_device else [],
+                "backup_codes_remaining": backup_codes_remaining if totp_device else 0,
                 "method": method,
                 "has_passkeys": user_has_passkeys,
                 "has_totp": totp_device is not None,

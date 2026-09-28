@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, Union
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import close_old_connections
@@ -8,7 +8,7 @@ from django.db.models import Q
 import structlog
 import temporalio.activity
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
+from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
@@ -24,7 +24,13 @@ from posthog.temporal.experiments.models import (
 )
 from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_HOUR, check_significance_transition
 
-from products.experiments.backend.facade.timeseries import backfill_experiment_timeseries
+from products.experiments.backend.facade.timeseries import (
+    backfill_experiment_timeseries,
+    build_metric,
+    is_daily_timeseries_metric,
+    merge_saved_metric_breakdowns,
+    sync_timeseries_recalculation,
+)
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import capture_experiment_metric_error_event
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -94,6 +100,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                     experiment_id=experiment.id,
                     metric_uuid=metric_uuid,
                     fingerprint=fingerprint,
+                    team_id=experiment.team_id,
                 )
             )
 
@@ -156,14 +163,7 @@ def _calculate_experiment_regular_metric_sync(
         )
 
     metric_type = metric_dict.get("metric_type")
-    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-    if metric_type == "mean":
-        metric_obj = ExperimentMeanMetric(**metric_dict)
-    elif metric_type == "funnel":
-        metric_obj = ExperimentFunnelMetric(**metric_dict)
-    elif metric_type == "ratio":
-        metric_obj = ExperimentRatioMetric(**metric_dict)
-    else:
+    if not is_daily_timeseries_metric(metric_dict):
         return ExperimentRegularMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -171,6 +171,7 @@ def _calculate_experiment_regular_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
+    metric_obj = build_metric(metric_dict)
 
     if not experiment.start_date:
         return ExperimentRegularMetricResult(
@@ -372,8 +373,11 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                 )
                 continue
 
+            # Fingerprint the effective config (with link-metadata breakdowns), the same dict the calc
+            # activity computes and every reader (timeseries sync, chart read) resolves. Hashing the raw
+            # saved query here would file breakdown-configured metrics under a hash no reader looks up.
             fingerprint = compute_metric_fingerprint(
-                saved_metric.query,
+                merge_saved_metric_breakdowns(saved_metric.query, exp_to_saved_metric.metadata),
                 experiment.start_date,
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
@@ -386,6 +390,7 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                     experiment_id=experiment.id,
                     metric_uuid=metric_uuid,
                     fingerprint=fingerprint,
+                    team_id=experiment.team_id,
                 )
             )
 
@@ -454,22 +459,11 @@ def _calculate_experiment_saved_metric_sync(
     # a fingerprint (added by the experiment API serializer). The activity must
     # apply both or the response cache key diverges from /query's.
     query = {
-        **saved_metric.query,
-        "breakdownFilter": {
-            **(saved_metric.query.get("breakdownFilter") or {}),
-            "breakdowns": saved_metric_metadata.get("breakdowns") or [],
-        },
+        **merge_saved_metric_breakdowns(saved_metric.query, saved_metric_metadata),
         "fingerprint": fingerprint,
     }
     metric_type = query.get("metric_type")
-    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
-    if metric_type == "mean":
-        metric_obj = ExperimentMeanMetric(**query)
-    elif metric_type == "funnel":
-        metric_obj = ExperimentFunnelMetric(**query)
-    elif metric_type == "ratio":
-        metric_obj = ExperimentRatioMetric(**query)
-    else:
+    if not is_daily_timeseries_metric(query):
         return ExperimentSavedMetricResult(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
@@ -477,6 +471,7 @@ def _calculate_experiment_saved_metric_sync(
             success=False,
             error_message=f"Unknown metric type: {metric_type}",
         )
+    metric_obj = build_metric(query)
 
     if not experiment.start_date:
         return ExperimentSavedMetricResult(
@@ -641,6 +636,20 @@ async def calculate_experiment_saved_metric(
     return await _calculate_experiment_saved_metric_sync(
         experiment_id, metric_uuid, fingerprint, attempt=temporalio.activity.info().attempt
     )
+
+
+@database_sync_to_async
+def _create_recalculation_from_timeseries_sync(experiment_id: int, team_id: int, run_started_at: str) -> str | None:
+    close_old_connections()
+    return sync_timeseries_recalculation(
+        experiment_id, team_id=team_id, run_started_at=datetime.fromisoformat(run_started_at)
+    )
+
+
+@temporalio.activity.defn
+async def create_recalculation_from_timeseries(experiment_id: int, team_id: int, run_started_at: str) -> str | None:
+    """Assemble a completed metrics recalculation from the timeseries points this run wrote for one experiment."""
+    return await _create_recalculation_from_timeseries_sync(experiment_id, team_id, run_started_at)
 
 
 @temporalio.activity.defn

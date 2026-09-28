@@ -12,7 +12,7 @@ import type { ChartAlternativesLogicProps } from './chartAlternativesLogic'
 import { chartAlternativesLogic } from './chartAlternativesLogic'
 import { applyChartDisplay } from './chartDisplayOptions'
 import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
-import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview } from './chartPreviewData'
+import { RAW_TIME_SERIES_DISPLAYS, deriveChartPreview, hasPreviewData } from './chartPreviewData'
 
 export interface ChartPreview {
     option: ChartDisplayOption
@@ -85,6 +85,7 @@ export interface chartPreviewsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined,
         payload?:
             | {
@@ -116,6 +117,7 @@ export interface chartPreviewsLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
+            | import('~/queries/schema').TraceSpansTreeQueryResponse
             | undefined
     } // insightVizDataLogic
     setInsightData: (
@@ -280,14 +282,10 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                 const remaining = options.flatMap((group) =>
                     group.options.filter((option) => !suggestedDisplays.has(option.display))
                 )
-                const ordered = [
-                    ...alternatives,
-                    ...remaining.filter((option) => !option.disabledReason),
-                    ...remaining.filter((option) => !!option.disabledReason),
-                ]
-                return ordered.map((option) => {
+                const canDerive = !!freeResponse && !insightDataLoading && hasPreviewData(freeResponse)
+                const previews = [...alternatives, ...remaining].map((option) => {
                     const derived =
-                        option.disabledReason || !freeResponse || insightDataLoading
+                        option.disabledReason || !canDerive
                             ? null
                             : deriveChartPreview(option.display, trendsSource, freeResponse, timeSeriesResponse)
                     return {
@@ -299,6 +297,9 @@ export const chartPreviewsLogic = kea<chartPreviewsLogicType>([
                         uniqueKey: `chart-preview-${logicKey}-${option.display}`,
                     }
                 })
+                const band = (preview: ChartPreview): number =>
+                    preview.suggested ? 0 : preview.option.disabledReason ? 3 : canDerive && !preview.response ? 2 : 1
+                return previews.sort((a, b) => band(a) - band(b))
             },
         ],
     }),

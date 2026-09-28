@@ -38,6 +38,8 @@ export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
 export const SPOKEN_NARRATION_FLAG = featureFlagKeys.SPOKEN_NARRATION_FLAG;
 export const CODEX_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CODEX_OWN_SUBSCRIPTION_FLAG;
+export const CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG =
+  featureFlagKeys.CODEX_OWN_SUBSCRIPTION_CLOUD_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_FLAG =
   featureFlagKeys.CLAUDE_OWN_SUBSCRIPTION_FLAG;
 export const CLAUDE_OWN_SUBSCRIPTION_CLOUD_FLAG =
@@ -106,6 +108,8 @@ export const BEDROCK_GATEWAY_VARIANTS = ["test", "control"] as const;
 export type BedrockGatewayVariant = (typeof BEDROCK_GATEWAY_VARIANTS)[number];
 /** Gates the organization context wiki: the Context explorer in the nav rails. */
 export const CONTEXT_LAYER_FLAG = featureFlagKeys.CONTEXT_LAYER_FLAG;
+/** Gates the "set up this space for" step in the create-space flow. */
+export const SPACE_SETUP_FLAG = featureFlagKeys.SPACE_SETUP_FLAG;
 
 export const BACKGROUND_AGENT_LOGS_FLAG =
   featureFlagKeys.BACKGROUND_AGENT_LOGS_FLAG;

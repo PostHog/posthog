@@ -12,6 +12,7 @@ from posthog.settings.base_variables import TEST
 from posthog.temporal.common.logger import get_logger
 
 from products.warehouse_sources.backend.billing import FREE_HISTORICAL_WINDOW, FREE_PERIOD_END, FREE_PERIOD_START
+from products.warehouse_sources.backend.temporal.data_imports.util import with_internal_db_retries
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 
@@ -32,6 +33,7 @@ class CheckBillingLimitsActivityInputs:
 
 
 @activity.defn
+@with_internal_db_retries
 def check_billing_limits_activity(inputs: CheckBillingLimitsActivityInputs) -> bool:
     from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
         ExternalDataJob,

@@ -13,16 +13,20 @@ from rest_framework import status
 
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.models.batch_export import BatchExport
+from products.access_control.backend.models.access_control import AccessControl
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportSource
 from products.batch_exports.backend.tests.api.conftest import (
     assert_is_daily_schedule,
     assert_is_weekly_schedule,
     describe_schedule,
 )
 from products.batch_exports.backend.tests.api.fixtures import create_organization
-from products.batch_exports.backend.tests.api.operations import create_batch_export
+from products.batch_exports.backend.tests.api.operations import create_batch_export, list_batch_exports_ok
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 pytestmark = [
     pytest.mark.django_db,
@@ -46,6 +50,7 @@ def test_create_batch_export_with_interval_schedule(
     """
 
     interval = "hour"
+    other_user = create_user("other@example.com", "Test User", organization)
 
     destination_data = {
         "type": "S3Compatible",
@@ -63,6 +68,7 @@ def test_create_batch_export_with_interval_schedule(
         "name": "my-production-s3-bucket-destination",
         "destination": destination_data,
         "interval": interval,
+        "last_modified_by": other_user.pk,
     }
 
     client.force_login(user)
@@ -89,6 +95,7 @@ def test_create_batch_export_with_interval_schedule(
     schedule = describe_schedule(temporal, data["id"])
 
     batch_export = BatchExport.objects.get(id=data["id"])
+    assert batch_export.last_modified_by_id == user.pk
     assert schedule.schedule.spec.intervals[0].every == batch_export.interval_time_delta
     assert schedule.schedule.spec.jitter == batch_export.jitter
 
@@ -99,6 +106,7 @@ def test_create_batch_export_with_interval_schedule(
     assert args["team_id"] == team.pk
     assert args["batch_export_id"] == data["id"]
     assert args["interval"] == interval
+    assert args["batch_export_model"]["user_id"] is None
 
     # expected jitter is 15 minutes for hourly exports
     assert batch_export.jitter == dt.timedelta(minutes=15)
@@ -519,6 +527,7 @@ def test_create_batch_export_with_custom_schema(
         "name": "events",
         "schema": expected_schema,
         "hogql_query": None,
+        "user_id": None,
     }
 
 
@@ -585,6 +594,160 @@ def test_create_batch_export_fails_with_invalid_query(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == expected_error_message
+
+
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_create_batch_export_with_hogql_model(
+    client: HttpClient, temporal, encryption_codec, organization, team, user, hogql_batch_export_data
+):
+    client.force_login(user)
+    other_user = create_user("other@example.com", "Test User", organization)
+
+    response = create_batch_export(
+        client, team.pk, {**hogql_batch_export_data, "last_modified_by": other_user.pk, "user_id": other_user.pk}
+    )
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    data = response.json()
+    assert data["model"] == "hogql"
+    assert data["hogql_query"] == hogql_batch_export_data["hogql_query"]
+    assert data["schema"] is None
+
+    batch_export = BatchExport.objects.select_related("source").get(id=data["id"])
+    assert batch_export.last_modified_by_id == user.pk
+    assert batch_export.source is not None
+    assert batch_export.source.team_id == team.pk
+    assert batch_export.source.hogql_query == hogql_batch_export_data["hogql_query"]
+
+    listed = list_batch_exports_ok(client, team.pk)
+    assert [export["hogql_query"] for export in listed["results"]] == [hogql_batch_export_data["hogql_query"]]
+
+    schedule = describe_schedule(temporal, data["id"])
+    decoded_payload = async_to_sync(encryption_codec.decode)(schedule.schedule.action.args)
+    args = json.loads(decoded_payload[0].data)
+    assert args["batch_export_model"] == {
+        "filters": None,
+        "name": "hogql",
+        "schema": None,
+        "hogql_query": hogql_batch_export_data["hogql_query"],
+        "user_id": user.pk,
+    }
+
+
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+@pytest.mark.parametrize("access_level", ["viewer", "none"])
+def test_create_batch_export_with_hogql_model_allows_query_without_placeholders(
+    client: HttpClient, temporal, organization, team, user, hogql_batch_export_data, access_level: str
+):
+    organization.available_product_features = [
+        {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+    ]
+    organization.save()
+    credential = DataWarehouseCredential.objects.create(team=team, access_key="key", access_secret="secret")
+    table = DataWarehouseTable.objects.create(
+        team=team,
+        name="export_table",
+        format=DataWarehouseTable.TableFormat.Parquet,
+        credential=credential,
+        url_pattern="s3://test-bucket/export/*",
+        columns={"id": "String"},
+    )
+    AccessControl.objects.create(
+        team=team,
+        resource="warehouse_table",
+        resource_id=str(table.pk),
+        access_level=access_level,
+        organization_member=OrganizationMembership.objects.get(organization=organization, user=user),
+    )
+    client.force_login(user)
+    hogql_query = "SELECT id FROM export_table"
+
+    response = create_batch_export(client, team.pk, {**hogql_batch_export_data, "hogql_query": hogql_query})
+
+    if access_level == "none":
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "hogql_query"
+        assert "You don't have access to table `export_table`" in response.json()["detail"]
+        assert not BatchExport.objects.filter(team=team).exists()
+        assert not BatchExportSource.objects.for_team(team.pk).exists()
+        return
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+    batch_export = BatchExport.objects.select_related("source").get(id=response.json()["id"])
+    assert batch_export.source is not None
+    assert batch_export.source.hogql_query == hogql_query
+
+
+@pytest.mark.parametrize(
+    "overrides,expected_attr,expected_error_message",
+    [
+        (
+            {"hogql_query": "SELECT event AS event FROM events WHERE event = {unknown_placeholder}"},
+            "hogql_query",
+            "Unknown placeholder '{unknown_placeholder}'. "
+            "Only {data_interval_start} and {data_interval_end} are supported in batch export queries",
+        ),
+        (
+            {"hogql_query": "SELECT event AS event FROM events WHERE {filters}"},
+            "hogql_query",
+            "Unsupported placeholder. "
+            "Only {data_interval_start} and {data_interval_end} are supported in batch export queries",
+        ),
+        ({"hogql_query": None}, "hogql_query", "'hogql_query' is required when 'model' is 'hogql'"),
+        (
+            {"hogql_query": "SELECT count() FROM events"},
+            "hogql_query",
+            "Every column in the SELECT clause must be a field or have an alias (e.g. `count() AS event_count`)",
+        ),
+        (
+            {"filters": [{"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}]},
+            "filters",
+            "'filters' are not supported when 'model' is 'hogql'",
+        ),
+    ],
+    ids=[
+        "unknown-placeholder",
+        "filters-placeholder",
+        "missing-hogql-query",
+        "unaliased-column",
+        "filters",
+    ],
+)
+@pytest.mark.usefixtures("hogql_batch_exports_enabled")
+def test_create_batch_export_with_hogql_model_fails_with_invalid_request(
+    client: HttpClient,
+    temporal,
+    organization,
+    team,
+    user,
+    hogql_batch_export_data,
+    overrides,
+    expected_attr,
+    expected_error_message,
+):
+    client.force_login(user)
+
+    response = create_batch_export(client, team.pk, {**hogql_batch_export_data, **overrides})
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["attr"] == expected_attr
+    # HogQL may append field name suggestions to a resolution error, so match on the prefix.
+    assert response.json()["detail"].startswith(expected_error_message), response.json()["detail"]
+    assert BatchExportSource.objects.for_team(team.pk).count() == 0
+
+
+def test_cannot_create_batch_export_with_hogql_model_if_not_enabled(
+    client: HttpClient, temporal, organization, team, user, hogql_batch_export_data
+):
+    client.force_login(user)
+    with mock.patch(
+        "products.batch_exports.backend.api.utils.posthoganalytics.feature_enabled", return_value=False
+    ) as feature_enabled:
+        response = create_batch_export(client, team.pk, hogql_batch_export_data)
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    assert feature_enabled.call_args[0][0] == "hogql-batch-exports"
+    assert BatchExportSource.objects.for_team(team.pk).count() == 0
 
 
 @pytest.mark.parametrize(

@@ -93,6 +93,7 @@ function parseAssignedUserIds(value: unknown): number[] {
 }
 
 function NameCell({ record }: { record: unknown }): JSX.Element {
+    const { accountPresenceByAccountId } = useValues(accountsLogic)
     const cell = getNameCell(record)
     return (
         <AccountsTableNameCell
@@ -100,6 +101,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
             name={cell?.name ?? ''}
             externalId={cell?.external_id}
             logoDomain={cell?.logo_domain}
+            viewers={cell?.id ? (accountPresenceByAccountId[cell.id] ?? []) : []}
         />
     )
 }
@@ -107,7 +109,8 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 function TagsCell({ record }: { record: unknown }): JSX.Element {
     const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
     const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
+    const { loadTagsIfNeeded } = useActions(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
     const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
@@ -120,8 +123,9 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
         <ObjectTags
             tags={tags}
             onChange={(newTags) => updateAccountTags(accountId, newTags)}
+            onEdit={loadTagsIfNeeded}
             onTagClick={addTagToFilter}
-            saving={isTagsSaving(accountId)}
+            saving={isTagsSaving(accountId) || tagsLoading}
             tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
             data-attr="accounts-tags-cell"
         />

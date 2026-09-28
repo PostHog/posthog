@@ -537,9 +537,40 @@ class TestMergeCommitSha:
 
         assert github_request.call_count == 5
 
-    @parameterized.expand([("advertised reset", 900, 900), ("no reset header", None, 60)])
+    def test_an_unmapped_4xx_status_retries_before_failing_the_walk(self) -> None:
+        # GitHub's edge has been observed returning the nginx-style 499 ("client closed request")
+        # from `/graphql` on an upstream hiccup — not a real denial. It must retry like a 5xx
+        # instead of crashing the walk on the unclassified HTTPError `raise_for_status()` would
+        # otherwise produce, which tenacity never retries.
+        graphql = mock.Mock()
+        graphql.status_code = 499
+        page = _response([self._pull_request(7, merged=True)])
+
+        with (
+            mock.patch.object(github, "github_request", return_value=graphql) as github_request,
+            mock.patch.object(github, "_github_backoff_wait", return_value=0.0),
+            pytest.raises(github.GithubRetryableError),
+        ):
+            _run("pull_requests", {"api.github.com": page})
+
+        assert github_request.call_count == 5
+
+    @parameterized.expand(
+        [
+            ("advertised reset", 900, 900, {"type": "RATE_LIMITED", "message": "API rate limit exceeded"}),
+            ("no reset header", None, 60, {"type": "RATE_LIMITED", "message": "API rate limit exceeded"}),
+            # GitHub has also been observed reporting the primary rate limit under this spelling,
+            # with the reason nested under "code" rather than "type".
+            (
+                "RATE_LIMIT spelling",
+                900,
+                900,
+                {"type": "RATE_LIMIT", "code": "graphql_rate_limit", "message": "API rate limit already exceeded"},
+            ),
+        ]
+    )
     def test_graphql_rate_limit_carries_a_wait_that_outlasts_the_window(
-        self, _name: str, reset_in: int | None, expected_retry_after: int
+        self, _name: str, reset_in: int | None, expected_retry_after: int, error: dict[str, Any]
     ) -> None:
         now = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
         rate_limited = mock.Mock()
@@ -549,10 +580,7 @@ class TestMergeCommitSha:
             if reset_in is not None
             else {}
         )
-        rate_limited.json.return_value = {
-            "data": None,
-            "errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded"}],
-        }
+        rate_limited.json.return_value = {"data": None, "errors": [error]}
 
         with (
             time_machine.travel(now, tick=False),

@@ -2,15 +2,19 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 
 import { kea, path } from 'kea'
 import { router } from 'kea-router'
-import { expectLogic, partial, truth } from 'kea-test-utils'
+import { expectLogic, partial, testUtilsContext, truth } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import * as exporterViewLogic from '~/exporter/exporterViewLogic'
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
@@ -37,6 +41,7 @@ const testScenes: Record<string, () => any> = {
     [Scene.PasswordResetComplete]: sceneImport,
     [Scene.ProjectCreateFirst]: sceneImport,
     [Scene.Settings]: sceneImport,
+    [Scene.ProjectFiles]: sceneImport,
 }
 
 describe('sceneLogic', () => {
@@ -74,14 +79,37 @@ describe('sceneLogic', () => {
         expect(teamLogic.isMounted()).toBe(true)
     })
 
-    it('changing URL runs openScene, loadScene and setScene', async () => {
+    it.each([
+        [urls.settings('user'), Scene.Settings],
+        [urls.projectFiles(), Scene.ProjectFiles],
+        [urls.projectFiles('Research'), Scene.ProjectFiles],
+    ])('changing URL to %s loads its own scene', async (url, sceneId) => {
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
             sceneId: Scene.DataManagement,
         })
-        router.actions.push(urls.settings('user'))
+        router.actions.push(url)
         await expectLogic(logic).toDispatchActions(['openScene', 'loadScene', 'setScene']).toMatchValues({
-            sceneId: Scene.Settings,
+            sceneId,
         })
+    })
+
+    // A trailing slash used to reach the scene, then get replaced out of the address bar. That
+    // second navigation re-ran every `urlToAction` of the scene, so the OAuth consent screen
+    // reloaded its data and blanked while the person was reading it.
+    it('opens a scene once when the URL carries a trailing slash', async () => {
+        router.actions.push(urls.settings('user'))
+        await expectLogic(logic).delay(1)
+
+        const from = testUtilsContext().recordedHistory.length
+        router.actions.push(`${urls.eventDefinitions()}/`)
+        await expectLogic(logic).delay(1)
+        const openScenes = testUtilsContext()
+            .recordedHistory.slice(from)
+            .filter((recorded) => recorded.action.type === logic.actionTypes.openScene)
+
+        expect(openScenes).toHaveLength(1)
+        expect(logic.values.activeSceneId).toEqual(Scene.DataManagement)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.eventDefinitions())
     })
 
     it('redirects the hyphenated /feature-flags path to the underscore scene route', async () => {
@@ -164,6 +192,28 @@ describe('sceneLogic', () => {
         // redirect must carry it across so those links keep opening the right report. The hash
         // carries global side-panel state, so it has to survive the redirect too.
         expect(router.values.searchParams.review).toEqual('r-9')
+        expect(router.values.hashParams.panel).toEqual('max:inspect')
+    })
+
+    it.each([
+        ['the product root', () => '/engineering-analytics', () => urls.engineeringAnalytics()],
+        [
+            'the project-prefixed test health path',
+            (projectId: number) => `/project/${projectId}/engineering-analytics/test-health`,
+            () => urls.engineeringAnalyticsTests(),
+        ],
+        ['the health path', () => '/engineering-analytics/health', () => urls.engineeringAnalyticsDeploys()],
+    ])('redirects %s without dropping scope or hash', async (_label, oldPath, newPath) => {
+        const projectId = teamLogic.values.currentTeamId
+        router.actions.push(
+            oldPath(projectId),
+            { source: 'source-1', repo: 'PostHog/posthog' },
+            { panel: 'max:inspect' }
+        )
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(newPath())
+        expect(router.values.location.pathname).toEqual(`/project/${projectId}${newPath()}`)
+        expect(router.values.searchParams).toMatchObject({ source: 'source-1', repo: 'PostHog/posthog' })
         expect(router.values.hashParams.panel).toEqual('max:inspect')
     })
 
@@ -260,6 +310,81 @@ describe('sceneLogic', () => {
             sceneKey: 'dashboard-42',
             sceneParams: { params: {}, searchParams: {}, hashParams: {} },
         }
+
+        it('saves a dashboard homepage and confirms the change', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+            const capture = jest.spyOn(posthog, 'capture')
+            useMocks({ patch: { '/api/user_home_settings/@me/': [200, {}] } })
+
+            await expectLogic(logic, () =>
+                logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            ).toFinishAllListeners()
+
+            expect(logic.values.homepage?.id).toBe(dashboardHomepage.id)
+            expect(successToast).toHaveBeenCalledWith('Homepage updated')
+            expect(capture).toHaveBeenCalledWith('dashboard set as homepage', { source: 'dashboards list' })
+            capture.mockRestore()
+            successToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
+        it('keeps the previous homepage if saving from the dashboard list fails', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
+            const errorLog = jest.spyOn(console, 'error').mockImplementation()
+            useMocks({ patch: { '/api/user_home_settings/@me/': [500, {}] } })
+            const previousHomepage = logic.values.homepage
+
+            await expectLogic(logic, () =>
+                logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            ).toFinishAllListeners()
+
+            expect(logic.values.homepage).toEqual(previousHomepage)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(errorToast).toHaveBeenCalledWith('Could not save your homepage. Please try again.')
+            errorLog.mockRestore()
+            errorToast.mockRestore()
+            sharedView.mockRestore()
+        })
+
+        it('keeps a newer homepage when a dashboard-list save is in flight', async () => {
+            const sharedView = jest.spyOn(exporterViewLogic, 'isSharedView').mockReturnValue(false)
+            const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('toast-id')
+            let finishSave!: () => void
+            let startSave!: () => void
+            const saveResponse = new Promise<void>((resolve) => (finishSave = resolve))
+            const saveStarted = new Promise<void>((resolve) => (startSave = resolve))
+            const savedHomepageIds: string[] = []
+            useMocks({
+                patch: {
+                    '/api/user_home_settings/@me/': async ({ request }) => {
+                        const body = (await request.json()) as { homepage: { id: string } }
+                        savedHomepageIds.push(body.homepage.id)
+                        if (savedHomepageIds.length === 1) {
+                            startSave()
+                            await saveResponse
+                        }
+                        return [200, {}] as const
+                    },
+                },
+            })
+
+            logic.actions.setHomepage(dashboardHomepage, 'dashboards list')
+            await saveStarted
+            const latestHomepage = { ...dashboardHomepage, id: 'homepage-dashboard-43', pathname: urls.dashboard(43) }
+            logic.actions.setHomepage(latestHomepage)
+            expect(logic.values.homepage?.id).toBe(latestHomepage.id)
+
+            finishSave()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(savedHomepageIds).toEqual([dashboardHomepage.id, latestHomepage.id])
+            expect(logic.values.homepage?.id).toBe(latestHomepage.id)
+            expect(logic.values.homepageSaving).toBe(false)
+            expect(successToast).not.toHaveBeenCalled()
+            successToast.mockRestore()
+            sharedView.mockRestore()
+        })
 
         it('redirects /home to the configured dashboard homepage', async () => {
             logic.actions.setHomepage(dashboardHomepage)

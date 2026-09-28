@@ -39,6 +39,7 @@ class TestProducts(BaseTest):
             "Analytics",
             "AI engineering",
             "Behavior",
+            "Messaging",
             "App monitoring",
             "Features",
             "Tools",

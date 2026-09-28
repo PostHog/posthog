@@ -52,23 +52,39 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
         // Match before UUID routes; the wildcard also accepts characters excluded from named segments.
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
         // The detail scene serves these paths behind its flag and falls back to the list for legacy deep links.
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/notes': ['CustomerAnalytics', 'customerAnalyticsNotes'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/announcements': ['CustomerAnalytics', 'customerAnalyticsAnnouncements'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/feed': ['CustomerAnalytics', 'customerAnalyticsFeed'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/tasks': ['CustomerAnalytics', 'customerAnalyticsTasks'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/feature-requests': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/feature-requests/:requestId': ['CustomerAnalytics', 'customerAnalyticsFeatureRequests'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/journeys/new': ['CustomerJourneyBuilder', 'customerJourneyBuilder'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/journeys/templates': ['CustomerJourneyTemplates', 'customerJourneyTemplates'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/journeys/:id/edit': ['CustomerJourneyBuilder', 'customerJourneyEdit'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/journeys': ['CustomerAnalytics', 'customerAnalyticsJourneys'],
+        // nosemgrep: frontend-route-hyphen -- shipped app URL, existing links point here
         '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
         '/data-management/warehouse-properties': ['WarehouseProperties', 'warehouseProperties'],
         '/data-management/warehouse-properties/:tab': ['WarehouseProperties', 'warehouseProperties'],

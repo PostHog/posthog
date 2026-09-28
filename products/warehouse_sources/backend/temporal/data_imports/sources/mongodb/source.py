@@ -270,6 +270,14 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # pymongo wraps a bare ConnectionResetError in AutoReconnect the same way, when a socket a
         # cursor is reading from gets an RST mid-sync (a load balancer or the server ending an idle
         # connection) rather than timing out. Same recovery path as the timeout case above.
+        #
+        # OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout) fires when a
+        # getMore is killed by a cluster-enforced execution-time cap we never configure ourselves
+        # (mongo.py's _EXECUTION_TIMEOUT_ERROR_CODE) — notably Atlas free/shared/flex tiers. mongo.py
+        # already resumes from last_id when this happens mid-stream, and only re-raises when a
+        # getMore was killed before yielding anything (resuming immediately would hit the same cap
+        # in a tight loop). A fresh Temporal retry isn't bound by that same in-flight time budget, so
+        # it is self-recovering and must not flood error tracking on every no-progress getMore.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
@@ -278,6 +286,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             "Topology Description:",
             "timed out (configured timeouts:",
             "Connection reset by peer",
+            "operation exceeded time limit",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
