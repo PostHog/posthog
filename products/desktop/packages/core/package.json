@@ -10,7 +10,7 @@
     ]
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.dom.json",
     "test": "vitest run",
     "clean": "node ../../scripts/rimraf.mjs .turbo"
   },

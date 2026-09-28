@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { isTabScopedCdpMethod } from "./cdp-policy";
+import { isAllowedCdpCall } from "./cdp-policy";
 
-describe("isTabScopedCdpMethod", () => {
+describe("isAllowedCdpCall", () => {
   it.each([
     ["Runtime.evaluate", true],
     ["Page.navigate", true],
@@ -27,8 +27,26 @@ describe("isTabScopedCdpMethod", () => {
     ["Network.setExtraHTTPHeaders", false],
     ["Network.loadNetworkResource", false],
     ["DOM.setFileInputFiles", false],
+    ["Network.getResponseBody", false],
+    ["Network.getRequestPostData", false],
+    ["Page.createIsolatedWorld", false],
+    ["Page.addScriptToEvaluateOnLoad", false],
+    ["Page.getResourceContent", false],
     ["not-a-method", false],
   ])("allows %s only when it stays in the tab", (method, allowed) => {
-    expect(isTabScopedCdpMethod(method)).toBe(allowed);
+    expect(isAllowedCdpCall(method, {})).toBe(allowed);
   });
+
+  it.each([
+    [undefined, true],
+    [{}, true],
+    [{ ignoreCache: true }, true],
+    [{ scriptToEvaluateOnLoad: "" }, true],
+    [{ scriptToEvaluateOnLoad: "steal()" }, false],
+  ])(
+    "allows Page.reload with %o only without a load script",
+    (params, allowed) => {
+      expect(isAllowedCdpCall("Page.reload", params)).toBe(allowed);
+    },
+  );
 });
