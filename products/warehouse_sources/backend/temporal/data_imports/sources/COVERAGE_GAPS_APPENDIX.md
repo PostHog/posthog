@@ -3055,11 +3055,11 @@ Note: Featurebase has grown well past the feedback board: the reference now span
 
 ## Fillout — gaps
 
-Today (2): `forms`, `submissions`
+Today (3): `form_metadata`, `forms`, `submissions`
 
 Diffed against: <https://www.fillout.com/llms.txt>
 
-- [ ] `GET /v1/api/forms/{formId} (form metadata)` — lookup table of every question, its id, type and choice options - without it the question ids inside submissions cannot be resolved to labels (high)
+- [x] `GET /v1/api/forms/{formId} (form metadata)` — lookup table of every question, its id, name and type - without it the question ids inside submissions cannot be resolved to labels. The endpoint does not return choice options, so choice values stay unresolved (high)
 
 Note: Very small API. The full published reference is 8 endpoints: get forms, get form metadata, get all submissions, get submission by id, create submissions, delete submission, create webhook, remove webhook. Webhook and write endpoints are correctly out of scope, so form metadata is the only real gap. get_schemas is a static ENDPOINTS list - no dynamic discovery.
 
