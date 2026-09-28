@@ -203,20 +203,16 @@ class QueryFailureCache:
 
 
 class WarmingQueryFailureCache(QueryFailureCache):
-    """Stop cache warming from retrying failing insights every hour.
+    """Make cache warming wait longer before retrying a recently failed query.
 
-    An insight can stay in the warming pool even when nobody opens it. The normal
-    cooldown starts at two minutes, so it can expire before the next hourly warm.
-    This class makes warming wait longer once the failure threshold is reached.
+    We override retry_after() instead of record_failure() because warming and
+    frontend requests share the stored failure history. Changing the deadline in
+    record_failure() would also make frontend requests wait longer. This override
+    applies the longer wait only when warming checks a failure, once the failure
+    threshold is reached. It does not change the stored deadline.
 
-    Both paths share the same failure history. record_failure() saves the normal
-    cooldown in open_until. retry_after() calculates a longer wait for warming from
-    that history without saving it. Foreground retries keep the normal cooldown,
-    so a user can retry before warming is allowed to try again. A successful
-    foreground calculation for the same cache key refreshes the result cache and
-    clears the failure history for both paths. The next warm can use that fresh
-    result or recalculate once it becomes stale, without the old failure cooldown.
-    Serving a cached result alone does not clear the failure history.
+    A successful frontend calculation for the same cache key clears the failure
+    history for both paths, so warming can resume without the old cooldown.
     """
 
     def retry_after(self, record: QueryFailureRecord) -> Optional[datetime]:
