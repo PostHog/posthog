@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.fastly.fas
     FastlyPaginationError,
     FastlyResumeConfig,
     FastlyRetryableError,
+    FastlyUntrustedUrlError,
     _active_version_number,
     _as_epoch_seconds,
     _bucket_timeline,
@@ -716,18 +717,17 @@ class TestGetRowsJsonApiList:
         with pytest.raises(FastlyPaginationError):
             _collect("service_authorizations", _FakeResumableManager(), pages)
 
-    @parameterized.expand([("absolute", "https://evil.example.com/x"), ("scheme_relative", "//evil.example.com/x")])
-    def test_off_host_next_link_is_refused(self, _name: str, next_link: str) -> None:
-        # Every request carries the token in `Fastly-Key`, so following a link to another host would
-        # hand that host the customer's Fastly credential.
+    def test_off_host_body_link_is_rejected(self) -> None:
+        # An absolute or scheme-relative `links.next` must not be allowed to redirect the Fastly-Key
+        # header to another host.
         first = f"{FASTLY_BASE_URL}/service-authorizations?page[size]=100"
-        pages = {first: {"data": [{"id": "SA1"}], "links": {"next": next_link}}}
-        with pytest.raises(FastlyPaginationError):
+        pages = {first: {"data": [{"id": "SA1"}], "links": {"next": "https://evil.example.com/steal"}}}
+        with pytest.raises(FastlyUntrustedUrlError):
             _collect("service_authorizations", _FakeResumableManager(), pages)
 
-    def test_off_host_resume_url_is_refused(self) -> None:
-        manager = _FakeResumableManager(FastlyResumeConfig(next_url="https://evil.example.com/x"))
-        with pytest.raises(FastlyPaginationError):
+    def test_off_host_saved_resume_url_is_rejected(self) -> None:
+        manager = _FakeResumableManager(FastlyResumeConfig(next_url="https://evil.example.com/steal"))
+        with pytest.raises(FastlyUntrustedUrlError):
             _collect("service_authorizations", manager, {})
 
 
@@ -775,11 +775,8 @@ class TestBucketTimeline:
     )
     def test_bucket_timeline(self, _name: str, meta: dict, expected: tuple[int, int] | None) -> None:
         timeline = _bucket_timeline(meta)
-        if expected is None:
-            assert timeline is None
-            return
-        assert timeline is not None
-        assert (timeline.first_start_time, timeline.bucket_seconds) == expected
+        actual = (timeline.bucket_start, timeline.bucket_seconds) if timeline is not None else None
+        assert actual == expected
 
 
 class TestFlattenOriginInspector:

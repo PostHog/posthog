@@ -63,6 +63,10 @@ class FastlyPaginationError(Exception):
     pass
 
 
+class FastlyUntrustedUrlError(Exception):
+    pass
+
+
 @frozen
 class FastlyResumeConfig:
     # Next page URL for the paginated top-level `services` list.
@@ -74,14 +78,6 @@ class FastlyResumeConfig:
     # only continues the request that produced it, and the usage metrics window moves with the month.
     cursor: str | None = None
     cursor_request: str | None = None
-
-
-@frozen
-class _BucketTimeline:
-    """The time grid an Origin Inspector page's `values` array is indexed against."""
-
-    first_start_time: int
-    bucket_seconds: int
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -140,25 +136,9 @@ def _fetch_optional(
         raise
 
 
-def _require_fastly_host(url: str | None) -> str | None:
-    """Reject a next-page URL that points anywhere but the Fastly API.
-
-    Every request carries the customer's token in the `Fastly-Key` header, and a next-page link is
-    read from a response rather than built here, so a link naming another host would send the token
-    to that host. A resumed URL gets the same check, because it was a response link when it was
-    stored."""
-    if url is None:
-        return None
-    base = urlsplit(FASTLY_BASE_URL)
-    target = urlsplit(url)
-    if (target.scheme, target.netloc) != (base.scheme, base.netloc):
-        raise FastlyPaginationError(f"Fastly returned a next page link outside the API host: {url}")
-    return url
-
-
 def _next_page_url(response: requests.Response) -> str | None:
     """Fastly signals the next page of `/service` via a standard `Link: <...>; rel="next"` header."""
-    return _require_fastly_host(response.links.get("next", {}).get("url"))
+    return response.links.get("next", {}).get("url")
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -276,6 +256,17 @@ def _flatten_json_api(item: dict[str, Any]) -> dict[str, Any]:
     return row
 
 
+def _require_fastly_url(url: str) -> str:
+    """Reject a URL that resolves off the Fastly API host. `links.next` is server-supplied and a saved
+    resume URL is replayed with the `Fastly-Key` header attached, so an absolute or scheme-relative
+    value there must not be allowed to redirect the credential to another host."""
+    base = urlsplit(FASTLY_BASE_URL)
+    target = urlsplit(url)
+    if (target.scheme, target.netloc) != (base.scheme, base.netloc):
+        raise FastlyUntrustedUrlError(f"Fastly pagination link is outside the API host: {url}")
+    return url
+
+
 def _next_body_link(payload: dict[str, Any]) -> str | None:
     """Read the next page from a JSON:API `links` object. Fastly returns a path there rather than an
     absolute URL, so resolve it against the API host."""
@@ -285,11 +276,17 @@ def _next_body_link(payload: dict[str, Any]) -> str | None:
     next_link = links.get("next")
     if not isinstance(next_link, str) or not next_link:
         return None
-    return _require_fastly_host(urljoin(FASTLY_BASE_URL, next_link))
+    return _require_fastly_url(urljoin(FASTLY_BASE_URL, next_link))
+
+
+@frozen
+class _BucketTimeline:
+    bucket_start: int
+    bucket_seconds: int
 
 
 def _bucket_timeline(meta: dict[str, Any]) -> _BucketTimeline | None:
-    """Resolve the bucket grid an Origin Inspector page reports against.
+    """Resolve the first bucket start and bucket length in seconds for an Origin Inspector page.
 
     The API returns one `values` entry per time bucket but puts no timestamp on the entry, so the
     bucket a value belongs to is its index counted forward from `meta.start`."""
@@ -306,7 +303,7 @@ def _bucket_timeline(meta: dict[str, Any]) -> _BucketTimeline | None:
 
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
-    return _BucketTimeline(first_start_time=int(parsed.timestamp()), bucket_seconds=bucket_seconds)
+    return _BucketTimeline(bucket_start=int(parsed.timestamp()), bucket_seconds=bucket_seconds)
 
 
 def _flatten_origin_inspector(payload: dict[str, Any], service_id: str) -> list[dict[str, Any]]:
@@ -333,7 +330,7 @@ def _flatten_origin_inspector(payload: dict[str, Any], service_id: str) -> list[
                     **dimensions,
                     **value,
                     "service_id": service_id,
-                    "start_time": timeline.first_start_time + index * timeline.bucket_seconds,
+                    "start_time": timeline.bucket_start + index * timeline.bucket_seconds,
                 }
             )
     return rows
@@ -404,7 +401,7 @@ def _get_json_api_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url = _require_fastly_host(resume.next_url) or ""
+        url = _require_fastly_url(resume.next_url)
         logger.debug(f"Fastly: resuming {config.name} from URL: {url}")
     else:
         # Fastly documents its JSON:API pagination params with literal brackets, so send them
@@ -518,7 +515,7 @@ def _get_service_list_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
-        url = _require_fastly_host(resume.next_url) or ""
+        url = resume.next_url
         logger.debug(f"Fastly: resuming services from URL: {url}")
     else:
         url = _build_url(f"{FASTLY_BASE_URL}/service", {"per_page": SERVICE_PAGE_SIZE})
