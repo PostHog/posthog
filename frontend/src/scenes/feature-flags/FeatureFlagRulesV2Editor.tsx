@@ -97,6 +97,7 @@ export function FeatureFlagRulesV2Editor({ id }: FeatureFlagLogicProps): JSX.Ele
                             tags={draft.tags}
                             onChange={(tags) => setDraft({ tags })}
                             onEdit={loadTagsIfNeeded}
+                            saving={saving}
                             tagsAvailable={tags.filter((tag: string) => !draft.tags.includes(tag))}
                             data-attr="rules-v2-flag-tags"
                         />
