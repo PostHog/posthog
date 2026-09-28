@@ -1,6 +1,6 @@
 from datetime import date
 from functools import partial
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 from django.db import close_old_connections
 
@@ -78,7 +78,7 @@ def _load_snapshot_owed(schema_id: str, team_id: int) -> tuple[bool, date | None
 def _record_snapshot_owed(schema_id: str, team_id: int, owed: bool, coverage_start: date | None = None) -> None:
     close_old_connections()
     if owed:
-        updates = {SNAPSHOT_OWED_CONFIG_KEY: True}
+        updates: dict[str, Any] = {SNAPSHOT_OWED_CONFIG_KEY: True}
         if coverage_start is not None:
             updates[SNAPSHOT_OWED_COVERAGE_START_CONFIG_KEY] = coverage_start.isoformat()
         update_sync_type_config_keys(schema_id, team_id, updates=updates)
