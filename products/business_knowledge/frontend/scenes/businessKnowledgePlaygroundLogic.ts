@@ -253,160 +253,178 @@ export const businessKnowledgePlaygroundLogic = kea<businessKnowledgePlaygroundL
                 asking || chatHasOpenTurn || question.trim().length === 0,
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
-        loadChatsSuccess: ({ chats }) => {
-            // Other chats keep running in the background, so refresh the list until their spinners can clear.
-            if (chats.some((chat) => chat.has_open_turn)) {
-                cache.disposables.add(() => {
-                    const id = window.setTimeout(() => actions.loadChats(), LIST_POLL_MS)
-                    return () => window.clearTimeout(id)
-                }, 'playgroundListPoll')
-            }
-        },
-        openChat: async ({ chatId }) => {
-            cache.disposables.dispose('playgroundPoll')
-            actions.setAsking(false)
-            if (!chatId) {
-                return
-            }
-            try {
-                const chat = await getPlaygroundChat(chatId)
-                if (cache.disposables.isDisposed || values.chatId !== chatId) {
-                    return
+    listeners(({ actions, values, cache }) => {
+        // Every chat read takes a new id, so a slow older response cannot overwrite a newer one.
+        const nextChatRequest = (): number => {
+            cache.chatRequest = (cache.chatRequest ?? 0) + 1
+            return cache.chatRequest
+        }
+        const isStale = (chatId: string, request: number): boolean =>
+            cache.disposables.isDisposed || values.chatId !== chatId || cache.chatRequest !== request
+        const schedulePoll = (): void => {
+            cache.disposables.add(() => {
+                const id = window.setTimeout(() => actions.poll(), POLL_MS)
+                return () => window.clearTimeout(id)
+            }, 'playgroundPoll')
+        }
+
+        return {
+            loadChatsSuccess: ({ chats }) => {
+                // Other chats keep running in the background, so refresh the list until their spinners can clear.
+                if (chats.some((chat) => chat.has_open_turn)) {
+                    cache.disposables.add(() => {
+                        const id = window.setTimeout(() => actions.loadChats(), LIST_POLL_MS)
+                        return () => window.clearTimeout(id)
+                    }, 'playgroundListPoll')
                 }
-                actions.chatLoaded(chat)
-                if (hasOpenTurn(chat)) {
-                    actions.setAsking(true)
-                    actions.startPolling()
-                }
-            } catch (error) {
-                if (cache.disposables.isDisposed || values.chatId !== chatId) {
-                    return
-                }
-                actions.setChatLoading(false)
-                actions.setChatError(errorDetail(error, "Couldn't load this chat. Try again."))
-            }
-        },
-        newChat: () => {
-            if (router.values.location.pathname === urls.currentProject(urls.businessKnowledgePlayground())) {
-                actions.openChat(null)
-                return
-            }
-            router.actions.push(urls.businessKnowledgePlayground())
-        },
-        deleteChat: async ({ chatId }) => {
-            if (values.deletingChatId) {
-                return
-            }
-            actions.setDeletingChatId(chatId)
-            try {
-                await deletePlaygroundChat(chatId)
-                if (cache.disposables.isDisposed) {
-                    return
-                }
-                actions.loadChats()
-                if (values.chatId === chatId) {
-                    actions.newChat()
-                }
-            } catch (error) {
-                if (cache.disposables.isDisposed) {
-                    return
-                }
-                actions.setChatError(errorDetail(error, "Couldn't delete this chat. Try again."))
-            } finally {
-                if (!cache.disposables.isDisposed) {
-                    actions.setDeletingChatId(null)
-                }
-            }
-        },
-        ask: async () => {
-            if (values.asking || values.chatHasOpenTurn) {
-                return
-            }
-            const question = values.question.trim()
-            if (!question) {
-                return
-            }
-            actions.setAsking(true)
-            actions.setAskError(null)
-            actions.setPendingQuestion(question)
-            actions.setQuestion('')
-            const initialChatId = values.chatId
-            let chatId = initialChatId
-            try {
+            },
+            openChat: async ({ chatId }) => {
+                cache.disposables.dispose('playgroundPoll')
+                const request = nextChatRequest()
+                actions.setAsking(false)
                 if (!chatId) {
-                    const created = await createPlaygroundChat()
-                    if (cache.disposables.isDisposed || values.chatId !== initialChatId) {
+                    return
+                }
+                try {
+                    const chat = await getPlaygroundChat(chatId)
+                    if (isStale(chatId, request)) {
                         return
                     }
-                    chatId = created.id
-                    actions.setChatId(chatId)
-                    router.actions.replace(urls.businessKnowledgePlayground(chatId))
+                    actions.chatLoaded(chat)
+                    if (hasOpenTurn(chat)) {
+                        actions.setAsking(true)
+                        schedulePoll()
+                    }
+                } catch (error) {
+                    if (isStale(chatId, request)) {
+                        return
+                    }
+                    actions.setChatLoading(false)
+                    actions.setChatError(errorDetail(error, "Couldn't load this chat. Try again."))
+                }
+            },
+            newChat: () => {
+                if (router.values.location.pathname === urls.currentProject(urls.businessKnowledgePlayground())) {
+                    actions.openChat(null)
+                    return
+                }
+                router.actions.push(urls.businessKnowledgePlayground())
+            },
+            deleteChat: async ({ chatId }) => {
+                if (values.deletingChatId) {
+                    return
+                }
+                actions.setDeletingChatId(chatId)
+                try {
+                    await deletePlaygroundChat(chatId)
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
                     actions.loadChats()
+                    if (values.chatId === chatId) {
+                        actions.newChat()
+                    }
+                } catch (error) {
+                    if (cache.disposables.isDisposed) {
+                        return
+                    }
+                    actions.setChatError(errorDetail(error, "Couldn't delete this chat. Try again."))
+                } finally {
+                    if (!cache.disposables.isDisposed) {
+                        actions.setDeletingChatId(null)
+                    }
                 }
-                const chat = await askPlaygroundChat(chatId, question)
-                if (cache.disposables.isDisposed || values.chatId !== chatId) {
+            },
+            ask: async () => {
+                if (values.asking || values.chatHasOpenTurn) {
                     return
                 }
-                actions.chatLoaded(chat)
-                actions.loadChats()
-                if (hasOpenTurn(chat)) {
-                    actions.startPolling()
-                }
-            } catch (error) {
-                if (cache.disposables.isDisposed || values.chatId !== chatId) {
+                const question = values.question.trim()
+                if (!question) {
                     return
                 }
-                actions.setPendingQuestion(null)
-                if (!values.question) {
-                    actions.setQuestion(question)
+                actions.setAsking(true)
+                actions.setAskError(null)
+                actions.setPendingQuestion(question)
+                actions.setQuestion('')
+                const initialChatId = values.chatId
+                let chatId = initialChatId
+                try {
+                    if (!chatId) {
+                        const created = await createPlaygroundChat()
+                        if (cache.disposables.isDisposed || values.chatId !== initialChatId) {
+                            return
+                        }
+                        chatId = created.id
+                        actions.setChatId(chatId)
+                        router.actions.replace(urls.businessKnowledgePlayground(chatId))
+                        actions.loadChats()
+                    }
+                    const chat = await askPlaygroundChat(chatId, question)
+                    if (cache.disposables.isDisposed || values.chatId !== chatId) {
+                        return
+                    }
+                    nextChatRequest()
+                    actions.chatLoaded(chat)
+                    actions.loadChats()
+                    if (hasOpenTurn(chat)) {
+                        actions.startPolling()
+                    }
+                } catch (error) {
+                    if (cache.disposables.isDisposed || values.chatId !== chatId) {
+                        return
+                    }
+                    actions.setPendingQuestion(null)
+                    if (!values.question) {
+                        actions.setQuestion(question)
+                    }
+                    actions.setAskError(errorDetail(error, "Couldn't start the answer. Try again."))
+                    actions.setAsking(false)
                 }
-                actions.setAskError(errorDetail(error, "Couldn't start the answer. Try again."))
-                actions.setAsking(false)
-            }
-        },
-        startPolling: () => {
-            cache.disposables.add(() => {
-                const id = window.setInterval(() => {
-                    actions.poll()
-                }, POLL_MS)
-                return () => window.clearInterval(id)
-            }, 'playgroundPoll')
-            actions.poll()
-        },
-        poll: async () => {
-            const chatId = values.chatId
-            if (!chatId) {
-                return
-            }
-            try {
-                const chat = await getPlaygroundChat(chatId)
-                if (cache.disposables.isDisposed || values.chatId !== chatId) {
+            },
+            startPolling: () => {
+                schedulePoll()
+            },
+            poll: async () => {
+                const chatId = values.chatId
+                if (!chatId) {
                     return
                 }
-                actions.chatLoaded(chat)
-            } catch (error) {
-                if (cache.disposables.isDisposed || values.chatId !== chatId) {
-                    return
+                // The next poll starts only after this one returns, so responses arrive in order.
+                const request = nextChatRequest()
+                try {
+                    const chat = await getPlaygroundChat(chatId)
+                    if (isStale(chatId, request)) {
+                        return
+                    }
+                    actions.chatLoaded(chat)
+                    if (hasOpenTurn(chat)) {
+                        schedulePoll()
+                    }
+                } catch (error) {
+                    if (isStale(chatId, request)) {
+                        return
+                    }
+                    if (error instanceof ApiError && error.status === 404) {
+                        actions.pollFailed(errorDetail(error, "Couldn't check the answer. Try again."))
+                        return
+                    }
+                    actions.setChatError(errorDetail(error, "Couldn't check the answer. Try again."))
+                    schedulePoll()
                 }
-                if (error instanceof ApiError && error.status === 404) {
-                    actions.pollFailed(errorDetail(error, "Couldn't check the answer. Try again."))
-                    return
+            },
+            chatLoaded: ({ chat }) => {
+                if (!hasOpenTurn(chat)) {
+                    cache.disposables.dispose('playgroundPoll')
+                    actions.setAsking(false)
                 }
-                actions.setChatError(errorDetail(error, "Couldn't check the answer. Try again."))
-            }
-        },
-        chatLoaded: ({ chat }) => {
-            if (!hasOpenTurn(chat)) {
+            },
+            pollFailed: () => {
                 cache.disposables.dispose('playgroundPoll')
                 actions.setAsking(false)
-            }
-        },
-        pollFailed: () => {
-            cache.disposables.dispose('playgroundPoll')
-            actions.setAsking(false)
-        },
-    })),
+            },
+        }
+    }),
     urlToAction(({ actions, values }) => ({
         [urls.businessKnowledgePlayground()]: () => {
             if (values.chatId !== null) {

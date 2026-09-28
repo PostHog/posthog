@@ -50,9 +50,11 @@ class BusinessKnowledgeSandboxViewSet(TeamAndOrgViewSetMixin, ViewSet):
         return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        # Asking and reading a run are both reads of business knowledge.
-        if self.action in ("create", "retrieve"):
+        if self.action == "retrieve":
             return ["business_knowledge:read"]
+        # Asking starts a billable sandbox run, so it needs write like the other mutations.
+        if self.action == "create":
+            return ["business_knowledge:write"]
         return None
 
     @extend_schema(

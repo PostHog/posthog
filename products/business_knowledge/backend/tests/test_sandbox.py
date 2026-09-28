@@ -144,13 +144,13 @@ class TestSandboxLogParser(SimpleTestCase):
 
 
 class TestSandboxScopes(SimpleTestCase):
-    @parameterized.expand([("post", "create", "POST"), ("get", "retrieve", "GET")])
-    def test_both_methods_require_business_knowledge_read(self, _name: str, action: str, method: str) -> None:
+    @parameterized.expand(
+        [("create", "POST", "business_knowledge:write"), ("retrieve", "GET", "business_knowledge:read")]
+    )
+    def test_required_scopes(self, action: str, method: str, scope: str) -> None:
         view = BusinessKnowledgeSandboxViewSet()
         view.action = action
-        assert view.dangerously_get_required_scopes(APIRequestFactory().generic(method, "/"), view) == [
-            "business_knowledge:read"
-        ]
+        assert view.dangerously_get_required_scopes(APIRequestFactory().generic(method, "/"), view) == [scope]
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -219,6 +219,7 @@ class TestSandboxAPI(APIBaseTest):
         assert "Can I get a refund?" in task.description
         assert "[learned from support] Refunds need approval." in task.description
         schema = SandboxAnswer.model_json_schema()
+        assert task.json_schema is not None
         assert task.json_schema["properties"]["reply"]["type"] == schema["properties"]["reply"]["type"]
         env = SandboxEnvironment.objects.get(team_id=self.team.id, name="BUSINESS_KNOWLEDGE_SANDBOX")
         assert env.internal is True
@@ -241,10 +242,20 @@ class TestSandboxAPI(APIBaseTest):
         assert blocked.status_code == status.HTTP_409_CONFLICT
         assert Task.objects.filter(origin_product=Task.OriginProduct.BUSINESS_KNOWLEDGE).count() == 1
 
-    def test_read_scope_can_ask(self, _ff, _workflow) -> None:
-        self._auth_with_pak(["business_knowledge:read"])
+        Task.objects.filter(id=task.id).update(deleted=True)
+        still_blocked = self.client.post(self.url, {"question": "Another question"}, format="json")
+        assert still_blocked.status_code == status.HTTP_409_CONFLICT
+
+    @parameterized.expand(
+        [
+            ("read", "business_knowledge:read", status.HTTP_403_FORBIDDEN),
+            ("write", "business_knowledge:write", status.HTTP_201_CREATED),
+        ]
+    )
+    def test_asking_needs_write_scope(self, _ff, _workflow, _name: str, scope: str, expected: int) -> None:
+        self._auth_with_pak([scope])
         response = self.client.post(self.url, {"question": "Where is the refund policy?"}, format="json")
-        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.status_code == expected, response.content
 
     @parameterized.expand([("declined", False), ("undecided", None)])
     def test_ai_data_processing_required_to_ask(self, _ff, _workflow, _name: str, approval: bool | None) -> None:
@@ -328,6 +339,22 @@ class TestSandboxAPI(APIBaseTest):
         assert body["searches"] == [
             {"tool": BK_SEARCH_TOOL, "input": f"call {BK_SEARCH_TOOL} " + json.dumps({"query": "refunds"})}
         ]
+
+    def test_finished_run_reads_its_log_once(self, _ff, _workflow) -> None:
+        started = self.client.post(self.url, {"question": "Can I get a refund?"}, format="json")
+        TaskRun.objects.filter(id=started.json()["run_id"]).update(
+            status=TaskRun.Status.COMPLETED, output={"reply": "Yes, within 30 days.", "sources": []}
+        )
+        search = _update_line("search", {"command": f"call {BK_SEARCH_TOOL} " + json.dumps({"query": "refunds"})})
+        with patch(
+            "products.business_knowledge.backend.sandbox.tasks_facade.read_task_run_logs",
+            return_value=search,
+        ) as read_logs:
+            first = self.client.get(f"{self.url}{started.json()['task_id']}/").json()
+            second = self.client.get(f"{self.url}{started.json()['task_id']}/").json()
+        assert read_logs.call_count == 1
+        assert first["searches"] == second["searches"]
+        assert len(second["searches"]) == 1
 
     def test_blank_question_is_rejected(self, _ff, _workflow) -> None:
         response = self.client.post(self.url, {"question": "   "}, format="json")

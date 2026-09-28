@@ -1781,27 +1781,25 @@ def owner_origin_has_non_terminal_run(*, team_id: int, created_by_id: int, origi
 
     Internal origins are hidden from the task APIs, so callers that admit one run at a time
     check here instead of listing tasks. ``origin_product`` is required so one product's open
-    run does not block another's.
+    run does not block another's. Soft-deleting a task does not stop its run, so deleted tasks count.
     """
     return TaskRun.objects.filter(
         team_id=team_id,
         task__team_id=team_id,
         task__created_by_id=created_by_id,
         task__origin_product=origin_product,
-        task__deleted=False,
         status__in=_NON_TERMINAL_RUN_STATUSES,
     ).exists()
 
 
 def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_product: str) -> set[UUID]:
-    """Ids of this owner's tasks of this origin that have a run that has not finished."""
+    """Ids of this owner's tasks of this origin that have a run that has not finished, deleted tasks included."""
     return set(
         TaskRun.objects.filter(
             team_id=team_id,
             task__team_id=team_id,
             task__created_by_id=created_by_id,
             task__origin_product=origin_product,
-            task__deleted=False,
             status__in=_NON_TERMINAL_RUN_STATUSES,
         ).values_list("task_id", flat=True)
     )

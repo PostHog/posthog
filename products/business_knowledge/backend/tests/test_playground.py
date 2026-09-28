@@ -21,19 +21,17 @@ WORKFLOW = "products.tasks.backend.temporal.client.execute_task_processing_workf
 class TestPlaygroundChatScopes(SimpleTestCase):
     @parameterized.expand(
         [
-            ("list", "GET"),
-            ("create", "POST"),
-            ("retrieve", "GET"),
-            ("destroy", "DELETE"),
-            ("ask", "POST"),
+            ("list", "GET", "business_knowledge:read"),
+            ("retrieve", "GET", "business_knowledge:read"),
+            ("create", "POST", "business_knowledge:write"),
+            ("destroy", "DELETE", "business_knowledge:write"),
+            ("ask", "POST", "business_knowledge:write"),
         ]
     )
-    def test_methods_require_business_knowledge_read(self, action: str, method: str) -> None:
+    def test_required_scopes(self, action: str, method: str, scope: str) -> None:
         view = BusinessKnowledgePlaygroundChatViewSet()
         view.action = action
-        assert view.dangerously_get_required_scopes(APIRequestFactory().generic(method, "/"), view) == [
-            "business_knowledge:read"
-        ]
+        assert view.dangerously_get_required_scopes(APIRequestFactory().generic(method, "/"), view) == [scope]
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)

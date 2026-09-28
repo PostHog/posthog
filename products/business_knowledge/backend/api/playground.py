@@ -59,8 +59,11 @@ class BusinessKnowledgePlaygroundChatViewSet(
         return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        if self.action in ("list", "create", "retrieve", "destroy", "ask"):
+        if self.action in ("list", "retrieve"):
             return ["business_knowledge:read"]
+        # Asking starts a billable sandbox run, so it needs write like the other mutations.
+        if self.action in ("create", "destroy", "ask"):
+            return ["business_knowledge:write"]
         return None
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:

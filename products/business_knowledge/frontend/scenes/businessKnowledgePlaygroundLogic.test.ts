@@ -222,6 +222,9 @@ describe('businessKnowledgePlaygroundLogic', () => {
         logic.actions.setQuestion('Where is the policy?')
         await expectLogic(logic, () => {
             logic.actions.ask()
+        }).toDispatchActions(['chatLoaded'])
+        await expectLogic(logic, () => {
+            logic.actions.poll()
         }).toDispatchActions(['setChatError'])
         expect(logic.values.asking).toBe(true)
         expect(logic.values.chatHasOpenTurn).toBe(true)
@@ -231,6 +234,22 @@ describe('businessKnowledgePlaygroundLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.poll()
         }).toDispatchActions(['pollFailed'])
+        expect(logic.values.asking).toBe(false)
+    })
+
+    it('ignores a poll response that arrives after a newer one', async () => {
+        let resolveOlder: (value: PlaygroundChatApi) => void = () => {}
+        mockedGet
+            .mockReturnValueOnce(new Promise((resolve) => (resolveOlder = resolve)))
+            .mockResolvedValueOnce(chat('completed'))
+        logic.actions.setChatId('chat-1')
+        logic.actions.poll()
+        await expectLogic(logic, () => {
+            logic.actions.poll()
+        }).toDispatchActions(['chatLoaded'])
+        resolveOlder(chat('running'))
+        await Promise.resolve()
+        expect(logic.values.chat?.turns[0]?.run?.status).toBe('completed')
         expect(logic.values.asking).toBe(false)
     })
 
@@ -259,7 +278,7 @@ describe('businessKnowledgePlaygroundLogic', () => {
     })
 
     it('clears the poll timer on unmount', async () => {
-        const clear = jest.spyOn(window, 'clearInterval')
+        const clear = jest.spyOn(window, 'clearTimeout')
         mockedGet.mockReturnValue(new Promise(() => {}))
         logic.actions.setChatId('chat-1')
         logic.actions.setQuestion('Can I get a refund?')

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
+from django.core.cache import cache
 from django.db import connection, models, transaction
 
 from pydantic import BaseModel, Field, ValidationError
@@ -22,6 +23,7 @@ BUSINESS_KNOWLEDGE_SANDBOX_ENV_NAME = "BUSINESS_KNOWLEDGE_SANDBOX"
 SANDBOX_MODEL = "claude-sonnet-5"
 SANDBOX_RUNTIME_ADAPTER = "claude"
 MAX_SANDBOX_QUESTION_CHARS = 4_000
+FINISHED_ACTIVITY_CACHE_SECONDS = 60 * 60
 
 BK_MCP_SCOPE = "business_knowledge:read"
 BK_SEARCH_TOOL = "business-knowledge-documents-search"
@@ -137,14 +139,14 @@ def parse_sandbox_log(log_text: str) -> SandboxActivity:
         raw_input = update.get("rawInput")
         if not isinstance(raw_input, dict) or not raw_input:
             continue
-        tool_name, tool_input = _recognized_tool(update, raw_input)
-        if tool_name is None or tool_input is None:
+        recognized = _recognized_tool(update, raw_input)
+        if recognized is None:
             continue
         seen.add(tool_call_id)
-        if tool_name == DOCS_SEARCH_TOOL:
+        if recognized.tool == DOCS_SEARCH_TOOL:
             docs_search_called = True
             continue
-        searches.append(SandboxSearch(tool=tool_name, tool_input=tool_input))
+        searches.append(recognized)
     return SandboxActivity(searches=searches, docs_search_called=docs_search_called)
 
 
@@ -226,11 +228,7 @@ def describe_sandbox_run(run: TaskRunDTO, activity: SandboxActivity) -> dict[str
     reply = None
     sources: list[dict[str, str]] = []
     error = None
-    if status in (
-        tasks_facade.TaskRunStatus.NOT_STARTED,
-        tasks_facade.TaskRunStatus.QUEUED,
-        tasks_facade.TaskRunStatus.IN_PROGRESS,
-    ):
+    if _is_open(run):
         poll_status = SandboxPollStatus.RUNNING
     elif status == tasks_facade.TaskRunStatus.CANCELLED:
         poll_status = SandboxPollStatus.CANCELLED
@@ -269,7 +267,11 @@ def load_sandbox_run(*, task_id: str, team_id: int, user_id: int) -> dict[str, A
     )
     if run is None:
         return None
-    return describe_sandbox_run(run, sandbox_activity_for_run(run_id=run.id, task_id=run.task_id, team_id=team_id))
+    if _is_open(run):
+        activity = sandbox_activity_for_run(run_id=run.id, task_id=run.task_id, team_id=team_id)
+    else:
+        activity = _finished_sandbox_activity(run_id=run.id, task_id=run.task_id, team_id=team_id)
+    return describe_sandbox_run(run, activity)
 
 
 def sandbox_activity_for_run(*, run_id: UUID, task_id: UUID, team_id: int) -> SandboxActivity:
@@ -277,6 +279,35 @@ def sandbox_activity_for_run(*, run_id: UUID, task_id: UUID, team_id: int) -> Sa
     if not logs:
         return SandboxActivity(searches=[], docs_search_called=False)
     return parse_sandbox_log(logs)
+
+
+def _is_open(run: TaskRunDTO) -> bool:
+    return run.status in (
+        tasks_facade.TaskRunStatus.NOT_STARTED,
+        tasks_facade.TaskRunStatus.QUEUED,
+        tasks_facade.TaskRunStatus.IN_PROGRESS,
+    )
+
+
+def _finished_sandbox_activity(*, run_id: UUID, task_id: UUID, team_id: int) -> SandboxActivity:
+    # A finished run's log does not change. A chat reload reads every turn, so skip the object storage read.
+    key = f"business_knowledge:sandbox_activity:{team_id}:{run_id}"
+    cached = cache.get(key)
+    if isinstance(cached, dict):
+        return SandboxActivity(
+            searches=[SandboxSearch(tool=tool, tool_input=tool_input) for tool, tool_input in cached["searches"]],
+            docs_search_called=bool(cached["docs_search_called"]),
+        )
+    activity = sandbox_activity_for_run(run_id=run_id, task_id=task_id, team_id=team_id)
+    cache.set(
+        key,
+        {
+            "searches": [[search.tool, search.tool_input] for search in activity.searches],
+            "docs_search_called": activity.docs_search_called,
+        },
+        timeout=FINISHED_ACTIVITY_CACHE_SECONDS,
+    )
+    return activity
 
 
 def _admit_one_run_per_owner(team_id: int, user_id: int) -> None:
@@ -318,16 +349,16 @@ def _session_update(payload: dict[str, Any]) -> dict[str, Any] | None:
     return update if isinstance(update, dict) else None
 
 
-def _recognized_tool(update: dict[str, Any], raw_input: dict[str, Any]) -> tuple[str | None, str | None]:
+def _recognized_tool(update: dict[str, Any], raw_input: dict[str, Any]) -> SandboxSearch | None:
     command = raw_input.get("command")
     if isinstance(command, str):
         match = _CALL_COMMAND.match(command.strip())
         if match and match.group(1) in _RECOGNIZED_TOOLS:
-            return match.group(1), command.strip()
+            return SandboxSearch(tool=match.group(1), tool_input=command.strip())
     direct = _direct_tool_name(update, raw_input)
     if direct is None:
-        return None, None
-    return direct, json.dumps(raw_input, sort_keys=True)
+        return None
+    return SandboxSearch(tool=direct, tool_input=json.dumps(raw_input, sort_keys=True))
 
 
 def _direct_tool_name(update: dict[str, Any], raw_input: dict[str, Any]) -> str | None:
