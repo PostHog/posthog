@@ -827,6 +827,14 @@ HOGQL_QUERY_HELP_TEXT = (
 )
 
 
+class BatchExportUnpauseRequestSerializer(serializers.Serializer):
+    backfill = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether to backfill the runs that the batch export missed while it was paused.",
+    )
+
+
 class BatchExportRequestSerializer(serializers.Serializer):
     """Request body for create/partial_update on BatchExportViewSet.
 
@@ -1974,6 +1982,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             return queryset.exclude(destination__type="Workflows")
         return queryset
 
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
@@ -1998,6 +2007,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": True})
 
+    @extend_schema(request=BatchExportUnpauseRequestSerializer)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
