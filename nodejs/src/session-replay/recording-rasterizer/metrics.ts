@@ -126,6 +126,24 @@ export class RasterizationMetrics {
         help: 'Total number of browser instances that disconnected unexpectedly',
     })
 
+    private static readonly browserDiscardsTotal = new Counter({
+        name: 'recording_rasterizer_browser_discards_total',
+        help: 'Browsers closed after a render left them unusable, by whether the browser had served an earlier render',
+        labelNames: ['reused'],
+    })
+
+    private static readonly beginFrameDeadlocksTotal = new Counter({
+        name: 'recording_rasterizer_beginframe_deadlocks_total',
+        help: 'Renders aborted by a beginFrame compositor deadlock, by Temporal attempt',
+        labelNames: ['attempt'],
+    })
+
+    private static readonly retryActivitiesTotal = new Counter({
+        name: 'recording_rasterizer_retry_activities_total',
+        help: 'Rasterization activities on Temporal attempt 2 or later, by result',
+        labelNames: ['result'],
+    })
+
     private static readonly unhandledRejectionsTotal = new Counter({
         name: 'recording_rasterizer_unhandled_rejections_total',
         help: 'Number of unhandled promise rejections suppressed by the worker guard',
@@ -183,6 +201,18 @@ export class RasterizationMetrics {
 
     public static browserRecycled(): void {
         this.browserRecyclesTotal.inc()
+    }
+
+    public static browserDiscarded(reused: boolean): void {
+        this.browserDiscardsTotal.labels({ reused: String(reused) }).inc()
+    }
+
+    public static observeBeginFrameDeadlock(attempt: number): void {
+        this.beginFrameDeadlocksTotal.labels({ attempt: attempt > 1 ? 'retry' : 'first' }).inc()
+    }
+
+    public static observeRetryActivity(result: 'success' | 'error'): void {
+        this.retryActivitiesTotal.labels({ result }).inc()
     }
 
     public static browserCrashed(): void {

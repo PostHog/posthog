@@ -4,6 +4,7 @@ import { capturePlayback } from '~/session-replay/recording-rasterizer/capture/c
 import { CapturePage } from '~/session-replay/recording-rasterizer/capture/capture-page'
 import { PlayerController } from '~/session-replay/recording-rasterizer/capture/player'
 import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
 import { RasterizeRecordingInput } from '~/session-replay/recording-rasterizer/types'
 
 jest.mock('~/session-replay/recording-rasterizer/capture/capture')
@@ -133,26 +134,37 @@ describe('rasterizeRecording', () => {
         ).rejects.toMatchObject({ code: 'RECORDING_TOO_LARGE', retryable: false })
 
         expect(mockPlayer.load).not.toHaveBeenCalled()
-        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage, { discardBrowser: false })
     })
 
     it('releases page and disposes player on success', async () => {
         await rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
 
         expect(mockPlayer.dispose).toHaveBeenCalled()
-        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage, { discardBrowser: false })
     })
 
-    it('releases page and disposes player when capturePlayback throws', async () => {
-        mockedCapturePlayback.mockRejectedValue(new Error('capture failed'))
+    it.each([
+        { name: 'keeps the browser after a generic failure', fatalError: null, discardBrowser: false },
+        {
+            name: 'discards the browser after a beginFrame deadlock',
+            fatalError: new RasterizationError('beginFrame timeout', true, 'BEGINFRAME_DEADLOCK'),
+            discardBrowser: true,
+        },
+    ])(
+        'releases page and disposes player when capturePlayback throws: $name',
+        async ({ fatalError, discardBrowser }) => {
+            mockedCapturePage.prepare = jest.fn().mockResolvedValue({ page: mockPage, fatalError })
+            mockedCapturePlayback.mockRejectedValue(new Error('capture failed'))
 
-        await expect(
-            rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
-        ).rejects.toThrow('capture failed')
+            await expect(
+                rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
+            ).rejects.toThrow('capture failed')
 
-        expect(mockPlayer.dispose).toHaveBeenCalled()
-        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
-    })
+            expect(mockPlayer.dispose).toHaveBeenCalled()
+            expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage, { discardBrowser })
+        }
+    )
 
     it('releases page when player.load throws (before player is assigned)', async () => {
         mockPlayer.load.mockRejectedValue(new Error('navigation failed'))
@@ -161,7 +173,7 @@ describe('rasterizeRecording', () => {
             rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
         ).rejects.toThrow('navigation failed')
 
-        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage, { discardBrowser: false })
     })
 
     it('releases page when BlockProxy.fetchBlocks throws', async () => {
@@ -171,7 +183,7 @@ describe('rasterizeRecording', () => {
             rasterizeRecording(mockPool, baseInput(), '/tmp/out.mp4', '<html></html>', jest.fn(), { cfg })
         ).rejects.toThrow('API down')
 
-        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage)
+        expect(mockPool.releasePage).toHaveBeenCalledWith(mockPage, { discardBrowser: false })
     })
 
     it('passes playerHtml to CapturePage.prepare', async () => {

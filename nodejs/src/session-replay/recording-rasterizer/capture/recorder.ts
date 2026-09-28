@@ -81,6 +81,9 @@ export async function rasterizeRecording(
     }
     signal?.addEventListener('abort', onAbort, { once: true })
     let player: PlayerController | null = null
+    let capturePage: CapturePage | null = null
+    let blockCount: number | null = null
+    let compressedBytes: number | null = null
     try {
         // An abort that fired while getPage was launching Chromium predates the listener above and
         // would otherwise be silently missed; the finally below releases the page.
@@ -90,18 +93,11 @@ export async function rasterizeRecording(
             height: (input.viewport_height || 720) + (input.show_metadata_footer ? METADATA_FOOTER_HEIGHT_PX : 0),
         }
         const playerUrl = `${cfg.siteUrl}/player`
-        const capturePage = await CapturePage.prepare(
-            rawPage,
-            viewport,
-            playerUrl,
-            playerHtml,
-            cfg.captureBrowserLogs,
-            log
-        )
+        capturePage = await CapturePage.prepare(rawPage, viewport, playerUrl, playerHtml, cfg.captureBrowserLogs, log)
 
         const blockProxy = new BlockProxy(cfg, log)
-        const blockCount = await blockProxy.fetchBlocks(input)
-        const compressedBytes = blockProxy.totalCompressedBytes
+        blockCount = await blockProxy.fetchBlocks(input)
+        compressedBytes = blockProxy.totalCompressedBytes
         log.info({ blockCount, compressedBytes }, 'block listing fetched')
         if (!Number.isFinite(compressedBytes)) {
             // A malformed listing yields NaN, and NaN > cap is false: the gate would switch off
@@ -158,6 +154,23 @@ export async function rasterizeRecording(
     } finally {
         signal?.removeEventListener('abort', onAbort)
         player?.dispose()
-        await pool.releasePage(rawPage)
+        const deadlocked = capturePage?.fatalError?.code === 'BEGINFRAME_DEADLOCK'
+        if (deadlocked) {
+            // Recording traits to find out which recordings wedge the compositor.
+            log.error(
+                {
+                    viewport_width: input.viewport_width,
+                    viewport_height: input.viewport_height,
+                    playback_speed: captureConfig.playbackSpeed,
+                    capture_fps: captureConfig.captureFps,
+                    block_count: blockCount,
+                    compressed_bytes: compressedBytes,
+                    frame: progress?.frame,
+                    estimated_total_frames: progress?.estimatedTotalFrames,
+                },
+                'beginFrame deadlock, discarding browser'
+            )
+        }
+        await pool.releasePage(rawPage, { discardBrowser: deadlocked })
     }
 }

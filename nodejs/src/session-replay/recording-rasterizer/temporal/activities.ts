@@ -44,12 +44,13 @@ async function rasterizeRecordingActivity(
     playerHtml: string,
     input: RasterizeRecordingInput
 ): Promise<RasterizeRecordingOutput> {
-    const { workflowExecution, activityId } = Context.current().info
+    const { workflowExecution, activityId, attempt } = Context.current().info
     const log = createLogger({
         session_id: input.session_id,
         team_id: input.team_id,
         workflow_id: workflowExecution.workflowId,
         activity_id: activityId,
+        attempt,
     })
     const { activePages } = pool.stats
     log.info({ active_pages: activePages }, 'starting activity')
@@ -155,6 +156,9 @@ async function rasterizeRecordingActivity(
         const stat = await fs.stat(outputPath)
         timings.total_s = elapsed(activityStart)
         RasterizationMetrics.observeActivity('success', timings.total_s)
+        if (attempt > 1) {
+            RasterizationMetrics.observeRetryActivity('success')
+        }
         RasterizationMetrics.observeVideo(result.capture_duration_s, stat.size, result.frame_count)
 
         // Total recording duration = active playback time + skipped inactivity. The output video is
@@ -193,6 +197,9 @@ async function rasterizeRecordingActivity(
     } catch (err) {
         timings.total_s = elapsed(activityStart)
         RasterizationMetrics.observeActivity('error', timings.total_s)
+        if (attempt > 1) {
+            RasterizationMetrics.observeRetryActivity('error')
+        }
         // Record how long the failed stage ran; without this the setup/capture/upload series only
         // exist for successes and cannot answer where failing renders spend their time.
         const failedStageS = (Date.now() - phaseStartedAt) / 1000
@@ -206,6 +213,9 @@ async function rasterizeRecordingActivity(
         const rasterizationError = asRasterizationError(err)
         if (rasterizationError) {
             RasterizationMetrics.incrementError(rasterizationError.code, rasterizationError.retryable)
+            if (rasterizationError.code === 'BEGINFRAME_DEADLOCK') {
+                RasterizationMetrics.observeBeginFrameDeadlock(attempt)
+            }
         } else {
             RasterizationMetrics.incrementError('UNKNOWN', true)
         }
