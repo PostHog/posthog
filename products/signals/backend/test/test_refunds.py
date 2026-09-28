@@ -15,7 +15,12 @@ from rest_framework import status
 from posthog.models import Organization, Team
 
 from products.signals.backend.billing import SIGNALS_CREDITS_PER_REPORT_WITH_PR
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportRefund
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportPullRequest,
+    SignalReportRefund,
+)
 from products.signals.backend.quota import SELF_DRIVING_QUOTA_ENFORCEMENT_FLAG
 from products.signals.backend.tasks import (
     _OUT_OF_PERIOD_SYNC_ERROR,
@@ -159,6 +164,8 @@ class TestSignalReportRefundAPI(APIBaseTest):
             ("no_billable_pr", "no_billable_pr"),
             ("already_refunded", "already_refunded"),
             ("billing_exempt", "billing_exempt"),
+            ("pr_merged", "pr_merged"),
+            ("different_pr_merged", None),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
@@ -171,12 +178,28 @@ class TestSignalReportRefundAPI(APIBaseTest):
             report = _make_report(self.team)
         else:
             pr_at = datetime(2026, 5, 20, tzinfo=UTC) if case == "out_of_period" else datetime(2026, 6, 10, tzinfo=UTC)
-            report = self._report_with_pr(pr_created_at=pr_at)
+            report = _make_report(self.team)
+            _make_pr_run(
+                self.team,
+                report,
+                created_at=pr_at,
+                output={"pr_url": "https://github.com/x/y/pull/1", "pr_merged": case == "pr_merged"},
+            )
         if case == "already_refunded":
             _make_refund(report)
         if case == "billing_exempt":
             SignalReport.objects.filter(id=report.id).update(
                 billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK
+            )
+        if case in ("pr_merged", "different_pr_merged"):
+            _make_pr_run(
+                self.team,
+                report,
+                created_at=datetime(2026, 6, 11, tzinfo=UTC),
+                output={
+                    "pr_url": "https://github.com/x/y/pull/2",
+                    "pr_merged": case == "different_pr_merged",
+                },
             )
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
@@ -228,22 +251,56 @@ class TestSignalReportRefundAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            # A merged PR is a genuine terminal state — the work shipped — so refund leaves it RESOLVED.
-            ("merged_pr", {"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True}, SignalReport.Status.RESOLVED),
-            # Resolved manually without a merged PR: refund must suppress it, otherwise the linked PR
-            # is never closed and the caller keeps the implementation work after being refunded.
-            ("resolved_without_merge", {"pr_url": "https://github.com/x/y/pull/1"}, SignalReport.Status.SUPPRESSED),
+            ("resolved_credited", SignalReport.Status.RESOLVED, 10, False),
+            ("ready_excluded", SignalReport.Status.READY, 15, False),
+            ("suppressed_credited", SignalReport.Status.SUPPRESSED, 10, True),
+            ("resolved_excluded", SignalReport.Status.RESOLVED, 15, True),
         ]
     )
     @time_machine.travel(_NOW, tick=False)
-    def test_refund_of_resolved_report_suppresses_unless_pr_merged(self, _flag, _name, output, expected_status):
+    def test_merged_billable_pr_refund_is_rejected(
+        self, _flag, _name: str, report_status: str, pr_day: int, linked_pr: bool
+    ) -> None:
+        report = _make_report(self.team, status=report_status)
+        pr_url = "https://github.com/x/y/pull/1"
+        _make_pr_run(
+            self.team,
+            report,
+            created_at=datetime(2026, 6, pr_day, 8, tzinfo=UTC),
+            output={"pr_url": pr_url, "pr_merged": not linked_pr},
+        )
+        if linked_pr:
+            SignalReportPullRequest.objects.for_team(self.team.id).filter(url=pr_url).update(
+                state=SignalReportPullRequest.State.MERGED
+            )
+        else:
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.PULL_REQUEST
+            ).delete()
+        SignalReport.objects.filter(id=report.id).update(status=report_status)
+
+        with patch("products.signals.backend.views.sync_signals_refund_credit.delay") as mock_delay:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self._refund(report, {"reason": "other"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "merged" in response.json()["error"]
+        assert not SignalReportRefund.objects.filter(report=report).exists()
+        assert not SignalReportArtefact.objects.filter(
+            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
+        ).exists()
+        mock_delay.assert_not_called()
+        report.refresh_from_db()
+        assert report.status == report_status
+
+    @time_machine.travel(_NOW, tick=False)
+    def test_refund_of_manually_resolved_report_suppresses(self, _flag) -> None:
         report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
-        _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
+        _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC))
         response = self._refund(report)
         assert response.status_code == status.HTTP_200_OK, response.json()
         report.refresh_from_db()
-        assert report.status == expected_status
-        # The permanent marker lands regardless of whether the status changed.
+        assert report.status == SignalReport.Status.SUPPRESSED
         assert SignalReportArtefact.objects.filter(
             report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
         ).exists()
@@ -286,45 +343,13 @@ class TestSignalReportRefundAPI(APIBaseTest):
         assert properties["pr_merged"] is False
         assert properties["days_since_pr"] == 5
 
-    @parameterized.expand(
-        [
-            # A merged PR (output.pr_merged) reports pr_merged=True whatever the report status.
-            (
-                "merged_pr",
-                SignalReport.Status.READY,
-                {"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True},
-                True,
-                None,
-            ),
-            ("canonical_merge", SignalReport.Status.READY, {"pr_url": "https://github.com/x/y/pull/1"}, True, "merged"),
-            # Resolved without a merged PR must NOT report a merge: status alone can't attest one.
-            (
-                "resolved_without_merge",
-                SignalReport.Status.RESOLVED,
-                {"pr_url": "https://github.com/x/y/pull/1"},
-                False,
-                None,
-            ),
-        ]
-    )
     @time_machine.travel(_NOW, tick=False)
-    def test_analytics_pr_merged_reflects_merge_flag_not_status(
-        self, _flag, _name, report_status, output, expected, linked_state
-    ):
-        report = _make_report(self.team, status=report_status)
-        _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC), output=output)
-        if linked_state is not None:
-            from products.signals.backend.models import SignalReportPullRequest
-
-            assert (
-                SignalReportPullRequest.objects.for_team(self.team.id)
-                .filter(repository="x/y", number=1)
-                .update(state=linked_state)
-                == 1
-            )
+    def test_analytics_pr_merged_reflects_merge_flag_not_status(self, _flag) -> None:
+        report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
+        _make_pr_run(self.team, report, created_at=datetime(2026, 6, 10, tzinfo=UTC))
         with patch("products.signals.backend.views.report_user_action") as mock_report:
             assert self._refund(report).status_code == status.HTTP_200_OK
-        assert mock_report.call_args.kwargs["properties"]["pr_merged"] is expected
+        assert mock_report.call_args.kwargs["properties"]["pr_merged"] is False
 
     @time_machine.travel(_NOW, tick=False)
     def test_later_merged_pr_does_not_vouch_for_the_refunded_one(self, _flag):
@@ -391,9 +416,6 @@ class TestSignalReportRefundAPI(APIBaseTest):
 
     @time_machine.travel(_NOW, tick=False)
     def test_snooze_of_refunded_resolved_report_is_blocked(self, _flag):
-        # A merged-PR report stays RESOLVED through its refund, so the guard can't key on SUPPRESSED:
-        # snoozing it to POTENTIAL would put a refunded report back where grouping re-promotes it to
-        # candidate, and later PR runs on it are never billable.
         report = _make_report(self.team, status=SignalReport.Status.RESOLVED)
         _make_pr_run(
             self.team,
@@ -401,7 +423,7 @@ class TestSignalReportRefundAPI(APIBaseTest):
             created_at=datetime(2026, 6, 10, tzinfo=UTC),
             output={"pr_url": "https://github.com/x/y/pull/1", "pr_merged": True},
         )
-        assert self._refund(report).status_code == status.HTTP_200_OK
+        _make_refund(report)
         report.refresh_from_db()
         assert report.status == SignalReport.Status.RESOLVED
 
