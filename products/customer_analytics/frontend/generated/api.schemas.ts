@@ -601,7 +601,10 @@ export const AccountViewMarkdownNodeTypeEnumApi = {
 export interface AccountViewMarkdownAttributesApi {
     /** Stable identifier for this document. */
     nodeId: string
-    /** Component-only Markdown stored by the account view editor. */
+    /**
+     * Component-only Markdown stored by the account view editor.
+     * @maxLength 262144
+     */
     markdown: string
 }
 
@@ -675,7 +678,7 @@ export interface AccountViewCreateApi {
     content: AccountViewContentApi
 }
 
-export interface PatchedAccountViewUpdateApi {
+export interface AccountViewUpdateApi {
     /**
      * New view name. Omit to keep the current name.
      * @maxLength 400
@@ -692,7 +695,7 @@ export interface PatchedAccountViewUpdateApi {
      * Version returned by the last read.
      * @minimum 1
      */
-    version?: number
+    version: number
 }
 
 /**
@@ -2681,6 +2684,8 @@ export interface CalendarSyncStatusApi {
     readonly last_synced_at: string | null
     /** Whether a sync run is currently in flight. */
     readonly is_syncing: boolean
+    /** Minutes between scheduled syncs. */
+    readonly sync_interval_minutes: number
 }
 
 export interface CalendarSyncBackfillApi {
@@ -2713,6 +2718,13 @@ export interface CalendarSyncTriggerResponseApi {
      * * `started` - started
      * * `already_running` - already_running */
     status: CalendarSyncTriggerResponseStatusEnumApi
+}
+
+export interface CalendarSyncIntervalApi {
+    /** Id of the connected Google account. */
+    integration_id: number
+    /** Minutes between scheduled syncs: 5, 15, 30, or 60. */
+    sync_interval_minutes: number
 }
 
 /**

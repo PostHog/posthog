@@ -238,6 +238,8 @@ export const AccountTrackRulesRunCreateBody = /* @__PURE__ */ zod.object({
  */
 export const accountViewsCreateBodyNameMax = 400
 
+export const accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
+
 export const accountViewsCreateBodyContentOneContentMax = 1
 
 export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
@@ -259,6 +261,7 @@ export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
                                 nodeId: zod.string().describe('Stable identifier for this document.'),
                                 markdown: zod
                                     .string()
+                                    .max(accountViewsCreateBodyContentOneContentItemAttrsOneMarkdownMax)
                                     .describe('Component-only Markdown stored by the account view editor.'),
                             })
                             .describe('Markdown notebook attributes.'),
@@ -275,6 +278,8 @@ export const AccountViewsCreateBody = /* @__PURE__ */ zod.object({
  * @summary Update an account view
  */
 export const accountViewsPartialUpdateBodyNameMax = 400
+
+export const accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax = 262144
 
 export const accountViewsPartialUpdateBodyContentOneContentMax = 1
 
@@ -301,6 +306,7 @@ export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 nodeId: zod.string().describe('Stable identifier for this document.'),
                                 markdown: zod
                                     .string()
+                                    .max(accountViewsPartialUpdateBodyContentOneContentItemAttrsOneMarkdownMax)
                                     .describe('Component-only Markdown stored by the account view editor.'),
                             })
                             .describe('Markdown notebook attributes.'),
@@ -319,7 +325,7 @@ export const AccountViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'New visibility. Only the creator or a project admin can change it.\n\n\* `private` - Personal\n\* `team` - Team'
         ),
-    version: zod.number().min(1).optional().describe('Version returned by the last read.'),
+    version: zod.number().min(1).describe('Version returned by the last read.'),
 })
 
 export const accountsCreateBodyNameMax = 400
@@ -587,6 +593,16 @@ export const CalendarSyncBackfillCreateBody = /* @__PURE__ */ zod.object({
     integration_id: zod.number().describe('Id of the Google account integration to backfill.'),
     start_date: zod.iso.date().describe('First UTC date to include. Must be within the last 365 days.'),
     end_date: zod.iso.date().describe('Final UTC date to include. Cannot be after today.'),
+})
+
+/**
+ * Calendar-sync controls for Customer analytics settings. Sync runs on an hourly
+ * Temporal schedule; this surface only offers the manual "sync now" escape hatch.
+ * @summary Set Google account sync interval
+ */
+export const CalendarSyncIntervalCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod.number().describe('Id of the connected Google account.'),
+    sync_interval_minutes: zod.number().describe('Minutes between scheduled syncs: 5, 15, 30, or 60.'),
 })
 
 /**
