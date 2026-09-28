@@ -296,8 +296,10 @@ def _check_proxy(env: dict[str, str], scheme: str) -> None:
     if proxy is None:
         return
     try:
-        trusted = httpx.URL(proxy) in {httpx.URL(url) for url in settings.SSRF_TRUSTED_PROXY_URLS}
-    except httpx.InvalidURL:
+        # httpx.Proxy drops the user and password, as pinned_httpx compares it. The deployment puts
+        # the pod name in the proxy user, so the full URL never matches a trusted entry.
+        trusted = httpx.Proxy(proxy).url in {httpx.URL(url) for url in settings.SSRF_TRUSTED_PROXY_URLS}
+    except (httpx.InvalidURL, ValueError):
         trusted = False
     if not trusted:
         raise GitHostNotAllowed(

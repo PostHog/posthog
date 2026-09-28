@@ -271,17 +271,19 @@ def test_internal_host_never_reaches_git(_name: str, call: Callable[[GitRemote],
 
 
 @pytest.mark.parametrize(
-    "trusted,expected", [(False, GitHostNotAllowed), (True, GitFailed)], ids=["untrusted", "trusted"]
+    "credentials,trusted,expected",
+    [("", False, GitHostNotAllowed), ("", True, GitFailed), ("worker-0:x@", True, GitFailed)],
+    ids=["untrusted", "trusted", "trusted_with_credentials"],
 )
 def test_git_uses_a_proxy_only_when_it_is_trusted(
-    trusted: bool, expected: type[GitListError], monkeypatch: pytest.MonkeyPatch
+    credentials: str, trusted: bool, expected: type[GitListError], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with socket.socket() as closed_port:
         closed_port.bind(("127.0.0.1", 0))
         proxy = f"http://127.0.0.1:{closed_port.getsockname()[1]}"
     for name in PROXY_VARIABLES:
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("HTTPS_PROXY", proxy)
+    monkeypatch.setenv("HTTPS_PROXY", proxy.replace("http://", f"http://{credentials}"))
     remote = GitRemote(url=f"https://{PINNED_HOST}/acme/shop.git", auth_header=github_auth_header(TOKEN))
 
     with (
