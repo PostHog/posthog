@@ -553,6 +553,7 @@ class BatchConsumer:
         conn_attr: str,
         op_name: str,
         operation: Callable[[psycopg.AsyncConnection[Any]], Coroutine[Any, Any, T]],
+        should_abort: Callable[[], bool] | None = None,
     ) -> T:
         """Run `operation` on the named connection, reconnecting and retrying on a blip.
 
@@ -565,13 +566,28 @@ class BatchConsumer:
         lives in its own database reached over raw psycopg, so ``django.db.OperationalError``
         (an unrelated class) never matches, and its connection eviction would close app-DB
         connections rather than this one.
+
+        ``should_abort``, when given, is checked before each retry. The caller's own
+        ``asyncio.timeout`` fires its cancellation exactly once, and psycopg can turn that
+        cancellation into a plain retryable-looking ``OperationalError`` ("consuming input
+        failed: server closed the connection unexpectedly") instead of letting a
+        ``TimeoutError`` propagate. Without this check a retry loop that swallows that error
+        would redial and re-run with no further cancellation coming, burning up to
+        ``QUEUE_RETRY_MAX_ATTEMPTS`` attempts and their backoff past a deadline that already
+        expired. Passing the timeout context's own ``expired`` lets a retry still happen for
+        a genuine transient error while the deadline stands, but stop the moment it is the
+        deadline itself that produced the error.
         """
         for attempt in range(1, QUEUE_RETRY_MAX_ATTEMPTS + 1):
             try:
                 conn = await self._ensure_queue_conn(conn_attr)
                 return await operation(conn)
             except Exception as error:
-                if attempt == QUEUE_RETRY_MAX_ATTEMPTS or not _is_retryable_queue_db_error(error):
+                if (
+                    attempt == QUEUE_RETRY_MAX_ATTEMPTS
+                    or not _is_retryable_queue_db_error(error)
+                    or (should_abort is not None and should_abort())
+                ):
                     raise
                 logger.warning(
                     self._event("queue_db_operation_retrying"),
@@ -685,6 +701,7 @@ class BatchConsumer:
                             "_poll_conn",
                             "fetch_and_lock",
                             partial(self._fetch_batches, available=available),
+                            should_abort=poll_timeout_ctx.expired,
                         )
                     conn = await self._ensure_poll_conn()
                 except TimeoutError:
@@ -1345,9 +1362,10 @@ class BatchConsumer:
             now = time.monotonic()
             if now - self._last_reconcile_monotonic >= self._config.reconcile_interval_seconds:
                 self._last_reconcile_monotonic = now
+                reconcile_timeout_ctx = asyncio.timeout(self._config.sweep_timeout_seconds)
                 try:
-                    async with asyncio.timeout(self._config.sweep_timeout_seconds):
-                        await self._reconcile_failed_runs()
+                    async with reconcile_timeout_ctx:
+                        await self._reconcile_failed_runs(should_abort=reconcile_timeout_ctx.expired)
                 except TimeoutError:
                     logger.error(  # noqa: TRY400 — designed recovery path, traceback is noise
                         self._event("reconcile_sweep_timed_out"),
@@ -1370,9 +1388,10 @@ class BatchConsumer:
 
     async def _recovery_sweep_with_timeout(self) -> None:
         """Run the recovery sweep under the sweep timeout; a sweep that never returns must not stall the consumer."""
+        sweep_timeout_ctx = asyncio.timeout(self._config.sweep_timeout_seconds)
         try:
-            async with asyncio.timeout(self._config.sweep_timeout_seconds):
-                await self._recovery_sweep()
+            async with sweep_timeout_ctx:
+                await self._recovery_sweep(should_abort=sweep_timeout_ctx.expired)
         except TimeoutError:
             logger.error(  # noqa: TRY400 — designed recovery path, traceback is noise
                 self._event("recovery_sweep_timed_out"),
@@ -1380,7 +1399,7 @@ class BatchConsumer:
             )
             await self._drop_conn("_recovery_conn")
 
-    async def _reconcile_failed_runs(self) -> None:
+    async def _reconcile_failed_runs(self, *, should_abort: Callable[[], bool] | None = None) -> None:
         """Reconcile runs whose queue batch failed but whose terminal-state write never landed."""
         await self._with_queue_conn(
             "_recovery_conn",
@@ -1391,6 +1410,7 @@ class BatchConsumer:
                 lookback_seconds=self._config.reconcile_lookback_seconds,
                 limit=self._config.reconcile_limit,
             ),
+            should_abort=should_abort,
         )
 
     def _note_poll_failure(self, reason: str, *, duration: float) -> None:
@@ -1461,7 +1481,7 @@ class BatchConsumer:
             except TimeoutError:
                 pass
 
-    async def _recovery_sweep(self) -> None:
+    async def _recovery_sweep(self, *, should_abort: Callable[[], bool] | None = None) -> None:
         grace_seconds = self._config.recovery_grace_seconds
         assert grace_seconds is not None
         # keep_locks lets advisory-lock sinks (duckgres) hold their probe locks
@@ -1473,6 +1493,7 @@ class BatchConsumer:
             "_recovery_conn",
             "get_stale_executing",
             lambda conn: self._adapter.get_stale_executing(conn, grace_seconds=grace_seconds, keep_locks=True),
+            should_abort=should_abort,
         )
         if not stale:
             self._metrics.recovery_sweeps_total.labels(outcome="clean").inc()

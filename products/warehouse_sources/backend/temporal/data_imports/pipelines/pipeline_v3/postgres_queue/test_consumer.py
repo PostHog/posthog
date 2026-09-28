@@ -2826,6 +2826,31 @@ class TestQueueDbRetry:
         assert attempts == 1
 
     @pytest.mark.asyncio
+    async def test_should_abort_stops_retrying_a_retryable_error(self) -> None:
+        # A caller's own asyncio.timeout cancels its task exactly once, and psycopg can
+        # turn that cancellation into a plain retryable-looking OperationalError. Without
+        # should_abort the retry loop would redial and re-run with no further cancellation
+        # coming, burning attempts and backoff past a deadline that already expired.
+        consumer = _make_consumer()
+        attempts = 0
+
+        async def always_transient(conn: Any) -> None:
+            nonlocal attempts
+            attempts += 1
+            raise psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly")
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=_make_healthy_conn()),
+            pytest.raises(psycopg.OperationalError),
+        ):
+            await consumer._with_queue_conn(
+                "_poll_conn", "fetch_and_lock", always_transient, should_abort=lambda: True
+            )
+
+        # Raises on the very first attempt instead of exhausting QUEUE_RETRY_MAX_ATTEMPTS.
+        assert attempts == 1
+
+    @pytest.mark.asyncio
     async def test_connect_retries_a_transient_refusal(self) -> None:
         consumer = _make_consumer()
         fresh = _make_healthy_conn()
