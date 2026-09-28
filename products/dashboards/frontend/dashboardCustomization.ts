@@ -94,13 +94,31 @@ export function resolveFreePlacementCollisions(layout: Layout, cols: number, act
         )
 
         if (overlappingItems.length > 0) {
-            const firstCollisionRow = Math.min(...overlappingItems.map((item) => item.y))
-            const firstAffectedRow = Math.min(activeTile.y, firstCollisionRow)
-            const shift = activeTile.y + activeTile.h - firstCollisionRow
-            for (const item of items) {
-                if (item.i !== activeTileId && item.y >= firstAffectedRow) {
-                    item.y += shift
+            const occupancy: GridOccupancy = new Map()
+            const shiftByColumn = Array.from({ length: cols }, () => 0)
+            occupy(occupancy, activeTile, cols)
+
+            for (const item of items
+                .filter((item) => item.i !== activeTileId)
+                .sort((first, second) => first.y - second.y || first.x - second.x)) {
+                const originalY = item.y
+                const firstColumn = Math.max(0, item.x)
+                const lastColumn = Math.min(cols, item.x + item.w)
+
+                for (let column = firstColumn; column < lastColumn; column++) {
+                    item.y = Math.max(item.y, originalY + shiftByColumn[column])
                 }
+
+                let collisions = getOccupants(occupancy, item, cols)
+                while (collisions.length > 0) {
+                    item.y = Math.max(...collisions.map((collision) => collision.y + collision.h))
+                    collisions = getOccupants(occupancy, item, cols)
+                }
+
+                for (let column = firstColumn; column < lastColumn; column++) {
+                    shiftByColumn[column] = Math.max(shiftByColumn[column], item.y - originalY)
+                }
+                occupy(occupancy, item, cols)
             }
             return items
         }
