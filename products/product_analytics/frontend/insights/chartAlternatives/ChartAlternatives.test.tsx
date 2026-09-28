@@ -141,4 +141,30 @@ describe('ChartAlternatives', () => {
             expect(document.querySelector('[data-attr="chart-alternatives-all"]')).not.toBeInTheDocument()
         )
     })
+
+    it.each([
+        ['a read-only insight', true, NodeKind.TrendsQuery],
+        ['a non-trends insight', false, NodeKind.FunnelsQuery],
+    ])('does not read the experiment flag for %s', (_, embedded, kind) => {
+        const readFlags: string[] = []
+        const featureFlags = new Proxy(
+            {},
+            {
+                get: (_target, flag) => {
+                    readFlags.push(String(flag))
+                    return 'test'
+                },
+            }
+        )
+        jest.spyOn(featureFlagLogic.selectors, 'featureFlags').mockReturnValue(featureFlags)
+        builtInsightVizDataLogic.actions.updateQuerySource({ ...makeTrendsQuery(), kind } as unknown as TrendsQuery)
+
+        const logic = chartAlternativesLogic({ embedded, ...insightProps })
+        logic.mount()
+
+        expect(logic.values.canShowAlternatives).toBe(false)
+        expect(readFlags).not.toContain(FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES)
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
 })

@@ -267,11 +267,12 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                 query: Node | null,
                 trendsSource: TrendsQuery | null
             ): boolean =>
-                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] === 'test' &&
+                // Reading the flag records an experiment exposure, so read it only where the gallery could show.
                 isEditableSurface &&
                 isTrends &&
                 !!query &&
-                !!trendsSource,
+                !!trendsSource &&
+                featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_CHART_ALTERNATIVES] === 'test',
         ],
         canSelectCharts: [
             (s) => [s.canShowAlternatives, s.insightDataLoading],
