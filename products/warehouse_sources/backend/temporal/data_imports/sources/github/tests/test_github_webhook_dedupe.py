@@ -95,8 +95,21 @@ def test_equal_version_keys_keep_furthest_status(arrival_order: list[str]) -> No
     assert out.column("status")[0].as_py() == "completed"
 
 
+def test_rerun_attempt_outranks_the_previous_attempts_completion() -> None:
+    table = pa.table(
+        {
+            "id": [1, 1],
+            "status": ["completed", "queued"],
+            "run_attempt": [1, 2],
+            "updated_at": ["2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"],
+        }
+    )
+    out = _make_webhook_dedupe_transformer("id", GITHUB_ENDPOINTS["workflow_runs"].version_keys or [])(table)
+    assert out.num_rows == 1
+    assert out.column("status")[0].as_py() == "queued"
+
+
 def test_single_version_key_keeps_max() -> None:
-    # workflow_runs ranks on updated_at alone.
     table = pa.table(
         {
             "id": [1, 1],
