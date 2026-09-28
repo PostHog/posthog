@@ -8,6 +8,10 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # to every request (see financial_modelling.py).
 FINANCIAL_MODELLING_BASE_URL = "https://financialmodelingprep.com/stable"
 
+# Endpoints that accept `limit` cap it at 1000 and offer no page cursor, so ask for the maximum.
+# Left off, FMP falls back to a handful of records and silently truncates the symbol's history.
+FINANCIAL_MODELLING_MAX_LIMIT = "1000"
+
 
 @dataclass
 class FinancialModellingEndpointConfig:
@@ -87,6 +91,61 @@ FINANCIAL_MODELLING_ENDPOINTS: dict[str, FinancialModellingEndpointConfig] = {
         fan_out_over_symbols=True,
         partition_key="date",
         extra_params={"period": "annual"},
+    ),
+    # FMP's headline per-company metric set (market cap, enterprise value, returns, yields) per
+    # fiscal period. Takes `limit` and `period` but no `from`/`to`, so it is full refresh.
+    "key_metrics": FinancialModellingEndpointConfig(
+        name="key_metrics",
+        path="key-metrics",
+        primary_keys=["symbol", "date", "period"],
+        fan_out_over_symbols=True,
+        partition_key="date",
+        extra_params={"period": "annual", "limit": FINANCIAL_MODELLING_MAX_LIMIT},
+    ),
+    # Valuation, profitability, liquidity and leverage ratios per fiscal period. Same shape and
+    # parameters as key_metrics.
+    "ratios": FinancialModellingEndpointConfig(
+        name="ratios",
+        path="ratios",
+        primary_keys=["symbol", "date", "period"],
+        fan_out_over_symbols=True,
+        partition_key="date",
+        extra_params={"period": "annual", "limit": FINANCIAL_MODELLING_MAX_LIMIT},
+    ),
+    # Trailing-twelve-month snapshot of the key metrics. One always-current row per symbol with no
+    # fiscal `date`, so it is keyed on the symbol alone and replaced in full on every sync.
+    "key_metrics_ttm": FinancialModellingEndpointConfig(
+        name="key_metrics_ttm",
+        path="key-metrics-ttm",
+        primary_keys=["symbol"],
+        fan_out_over_symbols=True,
+    ),
+    # Trailing-twelve-month snapshot of the ratios. Same one-row-per-symbol shape as key_metrics_ttm.
+    "ratios_ttm": FinancialModellingEndpointConfig(
+        name="ratios_ttm",
+        path="ratios-ttm",
+        primary_keys=["symbol"],
+        fan_out_over_symbols=True,
+    ),
+    # Actual dividend history per symbol (ex-date, record, payment, amount, yield). Unlike the
+    # market-wide dividends_calendar it takes no `from`/`to`, so it is full refresh.
+    "dividends": FinancialModellingEndpointConfig(
+        name="dividends",
+        path="dividends",
+        primary_keys=["symbol", "date"],
+        fan_out_over_symbols=True,
+        partition_key="date",
+        extra_params={"limit": FINANCIAL_MODELLING_MAX_LIMIT},
+    ),
+    # Reported earnings per symbol: actual vs estimated EPS and revenue. The market-wide
+    # earnings_calendar covers the forward schedule; this is the per-symbol history behind it.
+    "earnings": FinancialModellingEndpointConfig(
+        name="earnings",
+        path="earnings",
+        primary_keys=["symbol", "date"],
+        fan_out_over_symbols=True,
+        partition_key="date",
+        extra_params={"limit": FINANCIAL_MODELLING_MAX_LIMIT},
     ),
     # End-of-day OHLCV history per symbol. Honors `from`/`to`, so this is the one symbol-keyed
     # endpoint we sync incrementally on the trading `date`.

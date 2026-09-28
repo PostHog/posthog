@@ -1474,7 +1474,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 return Response(
                     data={
                         "message": f"Table '{schema_name}' has no primary key to sync incrementally on. "
-                        "Set primary_key_columns for it, or choose full_refresh."
+                        "Choose a primary key for it, or switch it to full table replication."
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
