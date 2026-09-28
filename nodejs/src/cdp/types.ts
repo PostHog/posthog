@@ -60,6 +60,11 @@ export interface HogFunctionFilters {
     bytecode?: HogBytecode
     /** Set by Django when compilation failed. The bytecode is null beside it, unless the save kept the last working one. */
     bytecode_error?: string
+    /**
+     * The runtime contract hash the bytecode was compiled against, from filter_globals.json. Absent on
+     * bytecode saved before the compiler checked globals and functions.
+     */
+    bytecode_contract?: string
 }
 
 export type GroupType = {

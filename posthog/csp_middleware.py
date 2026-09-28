@@ -13,7 +13,7 @@ from django.http import HttpRequest
 import structlog
 import posthoganalytics
 
-from posthog.cloud_utils import get_api_host, is_cloud
+from posthog.cloud_utils import get_api_host, is_cloud, is_hobby
 from posthog.constants import POSTHOG_JS_CLOUD_HOST, POSTHOG_JS_CLOUD_TOKEN
 from posthog.models.utils import generate_random_token
 from posthog.ph_client import PH_US_API_KEY, PH_US_HOST
@@ -43,6 +43,30 @@ def csp_report_endpoint(**params: str) -> str:
     return parts._replace(query=urlencode(query)).geturl()
 
 
+def object_storage_upload_source() -> str:
+    """The `connect-src` source a browser POSTs a presigned upload to, or "" when there is none.
+
+    A file the user attaches goes straight from the page to object storage: the API hands out a
+    presigned POST and the bytes never pass through Django, so the store's public endpoint has to
+    be a `connect-src` the policy names. The bucket is part of the source because in cloud that
+    endpoint is shared S3, and an origin on its own would let injected script POST to every other
+    bucket on the same host.
+
+    Returns "" for a deployment that serves object storage from its own origin, which `'self'`
+    already covers, and for one that has not configured the store at all.
+
+    The source is https whatever the endpoint says, because a bucket reached over plaintext is
+    not something to admit. The dev store runs on http, so it keeps its scheme the way the other
+    localhost sources in this policy do.
+    """
+    parts = urlsplit(settings.OBJECT_STORAGE_PUBLIC_ENDPOINT)
+    bucket = settings.OBJECT_STORAGE_BUCKET
+    if parts.scheme not in ("http", "https") or not parts.netloc or not bucket:
+        return ""
+    scheme = parts.scheme if settings.DEBUG or settings.TEST else "https"
+    return f"{scheme}://{parts.netloc}/{bucket}"
+
+
 # The full path, matched exactly. Django sends every unmatched path to the app catch-all, so a
 # prefix match would also hand the app document this policy and stop it from starting.
 REPLAY_PLAYER_FRAME_PATH = "/replay_player_frame/index.html"
@@ -68,10 +92,9 @@ def is_embeddable_document(path: str) -> bool:
     return path in EMBEDDABLE_PATHS or path.startswith(EMBEDDABLE_PATH_PREFIXES)
 
 
-CSP_ENFORCE_APP_POLICY_FLAG = "csp-enforce-app-policy"
-CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG = "csp-enforce-signed-out-pages"
+CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG = "csp-enforce-other-signed-out-pages"
 
-# The pages that take a password or a one-time code. Other signed-out pages keep the report-only header.
+# The pages that take a password or a one-time code. Other signed-out pages follow the flag above.
 SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES = ("/login", "/signup", "/reset", "/reset_2fa", "/verify_email")
 
 
@@ -79,7 +102,7 @@ def is_signed_out_enforceable_path(path: str) -> bool:
     return any(path == prefix or path.startswith(prefix + "/") for prefix in SIGNED_OUT_ENFORCEABLE_PATH_PREFIXES)
 
 
-def signed_out_csp_enforcement_enabled() -> bool:
+def other_signed_out_pages_csp_enforcement_enabled() -> bool:
     try:
         # A signed-out visitor has no person to bucket, so each document draws a random id. The
         # flag's rollout percentage then applies per document.
@@ -87,9 +110,12 @@ def signed_out_csp_enforcement_enabled() -> bool:
         # A condition on a person property cannot resolve for a random id, so it evaluates to None
         # and enforces nothing. Flag events stay off, because each document would add a new
         # distinct id to the project.
+        #
+        # Local evaluation only. A network call here would sit in the path of every HTML response,
+        # and an unevaluable flag returns None, which leaves the policy report-only.
         return bool(
             posthoganalytics.feature_enabled(
-                CSP_ENFORCE_SIGNED_OUT_PAGES_FLAG,
+                CSP_ENFORCE_OTHER_SIGNED_OUT_PAGES_FLAG,
                 str(uuid.uuid4()),
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
@@ -101,36 +127,16 @@ def signed_out_csp_enforcement_enabled() -> bool:
 
 
 def csp_enforcement_enabled(request: HttpRequest) -> bool:
+    if is_hobby():
+        # A self-hosted install reports its violations nowhere, and its asset hosts can differ from
+        # ours, so an enforced policy there would break pages with no signal.
+        return False
     user = getattr(request, "user", None)
-    if user is None:
-        return False
-    if not user.is_authenticated:
-        # The document keeps the policy it loads with. A visitor who signs in on login goes on to
-        # the app inside the same document, so the draw here also covers that visit.
-        return is_signed_out_enforceable_path(request.path) and signed_out_csp_enforcement_enabled()
-    distinct_id = getattr(user, "distinct_id", None)
-    if not distinct_id:
-        return False
-    try:
-        # Local evaluation only. A network call here would sit in the path of every HTML response,
-        # and an unevaluable flag returns None, which leaves the policy report-only.
-        #
-        # Local evaluation holds the flag's conditions but not the person's properties, so a
-        # condition on `email` cannot resolve unless the caller supplies it. Without this the
-        # staff-only rollout every other flag here uses would return None and enforce nothing.
-        return bool(
-            posthoganalytics.feature_enabled(
-                CSP_ENFORCE_APP_POLICY_FLAG,
-                distinct_id,
-                person_properties={"email": user.email} if user.email else {},
-                only_evaluate_locally=True,
-            )
-        )
-    except Exception:
-        # A failed lookup and a deliberate opt-out both leave the policy report-only. The rollout
-        # needs to tell them apart.
-        logger.warning("csp.enforcement_flag_check_failed_defaulting_off", exc_info=True)
-        return False
+    if user is not None and user.is_authenticated:
+        return True
+    # The document keeps the policy it loads with. A visitor who signs in from a page the flag
+    # leaves report-only goes on to the app inside the same document, still report-only.
+    return is_signed_out_enforceable_path(request.path) or other_signed_out_pages_csp_enforcement_enabled()
 
 
 def app_csp_header_name(request: HttpRequest) -> str:
@@ -276,6 +282,7 @@ class CSPMiddleware:
                 frame_ancestors += " http://localhost:8001"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            object_storage_source = object_storage_upload_source()
             js_url = urlsplit(settings.JS_URL)
             bundle_origin = f"{js_url.scheme}://{js_url.netloc}" if js_url.scheme and js_url.netloc else ""
             csp_parts = [
@@ -357,7 +364,7 @@ class CSPMiddleware:
                 frame_ancestors,
                 # The live debugger's repo browser reads PostHog/posthog from the GitHub API. The path keeps
                 # the rest of the API, and every other repository, out of reach of injected script.
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://api.github.com/repos/PostHog/posthog/ https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",
@@ -411,29 +418,10 @@ class CSPMiddleware:
                     },
                 )
 
-            # Both values are read inside one narrowed block, so nothing below re-checks `user`.
             user = getattr(request, "user", None)
-            if user is not None and user.is_authenticated:
-                is_staff = bool(getattr(user, "is_staff", False))
-                distinct_id = getattr(user, "distinct_id", None)
-            else:
-                is_staff = False
-                distinct_id = None
+            distinct_id = getattr(user, "distinct_id", None) if user is not None and user.is_authenticated else None
 
-            # Staff get the policy enforced ahead of everyone else, so each violation they report is
-            # something already broken for a colleague rather than one sample of a trend. At 0.1 we
-            # would see one breakage in ten, which is the opposite of what the staff rollout is for.
-            # The endpoint does the sampling, so browsers already send every report and taking staff
-            # to 1 costs ingestion rather than client traffic.
-            #
-            # This keys on is_staff rather than on the enforcement flag, which would otherwise track
-            # the enforced population exactly. The flag widens until it covers everyone, and would
-            # silently take the whole fleet to unsampled reporting; staff stays bounded.
-            sample_rate = "1" if is_staff else "0.1"
-
-            report_params = {"sample_rate": sample_rate}
-            if narrowed:
-                report_params["v"] = NARROWED_APP_POLICY_REPORT_VERSION
+            report_params: dict[str, str] = {"v": NARROWED_APP_POLICY_REPORT_VERSION} if narrowed else {}
             report_uri = csp_report_endpoint(**report_params)
             if report_uri:
                 report_endpoint = report_uri

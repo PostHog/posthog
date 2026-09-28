@@ -19,7 +19,7 @@ import { cohortsPartialUpdate, cohortsRetrieve } from 'products/cohorts/frontend
 import { dashboardsPartialUpdate, dashboardsRetrieve } from 'products/dashboards/frontend/generated/api'
 import { experimentsPartialUpdate, experimentsRetrieve } from 'products/experiments/frontend/generated/api'
 import { featureFlagsPartialUpdate, featureFlagsRetrieve } from 'products/feature_flags/frontend/generated/api'
-import { notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
+import { notebooksCreate, notebooksPartialUpdate, notebooksRetrieve } from 'products/notebooks/frontend/generated/api'
 import { insightsPartialUpdate, insightsRetrieve } from 'products/product_analytics/frontend/generated/api'
 import { surveysPartialUpdate, surveysRetrieve } from 'products/surveys/frontend/generated/api'
 
@@ -117,7 +117,7 @@ open [path] opens a project file or folder in PostHog. With no path, it opens th
 current folder. JSON files open their PostHog item, including files in /posthog/api.
 Folders open in the Files tab when the simple side panel is enabled.
 
-Optional tools download on first use: node, pi, nyancat, and doom.
+Optional tools download on first use: nvim, node, pi, nyancat, and doom.
 In Doom, W/S move, A/D strafe, left/right arrows turn, Space fires, E opens doors,
 and Shift runs. Use Capture mouse to turn with the mouse; left-click fires.
 
@@ -146,7 +146,11 @@ to approve or cancel; keyboard input cannot approve changes. rm groups its PostH
 one confirmation. Other programs confirm each removal. Local Linux files do not
 require confirmation. Delete local and PostHog files in separate commands.
 Removing the last file reference deletes the PostHog object, using your permissions.
-Files open for writing must be closed before removal. Use ph notebook-create to create notebooks.
+Files open for writing must be closed before removal. Use touch Notes.md or save a
+new .md file in an editor to create a blank markdown notebook in the current folder.
+Other new file types and editor backup files are not supported under /posthog/files.
+Notebook names are not unique across clients. If another client creates the same
+name, run ph refresh to see both notebooks with distinct filenames.
 Work in /tmp for programs that save by renaming a temporary file,
 then use cat /tmp/edited.md > '/posthog/files/path/to/notebook.md'.
 
@@ -169,6 +173,8 @@ Files are limited to 4 MiB. Use Ctrl+C to interrupt, Tab to complete, and the
 mouse wheel for scrollback. Run busybox to see the installed Unix utilities.
 jq 1.8.2 is installed for JSON queries and formatting.
 nano 8.4 edits text with syntax highlighting. Ctrl+S saves; Ctrl+X exits.
+nvim installs Neovim on first use. Run nvim file to edit, press i to insert text,
+then Escape to return to normal mode. :w saves; :q quits.
 mc opens Midnight Commander. Tab switches panels; F3 views, F4 edits, F10 quits.
 Use Escape then a digit if your browser or keyboard captures function keys.
 mcview, mcedit, and mcdiff also run directly from the shell.
@@ -355,6 +361,7 @@ export class PosthogFilesystem extends TerminalFilesystem {
     private registerDirectory(node: TerminalNode, parts: string[], entry?: FileSystemApi): void {
         this.projectNodes.set(node, { parts, entry })
         node.loadChildren = () => this.ensureDirectory(node)
+        node.create = (name, signal) => this.createNotebook(node, name, signal)
         node.mkdir = async (name) => {
             const directory = this.projectNodes.get(node)
             if (!directory) {
@@ -379,6 +386,67 @@ export class PosthogFilesystem extends TerminalFilesystem {
         if (node !== this.files) {
             node.rename = (parent, name) => this.move(node, parent, name)
             node.remove = () => this.remove(node)
+        }
+    }
+
+    private async createNotebook(parent: TerminalNode, name: string, signal?: AbortSignal): Promise<TerminalNode> {
+        if (signal?.aborted) {
+            throw new FilesystemError(4)
+        }
+        const directory = this.projectNodes.get(parent)
+        if (!directory || parent.removed) {
+            throw new FilesystemError(116)
+        }
+        if (!name.endsWith('.md')) {
+            throw new FilesystemError(95)
+        }
+        const title = this.storedName(name)
+        if (terminalFilename(title) !== name) {
+            throw new FilesystemError(22)
+        }
+        await this.confirmWrite({
+            title: 'Create a PostHog notebook?',
+            description: `Create a blank markdown notebook in project ${this.projectId}. This affects everyone in the project.`,
+            items: [joinPath([...directory.parts, title])],
+        })
+        if (signal?.aborted) {
+            throw new FilesystemError(4)
+        }
+        // Finish reconciling approved writes even if the guest cancels after the POST starts.
+        const notebook = await notebooksCreate(
+            this.projectId,
+            {
+                title,
+                _create_in_folder: joinPath(directory.parts),
+                content: {
+                    type: 'doc',
+                    content: [
+                        {
+                            type: 'ph-markdown-notebook',
+                            attrs: { nodeId: 'markdown-notebook-v2', markdown: '' },
+                        },
+                    ],
+                },
+                text_content: '',
+            },
+            { signal: this.signal }
+        )
+        const params = { type: 'notebook', ref: notebook.short_id, include_content_type: true }
+        try {
+            const page = await fileSystemList(this.projectId, params, { signal: this.signal })
+            const entry = page.results.find((entry) => entry.type === 'notebook' && entry.ref === notebook.short_id)
+            if (!entry) {
+                throw new Error(
+                    'The notebook was created but could not be loaded. Run ph refresh to reload the folder.'
+                )
+            }
+            this.mountEntries([entry], true)
+            return this.mountedFiles.get(this.fileIdentity(entry, '.md'))!
+        } catch (error) {
+            // The notebook exists but is not mounted. Reload the folder on the next lookup so that
+            // a retry finds the notebook instead of creating a duplicate.
+            this.loadedDirectories.delete(parent)
+            throw error
         }
     }
 

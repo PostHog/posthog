@@ -1472,6 +1472,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             let alreadySent = false
 
             try {
+                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a URL built at runtime and an unchecked response type. Use a generated function if one covers this endpoint.
                 const response = await api.createResponse(getCommentsCreateUrl(String(getCurrentTeamId())), {
                     content,
                     rich_content: richContent,
