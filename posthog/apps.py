@@ -33,6 +33,10 @@ class PostHogConfig(AppConfig):
 
             apply_orjson_jsonfield()
 
+        from posthog.helpers.migration_state_speedups import apply as apply_migration_state_speedups  # noqa: PLC0415
+
+        apply_migration_state_speedups()
+
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
         from posthog.storage.gateway_credential_signal_handlers import (
             connect_signal_handlers as connect_gateway_credential_signal_handlers,
