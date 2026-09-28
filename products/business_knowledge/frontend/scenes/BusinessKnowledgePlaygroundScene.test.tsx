@@ -41,6 +41,7 @@ const playgroundValues = {
     pendingQuestion: null,
     asking: false,
     askDisabled: true,
+    askBlockedReason: null,
     askError: null,
     chatHasOpenTurn: false,
     chatError: null,

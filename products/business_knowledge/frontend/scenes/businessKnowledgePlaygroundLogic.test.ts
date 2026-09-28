@@ -253,6 +253,29 @@ describe('businessKnowledgePlaygroundLogic', () => {
         expect(logic.values.asking).toBe(false)
     })
 
+    it.each([
+        [3, true],
+        [2, false],
+    ])('with %i answers running elsewhere, a new chat ask is blocked: %s', async (openCount, blocked) => {
+        await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
+        mockedList.mockResolvedValue(
+            Array.from({ length: openCount }, (_, index) => ({ ...listed, id: `open-${index}`, has_open_turn: true }))
+        )
+        mockedCreate.mockResolvedValue(emptyChat)
+        mockedAsk.mockResolvedValue(chat('running'))
+        mockedGet.mockReturnValue(new Promise(() => {}))
+        await expectLogic(logic, () => {
+            logic.actions.loadChats()
+        }).toDispatchActions(['loadChatsSuccess'])
+
+        logic.actions.setQuestion('Can I get a refund?')
+        expect(logic.values.askBlockedReason !== null).toBe(blocked)
+        await logic.asyncActions.ask()
+
+        expect(mockedCreate).toHaveBeenCalledTimes(blocked ? 0 : 1)
+        expect(logic.values.question).toBe(blocked ? 'Can I get a refund?' : '')
+    })
+
     it('refreshes the chat list until no chat has an answer running', async () => {
         await expectLogic(logic).toDispatchActions(['loadChatsSuccess'])
         jest.useFakeTimers()

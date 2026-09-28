@@ -9,8 +9,18 @@ import { businessKnowledgePlaygroundLogic } from './businessKnowledgePlaygroundL
 import { PlaygroundTurn } from './PlaygroundTurn'
 
 export function PlaygroundThread(): JSX.Element {
-    const { chat, chatId, chatLoading, chatError, question, asking, askError, chatHasOpenTurn, pendingQuestion } =
-        useValues(businessKnowledgePlaygroundLogic)
+    const {
+        chat,
+        chatId,
+        chatLoading,
+        chatError,
+        question,
+        asking,
+        askError,
+        askBlockedReason,
+        chatHasOpenTurn,
+        pendingQuestion,
+    } = useValues(businessKnowledgePlaygroundLogic)
     const { setQuestion, ask } = useActions(businessKnowledgePlaygroundLogic)
     const scrollRef = useRef<HTMLDivElement>(null)
     const turns = chat?.turns ?? []
@@ -31,7 +41,7 @@ export function PlaygroundThread(): JSX.Element {
             onChange={setQuestion}
             onSubmit={ask}
             loading={asking && !chatHasOpenTurn}
-            disabledReason={chatHasOpenTurn ? 'Wait for this answer to finish.' : undefined}
+            disabledReason={askBlockedReason ?? undefined}
         >
             {askError ? (
                 <Composer.Banner>
