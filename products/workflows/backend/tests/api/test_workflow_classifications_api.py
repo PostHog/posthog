@@ -82,7 +82,13 @@ class TestWorkflowClassificationsAPI(APIBaseTest):
             ("not_configured", SystemOneNotConfigured(), None, status.HTTP_501_NOT_IMPLEMENTED),
             ("rate_limited", None, SystemOneRequestFailed("429", status_code=429), status.HTTP_503_SERVICE_UNAVAILABLE),
             ("unreachable", None, SystemOneRequestFailed("down"), status.HTTP_503_SERVICE_UNAVAILABLE),
-            ("bad_request", None, SystemOneRequestFailed("400", status_code=400), status.HTTP_502_BAD_GATEWAY),
+            (
+                "gateway_error",
+                None,
+                SystemOneRequestFailed("503", status_code=503),
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+            ),
+            ("bad_request", None, SystemOneRequestFailed("400", status_code=400), status.HTTP_422_UNPROCESSABLE_ENTITY),
         ]
     )
     def test_a_model_failure_maps_onto_a_status_the_step_can_retry_or_fail_on(

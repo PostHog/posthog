@@ -88,7 +88,7 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
                 response=WorkflowClassificationErrorSerializer,
                 description="This deployment has no AI gateway configured",
             ),
-            502: OpenApiResponse(
+            422: OpenApiResponse(
                 response=WorkflowClassificationErrorSerializer, description="The model rejected the request"
             ),
             503: OpenApiResponse(
@@ -129,10 +129,11 @@ class WorkflowClassificationViewSet(viewsets.GenericViewSet):
             return _error("Jev is not available on this PostHog deployment.", status.HTTP_501_NOT_IMPLEMENTED)
         except SystemOneRequestFailed as error:
             logger.warning("workflow_classification_failed", team_id=team.id, status_code=error.status_code)
-            # A 429 or 529 is load and a missing status is a network error, so the worker retries those.
-            if error.status_code in (None, 429, 529):
+            # A 429 or 5xx is load or an outage and a missing status is a network error, so the worker retries
+            # those. The worker also retries 502, so a rejection gets 422 to fail the step without a retry.
+            if error.status_code is None or error.status_code == 429 or error.status_code >= 500:
                 return _error("Jev is busy or unreachable. Retry later.", status.HTTP_503_SERVICE_UNAVAILABLE)
-            return _error("Jev rejected the request. Check the step inputs.", status.HTTP_502_BAD_GATEWAY)
+            return _error("Jev rejected the request. Check the step inputs.", status.HTTP_422_UNPROCESSABLE_ENTITY)
 
         answer = cast(ChoiceAnswer, result.answers[_QUESTION_ID])
         return Response(
