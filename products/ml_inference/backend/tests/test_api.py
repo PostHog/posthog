@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import patch
 
+from asgiref.sync import async_to_sync
+
 from products.ml_inference.backend.facade import api
 from products.ml_inference.backend.facade.contracts import (
     DecisionQuestion,
@@ -28,13 +30,16 @@ class TestDecideFacade:
 
         decide.assert_not_called()
 
-    @patch("products.ml_inference.backend.logic.decisions.decide")
+    @pytest.mark.parametrize("asynchronous", [False, True])
     @patch("products.ml_inference.backend.logic.decisions.decisions_available_here", return_value=False)
-    def test_available_path_refuses_an_unavailable_region(self, _available, decide) -> None:
-        with pytest.raises(DecisionsDisabledError):
-            api.decide_when_available(_request(), timeout_seconds=3.0)
+    def test_available_path_refuses_an_unavailable_region(self, _available, asynchronous: bool) -> None:
+        method = "async_decide" if asynchronous else "decide"
+        call = async_to_sync(api.async_decide_when_available) if asynchronous else api.decide_when_available
+        with patch(f"products.ml_inference.backend.logic.decisions.{method}") as decide:
+            with pytest.raises(DecisionsDisabledError):
+                call(_request(), timeout_seconds=3.0)
 
-        decide.assert_not_called()
+            decide.assert_not_called()
 
     @patch("products.ml_inference.backend.logic.decisions.decide")
     @patch("products.ml_inference.backend.logic.decisions.decisions_available_here", return_value=True)

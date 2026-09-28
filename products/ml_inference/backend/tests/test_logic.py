@@ -1,4 +1,6 @@
 import json
+import asyncio
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -7,6 +9,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 import httpx
+from asgiref.sync import async_to_sync
 from pydantic import ValidationError
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
@@ -205,6 +208,46 @@ class TestDecide:
 
         with override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""), pytest.raises(GatewayNotConfiguredError):
             decisions.decide(_request(), transport=transport)
+
+
+@pytest.mark.parametrize("stall_in_body", [False, True])
+def test_total_deadline_cancels_gateway_io_and_closes_the_response(stall_in_body: bool) -> None:
+    cancelled = False
+    closed = False
+
+    async def stall() -> None:
+        nonlocal cancelled
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled = True
+            raise
+
+    class SlowStream(httpx.AsyncByteStream):
+        async def __aiter__(self) -> AsyncIterator[bytes]:
+            nonlocal cancelled
+            try:
+                while True:
+                    yield b" "
+                    await asyncio.sleep(0)
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+
+        async def aclose(self) -> None:
+            nonlocal closed
+            closed = True
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if not stall_in_body:
+            await stall()
+        return httpx.Response(200, stream=SlowStream())
+
+    with override_settings(**GATEWAY), pytest.raises(DecisionGatewayUnreachableError, match="TimeoutError"):
+        async_to_sync(decisions.async_decide)(_request(), timeout_seconds=0.01, transport=httpx.MockTransport(handler))
+
+    assert cancelled
+    assert closed is stall_in_body
 
 
 class TestDecisionsEnabled:
