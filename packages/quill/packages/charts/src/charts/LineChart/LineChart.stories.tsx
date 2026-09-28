@@ -204,7 +204,7 @@ export const HoveringInDashboardTile: Story = {
         )
     },
     play: async ({ canvasElement }) => {
-        await playHoverAtFraction(canvasElement, 0.97)
+        await playHoverAtFraction(canvasElement, 0.9)
     },
 }
 
