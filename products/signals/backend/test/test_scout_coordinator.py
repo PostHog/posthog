@@ -1238,6 +1238,19 @@ def test_per_team_caps_count_both_budgets(default_cfg: dict[str, int], runs_toda
     assert [d.skill_name for d in selected] == [_OPERATIONAL_SCOUT]
 
 
+def test_product_run_takes_the_slot_an_operational_run_did_not_get() -> None:
+    due = [
+        _DueRun(overdue_s=float("inf"), config_pk="o1", team_id=1, skill_name=_OPERATIONAL_SCOUT, operational=True),
+        _DueRun(overdue_s=float("inf"), config_pk="o2", team_id=2, skill_name=_OPERATIONAL_SCOUT, operational=True),
+        _DueRun(overdue_s=3600, config_pk="p2", team_id=2, skill_name="signals-scout-product"),
+    ]
+    selected = _allocate_tick_budget(due, {}, {"max_runs_per_tick": 1}, {}, 1, 1)
+    assert sorted((d.team_id, d.skill_name) for d in selected) == [
+        (1, _OPERATIONAL_SCOUT),
+        (2, "signals-scout-product"),
+    ]
+
+
 # ── Per-team config overrides via the flag payload (optional, opt-in per team) ───
 
 

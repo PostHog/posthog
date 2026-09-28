@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 import hashlib
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from uuid import UUID
@@ -340,7 +341,7 @@ def _stamp_dispatched_runs(
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class _DueRun:
     overdue_s: float
     config_pk: str
@@ -498,6 +499,7 @@ def _allocate_tick_budget(
         return min(per_tick, remaining_today)
 
     by_team: dict[int, list[_DueRun]] = {}
+    overflow_by_team: dict[int, list[_DueRun]] = {}
     for d in due:
         by_team.setdefault(d.team_id, []).append(d)
     for team_id, runs in by_team.items():
@@ -520,11 +522,21 @@ def _allocate_tick_budget(
                     due=len(runs),
                     cap=cap,
                 )
+            overflow_by_team[team_id] = runs[cap:]
             del runs[cap:]
 
     product_by_team = {team_id: [d for d in runs if not d.operational] for team_id, runs in by_team.items()}
     operational_by_team = {team_id: [d for d in runs if d.operational] for team_id, runs in by_team.items()}
-    return _fill_global_budget(product_by_team, global_cap) + _fill_global_budget(operational_by_team, operational_cap)
+    operational_selected = _fill_global_budget(operational_by_team, operational_cap)
+    # An operational run that loses its global slot releases its per-team slot. The team's most
+    # overdue product runs that the per-team trim dropped take that slot back.
+    unselected_operational = Counter(d.team_id for runs in operational_by_team.values() for d in runs) - Counter(
+        d.team_id for d in operational_selected
+    )
+    for team_id, released in unselected_operational.items():
+        refill = [d for d in overflow_by_team.get(team_id, []) if not d.operational][:released]
+        product_by_team[team_id].extend(refill)
+    return _fill_global_budget(product_by_team, global_cap) + operational_selected
 
 
 def _fill_global_budget(by_team: dict[int, list[_DueRun]], global_cap: int) -> list[_DueRun]:
