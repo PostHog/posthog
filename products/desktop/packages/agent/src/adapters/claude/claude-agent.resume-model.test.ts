@@ -743,7 +743,7 @@ describe("ClaudeAcpAgent session creation", () => {
     });
   });
 
-  it("logs instead of crashing when reporting used PostHog products fails", async () => {
+  it("logs and retries when reporting used PostHog products fails", async () => {
     const extNotification = vi.fn().mockResolvedValue(undefined);
     const agent = makeAgent(extNotification);
     const warnSpy = vi.spyOn(agent.logger, "warn");
@@ -752,7 +752,9 @@ describe("ClaudeAcpAgent session creation", () => {
       mcpServers: [],
       _meta: { taskRunId: "run-resources" },
     });
-    extNotification.mockRejectedValue(new Error("connection closed"));
+    extNotification
+      .mockReset()
+      .mockRejectedValueOnce(new Error("connection closed"));
 
     const input = {
       session_id: "resources-session",
@@ -763,9 +765,10 @@ describe("ClaudeAcpAgent session creation", () => {
       tool_input: { command: "call dashboard-get {}" },
       tool_response: {},
     } as HookInput;
-    for (const hook of (
-      createdQueryOptions[0].hooks?.PostToolUse ?? []
-    ).flatMap((entry) => entry.hooks ?? [])) {
+    const hooks = (createdQueryOptions[0].hooks?.PostToolUse ?? []).flatMap(
+      (entry) => entry.hooks ?? [],
+    );
+    for (const hook of hooks) {
       await hook(input, undefined, { signal: new AbortController().signal });
     }
 
@@ -775,5 +778,10 @@ describe("ClaudeAcpAgent session creation", () => {
         { error: expect.any(Error) },
       );
     });
+
+    for (const hook of hooks) {
+      await hook(input, undefined, { signal: new AbortController().signal });
+    }
+    await vi.waitFor(() => expect(extNotification).toHaveBeenCalledTimes(2));
   });
 });

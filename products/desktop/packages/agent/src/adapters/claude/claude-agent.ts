@@ -3589,24 +3589,24 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
    *  persistent list shows each chip once across all turns. */
   private recordSessionResources(products: PostHogProductId[]): void {
     if (!this.session) return;
-    const added = products.filter((p) => !this.session.sessionResources.has(p));
+    const sessionResources = this.session.sessionResources;
+    const added = products.filter((p) => !sessionResources.has(p));
     if (added.length === 0) return;
-    for (const product of added) this.session.sessionResources.add(product);
-    void this.emitResourcesUsed(added);
+    for (const product of added) sessionResources.add(product);
+    void this.emitResourcesUsed(added).catch((error) => {
+      for (const product of added) sessionResources.delete(product);
+      this.logger.warn("Failed to report used PostHog products", { error });
+    });
   }
 
   /** Emits newly-seen PostHog products as soon as they're used, so the client
    *  can append them to a persistent, de-duplicated list in real time. */
   private async emitResourcesUsed(added: PostHogProductId[]): Promise<void> {
     const products = added.map((id) => ({ id, label: POSTHOG_PRODUCTS[id] }));
-    try {
-      await this.client.extNotification(POSTHOG_NOTIFICATIONS.RESOURCES_USED, {
-        sessionId: this.sessionId,
-        products,
-      });
-    } catch (error) {
-      this.logger.warn("Failed to report used PostHog products", { error });
-    }
+    await this.client.extNotification(POSTHOG_NOTIFICATIONS.RESOURCES_USED, {
+      sessionId: this.sessionId,
+      products,
+    });
   }
 
   /** Matches the ACP session id, or the underlying SDK session id after a
