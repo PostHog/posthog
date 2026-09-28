@@ -1,10 +1,12 @@
 import uuid
 import datetime as dt
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.utils import timezone
+
+from parameterized import parameterized
 
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -244,12 +246,22 @@ class TestSearchSuggestionsEndpoint(_SuggestionsTestCase):
         self.assertIsNone(scanner.search_last_viewed_at)
         mock_generate.assert_not_called()
 
-    def test_posting_a_view_stamps_the_scope(self) -> None:
-        scanner = self._scanner("checkout")
+    @parameterized.expand([("ai_processing_on", True), ("ai_processing_off", False)])
+    @patch("products.replay_vision.backend.api.observations.warm_query_vectors")
+    def test_posting_a_view_stamps_the_scope_and_warms_its_suggestions(
+        self, _name: str, ai_processing_approved: bool, mock_warm: MagicMock
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_processing_approved
+        self.organization.save()
+        scanner = self._scanner("checkout", search_suggestions=["coupon rejected at checkout"])
         resp = self.client.post(self.viewed_url, {"scanner_id": str(scanner.id)}, format="json")
         self.assertEqual(resp.status_code, 204)
         scanner.refresh_from_db()
         self.assertIsNotNone(scanner.search_last_viewed_at)
+        if ai_processing_approved:
+            mock_warm.assert_called_once_with(ANY, ["coupon rejected at checkout"])
+        else:
+            mock_warm.assert_not_called()
 
     def test_a_scanner_with_nothing_stored_is_an_empty_list(self) -> None:
         scanner = self._scanner("new")
