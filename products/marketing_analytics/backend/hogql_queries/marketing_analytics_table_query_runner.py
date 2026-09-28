@@ -579,7 +579,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 if column_name == self._CONVERSION_MATCH_KEY:
                     continue
                 transformed_item = self._transform_cell_to_marketing_analytics_item(row, i, column_name, has_comparison)
-                if column_name == MarketingAnalyticsBaseColumns.CAMPAIGN and match_key is not None:
+                if column_name == MarketingAnalyticsBaseColumns.CAMPAIGN and match_key not in (None, ""):
                     transformed_item.conversionMatchKey = str(match_key)
                 transformed_row.append(transformed_item)
             transformed_results.append(transformed_row)
