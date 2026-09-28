@@ -2,6 +2,7 @@ import {
   BrainIcon,
   BugIcon,
   CalendarPlus,
+  ChecksIcon,
   Clock,
   CompassIcon,
   FirstAidIcon,
@@ -104,6 +105,11 @@ export const INBOX_SOURCE_OPTIONS: InboxSourceOption[] = [
     icon: <LifebuoyIcon size={14} />,
   },
   { value: "signals_scout", label: "Scouts", icon: <CompassIcon size={14} /> },
+  {
+    value: "signals_check",
+    label: "Report checks",
+    icon: <ChecksIcon size={14} />,
+  },
   {
     value: "health_checks",
     label: "Health checks",

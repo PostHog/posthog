@@ -3,6 +3,7 @@ import {
   BrainIcon,
   BugIcon,
   ChatsIcon,
+  ChecksIcon,
   CompassIcon,
   FirstAidIcon,
   GitBranchIcon,
@@ -112,6 +113,11 @@ const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
     Icon: CompassIcon,
     color: "var(--iris-9)",
     label: "Scout",
+  },
+  signals_check: {
+    Icon: ChecksIcon,
+    color: "var(--iris-9)",
+    label: "Report checks",
   },
   health_checks: {
     Icon: FirstAidIcon,

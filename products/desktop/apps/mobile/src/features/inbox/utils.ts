@@ -36,6 +36,8 @@ export function sourceLine(signal: Signal): string {
   )
     return "Scout · Cross-source issue";
   if (source_product === "signals_scout") return "Scout";
+  if (source_product === "signals_check" && source_type === "check_failed")
+    return "Report checks · Check failed";
   if (source_product === "health_checks" && source_type === "health_issue")
     return "Health checks · Issue";
   const warehouseSource =

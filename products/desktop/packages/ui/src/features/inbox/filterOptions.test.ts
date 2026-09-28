@@ -76,6 +76,7 @@ describe("filterInboxSourceOptions", () => {
       "llm_analytics",
       "conversations",
       "signals_scout",
+      "signals_check",
       "health_checks",
       "github",
       "zendesk",
@@ -89,6 +90,7 @@ describe("filterInboxSourceOptions", () => {
       "llm_analytics",
       "conversations",
       "signals_scout",
+      "signals_check",
       "health_checks",
     ]);
   });

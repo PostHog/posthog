@@ -12,6 +12,7 @@ export const SOURCE_PRODUCT_OPTIONS: { value: SourceProduct; label: string }[] =
     { value: "llm_analytics", label: "AI observability" },
     { value: "conversations", label: "Conversations" },
     { value: "signals_scout", label: "Scout" },
+    { value: "signals_check", label: "Report checks" },
     ...EXTERNAL_INBOX_SOURCES.map((source) => ({
       value: source.product,
       label: source.label,
