@@ -536,6 +536,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         stored = {r["github_login"]: r for r in self._latest_reviewers(report)}
         assert stored["alice"]["reason"] == "Top recent author on the affected surface"
         assert stored["dave"]["reason"].startswith("Added as a reviewer by Zelda Zebra on ")
+        presented = {reviewer["github_login"]: reviewer for reviewer in response.json()["content"]}
+        assert presented["dave"]["explanation"] == "Added by Zelda Zebra"
+        assert presented["dave"]["source_label"] == "Added by teammate"
 
     def test_put_explicit_null_reason_on_new_reviewer_is_not_stamped(self):
         # Field-presence semantics: an explicitly-supplied null reason clears the reason, so the

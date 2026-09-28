@@ -223,7 +223,10 @@ def _with_reviewer_presentation(reviewer: dict, user: User | None, scout_display
         explanation = safe_reason
     elif isinstance(safe_reason, str) and safe_reason.startswith("Added as a reviewer by "):
         source_label = "Added by teammate"
-        explanation = None
+        added_by = re.sub(
+            r" on [A-Za-z]{3} \d{1,2}, \d{4}$", "", safe_reason.removeprefix("Added as a reviewer by ")
+        ).strip()
+        explanation = f"Added by {added_by}" if added_by else None
     else:
         source_label = "Agent suggestion"
         explanation = safe_reason

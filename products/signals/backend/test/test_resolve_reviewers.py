@@ -171,6 +171,11 @@ def test_enriches_reviewer_sources_and_explanations():
                 "relevant_commits": [],
                 "reason": "Added as a reviewer by Avery Chen on Jan 1, 2026",
             },
+            {
+                "github_login": "manual-reviewer-without-date",
+                "relevant_commits": [],
+                "reason": "Added as a reviewer by Morgan Lee",
+            },
         ],
         login_to_user={},
         uuid_to_user={},
@@ -183,7 +188,8 @@ def test_enriches_reviewer_sources_and_explanations():
     assert enriched[1]["explanation"] == shared_reason
     assert enriched[2]["explanation"] == shared_reason
     assert enriched[3]["source_label"] == "Added by teammate"
-    assert enriched[3]["explanation"] is None
+    assert enriched[3]["explanation"] == "Added by Avery Chen"
+    assert enriched[4]["explanation"] == "Added by Morgan Lee"
 
 
 @pytest.mark.django_db
