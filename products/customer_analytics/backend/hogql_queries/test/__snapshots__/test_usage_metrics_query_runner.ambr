@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestUsageMetricsQueryRunner.test_complex_event_filter
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-09-26'
+    AND date < '2025-10-09'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestUsageMetricsQueryRunner.test_complex_event_filter.1
+  '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
          accurateCastOrNull(countIf(and(and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
          accurateCastOrNull(countIf(and(and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$browser'), ''), 'null'), '^"|"$', ''), 'Chrome'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))), 'Float64') AS m0_previous
@@ -31,6 +43,18 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_group_metric
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-09-26'
+    AND date < '2025-10-09'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestUsageMetricsQueryRunner.test_group_metric.1
+  '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
          accurateCastOrNull(countIf(and(equals(events.event, 'metric_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
          accurateCastOrNull(countIf(and(equals(events.event, 'metric_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC'))))), 'Float64') AS m0_previous
@@ -52,7 +76,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestUsageMetricsQueryRunner.test_group_metric.1
+# name: TestUsageMetricsQueryRunner.test_group_metric.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-09-26'
+    AND date < '2025-10-09'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestUsageMetricsQueryRunner.test_group_metric.3
   '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
          accurateCastOrNull(countIf(and(equals(events.event, 'another_metric_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-09 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
@@ -76,6 +112,18 @@
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_metric_interval
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-09-26'
+    AND date < '2025-10-09'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestUsageMetricsQueryRunner.test_metric_interval.1
   '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
          accurateCastOrNull(countIf(and(equals(events.event, 'metric_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
@@ -107,6 +155,18 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_person_metric
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-09-26'
+    AND date < '2025-10-09'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestUsageMetricsQueryRunner.test_person_metric.1
+  '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
          accurateCastOrNull(countIf(and(equals(events.event, 'metric_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
          accurateCastOrNull(countIf(and(equals(events.event, 'metric_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))), 'Float64') AS m0_previous
@@ -135,7 +195,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestUsageMetricsQueryRunner.test_person_metric.1
+# name: TestUsageMetricsQueryRunner.test_person_metric.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-09-26'
+    AND date < '2025-10-09'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestUsageMetricsQueryRunner.test_person_metric.3
   '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
          accurateCastOrNull(countIf(and(equals(events.event, 'another_metric_event'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
@@ -167,6 +239,18 @@
 # ---
 # name: TestUsageMetricsQueryRunner.test_person_property_filter_splits_a_group_metric_by_user_type
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-09-26'
+    AND date < '2025-10-09'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestUsageMetricsQueryRunner.test_person_property_filter_splits_a_group_metric_by_user_type.1
+  '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
          accurateCastOrNull(countIf(and(and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'user_type'), ''), 'null'), '^"|"$', ''), 'admin'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 'Float64') AS m0_value,
          accurateCastOrNull(countIf(and(and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'user_type'), ''), 'null'), '^"|"$', ''), 'admin'), 0), equals(events.event, 'metric_event')), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-09-25 12:11:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2025-10-02 12:11:00.000000', 6, 'UTC'))))), 'Float64') AS m0_previous
@@ -189,6 +273,18 @@
   '''
 # ---
 # name: TestUsageMetricsQueryRunner.test_sum_math_aggregation
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-09-26'
+    AND date < '2025-10-09'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestUsageMetricsQueryRunner.test_sum_math_aggregation.1
   '''
   SELECT toStartOfDay(toTimeZone(toTimeZone(events.timestamp, 'UTC'), 'UTC')) AS day,
          ifNull(sumIf(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'amount'), ''), 'null'), '^"|"$', ''), 'Float64'), and(equals(events.event, 'purchase'), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC'))))), 0) AS m0_value,

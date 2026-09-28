@@ -1,6 +1,13 @@
 # serializer version: 1
 # name: TestTicketEmailFallbackPersonLookup.test_email_fallback_uses_bloom_filter_lower_skip_index
   '''
+  SELECT count()
+  FROM posthog_test.person
+  WHERE team_id = 99999
+  '''
+# ---
+# name: TestTicketEmailFallbackPersonLookup.test_email_fallback_uses_bloom_filter_lower_skip_index.1
+  '''
   SELECT persons.id AS id,
          persons.properties___email AS email
   FROM
@@ -34,7 +41,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestTicketEmailFallbackPersonLookup.test_email_fallback_uses_bloom_filter_lower_skip_index.1
+# name: TestTicketEmailFallbackPersonLookup.test_email_fallback_uses_bloom_filter_lower_skip_index.2
   '''
   SELECT persons.id AS id,
          persons.properties___email AS email

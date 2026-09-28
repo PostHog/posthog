@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestWebBotsTableQueryRunner.test_date_range_excludes_outside_events
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-03-02'
+    AND date < '2026-03-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebBotsTableQueryRunner.test_date_range_excludes_outside_events.1
+  '''
   SELECT if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 343 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */])]) AS Crawler,
          if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), 'regular', ['search_crawler', 'search_crawler', 'search_crawler', 'ai_assistant', 'ai_search', 'ai_crawler', 'ai_assistant', 'ai_search', 'search_crawler', 'ai_search', 'seo_crawler'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 343 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */])]) AS Category,
          count() AS Requests,
@@ -27,6 +39,18 @@
 # ---
 # name: TestWebBotsTableQueryRunner.test_only_bot_traffic_grouped_by_breakdown_0_Crawler
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-01-02'
+    AND date < '2026-01-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebBotsTableQueryRunner.test_only_bot_traffic_grouped_by_breakdown_0_Crawler.1
+  '''
   SELECT if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 343 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */])]) AS Crawler,
          if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), 'regular', ['search_crawler', 'search_crawler', 'search_crawler', 'ai_assistant', 'ai_search', 'ai_crawler', 'ai_assistant', 'ai_search', 'search_crawler', 'ai_search', 'seo_crawler'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 343 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */])]) AS Category,
          count() AS Requests,
@@ -52,6 +76,18 @@
   '''
 # ---
 # name: TestWebBotsTableQueryRunner.test_only_bot_traffic_grouped_by_breakdown_1_Path
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-01-02'
+    AND date < '2026-01-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebBotsTableQueryRunner.test_only_bot_traffic_grouped_by_breakdown_1_Path.1
   '''
   SELECT replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$pathname'), ''), 'null'), '^"|"$', '') AS Path,
          count(DISTINCT if(ifNull(equals(multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */]), 0), 0), if(equals(multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0), 0), '', ['Googlebot', 'Google special crawler', 'Google fetcher', 'ChatGPT', 'OpenAI Search', 'GPTBot', 'Perplexity User', 'Perplexity', 'Bingbot', 'Applebot', 'Ahrefs'][multiIf(or(/* bot ip ranges */), 1, or(/* bot ip ranges */), 2, or(/* bot ip ranges */), 3, or(/* bot ip ranges */), 4, or(/* bot ip ranges */), 5, or(/* bot ip ranges */), 6, or(/* bot ip ranges */), 7, or(/* bot ip ranges */), 8, or(/* bot ip ranges */), 9, or(/* bot ip ranges */), 10, or(/* bot ip ranges */), 11, 0)]), [/* 343 bot literals */][multiMatchAnyIndex(ifNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$raw_user_agent'), ''), 'null'), '^"|"$', ''), ''), [/* 343 bot literals */])])) AS Crawlers,

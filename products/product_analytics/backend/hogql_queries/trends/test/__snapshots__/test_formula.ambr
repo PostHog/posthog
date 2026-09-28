@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestFormula.test_aggregated_one_without_events
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_aggregated_one_without_events.1
+  '''
   SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
   FROM events AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
@@ -19,7 +31,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_aggregated_one_without_events.1
+# name: TestFormula.test_aggregated_one_without_events.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_aggregated_one_without_events.3
   '''
   SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'session not here'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
   FROM events AS e
@@ -40,6 +64,18 @@
   '''
 # ---
 # name: TestFormula.test_breakdown
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown.1
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -85,7 +121,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown.1
+# name: TestFormula.test_breakdown.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -133,6 +181,18 @@
 # ---
 # name: TestFormula.test_breakdown_aggregated
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_aggregated.1
+  '''
   SELECT sum(total) AS total,
          if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
   FROM
@@ -171,7 +231,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_aggregated.1
+# name: TestFormula.test_breakdown_aggregated.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_aggregated.3
   '''
   SELECT avg(total) AS total,
          if(ifNull(greaterOrEquals(row_number, 26), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -223,6 +295,18 @@
 # ---
 # name: TestFormula.test_breakdown_cohort.1
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_cohort.2
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -267,7 +351,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_cohort.2
+# name: TestFormula.test_breakdown_cohort.3
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_cohort.4
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -313,7 +409,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_cohort.3
+# name: TestFormula.test_breakdown_cohort.5
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_cohort.6
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -369,7 +477,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_cohort.4
+# name: TestFormula.test_breakdown_cohort.7
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_cohort.8
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -427,6 +547,18 @@
 # ---
 # name: TestFormula.test_breakdown_hogql
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_hogql.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -471,7 +603,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_hogql.1
+# name: TestFormula.test_breakdown_hogql.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_hogql.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -519,6 +663,18 @@
 # ---
 # name: TestFormula.test_breakdown_hogql_with_as_alias
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_hogql_with_as_alias.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -563,7 +719,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_hogql_with_as_alias.1
+# name: TestFormula.test_breakdown_hogql_with_as_alias.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_hogql_with_as_alias.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -611,6 +779,18 @@
 # ---
 # name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -655,7 +835,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
+# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.3
   '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
@@ -703,6 +895,18 @@
 # ---
 # name: TestFormula.test_formula_with_hogql_math_no_matching_events
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_formula_with_hogql_math_no_matching_events.1
+  '''
   SELECT ifNull(accurateCastOrNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 'Float64'), 0) AS total
   FROM events AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'nonexistent_event_that_has_no_data'))
@@ -721,7 +925,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_formula_with_hogql_math_no_matching_events.1
+# name: TestFormula.test_formula_with_hogql_math_no_matching_events.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_formula_with_hogql_math_no_matching_events.3
   '''
   SELECT ifNull(sum(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'xyz'), ''), 'null'), '^"|"$', ''), 'Float64')), 0) AS total
   FROM events AS e
@@ -742,6 +958,18 @@
   '''
 # ---
 # name: TestFormula.test_formula_with_unique_sessions
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_formula_with_unique_sessions.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -772,7 +1000,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_formula_with_unique_sessions.1
+# name: TestFormula.test_formula_with_unique_sessions.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_formula_with_unique_sessions.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -812,6 +1052,18 @@
 # ---
 # name: TestFormula.test_hour_interval_day_level_relative
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-21'
+    AND date < '2020-01-03'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_hour_interval_day_level_relative.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-02 00:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2020-01-02 00:00:00', 'UTC')), toIntervalHour(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 13:59:59', 'UTC')), toIntervalHour(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -841,7 +1093,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_hour_interval_day_level_relative.1
+# name: TestFormula.test_hour_interval_day_level_relative.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-21'
+    AND date < '2020-01-03'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_hour_interval_day_level_relative.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-02 00:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2020-01-02 00:00:00', 'UTC')), toIntervalHour(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 13:59:59', 'UTC')), toIntervalHour(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -874,6 +1138,18 @@
 # ---
 # name: TestFormula.test_hour_interval_hour_level_relative
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-21'
+    AND date < '2020-01-03'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_hour_interval_hour_level_relative.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-02 13:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2020-01-02 13:00:00', 'UTC')), toIntervalHour(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 13:59:59', 'UTC')), toIntervalHour(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -903,7 +1179,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_hour_interval_hour_level_relative.1
+# name: TestFormula.test_hour_interval_hour_level_relative.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-21'
+    AND date < '2020-01-03'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_hour_interval_hour_level_relative.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2020-01-02 13:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2020-01-02 13:00:00', 'UTC')), toIntervalHour(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-03 13:59:59', 'UTC')), toIntervalHour(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -935,6 +1223,18 @@
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_session_duration_aggregation
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_session_duration_aggregation.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -977,7 +1277,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_regression_formula_with_session_duration_aggregation.1
+# name: TestFormula.test_regression_formula_with_session_duration_aggregation.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_session_duration_aggregation.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1009,6 +1321,18 @@
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1045,7 +1369,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.1
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1077,6 +1413,18 @@
   '''
 # ---
 # name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -1113,7 +1461,19 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.1
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2019-12-22'
+    AND date < '2020-01-04'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFormula.test_regression_formula_with_unique_sessions_2x_and_duration_filter_2x.3
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)

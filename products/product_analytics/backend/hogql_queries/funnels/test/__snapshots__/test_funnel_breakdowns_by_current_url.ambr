@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_current_url
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_current_url.1
+  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
@@ -68,6 +80,18 @@
   '''
 # ---
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname.1
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
@@ -137,6 +161,18 @@
 # ---
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname_with_path_cleaning
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname_with_path_cleaning.1
+  '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,
          arrayMap(x -> if(isNaN(x), NULL, x), [avgArrayOrNull(step_1_conversion_times)])[1] AS step_1_average_conversion_time,
@@ -204,6 +240,18 @@
   '''
 # ---
 # name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname_with_path_cleaning_without_normalization
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelBreakdownsByCurrentURL.test_breakdown_by_pathname_with_path_cleaning_without_normalization.1
   '''
   SELECT sum(step_1) AS step_1,
          sum(step_2) AS step_2,

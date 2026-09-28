@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestWebOverviewQueryRunner.test_all_time
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_all_time.1
+  '''
   SELECT toTimeZone(events.timestamp, 'UTC') AS timestamp
   FROM events
   WHERE and(equals(events.team_id, 99999), greater(events.timestamp, toDateTime64('2015-01-01 00:00:00.000000', 6, 'UTC')))
@@ -19,7 +31,19 @@
                    use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_all_time.1
+# name: TestWebOverviewQueryRunner.test_all_time.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_all_time.3
   '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
@@ -74,6 +98,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_comparison
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_comparison.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-05 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-06 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-13 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -127,6 +163,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_no_conversions
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_no_conversions.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -178,7 +226,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_conversion_goal_no_conversions.1
+# name: TestWebOverviewQueryRunner.test_conversion_goal_no_conversions.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_no_conversions.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_total_conversion_count,
@@ -210,6 +270,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_autocapture_conversion
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_autocapture_conversion.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -261,7 +333,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_conversion_goal_one_autocapture_conversion.1
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_autocapture_conversion.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_autocapture_conversion.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_total_conversion_count,
@@ -292,6 +376,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_action_conversion
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_action_conversion.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -343,7 +439,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_action_conversion.1
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_action_conversion.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_action_conversion.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_total_conversion_count,
@@ -374,6 +482,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_event_conversion
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_event_conversion.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -425,7 +545,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_event_conversion.1
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_event_conversion.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_custom_event_conversion.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_total_conversion_count,
@@ -456,6 +588,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_goal_one_pageview_conversion
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_pageview_conversion.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -507,7 +651,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_conversion_goal_one_pageview_conversion.1
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_pageview_conversion.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_goal_one_pageview_conversion.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_total_conversion_count,
@@ -539,6 +695,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_conversion_rate
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_rate.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -590,7 +758,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_conversion_rate.1
+# name: TestWebOverviewQueryRunner.test_conversion_rate.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_conversion_rate.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_total_conversion_count,
@@ -622,55 +802,14 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot
   '''
-  SELECT uniq(session_person_id) AS unique_users,
-         NULL AS previous_unique_users,
-         sum(filtered_pageview_count) AS total_filtered_pageview_count,
-         NULL AS previous_total_filtered_pageview_count,
-         uniq(session_id) AS unique_sessions,
-         NULL AS previous_unique_sessions,
-         avg(session_duration) AS avg_duration_s,
-         NULL AS previous_avg_duration_s,
-         avg(is_bounce) AS bounce_rate,
-         NULL AS previous_bounce_rate
-  FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
-            events__session.session_id AS session_id,
-            min(events__session.`$start_timestamp`) AS start_timestamp,
-            any(events__session.`$session_duration`) AS session_duration,
-            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
-            any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')) AS `$start_timestamp`,
-               dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))) AS `$session_duration`,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))), 10)))) AS `$is_bounce`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), 0), 1))
-     GROUP BY session_id
-     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), 0))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.1
@@ -695,59 +834,6 @@
      FROM events
      LEFT JOIN
        (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               min(raw_sessions.min_timestamp) AS `$start_timestamp`,
-               dateDiff('second', min(raw_sessions.min_timestamp), max(raw_sessions.max_timestamp)) AS `$session_duration`,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(raw_sessions.min_timestamp), max(raw_sessions.max_timestamp)), 10)))) AS `$is_bounce`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')), toIntervalDay(3))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))), 0), 1))
-     GROUP BY session_id
-     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))), 0))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
-  '''
-# ---
-# name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.2
-  '''
-  SELECT uniq(session_person_id) AS unique_users,
-         NULL AS previous_unique_users,
-         sum(filtered_pageview_count) AS total_filtered_pageview_count,
-         NULL AS previous_total_filtered_pageview_count,
-         uniq(session_id) AS unique_sessions,
-         NULL AS previous_unique_sessions,
-         avg(session_duration) AS avg_duration_s,
-         NULL AS previous_avg_duration_s,
-         avg(is_bounce) AS bounce_rate,
-         NULL AS previous_bounce_rate
-  FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
-            events__session.session_id AS session_id,
-            min(events__session.`$start_timestamp`) AS start_timestamp,
-            any(events__session.`$session_duration`) AS session_duration,
-            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
-            any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
                min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')) AS `$start_timestamp`,
                dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))) AS `$session_duration`,
                if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))), 10)))) AS `$is_bounce`,
@@ -777,6 +863,18 @@
                      optimize_min_inequality_conjunction_chain_length=4294967295,
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.3
@@ -832,7 +930,149 @@
                      use_hive_partitioning=0
   '''
 # ---
+# name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.4
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.5
+  '''
+  SELECT uniq(session_person_id) AS unique_users,
+         NULL AS previous_unique_users,
+         sum(filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniq(session_id) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avg(session_duration) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avg(is_bounce) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
+            events__session.session_id AS session_id,
+            min(events__session.`$start_timestamp`) AS start_timestamp,
+            any(events__session.`$session_duration`) AS session_duration,
+            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+            any(events__session.`$is_bounce`) AS is_bounce
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')) AS `$start_timestamp`,
+               dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))) AS `$session_duration`,
+               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'America/Los_Angeles')), max(toTimeZone(raw_sessions.max_timestamp, 'America/Los_Angeles'))), 10)))) AS `$is_bounce`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(toTimeZone(events.timestamp, 'America/Los_Angeles'), assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), 0), 1))
+     GROUP BY session_id
+     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'America/Los_Angeles'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'America/Los_Angeles')))), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.6
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_convertToProjectTimezone_date_range_sql_snapshot.7
+  '''
+  SELECT uniq(session_person_id) AS unique_users,
+         NULL AS previous_unique_users,
+         sum(filtered_pageview_count) AS total_filtered_pageview_count,
+         NULL AS previous_total_filtered_pageview_count,
+         uniq(session_id) AS unique_sessions,
+         NULL AS previous_unique_sessions,
+         avg(session_duration) AS avg_duration_s,
+         NULL AS previous_avg_duration_s,
+         avg(is_bounce) AS bounce_rate,
+         NULL AS previous_bounce_rate
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
+            events__session.session_id AS session_id,
+            min(events__session.`$start_timestamp`) AS start_timestamp,
+            any(events__session.`$session_duration`) AS session_duration,
+            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+            any(events__session.`$is_bounce`) AS is_bounce
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               min(raw_sessions.min_timestamp) AS `$start_timestamp`,
+               dateDiff('second', min(raw_sessions.min_timestamp), max(raw_sessions.max_timestamp)) AS `$session_duration`,
+               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(raw_sessions.min_timestamp), max(raw_sessions.max_timestamp)), 10)))) AS `$is_bounce`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')), toIntervalDay(3))))
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))), 0), 1))
+     GROUP BY session_id
+     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC')))), 0))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
 # name: TestWebOverviewQueryRunner.test_correctly_counts_pageviews_in_long_running_session
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_correctly_counts_pageviews_in_long_running_session.1
   '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
@@ -887,6 +1127,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_dont_filter_test_accounts
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_dont_filter_test_accounts.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -939,6 +1191,18 @@
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_filter_cohort
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_filter_cohort.1
   '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
@@ -998,6 +1262,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_filter_test_accounts
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_filter_test_accounts.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -1050,6 +1326,18 @@
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_first_pageview_attribution_rewrites_session_filters
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_first_pageview_attribution_rewrites_session_filters.1
   '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
@@ -1109,7 +1397,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_first_pageview_attribution_rewrites_session_filters.1
+# name: TestWebOverviewQueryRunner.test_first_pageview_attribution_rewrites_session_filters.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_first_pageview_attribution_rewrites_session_filters.3
   '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
@@ -1165,6 +1465,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.1
+  '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
          sum(filtered_pageview_count) AS total_filtered_pageview_count,
@@ -1216,7 +1528,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.1
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          NULL AS previous_total_conversion_count,
@@ -1245,7 +1569,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.2
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.4
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.5
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
@@ -1306,7 +1642,19 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.3
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.6
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.7
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
@@ -1360,7 +1708,19 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.4
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.8
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_0_event.9
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
@@ -1420,6 +1780,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.1
+  '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
          sum(filtered_pageview_count) AS total_filtered_pageview_count,
@@ -1471,7 +1843,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.1
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          NULL AS previous_total_conversion_count,
@@ -1500,7 +1884,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.2
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.4
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.5
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
@@ -1561,7 +1957,19 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.3
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.6
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.7
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniqIf(filtered_person_id, greater(filtered_pageview_count, 0)), NULL) AS `context.columns.visitors`,
@@ -1615,7 +2023,19 @@
                     use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.4
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.8
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_goal_properties_preserve_visitors_and_deduplicate_customers_1_action.9
   '''
   SELECT breakdown_value AS `context.columns.breakdown_value`,
          tuple(uniq(filtered_person_id), NULL) AS `context.columns.visitors`,
@@ -1675,6 +2095,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_increase_in_users
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_increase_in_users.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -1727,6 +2159,18 @@
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_increase_in_users_using_mobile
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_increase_in_users_using_mobile.1
   '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_unique_users,
@@ -1781,6 +2225,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_limit_is_context_aware
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_limit_is_context_aware.1
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-28 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -1834,55 +2290,14 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data
   '''
-  SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS unique_users,
-         uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_unique_users,
-         sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
-         sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_total_filtered_pageview_count,
-         uniqIf(session_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS unique_sessions,
-         uniqIf(session_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_unique_sessions,
-         avgIf(session_duration, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS avg_duration_s,
-         avgIf(session_duration, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_avg_duration_s,
-         avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
-         avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_bounce_rate
-  FROM
-    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
-            events__session.session_id AS session_id,
-            min(events__session.`$start_timestamp`) AS start_timestamp,
-            any(events__session.`$session_duration`) AS session_duration,
-            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
-            any(events__session.`$is_bounce`) AS is_bounce
-     FROM events
-     LEFT JOIN
-       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
-               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
-               dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
-               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
-               raw_sessions.session_id_v7 AS session_id_v7
-        FROM raw_sessions
-        WHERE and(equals(raw_sessions.team_id, 99999), or(and(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3)))), and(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC')), toIntervalDay(3))))))
-        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
-     LEFT OUTER JOIN
-       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
-               person_distinct_id_overrides.distinct_id AS distinct_id
-        FROM person_distinct_id_overrides
-        WHERE equals(person_distinct_id_overrides.team_id, 99999)
-        GROUP BY person_distinct_id_overrides.distinct_id
-        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
-     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
-     GROUP BY session_id
-     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))))
-  LIMIT 100 SETTINGS readonly=2,
-                     max_execution_time=60,
-                     allow_experimental_object_type=1,
-                     max_ast_elements=4000000,
-                     max_expanded_ast_elements=4000000,
-                     max_bytes_before_external_group_by=0,
-                     transform_null_in=1,
-                     optimize_min_equality_disjunction_chain_length=4294967295,
-                     optimize_rewrite_aggregate_function_with_if=0,
-                     optimize_min_inequality_conjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1,
-                     use_hive_partitioning=0
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.1
@@ -1940,6 +2355,18 @@
 # ---
 # name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.2
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.3
+  '''
   SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS unique_users,
          uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_unique_users,
          sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
@@ -1991,7 +2418,84 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.3
+# name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.4
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.5
+  '''
+  SELECT uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS unique_users,
+         uniqIf(session_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_unique_users,
+         sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS total_filtered_pageview_count,
+         sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_total_filtered_pageview_count,
+         uniqIf(session_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS unique_sessions,
+         uniqIf(session_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_unique_sessions,
+         avgIf(session_duration, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS avg_duration_s,
+         avgIf(session_duration, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_avg_duration_s,
+         avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS bounce_rate,
+         avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_bounce_rate
+  FROM
+    (SELECT any(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id)) AS session_person_id,
+            events__session.session_id AS session_id,
+            min(events__session.`$start_timestamp`) AS start_timestamp,
+            any(events__session.`$session_duration`) AS session_duration,
+            countIf(or(equals(events.event, '$pageview'), equals(events.event, '$screen'))) AS filtered_pageview_count,
+            any(events__session.`$is_bounce`) AS is_bounce
+     FROM events
+     LEFT JOIN
+       (SELECT toString(reinterpretAsUUID(bitOr(bitShiftLeft(raw_sessions.session_id_v7, 64), bitShiftRight(raw_sessions.session_id_v7, 64)))) AS session_id,
+               min(toTimeZone(raw_sessions.min_timestamp, 'UTC')) AS `$start_timestamp`,
+               dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))) AS `$session_duration`,
+               if(equals(uniqMerge(raw_sessions.pageview_uniq), 0), NULL, not(or(greater(uniqMerge(raw_sessions.pageview_uniq), 1), greater(uniqMerge(raw_sessions.autocapture_uniq), 0), greaterOrEquals(dateDiff('second', min(toTimeZone(raw_sessions.min_timestamp, 'UTC')), max(toTimeZone(raw_sessions.max_timestamp, 'UTC'))), 10)))) AS `$is_bounce`,
+               raw_sessions.session_id_v7 AS session_id_v7
+        FROM raw_sessions
+        WHERE and(equals(raw_sessions.team_id, 99999), or(and(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')), toIntervalDay(3)))), and(greaterOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), minus(assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC')), toIntervalDay(3))), lessOrEquals(fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000)), plus(assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC')), toIntervalDay(3))))))
+        GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`, events__session.session_id_v7)
+     LEFT OUTER JOIN
+       (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+               person_distinct_id_overrides.distinct_id AS distinct_id
+        FROM person_distinct_id_overrides
+        WHERE equals(person_distinct_id_overrides.team_id, 99999)
+        GROUP BY person_distinct_id_overrides.distinct_id
+        HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     WHERE and(equals(events.team_id, 99999), and(isNotNull(events.`$session_id`), or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))), 1))
+     GROUP BY session_id
+     HAVING or(and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC')))), and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(start_timestamp, assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))))
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     optimize_rewrite_aggregate_function_with_if=0,
+                     optimize_min_inequality_conjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.6
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_no_crash_when_no_data.7
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-08 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-15 23:59:59', 'UTC'))))) AS total_conversion_count,
          countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-11-30 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-07 23:59:59', 'UTC'))))) AS previous_total_conversion_count,
@@ -2022,6 +2526,18 @@
   '''
 # ---
 # name: TestWebOverviewQueryRunner.test_no_previous_when_comparison_disabled_but_conversion_goal_enabled
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_no_previous_when_comparison_disabled_but_conversion_goal_enabled.1
   '''
   SELECT uniq(session_person_id) AS unique_users,
          NULL AS previous_unique_users,
@@ -2074,7 +2590,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestWebOverviewQueryRunner.test_no_previous_when_comparison_disabled_but_conversion_goal_enabled.1
+# name: TestWebOverviewQueryRunner.test_no_previous_when_comparison_disabled_but_conversion_goal_enabled.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2025-01-16'
+    AND date < '2025-01-29'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestWebOverviewQueryRunner.test_no_previous_when_comparison_disabled_but_conversion_goal_enabled.3
   '''
   SELECT countIf(and(greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-01 00:00:00', 'UTC'))), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-03 23:59:59', 'UTC'))))) AS total_conversion_count,
          NULL AS previous_total_conversion_count,

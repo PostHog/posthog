@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestFunnelTimeToConvert.test_auto_bin_count_single_step
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTimeToConvert.test_auto_bin_count_single_step.1
+  '''
   SELECT bin_from_seconds,
          person_count,
          arrayAvg(timings) AS averageConversionTime,
@@ -66,6 +78,18 @@
 # ---
 # name: TestFunnelTimeToConvert.test_basic_strict
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTimeToConvert.test_basic_strict.1
+  '''
   SELECT bin_from_seconds,
          person_count,
          arrayAvg(timings) AS averageConversionTime,
@@ -130,6 +154,18 @@
   '''
 # ---
 # name: TestFunnelTimeToConvert.test_basic_unordered
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestFunnelTimeToConvert.test_basic_unordered.1
   '''
   SELECT bin_from_seconds,
          person_count,

@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_counts_users_only_on_first_exposure_0_direct
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_counts_users_only_on_first_exposure_0_direct.1
+  '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -39,6 +51,18 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts_0_direct
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts_0_direct.1
+  '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -75,7 +99,19 @@
                       use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts_0_direct.1
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts_0_direct.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_filters_test_accounts_0_direct.3
   '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -115,6 +151,18 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_multiple_variant_handling_first_seen_0_direct
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_multiple_variant_handling_first_seen_0_direct.1
+  '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS variant,
@@ -152,6 +200,18 @@
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_returns_correct_timeseries_0_direct
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_returns_correct_timeseries_0_direct.1
   '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -222,6 +282,18 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_using_group_aggregation_0_direct
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_using_group_aggregation_0_direct.1
+  '''
   WITH first_exposures AS
     (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.`$group_0`) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -252,6 +324,18 @@
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_action_as_exposure_criteria_0_direct
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_with_action_as_exposure_criteria_0_direct.1
   '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -291,6 +375,18 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_0_pageview_direct
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_0_pageview_direct.1
+  '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -328,6 +424,18 @@
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_2_feature_flag_called_direct
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_with_custom_exposure_2_feature_flag_called_direct.1
   '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
@@ -367,6 +475,18 @@
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_with_multiple_variant_exposures_0_direct
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_with_multiple_variant_exposures_0_direct.1
+  '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -404,6 +524,18 @@
   '''
 # ---
 # name: TestExperimentExposuresQueryRunner.test_exposure_query_without_feature_flag_property_0_direct
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2023-12-25'
+    AND date < '2024-01-07'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestExperimentExposuresQueryRunner.test_exposure_query_without_feature_flag_property_0_direct.1
   '''
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

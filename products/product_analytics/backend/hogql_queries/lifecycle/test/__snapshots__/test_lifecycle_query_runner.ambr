@@ -11,6 +11,18 @@
 # ---
 # name: TestLifecycleQueryRunner.test_cohort_filter.1
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestLifecycleQueryRunner.test_cohort_filter.2
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status
@@ -88,6 +100,18 @@
 # ---
 # name: TestLifecycleQueryRunner.test_sampling
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestLifecycleQueryRunner.test_sampling.1
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(round(multiply(counts, divide(1, 0.1)))) AS total,
          status AS status
@@ -162,6 +186,18 @@
 # ---
 # name: TestLifecycleQueryRunner.test_timezones
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestLifecycleQueryRunner.test_timezones.1
+  '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,
          status AS status
@@ -234,7 +270,19 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestLifecycleQueryRunner.test_timezones.1
+# name: TestLifecycleQueryRunner.test_timezones.2
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2026-09-15'
+    AND date < '2026-09-28'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestLifecycleQueryRunner.test_timezones.3
   '''
   SELECT groupArray(start_of_period) AS date,
          groupArray(counts) AS total,

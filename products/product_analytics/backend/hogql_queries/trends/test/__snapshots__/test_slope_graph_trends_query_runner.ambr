@@ -1,6 +1,18 @@
 # serializer version: 1
 # name: TestSlopeGraphTrendsQueryRunner.test_active_users_math_keeps_its_trailing_window
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_active_users_math_keeps_its_trailing_window.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-14 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -52,6 +64,18 @@
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_breakdown_produces_one_two_point_line_per_value
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_breakdown_produces_one_two_point_line_per_value.1
+  '''
   SELECT groupArray(1)(date)[1] AS date,
                       arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
                       if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
@@ -98,6 +122,18 @@
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_formula_series
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_formula_series.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -128,6 +164,18 @@
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_groups_by_month_returning_first_and_last_month
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_groups_by_month_returning_first_and_last_month.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalMonth(1)), toIntervalMonth(number)), range(0, plus(coalesce(dateDiff('month', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalMonth(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-03-31 23:59:59', 'UTC')), toIntervalMonth(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -160,6 +208,18 @@
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_hour_interval_first_and_last_hour
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_hour_interval_first_and_last_hour.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-06-14 00:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2024-06-14 00:00:00', 'UTC')), toIntervalHour(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-06-14 04:30:00', 'UTC')), toIntervalHour(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -190,6 +250,18 @@
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_keeps_the_query_property_filter_alongside_the_bucket_restriction
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_keeps_the_query_property_filter_alongside_the_bucket_restriction.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -222,6 +294,18 @@
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_last_bucket_is_the_current_partial_period_not_trimmed
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_last_bucket_is_the_current_partial_period_not_trimmed.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalMonth(1)), toIntervalMonth(number)), range(0, plus(coalesce(dateDiff('month', toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalMonth(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC')), toIntervalMonth(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -252,6 +336,18 @@
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_monthly_active_math_keeps_its_trailing_window
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_monthly_active_math_keeps_its_trailing_window.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-13 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -304,6 +400,18 @@
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_no_events_yields_zero_endpoints
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_no_events_yields_zero_endpoints.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -334,6 +442,18 @@
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_non_utc_team_timezone
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_non_utc_team_timezone.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'US/Pacific')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'US/Pacific')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -366,6 +486,18 @@
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_preserves_a_property_group_filter
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_preserves_a_property_group_filter.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -396,6 +528,18 @@
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_relative_date_range
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_relative_date_range.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-06-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-06-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -428,6 +572,18 @@
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_returns_first_and_last_day_buckets_ignoring_the_middle
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_returns_first_and_last_day_buckets_ignoring_the_middle.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -458,6 +614,18 @@
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_single_bucket_range_yields_a_one_point_series
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_single_bucket_range_yields_a_one_point_series.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalMonth(1)), toIntervalMonth(number)), range(0, plus(coalesce(dateDiff('month', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalMonth(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-31 23:59:59', 'UTC')), toIntervalMonth(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -490,6 +658,18 @@
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_smoothing_does_not_starve_the_last_point
   '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_smoothing_does_not_starve_the_last_point.1
+  '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
                                                                                                                                                                                                    and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
@@ -520,6 +700,18 @@
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_unique_users_math_is_per_bucket
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_unique_users_math_is_per_bucket.1
   '''
   SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
@@ -558,6 +750,18 @@
   '''
 # ---
 # name: TestSlopeGraphTrendsQueryRunner.test_week_interval_scan_filter_aligns_with_the_buckets
+  '''
+  
+  SELECT date, event,
+               sumMerge(event_count) AS event_count
+  FROM posthog_test.usage_report_events_preagg
+  WHERE team_id = 99999
+    AND date >= '2024-06-02'
+    AND date < '2024-06-15'
+  GROUP BY date, event
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_week_interval_scan_filter_aligns_with_the_buckets.1
   '''
   SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), 0), toStartOfWeek(assumeNotNull(toDateTime('2024-05-28 23:59:59', 'UTC')), 0))), 1))) AS date,
          arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
