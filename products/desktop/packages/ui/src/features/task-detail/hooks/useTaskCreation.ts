@@ -17,7 +17,6 @@ import {
   type Adapter,
   type AgentRuntime,
   ANALYTICS_EVENTS,
-  isUnavailableCodexModel,
   type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
@@ -285,12 +284,7 @@ export function useTaskCreation({
     isOnline &&
     hasRequiredPath &&
     !isCreatingTask &&
-    !submissionBlocked &&
-    !(
-      runtime === "acp" &&
-      adapter === "codex" &&
-      (!model || isUnavailableCodexModel(model))
-    );
+    !submissionBlocked;
   const canSubmit = !!editorRef.current && canSubmitBase && !editorIsEmpty;
 
   const handleSubmit = useCallback(

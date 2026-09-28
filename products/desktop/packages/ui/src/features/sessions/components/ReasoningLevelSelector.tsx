@@ -25,7 +25,6 @@ import {
   isAnthropicModelId,
   isDefaultSelectOption,
   isRestrictedModelOption,
-  isUnavailableCodexModel,
   type ModelAccess,
   selectOptionDocsUrl,
   selectOptionHarness,
@@ -204,11 +203,9 @@ export function ReasoningLevelSelector({
   const onOwnSubscription =
     adapter === "claude" && modelAccess === "own-subscription";
   const unavailableReason = (modelId: string): string | undefined =>
-    isUnavailableCodexModel(modelId)
-      ? "GPT-6 Sol is not available with Codex. Choose another model."
-      : onOwnSubscription && !isAnthropicModelId(modelId)
-        ? "Anthropic billing cannot run this model. Change billing to PostHog to use it."
-        : undefined;
+    onOwnSubscription && !isAnthropicModelId(modelId)
+      ? "Anthropic billing cannot run this model. Change billing to PostHog to use it."
+      : undefined;
 
   const handleHarnessSelect = (harness: AgentHarness) => {
     if (harness === adapter) {
@@ -323,9 +320,7 @@ export function ReasoningLevelSelector({
           ];
         })
       : [];
-  // With the middle Codex model unavailable, the remaining two notches would
-  // jump straight from Luna low to Astra max. Keep reasoning controls usable.
-  const useLadder = adapter !== "codex" && ladderStops.length >= 2;
+  const useLadder = ladderStops.length >= 2;
   const stops = useLadder
     ? ladderStops
     : effortOptions.map((option) => ({

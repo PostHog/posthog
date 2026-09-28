@@ -1,22 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  isOfferedModel,
-  isRetiredModel,
-  isUnavailableCodexModel,
-} from "./model-catalog";
-
-describe("isUnavailableCodexModel", () => {
-  it.each(["gpt-6-sol", "OPENAI/GPT-6-SOL"])(
-    "blocks %s when Codex advertises it",
-    (modelId) => {
-      expect(isUnavailableCodexModel(modelId)).toBe(true);
-    },
-  );
-
-  it("keeps other Codex models available", () => {
-    expect(isUnavailableCodexModel("gpt-5.6-sol")).toBe(false);
-  });
-});
+import { isOfferedModel, isRetiredModel } from "./model-catalog";
 
 describe("isOfferedModel", () => {
   it.each([

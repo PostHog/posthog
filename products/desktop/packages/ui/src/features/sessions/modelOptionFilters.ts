@@ -1,14 +1,13 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import { isSelectGroup } from "@posthog/shared";
-import {
-  accessFlagForModel,
-  isUnavailableCodexModel,
-} from "@posthog/shared/model-catalog";
+import { accessFlagForModel } from "@posthog/shared/model-catalog";
 
 /** Whether each model access flag is on for this person, keyed by flag. */
 export type ModelRolloutFlags = Record<string, boolean>;
 
-// Pi has its own catalog and can still use models that the Codex harness cannot.
+// The catalog says which flag a model needs, so a newly gated model is filtered by adding
+// its `access_flag` there rather than by adding a predicate and a branch here. A model the
+// catalog does not gate is offered to everyone.
 function isModelDisabled(modelId: string, flags: ModelRolloutFlags): boolean {
   const flag = accessFlagForModel(modelId);
   return flag !== undefined && !flags[flag];
@@ -52,10 +51,8 @@ export function stripDisabledModelOption(
   option: SessionConfigOption,
   flags: ModelRolloutFlags,
 ): SessionConfigOption {
-  return stripModelOptions(
-    option,
-    (modelId) =>
-      isUnavailableCodexModel(modelId) || isModelDisabled(modelId, flags),
+  return stripModelOptions(option, (modelId) =>
+    isModelDisabled(modelId, flags),
   );
 }
 

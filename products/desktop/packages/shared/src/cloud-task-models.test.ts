@@ -204,7 +204,6 @@ describe("buildCloudTaskConfigOptions", () => {
       [
         model("claude-opus-4-8"),
         model("gpt-5.6", "openai"),
-        model("gpt-5.6-sol", "openai"),
         model("gpt-6-sol", "openai"),
       ],
       "codex",
@@ -214,8 +213,8 @@ describe("buildCloudTaskConfigOptions", () => {
       { id: "mode", currentValue: "auto" },
       {
         id: "model",
-        currentValue: "gpt-5.6-sol",
-        options: [{ value: "gpt-5.6" }, { value: "gpt-5.6-sol" }],
+        currentValue: "gpt-6-sol",
+        options: [{ value: "gpt-5.6" }, { value: "gpt-6-sol" }],
       },
       {
         id: "reasoning_effort",
@@ -229,18 +228,6 @@ describe("buildCloudTaskConfigOptions", () => {
         ],
       },
     ]);
-  });
-
-  it("leaves no selectable Codex model if only the unavailable model is served", () => {
-    const options = buildCloudTaskConfigOptions(
-      [model("gpt-6-sol", "openai")],
-      "codex",
-    );
-
-    expect(options.find((option) => option.id === "model")).toMatchObject({
-      currentValue: "",
-      options: [],
-    });
   });
 
   it("offers Modal models to Claude sessions", () => {

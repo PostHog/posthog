@@ -234,7 +234,6 @@ export {
 export {
   isOfferedModel,
   isRetiredModel,
-  isUnavailableCodexModel,
   supports1MContext,
   supportsFastMode,
 } from "./model-catalog";

@@ -1,11 +1,7 @@
 import type { Adapter } from "./adapter";
 import { getCustomCloud, isCustomCloudHost } from "./custom-cloud";
 import { CODEX_MODE_PRESETS } from "./execution-modes";
-import {
-  isOfferedModel,
-  isUnavailableCodexModel,
-  labelForModel,
-} from "./model-catalog";
+import { isOfferedModel, labelForModel } from "./model-catalog";
 import {
   customModelMeta,
   modelHarnessMeta,
@@ -59,7 +55,7 @@ export interface CloudTaskModePreset {
 
 export const DEFAULT_GATEWAY_MODEL = "claude-opus-5-5";
 
-export const DEFAULT_CODEX_MODEL = "gpt-5.6-sol";
+export const DEFAULT_CODEX_MODEL = "gpt-6-sol";
 
 const CLAUDE_MODE_PRESETS: readonly CloudTaskModePreset[] = [
   {
@@ -295,7 +291,7 @@ function getAdapterModels(
 ): GatewayModel[] {
   return models.filter((model) =>
     adapter === "codex"
-      ? isOpenAIModel(model) && !isUnavailableCodexModel(model.id)
+      ? isOpenAIModel(model)
       : isAnthropicModel(model) ||
         isCloudflareModel(model) ||
         isModalModel(model) ||
@@ -452,10 +448,7 @@ export function buildCloudTaskConfigOptions(
     : (modelOptions[0]?.value ?? defaultModel);
   const resolvedModelId = pickAllowedModel(adapterModels, preferredModelId);
 
-  if (
-    resolvedModelId &&
-    !modelOptions.some((option) => option.value === resolvedModelId)
-  ) {
+  if (!modelOptions.some((option) => option.value === resolvedModelId)) {
     modelOptions.unshift({
       value: resolvedModelId,
       name: resolvedModelId,
