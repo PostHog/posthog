@@ -79,6 +79,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
 from products.alerts.backend.facade.temporal import create_alerts_platform_tick_schedule
+from products.autoresearch.backend.facade.temporal import create_autoresearch_daily_schedule
 from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import (
     create_business_knowledge_learning_coordinator_schedule,
@@ -130,6 +131,7 @@ from products.replay_vision.backend.temporal.vision_alerts.schedule import creat
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
+from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal.agentic.schedule import (
     create_scout_suggestions_coordinator_schedule,
     create_signals_scout_coordinator_schedule,
@@ -949,7 +951,9 @@ schedules = [
     create_schedule_due_alert_checks_schedule,
     create_run_investigation_safety_net_schedule,
     create_cleanup_alert_checks_schedule,
+    create_autoresearch_daily_schedule,
     create_signals_scout_coordinator_schedule,
+    create_inbox_ranking_scoring_schedule,
     create_scout_suggestions_coordinator_schedule,
     create_support_reply_coordinator_schedule,
     create_channel_summary_coordinator_schedule,

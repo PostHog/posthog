@@ -274,19 +274,32 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                             prop = with_span_attribute_type_suffix(prop)
                         self.span_attribute_filters.append(prop)
 
+    @property
+    def _unbounded_trace_lookup(self) -> bool:
+        """A trace looked up by id with no date range, for example from a link without a `ts` hint."""
+        return bool(self.query.traceId) and self.query.dateRange is None
+
+    @property
+    def _trace_id_b64(self) -> str:
+        """The trace id in the table's base64 storage form. Callers pass it as hex or as base64."""
+        assert self.query.traceId
+        return _normalise_to_base64(self.query.traceId)
+
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
-        exprs.append(
-            parse_expr(
-                TIME_BUCKET_DATE_RANGE_WHERE,
-                placeholders={
-                    **self.query_date_range.to_placeholders(),
-                },
+        # A lookup by trace id alone has no date bound. `to_query` finds its rows through a projection instead.
+        if not self._unbounded_trace_lookup:
+            exprs.append(
+                parse_expr(
+                    TIME_BUCKET_DATE_RANGE_WHERE,
+                    placeholders={
+                        **self.query_date_range.to_placeholders(),
+                    },
+                )
             )
-        )
 
-        exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
+            exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
         if self.query.serviceNames:
             exprs.append(
@@ -321,12 +334,11 @@ class TraceSpansQueryRunnerMixin(QueryRunner):
                 exprs.append(property_to_expr(f, team=self.team))
 
         if self.query.traceId:
-            trace_id_b64 = base64.b64encode(bytes.fromhex(self.query.traceId)).decode("ascii")
             exprs.append(
                 parse_expr(
                     "trace_id = {traceId}",
                     placeholders={
-                        "traceId": ast.Constant(value=trace_id_b64),
+                        "traceId": ast.Constant(value=self._trace_id_b64),
                     },
                 )
             )
@@ -667,14 +679,18 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 {resource_attributes},
                 max(if({where_for_start}, duration_nano, NULL)) OVER (PARTITION BY trace_id) as trace_duration
             FROM posthog.trace_spans
-            WHERE {filters} AND trace_id IN ({trace_id_query}) LIMIT {limit}
+            WHERE {filters} AND {trace_filter} LIMIT {limit}
         """,
             placeholders={
                 "where": self.where(),
                 "where_for_start": key_predicate,
-                "trace_id_query": trace_id_query,
+                "trace_filter": self._unbounded_trace_filter()
+                if self._unbounded_trace_lookup
+                else parse_expr("trace_id IN ({trace_id_query})", placeholders={"trace_id_query": trace_id_query}),
                 "limit": ast.Constant(value=(self.query.limit or 1) * limit_by_n),
-                "filters": ast.Placeholder(expr=ast.Field(chain=["filters"])),
+                "filters": ast.Constant(value=True)
+                if self._unbounded_trace_lookup
+                else ast.Placeholder(expr=ast.Field(chain=["filters"])),
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map
@@ -720,6 +736,19 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
 
         return query
 
+    def _unbounded_trace_filter(self) -> ast.Expr:
+        """Find one trace's rows without a date bound, through `projection_index_team_trace_id`.
+
+        `trace_id = X` on the main table loads the per-part `idx_trace_bloom_part` filter of every part
+        in retention. The subquery below needs only team_id, trace_id and _part_offset, which the
+        projection holds, so ClickHouse answers it from the projection and never opens those filters.
+        HogQL adds the team_id guard to the subquery, which is why the projection must hold team_id.
+        """
+        return parse_expr(
+            "(_part, _part_offset) IN (SELECT _part, _part_offset FROM posthog.trace_spans WHERE trace_id = {trace_id})",
+            placeholders={"trace_id": ast.Constant(value=self._trace_id_b64)},
+        )
+
     def _build_flat_spans_query(self, *, by_duration: bool, order_dir: str) -> ast.SelectQuery:
         """Flat span list: the matching spans themselves, no whole-trace expansion (see _flat_spans).
 
@@ -730,6 +759,8 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         are the span's own timestamp / duration.
         """
         where_exprs: list[ast.Expr] = [self.where()]
+        if self._unbounded_trace_lookup:
+            where_exprs.append(self._unbounded_trace_filter())
 
         # Time order keysets on (timestamp, span_id) in the WHERE; duration order offset-paginates via
         # the paginator (see _calculate). The coarse UTC day bound lets ClickHouse prune parts first —

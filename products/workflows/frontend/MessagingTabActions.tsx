@@ -10,12 +10,12 @@ import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { MessagingNavTabKey } from './messagingTabs'
 import { optOutCategoriesLogic } from './OptOuts/optOutCategoriesLogic'
+import { newTemplateAgentLogic } from './TemplateLibrary/newTemplateAgentLogic'
 
 /** The scene-header action for a shared messaging tab, the same on every surface that shows the tab. */
 export function MessagingTabActions({
@@ -40,17 +40,13 @@ export function MessagingTabActions({
 }
 
 function NewTemplateButton(): JSX.Element {
+    const { startNewTemplate } = useActions(newTemplateAgentLogic)
     return (
         <AccessControlAction
             resourceType={AccessControlResourceType.Workflow}
             minAccessLevel={AccessControlLevel.Editor}
         >
-            <LemonButton
-                data-attr="new-message-button"
-                to={urls.workflowsLibraryTemplateNew()}
-                type="primary"
-                size="small"
-            >
+            <LemonButton data-attr="new-message-button" onClick={startNewTemplate} type="primary" size="small">
                 New template
             </LemonButton>
         </AccessControlAction>

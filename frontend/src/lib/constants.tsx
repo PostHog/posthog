@@ -229,6 +229,7 @@ export const FEATURE_FLAGS = {
     SCOUTS_SUGGESTIONS_UI: 'scouts-suggestions-ui', // owner: #team-self-driving, gates the pre-computed scout suggestions strip on the inbox scouts tab (the producer is the separate signals-scout-suggestions flag)
     SELF_DRIVING_FREE_TRIAL: 'self-driving-free-trial', // owner: #team-self-driving, the org is on a Self-driving free trial: reports only, no pull requests (also checked server-side)
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
+    SELF_OPTIMISING_WORKFLOWS: 'self-optimising-workflows', // owner: #team-workflows, gates agent-suggested workflow changes (also checked server-side)
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
@@ -305,6 +306,8 @@ export const FEATURE_FLAGS = {
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
+    EMAIL_TEMPLATES_AI_FIRST_NEW: 'email-templates-ai-first-new', // owner: @mayteio #team-workflows
+    EMOJI_RELATED_SEARCH: 'emoji-related-search', // owner: @pauldambra, gates the model search in `emojiSuggestionsLogic.ts` when the emoji picker finds no match
     ENDPOINTS_AI_MATERIALIZATION_FIX: 'endpoints-ai-materialization-fix', // owner: @sakce #team-data-modeling, gates the AI materialization rewrite (UI button + API action + MCP tools)
     ENGINEERING_ANALYTICS: 'engineering-analytics', // owner: #team-devex
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
@@ -384,6 +387,7 @@ export const FEATURE_FLAGS = {
     MANAGED_MIGRATIONS_TRIAL_RUNS: 'managed-migrations-trial-runs', // owner: #team-ingestion, gates trial runs for managed migrations
     MANAGED_VIEWSETS: 'managed-viewsets', // owner: @rafaeelaudibert #team-revenue-analytics
     MARKETING_ANALYTICS_AI: 'marketing-analytics-ai', // owner: @jabahamondes #team-web-analytics
+    MARKETING_ANALYTICS_AMAZON_ADS: 'marketing-analytics-amazon-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_APPLE_ADS: 'marketing-analytics-apple-ads', // owner: @jabahamondes #team-web-analytics
     MARKETING_ANALYTICS_ATTRIBUTION: 'marketing-analytics-attribution', // owner: @jabahamondes #team-web-analytics — gates the legacy Attribution explorer tab; the new dashboard ignores it
     MARKETING_ANALYTICS_COSTS_PRECOMPUTATION: 'marketing-analytics-costs-precomputation', // owner: @jabahamondes #team-web-analytics — gates reading the native cost precompute table
@@ -526,7 +530,9 @@ export const FEATURE_FLAGS = {
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-ai-observability
     TASKS_STREAM_VIA_PROXY: 'tasks-stream-via-proxy', // owner: #team-ai-observability
+    TAXONOMIC_FILTER_EVENT_MATCH: 'taxonomic-filter-event-match', // owner: @pauldambra, asks the decision model which core events an events search with no results describes, then suggests them in the empty state
     TAXONOMIC_FILTER_MENU_REBUILD: 'taxonomic-filter-menu-rebuild', // owner: @adamleith, opt-in to the rebuilt TaxonomicFilter — headless filter panel + new popover menu (column / preview-pane)
+    TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. Every arm promotes the predicted group on the All tab; only banner also suggests the right tab
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)

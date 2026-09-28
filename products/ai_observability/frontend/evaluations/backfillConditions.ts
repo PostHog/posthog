@@ -20,13 +20,21 @@ export function backfillRangeDateFormat(start: string, end: string, now: dayjs.D
     return sameYear ? 'MMM D' : 'MMM D, YYYY'
 }
 
+/** Raised, never replaced: a run whose units the live path graded mid-walk handles fewer than it
+ * was created for, and those units are covered too. */
+export function backfillTotalCount(backfill: EvaluationBackfillApi): number {
+    return Math.max(backfill.total_count, backfill.dispatched_count + backfill.skipped_count)
+}
+
+export function backfillLateArrivalCount(backfill: EvaluationBackfillApi): number {
+    return backfillTotalCount(backfill) - backfill.total_count
+}
+
 export function backfillCoveredCount(backfill: EvaluationBackfillApi): number {
-    // A finished run knows what the window still owed. Until then, coverage is what the walk itself
-    // handled. The total is the estimate taken at creation while the remainder is counted later, so
-    // an event arriving in between can leave more owed than the total ever held.
+    const total = backfillTotalCount(backfill)
     const covered =
         backfill.status === 'completed' && backfill.remaining_count !== null
-            ? backfill.total_count - backfill.remaining_count
+            ? total - backfill.remaining_count
             : backfill.dispatched_count + backfill.skipped_count
-    return clamp(covered, 0, backfill.total_count)
+    return clamp(covered, 0, total)
 }
