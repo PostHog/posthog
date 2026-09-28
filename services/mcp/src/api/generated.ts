@@ -15170,6 +15170,11 @@ export namespace Schemas {
       offset_hour?: number | null;
     }
 
+    export interface BatchExportUnpauseRequest {
+      /** Whether to backfill the runs that the batch export missed while it was paused. */
+      backfill?: boolean;
+    }
+
     /**
      * @nullable
      */
@@ -37195,7 +37200,7 @@ export namespace Schemas {
          */
       name?: string | null;
       /**
-         * Issue description.
+         * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
          * @nullable
          */
       description?: string | null;
@@ -37401,7 +37406,7 @@ export namespace Schemas {
          */
       name?: string | null;
       /**
-         * Issue description.
+         * Issue description. List rows truncate it to a short preview; the issue detail query returns it in full.
          * @nullable
          */
       description?: string | null;
@@ -37647,7 +37652,7 @@ export namespace Schemas {
        * * `DESC` - DESC */
       orderDirection?: OrderDirectionEnum;
       /**
-         * Page size.
+         * Page size. Defaults to 10. Use nextOffset to fetch more rows instead of a large page.
          * @minimum 1
          * @maximum 100
          */
@@ -37658,7 +37663,7 @@ export namespace Schemas {
          */
       offset?: number;
       /**
-         * Number of volume buckets. Defaults to 0 for compact aggregate counts.
+         * Number of volume buckets. Defaults to 0, which returns only aggregate counts without volume buckets.
          * @minimum 0
          * @maximum 200
          */
@@ -47553,38 +47558,6 @@ export namespace Schemas {
       /** @nullable */
       readonly updated_at: string | null;
       readonly created_by: UserBasic;
-    }
-
-    /**
-     * * `events` - events
-     * * `persons` - persons
-     * * `sessions` - sessions
-     * * `hogql` - hogql
-     */
-    export type FileDownloadBatchExportOnDemandModelEnum = typeof FileDownloadBatchExportOnDemandModelEnum[keyof typeof FileDownloadBatchExportOnDemandModelEnum];
-
-
-    export const FileDownloadBatchExportOnDemandModelEnum = {
-      Events: 'events',
-      Persons: 'persons',
-      Sessions: 'sessions',
-      Hogql: 'hogql',
-    } as const;
-
-    /**
-     * Request shape for a FileDownload batch export on demand.
-     */
-    export interface FileDownloadBatchExportOnDemand {
-      file: FileDownloadDestinationFileConfig;
-      model: FileDownloadBatchExportOnDemandModelEnum;
-      include?: string[];
-      exclude?: string[];
-      /** HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. The query may reference the {data_interval_start} and {data_interval_end} placeholders. Provide a value for each placeholder the query references; missing referenced bounds are rejected, not inferred. When both bounds are supplied, they must span at most seven days. Neither supplied bound may be in the future. Without placeholders, the query runs unchanged, even if bounds are supplied. Every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models. */
-      hogql_query?: string;
-      /** Start of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_start}. A supplied start must not be in the future. When both bounds are supplied, the interval must span at most seven days. */
-      data_interval_start?: string;
-      /** End of the export interval. Required for the events, persons, and sessions models. For HogQL, required only when the query references {data_interval_end}. A supplied end must not be in the future or precede a supplied start. Bounds replace HogQL placeholders; they do not add filters to the query. */
-      data_interval_end?: string;
     }
 
     /**
@@ -70540,6 +70513,77 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: WizardSessionDTO[];
+    }
+
+    /**
+     * * `suggested` - Suggested
+     * * `approved` - Approved
+     * * `rejected` - Rejected
+     * * `applied` - Applied
+     */
+    export type WorkflowProposalStatusEnum = typeof WorkflowProposalStatusEnum[keyof typeof WorkflowProposalStatusEnum];
+
+
+    export const WorkflowProposalStatusEnum = {
+      Suggested: 'suggested',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Applied: 'applied',
+    } as const;
+
+    /**
+     * Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself.
+     */
+    export type WorkflowProposalContent = { [key: string]: unknown };
+
+    /**
+     * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+     */
+    export type WorkflowProposalEvidence = { [key: string]: unknown };
+
+    export interface WorkflowProposal {
+      readonly id: string;
+      /** Short summary of the proposed change. */
+      readonly title: string;
+      /** Why the producer thinks this change is worth making. */
+      readonly rationale: string;
+      /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
+      readonly content: WorkflowProposalContent;
+      /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+      readonly evidence: WorkflowProposalEvidence;
+      /**
+         * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
+         * @nullable
+         */
+      readonly step_id: string | null;
+      /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
+      readonly base_version: number;
+      /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+      readonly is_stale: boolean;
+      readonly status: WorkflowProposalStatusEnum;
+      /**
+         * Stable id of the producing agent run or finding, e.g. 'run:<run id>:finding:<finding id>'.
+         * @nullable
+         */
+      readonly source_id: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly resolved_at: string | null;
+      readonly resolved_by: UserBasic | null;
+      /**
+         * Workflow version the approved change went live as.
+         * @nullable
+         */
+      readonly applied_version: number | null;
+    }
+
+    export interface PaginatedWorkflowProposalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WorkflowProposal[];
     }
 
     export interface PassRateBucket {
@@ -102009,6 +102053,8 @@ export namespace Schemas {
       external_status: WebhookExternalStatus | null;
       /** Desired provider events not yet on the webhook (manual setup, or created before a new table). */
       missing_events?: string[];
+      /** Required webhook field names with no value yet. Deliveries are dropped while any is missing. */
+      missing_inputs?: string[];
     }
 
     export interface WebhookUrl {
@@ -102893,6 +102939,90 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowProposalApproveRequest {
+      /** Replace the open staged draft with this proposal's content. Without it, approving while a draft is open returns 409. */
+      overwrite?: boolean;
+      /**
+         * The draft_updated_at of the staged draft this overwrite was confirmed against. A draft with a different stamp returns 409 instead of being overwritten. Omit to overwrite unconditionally.
+         * @nullable
+         */
+      expected_draft_updated_at?: string | null;
+    }
+
+    /**
+     * Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it.
+     */
+    export type WorkflowProposalCreateContent = { [key: string]: unknown };
+
+    /**
+     * The metric numbers behind the proposal, so a human can judge it without re-deriving them.
+     */
+    export type WorkflowProposalCreateEvidence = { [key: string]: unknown };
+
+    export interface WorkflowProposalCreate {
+      /**
+         * Short summary of the proposed change.
+         * @maxLength 200
+         */
+      title: string;
+      /** Why this change is worth making, in prose a human reads. */
+      rationale: string;
+      /** Only the workflow content fields this proposal changes. Approving merges them over the live content to build the staged draft, so unrelated parts of the workflow stay as they are. In `actions`, send each step you change with its `id` and only the fields you change; they merge into the live step, and a null field deletes it. */
+      content: WorkflowProposalCreateContent;
+      /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
+      evidence?: WorkflowProposalCreateEvidence;
+      /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
+      base_version?: number;
+      /**
+         * The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
+         * @maxLength 200
+         * @nullable
+         */
+      step_id?: string | null;
+      /**
+         * Stable id of the producing agent run or finding. Posting the same one twice returns the existing proposal instead of creating a duplicate.
+         * @maxLength 200
+         * @nullable
+         */
+      source_id?: string | null;
+    }
+
+    export interface WorkflowProposalMetric {
+      /** What was measured, e.g. 'email open rate'. */
+      metric: string;
+      /**
+         * The rate over the window, or null when there was nothing to divide.
+         * @nullable
+         */
+      value: number | null;
+      /** Observations the rate was computed over. */
+      n: number;
+      /** True when n is too small for the rate to mean anything. Show it labelled, not as a finding. */
+      below_minimum_sample: boolean;
+    }
+
+    export interface WorkflowProposalVersionOutcome {
+      /** Workflow version these numbers belong to. */
+      version: number;
+      /** The metric the suggestion aimed at. */
+      target: WorkflowProposalMetric;
+      /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
+      click_through: WorkflowProposalMetric;
+      /** Counter-metrics over the same window, so a harmful win is visible. */
+      guardrails: WorkflowProposalMetric[];
+    }
+
+    export interface WorkflowProposalOutcome {
+      /** Relative window both sides were measured over. */
+      window: string;
+      /** The version the change was proposed against. */
+      before: WorkflowProposalVersionOutcome | null;
+      /** The version it went live as. Null until the proposal is applied. */
+      after: WorkflowProposalVersionOutcome | null;
+      /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
+      unavailable_guardrails: string[];
     }
 
     export interface WorkflowRunActivityPoint {
@@ -112511,6 +112641,38 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
     } as const;
+
+    export type HogFlowsProposalsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Only return proposals in this status (suggested, approved, rejected, applied).
+     */
+    status?: HogFlowsProposalsListStatus;
+    };
+
+    export type HogFlowsProposalsListStatus = typeof HogFlowsProposalsListStatus[keyof typeof HogFlowsProposalsListStatus];
+
+
+    export const HogFlowsProposalsListStatus = {
+      Applied: 'applied',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      Suggested: 'suggested',
+    } as const;
+
+    export type HogFlowsProposalsOutcomeRetrieveParams = {
+    /**
+     * Relative window, e.g. -7d. Defaults to -7d.
+     */
+    window?: string;
+    };
 
     export type HogFlowsRevisionsListParams = {
     /**

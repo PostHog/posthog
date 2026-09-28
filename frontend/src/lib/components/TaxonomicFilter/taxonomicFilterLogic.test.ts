@@ -1097,6 +1097,45 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('searchPlaceholder', () => {
+        it.each([
+            { groupTypes: [TaxonomicFilterGroupType.Events], expected: 'events' },
+            {
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                expected: 'events or actions',
+            },
+            {
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Cohorts,
+                ],
+                expected: 'events, actions or cohorts',
+            },
+            {
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Cohorts,
+                ],
+                expected: 'event properties, person properties, and more',
+            },
+        ])('names $expected without meta groups', ({ groupTypes, expected }) => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: `testPlaceholder-${groupTypes.join('-')}`,
+                taxonomicGroupTypes: groupTypes,
+            })
+            testLogic.mount()
+
+            expect(testLogic.values.searchPlaceholder).toBe(expected)
+
+            testLogic.unmount()
+        })
+    })
+
     describe('promoted groups are reordered', () => {
         it.each([
             {
