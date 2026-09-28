@@ -8,7 +8,13 @@ from unittest.mock import Mock, patch
 from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
+from posthog.clickhouse.client.limit import (
+    ConcurrencyLimitExceeded,
+    ConcurrencySlot,
+    RateLimit,
+    get_api_team_rate_limiter,
+    get_events_list_rate_limiter,
+)
 from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 
@@ -186,43 +192,40 @@ class TestRateLimit(BaseTest):
 
         assert result == 11
 
-    def test_retry_mechanism_raises_exception(self):
+    @parameterized.expand(
+        [
+            ("api_per_team", get_api_team_rate_limiter),
+            ("events_list_per_team", get_events_list_rate_limiter),
+        ]
+    )
+    def test_retry_mechanism_raises_exception(self, _name: str, get_limiter: Callable[[], RateLimit]) -> None:
         """
         Test that the retry mechanism raises an exception if despite waiting for the retry timeout, the slot is not available.
         """
-        retry_limit = RateLimit(
-            max_concurrency=1,
-            applicable=lambda *args, **kwargs: True,
-            limit_name="test_retry_mechanism_raises_exception",
-            get_task_name=lambda *args, **kwargs: "test_retry_mechanism_raises_exception",
-            get_task_id=lambda *args, **kwargs: f"task-{kwargs.get('task_id', 1)}",
-            ttl=10,
-            retry=0.1,  # 100ms initial retry
-            retry_timeout=0.5,  # 500ms total timeout
-        )
-
+        retry_limit = get_limiter()
         time_helper = TimeHelper()
-        retry_limit.sleep = time_helper.sleep
-        retry_limit.get_time = time_helper.get_time
 
-        # First task should succeed immediately
-        with retry_limit.run(task_id=1):
-            pass
+        with (
+            patch.object(retry_limit, "sleep", time_helper.sleep),
+            patch.object(retry_limit, "get_time", time_helper.get_time),
+        ):
+            held_slots = [
+                retry_limit.use(team_id=self.team.id, task_id=f"held-{i}") for i in range(retry_limit.max_concurrency)
+            ]
+            try:
+                with self.assertRaises(ConcurrencyLimitExceeded):
+                    retry_limit.use(team_id=self.team.id, task_id="waiting")
+            finally:
+                for slot in held_slots:
+                    if slot is not None:
+                        retry_limit.release(slot)
 
-        # Second task should retry and eventually fail due to timeout
-        retry_limit.use(task_id=2)
-        with self.assertRaises(ConcurrencyLimitExceeded):
-            with retry_limit.run(task_id=2):
-                pass
-
-        # Verify exponential backoff
-        assert len(time_helper.sleep_times) == 3
+        # Verify exponential backoff, which stops growing at its maximum delay
         for i in range(1, len(time_helper.sleep_times)):
-            assert time_helper.sleep_times[i] > time_helper.sleep_times[i - 1]  # Each retry should wait longer
-        total_sleep_time = sum(time_helper.sleep_times[:-1])
+            assert time_helper.sleep_times[i] >= time_helper.sleep_times[i - 1]
 
-        # Verify total time is within timeout
-        assert total_sleep_time <= 0.5  # Should not exceed retry_timeout
+        # Each wait holds a web worker, so it gives up at the first check after 5 seconds.
+        assert sum(time_helper.sleep_times[:-1]) < 5.0 <= sum(time_helper.sleep_times)
 
     def test_retry_mechanism_acquires_slot(self):
         """
