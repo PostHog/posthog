@@ -447,6 +447,10 @@ jobs:
                         # A generated file in a frontend-only PR still needs a known producer.
                         - '**/*.generated.*'
                         - '**/generated/**'
+                        # test_generated_files_are_registered.py also reads the projection
+                        # registry and the ci-python paths filter it must stay in step with.
+                        - 'tools/hogli-commands/hogli_commands/projections.py'
+                        - '.github/workflows/ci-python.yml'
                         - 'products/ruff.toml'
                         - '.github/scripts/**'
                       product_yamls:

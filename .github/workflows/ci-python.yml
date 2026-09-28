@@ -123,10 +123,18 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
-                        # A hand-edit to a generated projection output must reach the drift
-                        # check. Every registered output but the taxonomy JSON is *.generated.*
-                        - '**/*.generated.*'
+                        # A hand-edit to a projection output must reach the drift check. Lists
+                        # every output in hogli_commands/projections.py, not a *.generated.* glob,
+                        # so unrelated generated files skip mypy and ty.
+                        # test_generated_files_are_registered.py keeps the two in step.
                         - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
+                        - 'services/mcp/src/lib/trace-property-allowlist.generated.ts'
+                        - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
+                        - 'products/desktop/packages/shared/src/objectTagKinds.generated.ts'
+                        - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/tasks/frontend/modelCatalog.generated.ts'
+                        - 'products/desktop/packages/shared/src/model-catalog.generated.ts'
+                        - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
