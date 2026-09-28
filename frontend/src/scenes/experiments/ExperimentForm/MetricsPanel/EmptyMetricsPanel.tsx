@@ -11,7 +11,13 @@ import { metricSourceModalLogic } from 'products/experiments/frontend/modals/Met
 export const EmptyMetricsPanel = ({
     helpText,
     isLaunched,
-}: { helpText?: string; isLaunched?: boolean } = {}): JSX.Element => {
+    showHelpText = true,
+}: {
+    helpText?: string
+    isLaunched?: boolean
+    /** Hide the help line under the buttons, e.g. when the surrounding heading already explains it */
+    showHelpText?: boolean
+} = {}): JSX.Element => {
     const { openMetricSourceModal } = useActions(metricSourceModalLogic)
 
     return (
@@ -54,7 +60,7 @@ export const EmptyMetricsPanel = ({
                         </div>
                     </LemonButton>
                 </div>
-                {!isLaunched && (
+                {!isLaunched && showHelpText && (
                     <div className="max-w-md">
                         <p className="text-xs text-muted">
                             {helpText ??
