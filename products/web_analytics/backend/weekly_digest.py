@@ -288,9 +288,10 @@ def _digest_date_range(team: Team, days: int) -> QueryDateRange:
 
 def _has_sessions_in_range(team: Team, date_range: QueryDateRange) -> bool:
     tag_queries(product=ProductKey.WEB_ANALYTICS, team_id=team.pk, name="weekly_digest:session_probe")
+    # The sessions tables keep only UUIDv7 session IDs, so events with other IDs never become session rows.
     query = parse_select(
         "SELECT 1 FROM events WHERE timestamp >= {date_from} AND timestamp < {date_to} "
-        "AND notEmpty(events.$session_id) LIMIT 1",
+        "AND bitAnd(bitShiftRight(events.$session_id_uuid, 76), 15) = 7 LIMIT 1",
         placeholders={
             "date_from": ast.Constant(value=date_range.date_from()),
             "date_to": ast.Constant(value=date_range.date_to()),

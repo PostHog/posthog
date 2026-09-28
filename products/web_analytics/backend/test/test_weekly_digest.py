@@ -439,9 +439,12 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
             ("no_events", None, "no_sessions"),
             ("custom_events_only", "signed_in", "no_web_sessions"),
             ("pageviews_outside_period", "$pageview", "no_sessions"),
+            ("custom_events_with_non_uuidv7_session_id", "signed_in", "no_sessions", "custom-session-1"),
         ]
     )
-    def test_works_with_no_web_traffic(self, _name: str, event: str | None, expected_status: str) -> None:
+    def test_works_with_no_web_traffic(
+        self, _name: str, event: str | None, expected_status: str, session_id: str | None = None
+    ) -> None:
         with time_machine.travel(QUERY_TIMESTAMP, tick=False):
             if event:
                 _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
@@ -451,7 +454,7 @@ class TestBuildTeamDigest(ClickhouseTestMixin, APIBaseTest):
                     event=event,
                     distinct_id="user_1",
                     timestamp=timestamp,
-                    properties={"$session_id": str(uuid7(timestamp))},
+                    properties={"$session_id": session_id or str(uuid7(timestamp))},
                 )
                 flush_persons_and_events()
 
