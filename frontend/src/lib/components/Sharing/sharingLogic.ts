@@ -310,7 +310,7 @@ export interface sharingLogicMeta {
             sharingConfiguration: SharingConfigurationType | null,
             params: any
         ) => string
-        teamLink: (siteUrl: string | undefined, dashboardId: any, insightShortId: any) => string | null
+        teamLink: (siteUrl: string | undefined, arg: any, arg2: any) => string | null
         iframeProperties: (
             embedLink: string,
             iframeKey: number
