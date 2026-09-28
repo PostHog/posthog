@@ -244,7 +244,9 @@ class CheckRunReader:
             runs = [
                 CheckRun.from_api(run)
                 for run in raw
-                if run.get("app", {}).get("id") == DEPOT_APP_ID
+                # One malformed record is skipped rather than discarding the whole answer.
+                if isinstance(run, dict)
+                and (run.get("app") or {}).get("id") == DEPOT_APP_ID
                 and run.get("name") == name
                 and run.get("head_sha") == self._sha
                 and (

@@ -459,3 +459,11 @@ def test_reader_rejects_wrong_identity(field: str, value: Any) -> None:
         opener=lambda *a, **kw: FakeResponse(json.dumps({"check_runs": [payload]}).encode(), ""),
     )
     assert reader.read(relay.GATE_CHECK) == []
+
+
+def test_reader_keeps_valid_checks_beside_a_malformed_one() -> None:
+    answer = json.dumps({"check_runs": [{**api_check(), "app": None}, api_check()]}).encode()
+    reader = relay.CheckRunReader(
+        "PostHog/posthog", "abc", "token", pr_number=PR, opener=lambda *a, **kw: FakeResponse(answer, "")
+    )
+    assert len(reader.read(relay.GATE_CHECK)) == 1
