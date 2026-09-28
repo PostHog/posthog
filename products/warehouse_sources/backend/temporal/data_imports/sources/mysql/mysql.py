@@ -86,6 +86,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
     KeysetResumeState,
     iter_keyset_pages,
+    keyset_last_key,
+    keyset_state,
     resolve_keyset_eligibility,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
@@ -1794,10 +1796,10 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             manager = resumable_source_manager
 
             def _keyset_get_rows() -> Iterator[Any]:
-                initial_last_value = None
                 state = manager.load_state() if manager.can_resume() else None
-                if state is not None:
-                    initial_last_value = state.last_key
+                resume_key = keyset_last_key(state, key_length=1)
+                initial_last_value = resume_key[0] if resume_key is not None else None
+                if initial_last_value is not None:
                     logger.debug(f"MySQL keyset resume: {keyset_column} > {initial_last_value}")
 
                 # Autocommit: each page is its own transaction, so the load never holds a read view
@@ -1830,7 +1832,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                             return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
 
                     def _checkpoint(last_key: Any) -> None:
-                        manager.save_state(KeysetResumeState(last_key=last_key))
+                        manager.save_state(keyset_state((last_key,)))
 
                     yield from iter_keyset_pages(
                         builder=_QUERY_BUILDER,

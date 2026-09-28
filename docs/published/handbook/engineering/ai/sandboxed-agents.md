@@ -295,11 +295,15 @@ summary = await session.send_followup(
 await session.end()
 ```
 
+Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so the caller can validate and save the result before closing the sandbox.
+
 ### Reference implementation
 
 The scout rubric generator in `products/signals/backend/scout_harness/rubrics_runner.py` proposes editable criteria in a background session.
 The `signals-pipeline-models` payload can select its adapter, model and effort through the `scout_rubrics` step without changing regular scout runs.
 The backend supplies the description, current instructions, reference text and up to five recent run summaries in the first request.
+Rubric generation requests no project-read MCP scopes because its source context is supplied up front.
+The existing sandbox still has internal credentials and tool access; this remains an accepted limitation of the staff-only v0.
 That request includes effective defaults and disabled criteria, including edits, but withholds enabled custom criteria until a second comparison step.
 Reference text comes from the exact skill version in the same project, ordered by path and limited to four files and 60,000 characters combined.
 The context marks clipped instructions, references, summaries and report identifier lists explicitly.

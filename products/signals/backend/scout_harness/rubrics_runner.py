@@ -342,7 +342,7 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
             user_id=user_id,
             repository=None,
             sandbox_environment_id=sandbox_env_id,
-            posthog_mcp_scopes=["user:read", "project:read", "llm_skill:read", "signal_scout:read", "task:read"],
+            posthog_mcp_scopes=[],
             github_read_access=False,
             model=runtime.model,
             runtime_adapter=runtime.runtime_adapter,
@@ -367,7 +367,7 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
                 prompt=prompt,
                 context=context,
                 step_name="scout_rubrics",
-                # The suggestions origin supplies read-only credentials and existing inference routing.
+                # Reuse the suggestions origin's inference routing for this internal session.
                 origin_product=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
                 internal=True,
                 mcp_builtin_agent_key="scout",

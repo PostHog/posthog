@@ -521,10 +521,7 @@ class TestScoutRubricsAPI(APIBaseTest):
             self.assertEqual(kwargs["origin_product"], "scout_suggestions")
             context = kwargs["context"]
             assert isinstance(context, CustomPromptSandboxContext)
-            self.assertEqual(
-                context.posthog_mcp_scopes,
-                ["user:read", "project:read", "llm_skill:read", "signal_scout:read", "task:read"],
-            )
+            self.assertEqual(context.posthog_mcp_scopes, [])
             self.assertFalse(context.github_read_access)
             self.assertIn(context.initial_permission_mode, ("full-access", "bypassPermissions"))
             self.assertEqual(context.sandbox_timeout_seconds, 17 * 60)
