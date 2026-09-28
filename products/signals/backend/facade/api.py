@@ -16,10 +16,11 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import (
     # Re-exported so the Slack mention handler can label the task it starts from a report's
     # notification thread without naming the relationship vocabulary itself.
@@ -29,6 +30,7 @@ from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
 from products.signals.backend.report_actionability_repair import RepairedBatch, repair_latest_actionability
+from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
@@ -1171,3 +1173,29 @@ def repair_report_actionability_cache(
     artefact write, so this only repairs rows that drifted.
     """
     return repair_latest_actionability(team_id=team_id, batch_size=batch_size, after=after)
+
+
+def scout_creation_available(*, team_id: int, user_id: int) -> bool:
+    """Whether to offer the user scout creation on the team's project.
+
+    The create endpoint's permission checks run on the requested team: project access and editor
+    access to skills. Two more checks run on the canonical project: it runs scouts (enrollment in the
+    `signals-scout` flag payload), and the user passes the endpoint's own check (editor access to skills).
+    """
+    from products.signals.backend.scout_harness.team_limits import (
+        team_is_enrolled,  # noqa: PLC0415 — keeps the flag-reading harness module off the facade import path
+    )
+
+    team = Team.objects.select_related("parent_team").filter(id=team_id).first()
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if team is None or user is None:
+        return False
+    requested_team_access = UserAccessControl(user=user, team=team)
+    if not requested_team_access.has_project_access:
+        return False
+    if not requested_team_access.check_access_level_for_resource("llm_skill", "editor"):
+        return False
+    canonical_team = team.parent_team or team
+    if not team_is_enrolled(canonical_team.id):
+        return False
+    return can_create_scout(user, canonical_team)

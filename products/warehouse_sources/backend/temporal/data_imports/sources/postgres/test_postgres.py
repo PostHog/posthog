@@ -540,6 +540,21 @@ class TestPostgresSourceNonRetryableErrors:
         assert "re-enable the sync" in matches[0].lower()
         assert "db.example.com" not in matches[0]
 
+    def test_ssh_gateway_session_failure_tells_the_customer_to_re_enable(self, source):
+        # This entry is non-retryable, so matching it switches the schema off. Without the
+        # re-enable step the customer fixes the bastion and the sync stays silently stopped.
+        # Mirror the finalizer's first-match selection so a reorder that shadows it with an
+        # earlier None-valued key is caught.
+        error_msg = "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway"
+        matches = [
+            friendly
+            for pattern, friendly in source.get_non_retryable_errors().items()
+            if error_message_matches(error_msg, [pattern])
+        ]
+        assert matches, "an unreachable SSH gateway must be classified non-retryable"
+        assert matches[0] is not None, "an unreachable SSH gateway must surface an actionable message"
+        assert "re-enable the sync" in matches[0].lower()
+
     @pytest.mark.parametrize(
         ("error_msg", "reason_code", "expected_word"),
         [
@@ -4884,6 +4899,21 @@ class TestValidateCredentialsErrorMapping:
                 'Your database refused an unencrypted connection ("SSL/TLS connection required"). PostHog '
                 "only tries an unencrypted connection after an encrypted one fails, so check that the host "
                 "is the hostname your database provider gave you rather than an IP address, then try again.",
+            ),
+            # libpq's own DNS wording, which reaches validation without the socket-level suffix the
+            # entries above match on.
+            (
+                'could not translate host name "db.example.com" to address: Unknown host',
+                "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+                "from the public internet.",
+            ),
+            # A firewall that drops our packets shows up as a connect timeout carrying libpq's
+            # "Is the server running..." hint, so that entry has to name the firewall as a cause.
+            (
+                'connection to server at "203.0.113.10", port 5432 failed: Connection timed out\n\t'
+                "Is the server running on that host and accepting TCP/IP connections?",
+                "Could not connect to the database on the host and port given. Check the host and port are "
+                "correct, and that PostHog's IP addresses are allowed through your firewall.",
             ),
             # Unmapped errors fall back to the generic message.
             (

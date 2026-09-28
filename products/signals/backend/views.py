@@ -155,6 +155,7 @@ from products.signals.backend.report_metric_access import ReportMetricAccessPoli
 from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
+from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     PullRequestChecksPermissionErrorSerializer,
@@ -416,8 +417,15 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # it to the canonical team keeps the inbox toggle and the emit gate on the same row from
         # any environment. All other sources stay environment-scoped.
         if self._is_scout_source(source_product, source_type):
+            if not self._can_reach_canonical_team():
+                raise exceptions.PermissionDenied(ScoutCanonicalTeamAccessPermission.message)
             return self.team.parent_team_id or self.team_id
         return self.team_id
+
+    def _can_reach_canonical_team(self) -> bool:
+        # The default team check authorizes only the URL environment. A caller must also reach the
+        # parent project before it reads or writes that project's scout row.
+        return ScoutCanonicalTeamAccessPermission().has_permission(self.request, self)
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         # Mirror of `_config_team_id` on the read side: surface the scout row from the canonical
@@ -428,6 +436,8 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
             source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
         )
+        if not self._can_reach_canonical_team():
+            return queryset.filter(Q(team_id=self.team_id) & ~scout_source)
         return queryset.filter(
             (Q(team_id=self.team_id) & ~scout_source) | (Q(team_id=canonical_team_id) & scout_source)
         )
@@ -1097,6 +1107,7 @@ class SignalReportViewSet(
             qs = self._annotate_channel_id(qs)
             qs = self._apply_signal_report_status_filter(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
+            qs = self._prefetch_signal_report_ranking_score(qs)
             qs = self._annotate_is_suggested_reviewer(qs)
             return annotate_first_billable_pr_run_at(qs)
         qs = queryset
@@ -1134,6 +1145,7 @@ class SignalReportViewSet(
             # `bulk_state` answers with one outcome per id, never a serialized report, and the list
             # ordering that reads this value does not apply to it either.
             qs = self._annotate_is_suggested_reviewer(qs)
+            qs = self._prefetch_signal_report_ranking_score(qs)
         if self.action not in self._MULTI_REPORT_ACTIONS:
             # This correlated subquery costs one walk per matching row. Multi-row actions do
             # without it: `list` serves the value from a batched page lookup, and `bulk_state`
@@ -1150,6 +1162,7 @@ class SignalReportViewSet(
         # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
         artefact_count_subquery = Subquery(
             SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
+            .exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
             .values("report_id")
             .annotate(count=Count("*"))
             .values("count"),
@@ -1695,6 +1708,20 @@ class SignalReportViewSet(
                     type=SignalReportArtefact.ArtefactType.REPO_SELECTION
                 ).order_by("-created_at")[:1],
                 to_attr="prefetched_repo_selection_artefacts",
+            ),
+        )
+
+    def _prefetch_signal_report_ranking_score(self, queryset):
+        # Scores are internal model output, so only staff requests pay for the lookup.
+        if not self.request.user.is_staff:
+            return queryset
+        return queryset.prefetch_related(
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(
+                    type=SignalReportArtefact.ArtefactType.RANKING_SCORE
+                ).order_by("-created_at")[:1],
+                to_attr="prefetched_ranking_score_artefacts",
             ),
         )
 
@@ -4657,10 +4684,14 @@ class SignalReportArtefactViewSet(
     def safely_get_queryset(self, queryset):
         # Mirror SignalReportViewSet: a deleted parent report is unreachable, so
         # its artefacts must be too (otherwise a known UUID would bypass deletion).
-        return queryset.filter(
+        queryset = queryset.filter(
             report_id=self._validated_report_id(),
             team=self.team,
         ).exclude(report__status=SignalReport.Status.DELETED)
+        # Scoring rows are staff-only on every artefact route, not only in the log.
+        if not self.request.user.is_staff:
+            queryset = queryset.exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
+        return queryset
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
