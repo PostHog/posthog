@@ -732,8 +732,10 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 };
                 // Budget the Vec before collect, because walk_emplacing charges the heap only after it exists.
                 let len = usize::try_from(end.saturating_sub(start).max(0)).unwrap_or(usize::MAX);
-                vm.heap
-                    .assert_can_allocate(len.saturating_mul(std::mem::size_of::<HogValue>()))?;
+                let bytes = len
+                    .checked_mul(std::mem::size_of::<HogValue>())
+                    .ok_or_else(|| VmError::OutOfResource("Heap Memory".to_string()))?;
+                vm.heap.assert_can_allocate(bytes)?;
                 let arr = (start..end)
                     .map(|i| HogLiteral::Number(Num::Integer(i)).into())
                     .collect();
