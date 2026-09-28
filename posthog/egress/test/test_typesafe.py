@@ -10,17 +10,9 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.egress.limiter.policies import Priority, resolve_policy
-from posthog.egress.typesafe.client import (
-    ChoiceAnswer,
-    ChoiceQuestion,
-    NoulAnswer,
-    NoulQuestion,
-    Question,
-    TypeSafeNotConfigured,
-    TypeSafeRequestFailed,
-    system_one,
-)
+from posthog.egress.typesafe.client import TypeSafeNotConfigured, TypeSafeRequestFailed, system_one
 from posthog.egress.typesafe.limiter import typesafe_account_key
+from posthog.llm.system_one import ChoiceAnswer, ChoiceQuestion, NoulAnswer, NoulQuestion, Question
 
 _FAKE_API_KEY = "fake-key-for-tests"
 

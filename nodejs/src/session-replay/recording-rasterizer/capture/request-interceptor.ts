@@ -169,6 +169,9 @@ export class RequestInterceptor {
             await request.respond({
                 status: resp.status,
                 contentType: resp.headers['content-type'] || 'text/css',
+                // A `<link crossorigin>` makes Chrome CORS-check this response, and without the header it
+                // drops the stylesheet and the frame renders unstyled. The fetch above carries no credentials.
+                headers: { 'access-control-allow-origin': '*' },
                 body,
             })
         } catch (err) {

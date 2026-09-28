@@ -1,13 +1,14 @@
 import re
+import json
 import time
 import hashlib
 import logging
 from collections import Counter
-from collections.abc import Collection, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
-from datetime import datetime, timedelta
-from typing import Any, Literal
+from datetime import UTC, datetime, timedelta
+from typing import Any, Literal, TypeVar
 from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
@@ -120,6 +121,7 @@ from products.tasks.backend.logic.services.space_setup import (
     space_setup_task_title,
 )
 from products.tasks.backend.logic.services.workflow_step_resume import resume_workflow_step_for_run
+from products.tasks.backend.logic.stream.backlog import TaskRunStreamBacklogIndex
 from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
@@ -697,6 +699,43 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
         created_by_id=task.created_by_id,
         latest_run_status=latest_run.get_status_display() if latest_run else None,
     )
+
+
+_StateEntryResult = TypeVar("_StateEntryResult")
+
+
+def read_task_state_entry(task_id: str | UUID, team_id: int, key: str) -> object:
+    """One key of the task's shared state bag, or ``None`` when the task or the key is missing."""
+    state = Task.objects.filter(id=task_id, team_id=team_id).values_list("state", flat=True).first()
+    return (state or {}).get(key)
+
+
+def update_task_state_entry(
+    task_id: str | UUID,
+    team_id: int,
+    key: str,
+    update: Callable[[Any], tuple[Any, _StateEntryResult]],
+) -> _StateEntryResult | None:
+    """Row-locked read-modify-write of one key in the task's shared state bag.
+
+    ``update`` gets the current value (``None`` when unset) and returns the value to store and a
+    result for the caller. Returning the current value unchanged skips the write. Returns ``None``
+    without calling ``update`` when the task does not exist.
+    """
+    results: list[_StateEntryResult] = []
+
+    def _mutate(state: dict[str, Any]) -> None:
+        current = state.get(key)
+        value, result = update(current)
+        results.append(result)
+        if value != current:
+            state[key] = value
+
+    try:
+        Task.mutate_state_atomic(task_id, _mutate, team_id=team_id)
+    except Task.DoesNotExist:
+        return None
+    return results[0]
 
 
 def attach_slack_thread_reference(
@@ -4471,6 +4510,203 @@ def read_task_run_log_content(log_urls: list[str]) -> str:
                 chunk = chunk + "\n"
             parts.append(chunk)
     return "".join(parts)
+
+
+def parse_task_run_log_entries(log_content: str) -> Iterator[dict]:
+    """The JSON objects in a JSONL log, skipping blank and malformed lines."""
+    for log_line in log_content.splitlines():
+        log_line = log_line.strip()
+        if not log_line:
+            continue
+        try:
+            parsed_line = json.loads(log_line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed_line, dict):
+            yield parsed_line
+
+
+def _read_run_stream_entries(run: TaskRun) -> list[dict]:
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        DATA_KEY,
+        get_task_run_stream_key,
+    )
+    from products.tasks.backend.redis import (  # noqa: PLC0415 — keep redis off the api import path
+        get_tasks_stream_redis_sync,
+        run_uses_dedicated_stream,
+    )
+
+    try:
+        client = get_tasks_stream_redis_sync(run_uses_dedicated_stream(run.state))
+        raw_entries = client.xrange(get_task_run_stream_key(str(run.id)))
+    except Exception:
+        logger.warning("task_run_stream_read_failed run_id=%s", run.id, exc_info=True)
+        return []
+    entries: list[dict] = []
+    for _stream_id, fields in raw_entries:
+        raw = fields.get(DATA_KEY) if isinstance(fields, dict) else None
+        if raw is None:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(parsed, dict):
+            entries.append(parsed)
+    return entries
+
+
+def read_task_run_stream_entries(run_id: str | UUID, task_id: str | UUID, team_id: int) -> list[dict]:
+    """Every frame still held in the run's live Redis stream, oldest first.
+
+    The stream is capped and expires after the run ends, so a caller that needs the whole history
+    uses ``read_task_run_history``. Returns an empty list when the run is not visible or the
+    stream is gone.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    return _read_run_stream_entries(run) if run is not None else []
+
+
+_USER_PROMPT_METHODS = frozenset({"_posthog/user_message", "session/prompt"})
+
+
+def _holds_user_prompt(entries: list[dict]) -> bool:
+    for entry in entries:
+        notification = entry.get("notification") if entry.get("type") == "notification" else None
+        if isinstance(notification, dict) and notification.get("method") in _USER_PROMPT_METHODS:
+            return True
+    return False
+
+
+def _server_notification_key(entry: dict) -> str | None:
+    # A persisted server notification carries no event id, but both stores hold the same timestamped event.
+    notification = entry.get("notification") if entry.get("type") == "notification" else None
+    method = notification.get("method") if isinstance(notification, dict) else None
+    if entry.get("event_id") or not isinstance(method, str) or not method.startswith("_posthog/"):
+        return None
+    return json.dumps(entry, sort_keys=True)
+
+
+def _overlap_with_log_tail(log_entries: list[dict], stream_entries: list[dict]) -> int:
+    """How many leading stream entries the log already holds, as the tail it ends with."""
+    if not stream_entries:
+        return 0
+    first = stream_entries[0]
+    for start in range(max(0, len(log_entries) - len(stream_entries)), len(log_entries)):
+        size = len(log_entries) - start
+        if log_entries[start] == first and log_entries[start:] == stream_entries[:size]:
+            return size
+    return 0
+
+
+def _entry_time(entry: dict) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat(entry["timestamp"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _merge_by_timestamp(entries: list[dict], extra: list[dict]) -> list[dict]:
+    """Slots each of ``extra`` in before the first of ``entries`` stamped later, keeping both orders."""
+    merged: list[dict] = []
+    pending = list(extra)
+    for entry in entries:
+        entry_time = _entry_time(entry)
+        while pending and entry_time is not None and (pending_time := _entry_time(pending[0])) is not None:
+            if pending_time > entry_time:
+                break
+            merged.append(pending.pop(0))
+        merged.append(entry)
+    return [*merged, *pending]
+
+
+def read_task_run_history(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, max_bytes: int
+) -> list[dict] | None:
+    """Every frame of the conversation across the run's resume chain, oldest first.
+
+    The logs hold every run, and the run's live stream adds what its log has not caught up with
+    yet. The agent stamps one event id in both stores, so a stream entry the logs already cover is
+    dropped, the way the thread's stream view merges them. An agent that stamps no ids keeps the
+    whole run in an untrimmed stream, which then stands in for the run's own log, apart from the
+    server notifications that only the log holds.
+
+    Returns ``None`` without downloading any log when the logs to read are over ``max_bytes``, and
+    an empty list when the run is not visible.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return []
+    log_urls = [ancestor.log_url for ancestor in run.get_resume_chain()]
+    from products.tasks.backend.logic.stream.redis_stream import (  # noqa: PLC0415 — keep redis off the api import path
+        TASK_RUN_STREAM_MAX_LENGTH,
+    )
+
+    stream_entries = _read_run_stream_entries(run)
+    # A stream at the length cap may have lost its head to the trim, so only a shorter one can stand in for the log.
+    stream_is_whole_run = (
+        len(stream_entries) < TASK_RUN_STREAM_MAX_LENGTH
+        and not any(entry.get("event_id") for entry in stream_entries)
+        and _holds_user_prompt(stream_entries)
+    )
+    if log_urls and get_task_run_log_size(log_urls) > max_bytes:
+        return None
+    if stream_is_whole_run:
+        earlier_entries = (
+            list(parse_task_run_log_entries(read_task_run_log_content(log_urls[:-1]))) if log_urls[:-1] else []
+        )
+        # A server notification can reach the log after its live write failed or was skipped for want of a watcher.
+        streamed = {_server_notification_key(entry) for entry in stream_entries}
+        persisted_only = [
+            entry
+            for entry in parse_task_run_log_entries(read_task_run_log_content(log_urls[-1:]))
+            if (key := _server_notification_key(entry)) is not None and key not in streamed
+        ]
+        return [*earlier_entries, *_merge_by_timestamp(stream_entries, persisted_only)]
+    log_entries = list(parse_task_run_log_entries(read_task_run_log_content(log_urls))) if log_urls else []
+    if not any(entry.get("event_id") for entry in stream_entries):
+        # Without ids the backlog index matches nothing, so the log's catch-up of the stream is cut by position.
+        stream_entries = stream_entries[_overlap_with_log_tail(log_entries, stream_entries) :]
+    backlog = TaskRunStreamBacklogIndex(log_entries)
+    persisted_server_notifications = {
+        key for key in (_server_notification_key(entry) for entry in log_entries) if key is not None
+    }
+    uncovered = [
+        entry
+        for entry in stream_entries
+        if not backlog.covers(entry) and _server_notification_key(entry) not in persisted_server_notifications
+    ]
+    # A live-only server notification can predate log frames, so it goes back to its place in time.
+    live_only = [entry for entry in uncovered if _server_notification_key(entry) is not None]
+    tail = [entry for entry in uncovered if _server_notification_key(entry) is None]
+    return _merge_by_timestamp([*log_entries, *tail], live_only)
+
+
+def publish_task_run_stream_notification(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, method: str, params: dict, *, persist: bool = True
+) -> contracts.StreamNotificationDelivery:
+    """Write a server-originated ``_posthog/*`` notification to the run's live stream, and to its S3
+    log unless ``persist`` is off.
+
+    The live write reaches connected threads the way an agent-server frame would; the log append is
+    what a later bootstrap replays, so the frame survives the stream's expiry. A persisted frame is
+    written live only after the log append succeeds, so a thread never shows a frame that a reload
+    loses. A frame that only matters to threads open right now skips the log, which is a rewrite of
+    the whole object. The result reports each leg, so a caller can decide which one it needs.
+    """
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return contracts.StreamNotificationDelivery(live=False, persisted=False)
+    event = run.build_notification_event(method, params)
+    if persist:
+        try:
+            run.append_log([event], lock_attempts=1)
+        except Exception:
+            logger.warning("task_run_stream_notification_log_append_failed run_id=%s", run_id, exc_info=True)
+            return contracts.StreamNotificationDelivery(live=False, persisted=False)
+    live = run.publish_stream_event(event) is not None
+    return contracts.StreamNotificationDelivery(live=live, persisted=persist)
 
 
 def create_task_run_connection_token(
