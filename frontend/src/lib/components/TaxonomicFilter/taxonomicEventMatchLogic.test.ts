@@ -11,7 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import { resetEventMatchAvailabilityForTests, taxonomicEventMatchLogic } from './taxonomicEventMatchLogic'
+import { resetEventMatchMemoryForTests, taxonomicEventMatchLogic } from './taxonomicEventMatchLogic'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from './types'
 
@@ -46,7 +46,7 @@ describe('taxonomicEventMatchLogic', () => {
         status = 200
         matches = [AUTOCAPTURE]
         answerGate = null
-        resetEventMatchAvailabilityForTests()
+        resetEventMatchMemoryForTests()
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': () => [200, { results: [], count: 0 }],
@@ -205,6 +205,25 @@ describe('taxonomicEventMatchLogic', () => {
 
         filterLogic.actions.setSearchQuery('browser capture events')
         expect(logic.values.suggestedEvents).toEqual([])
+    })
+
+    it('shows the remembered answer again when the empty state remounts for the same search', async () => {
+        enroll(true)
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        await search('browser capture')
+        expect(matchRequests).toHaveLength(1)
+
+        logic.unmount()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(matchRequests).toHaveLength(1)
+        expect(logic.values.isMatching).toBe(false)
+        expect(logic.values.suggestedEvents).toEqual([AUTOCAPTURE])
+        const suggestedCaptures = captureSpy.mock.calls.filter(
+            ([event]) => event === 'taxonomic filter event match suggested'
+        )
+        expect(suggestedCaptures).toHaveLength(2)
     })
 
     it('does not suggest an event the picker excludes', async () => {
