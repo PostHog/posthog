@@ -1020,6 +1020,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'web-analytics-path-cleaning-suggestions',
                 'stamphog',
                 'loops',
+                'loops-hog-flows',
                 'review-hog',
                 'warehouse-person-properties',
                 'billing-alerts',
@@ -1034,7 +1035,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'warehouse-multi-destination',
             ])
         )
-        expect(flags).toHaveLength(36)
+        expect(flags).toHaveLength(37)
     })
 
     it('every loops tool is gated on the loops flag', () => {

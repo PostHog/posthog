@@ -39,13 +39,13 @@ class TestFastlySource:
         non_retryable_errors = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable_errors)
 
-    def test_get_schemas_are_full_refresh_only(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
+    def test_get_schemas_offer_incremental_only_where_the_api_filters_by_time(self):
+        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, self.team_id)}
 
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        assert all(not schema.supports_incremental for schema in schemas)
-        assert all(not schema.supports_append for schema in schemas)
-        assert all(schema.incremental_fields == [] for schema in schemas)
+        assert set(schemas) == set(ENDPOINTS)
+        incremental = {name for name, schema in schemas.items() if schema.supports_incremental}
+        assert incremental == {"historical_stats", "origin_inspector"}
+        assert all(bool(schema.incremental_fields) == schema.supports_incremental for schema in schemas.values())
 
     def test_get_schemas_have_descriptions(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

@@ -74,6 +74,8 @@ MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
 TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 TASK_RUN_SUMMARY_STATE_KEY = "task_summary"
 PRIOR_RUN_SUMMARY_STATE_KEY = "prior_run_summary"
+TASK_RUN_TAGS_STATE_KEY = "task_tags"
+PRIOR_RUN_TAGS_STATE_KEY = "prior_run_tags"
 
 # Stage `Task.create_run` stamps on a person-started signals run, so it resolves a mintable
 # gateway product. Keyed by origin value.
@@ -384,6 +386,9 @@ class Task(DeletedMetaFields, models.Model):
         # The one-off task that sets a space up for a goal or a feature. Started by a person
         # from the create-space flow, so it is billed and timed like their own tasks.
         SPACE_SETUP = "space_setup", "Space Setup"
+        # Business knowledge sandbox questions. Reserved: only the sandbox endpoint creates
+        # these, and they stay internal so the normal task APIs never list them.
+        BUSINESS_KNOWLEDGE = "business_knowledge", "Business Knowledge"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -846,6 +851,8 @@ class Task(DeletedMetaFields, models.Model):
                     raise TaskOwnershipChangedError("The resume source belongs to a previous task owner")
                 if resume_source.task_summary:
                     state.setdefault(PRIOR_RUN_SUMMARY_STATE_KEY, resume_source.task_summary)
+                if resume_source.task_tags:
+                    state.setdefault(PRIOR_RUN_TAGS_STATE_KEY, resume_source.task_tags)
 
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
@@ -2507,6 +2514,16 @@ class TaskRun(models.Model):
         return None
 
     @property
+    def task_tags(self) -> list[str]:
+        state = self.state if isinstance(self.state, dict) else {}
+        # An explicit list on this run wins, even an empty one, so clearing tags hides inherited ones.
+        for key in (TASK_RUN_TAGS_STATE_KEY, PRIOR_RUN_TAGS_STATE_KEY):
+            tags = state.get(key)
+            if isinstance(tags, list):
+                return [tag for tag in tags if isinstance(tag, str)]
+        return []
+
+    @property
     def mode(self) -> str:
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
@@ -3179,7 +3196,8 @@ class TaskRun(models.Model):
 
     def build_stream_state_event(self) -> dict[str, Any]:
         # Workflow tasks are team-readable, but their summaries can contain private trigger context.
-        stream_task_summary = self.task_summary if self.task.origin_product != Task.OriginProduct.WORKFLOW else None
+        can_stream_summary = self.task.origin_product != Task.OriginProduct.WORKFLOW
+        stream_task_summary = self.task_summary if can_stream_summary else None
         return {
             "type": "task_run_state",
             "run_id": str(self.id),
@@ -3188,6 +3206,7 @@ class TaskRun(models.Model):
             "stage": self.stage,
             "output": self.output,
             "task_summary": stream_task_summary,
+            "task_tags": self.task_tags if can_stream_summary else [],
             "branch": self.branch,
             "error_message": self.error_message,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
