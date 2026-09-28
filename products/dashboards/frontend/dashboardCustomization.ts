@@ -69,7 +69,7 @@ function occupy(occupancy: GridOccupancy, item: LayoutItem, cols: number): void 
     }
 }
 
-export const freePlacementCompactor: Compactor = noCompactor
+export const freePlacementCompactor: Compactor = { ...noCompactor, allowOverlap: true }
 
 export const makeRoomInRowCompactor: Compactor = horizontalCompactor
 

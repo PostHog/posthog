@@ -1,10 +1,34 @@
-import type { Layout } from 'react-grid-layout'
+import { moveElement } from 'react-grid-layout'
+import type { Layout, LayoutItem } from 'react-grid-layout'
 
-import { resolveFreePlacementCollisions } from './dashboardCustomization'
+import {
+    DashboardGridCompaction,
+    getDashboardGridCompactor,
+    resolveFreePlacementCollisions,
+} from './dashboardCustomization'
 
 const geometry = (layout: Layout): Layout => layout.map(({ i, x, y, w, h }) => ({ i, x, y, w, h }))
 
 describe('dashboard grid compactors', () => {
+    it('keeps a dragged image at the intended row instead of moving it below a chart', () => {
+        const image: LayoutItem = { i: 'image', x: 0, y: 12, w: 6, h: 4 }
+        const layout: Layout = [
+            { i: 'chart', x: 0, y: 4, w: 6, h: 4 },
+            { i: 'side-chart', x: 6, y: 4, w: 6, h: 4 },
+            { i: 'next-chart', x: 0, y: 8, w: 6, h: 4 },
+            image,
+        ]
+        const compactor = getDashboardGridCompactor(DashboardGridCompaction.Stable)
+        const moved = moveElement(layout, image, 0, 2, true, false, compactor.type, 12, compactor.allowOverlap)
+
+        expect(geometry(compactor.compactInteraction(12, image.i, moved, moved))).toEqual([
+            { i: 'chart', x: 0, y: 6, w: 6, h: 4 },
+            { i: 'side-chart', x: 6, y: 6, w: 6, h: 4 },
+            { i: 'next-chart', x: 0, y: 10, w: 6, h: 4 },
+            { i: 'image', x: 0, y: 2, w: 6, h: 4 },
+        ])
+    })
+
     it('moves a collision chain below the active tile', () => {
         const layout = [
             { i: 'active', x: 0, y: 2, w: 6, h: 4 },
