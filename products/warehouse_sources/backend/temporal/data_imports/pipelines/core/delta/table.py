@@ -285,7 +285,6 @@ class DeltaTableRef:
                     deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
                 )
             except Exception as e:
-                await self._capture_unless_transient(e)
                 error_text = "".join(str(arg) for arg in e.args)
                 # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
                 # metadata action or containing no commit files at all, which can't happen on a
@@ -298,7 +297,8 @@ class DeltaTableRef:
                     or "No table metadata or protocol found" in error_text
                     or "No files in log segment" in error_text
                 ):
-                    await self._logger.aerror(
+                    # The heal below handles this error, so log it instead of capturing it.
+                    await self._logger.awarning(
                         f"get_delta_table: deleting unrecoverable delta table for a fresh sync: {error_text}"
                     )
                     # A bare recursive `_rm` can leave `_delta_log` strays behind on S3-compatible
@@ -310,6 +310,7 @@ class DeltaTableRef:
                         except FileNotFoundError:
                             pass
                 else:
+                    await self._capture_unless_transient(e)
                     raise
 
         self._is_first_sync = True

@@ -177,7 +177,7 @@ class TestGetDeltaTableUnrecoverableErrors:
             patch(f"{module}.deltalake.DeltaTable") as mock_delta_table,
             patch(f"{module}.aget_s3_client", mock_aget_s3_client),
             patch(f"{module}._purge_s3_prefix", AsyncMock()) as mock_purge,
-            patch(f"{module}.capture_exception"),
+            patch(f"{module}.capture_exception") as mock_capture,
         ):
             mock_delta_table.is_deltatable.return_value = True
             mock_delta_table.side_effect = Exception(error_message)
@@ -191,11 +191,13 @@ class TestGetDeltaTableUnrecoverableErrors:
                 # recreate this exact corruption on the next sync.
                 mock_purge.assert_awaited_once_with(s3, delta_uri)
                 mock_aget_s3_client.assert_called_once_with(fresh_instance=True)
+                mock_capture.assert_not_called()
             else:
                 with pytest.raises(Exception, match="something else went wrong"):
                     await table_ref.get_delta_table()
                 mock_purge.assert_not_awaited()
                 assert table_ref.is_first_sync is False
+                mock_capture.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_open_failure_heals_even_if_prefix_already_gone(self):
