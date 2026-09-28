@@ -4,9 +4,11 @@ import { useActions } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { mswDecorator } from '~/mocks/browser'
-import { DashboardPlacement, DashboardTile } from '~/types'
+import { AccessControlLevel, DashboardBasicType, DashboardPlacement, DashboardTile } from '~/types'
 
 import { DashboardWidgetItem } from 'products/dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
+
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 
 import { notebookWidgetDashboardLogic } from '../NotebookNodeGeneratedWidget/notebookWidgetDashboardLogic'
 import { NotebookWidgetDashboardModal } from '../NotebookNodeGeneratedWidget/NotebookWidgetDashboardModal'
@@ -159,10 +161,81 @@ export const AddToDashboard: Story = {
             mocks: {
                 get: {
                     '/api/environments/:team_id/dashboards/': {
-                        results: [{ id: 1, name: 'Revenue overview', user_access_level: 'editor', deleted: false }],
+                        results: Array.from(
+                            { length: 250 },
+                            (_, index): DashboardBasicType => ({
+                                id: index + 1,
+                                name:
+                                    index === 0
+                                        ? 'Activation overview'
+                                        : index === 1
+                                          ? 'Board review'
+                                          : index === 249
+                                            ? 'Revenue overview'
+                                            : `Metrics report ${index + 1}`,
+                                description:
+                                    index === 0
+                                        ? 'Signups, onboarding, and activation across the product.'
+                                        : index === 249
+                                          ? 'Conversion from trial to paid plans.'
+                                          : '',
+                                created_by: {
+                                    id: index + 1,
+                                    uuid: `example-creator-${index + 1}`,
+                                    distinct_id: `example-creator-${index + 1}`,
+                                    first_name: index === 0 ? 'Avery' : index === 249 ? 'Jules' : 'Morgan',
+                                    last_name: index === 0 ? 'Stone' : index === 249 ? 'Parker' : 'Reed',
+                                    email:
+                                        index === 0
+                                            ? 'avery@example.com'
+                                            : index === 249
+                                              ? 'jules@example.com'
+                                              : 'morgan@example.com',
+                                },
+                                created_at: '2026-01-01T00:00:00Z',
+                                pinned: index === 0,
+                                deleted: false,
+                                is_shared: false,
+                                last_accessed_at: null,
+                                creation_mode: 'default',
+                                user_access_level: index === 1 ? AccessControlLevel.Viewer : AccessControlLevel.Editor,
+                            })
+                        ),
+                        next: null,
+                        count: 250,
                     },
                 },
             },
         },
+        testOptions: { snapshotTargetSelector: 'body', viewportWidths: ['narrow', 'wide'] },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        const screen = within(document.body)
+        await userEvent.click(await canvas.findByRole('button', { name: 'Add to dashboard' }))
+        await waitFor(() => {
+            expect(screen.getByRole('button', { name: 'Choose a dashboard' })).not.toHaveClass('LemonButton--loading')
+        })
+        await userEvent.click(screen.getByRole('button', { name: 'Choose a dashboard' }))
+        await screen.findByText('Activation overview')
+    },
+}
+
+export const SearchDashboardByCreator: Story = {
+    ...AddToDashboard,
+    play: async (context) => {
+        await AddToDashboard.play?.(context)
+        const screen = within(document.body)
+        for (const searchTerm of ['Parker', 'Jules Parker', 'jules@example.com', 'Jules']) {
+            await userEvent.clear(screen.getByPlaceholderText('Search by name, description, or creator'))
+            await userEvent.type(screen.getByPlaceholderText('Search by name, description, or creator'), searchTerm)
+            await waitFor(() => {
+                expect(screen.getByText('Revenue overview')).toBeVisible()
+                expect(screen.getByText('Created by Jules Parker')).toBeVisible()
+                expect(screen.queryByText('Activation overview')).not.toBeInTheDocument()
+                expect(screen.queryByText('Board review')).not.toBeInTheDocument()
+                expect(screen.queryByText('Metrics report 3')).not.toBeInTheDocument()
+            })
+        }
     },
 }

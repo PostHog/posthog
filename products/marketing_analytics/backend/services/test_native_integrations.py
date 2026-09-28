@@ -110,7 +110,9 @@ class TestAliasesFor:
 class TestDisplayNames:
     @parameterized.expand(
         [
+            ("amazon_ads", "Amazon Ads"),
             ("apple_ads", "Apple Ads"),
+            ("openai_ads", "OpenAI Ads"),
             ("google_ads", "Google Ads"),
             ("meta_ads", "Meta Ads"),
             ("bing_ads", "Bing Ads"),
@@ -148,20 +150,36 @@ class TestStructuralInvariants:
         assert not unknown, f"{sorted(unknown)} are not kinds the authorize endpoint accepts"
 
     def test_only_credential_based_integrations_lack_an_oauth_kind(self) -> None:
-        assert set(NativeMarketingSource) - set(OAUTH_KIND_BY_NATIVE) == {NativeMarketingSource.APPLE_SEARCH_ADS}
+        assert set(NativeMarketingSource) - set(OAUTH_KIND_BY_NATIVE) == {
+            NativeMarketingSource.AMAZON_ADS,
+            NativeMarketingSource.APPLE_SEARCH_ADS,
+            NativeMarketingSource.OPEN_AI_ADS,
+        }
 
 
 class TestNativeSourceFeatureFlags:
-    @parameterized.expand([(False,), (True,)])
-    def test_source_rollout_does_not_disable_existing_integrations(self, enabled: bool) -> None:
+    @parameterized.expand(
+        [
+            (source, flag, enabled)
+            for source, flag in [
+                ("AmazonAds", "marketing-analytics-amazon-ads"),
+                ("AppleSearchAds", "marketing-analytics-apple-ads"),
+                ("OpenAIAds", "marketing-analytics-openai-ads"),
+            ]
+            for enabled in [None, False, True, "control"]
+        ]
+    )
+    def test_source_rollout_does_not_disable_existing_integrations(
+        self, source: str, flag: str, enabled: bool | str | None
+    ) -> None:
         team = Team(id=1, organization_id="00000000-0000-0000-0000-000000000001")
         with patch(
-            "products.marketing_analytics.backend.services.native_integrations.feature_enabled_or_false",
+            "products.marketing_analytics.backend.services.native_integrations.get_feature_flag_or_none",
             return_value=enabled,
         ) as evaluate:
-            assert is_native_source_enabled("AppleSearchAds", team) is enabled
+            assert is_native_source_enabled(source, team) is (enabled is True)
             evaluate.assert_called_once_with(
-                "marketing-analytics-apple-ads",
+                flag,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id)},
                 group_properties={"organization": {"id": str(team.organization_id)}},

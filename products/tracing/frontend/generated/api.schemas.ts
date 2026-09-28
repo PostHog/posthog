@@ -894,7 +894,7 @@ export interface _SymbolStatsResponseApi {
 }
 
 export interface _TracingTraceRequestApi {
-    /** Date range for the query. Defaults to last 24 hours. */
+    /** Date range for the query. Omit it to search all retained spans for this trace. */
     dateRange?: _TracingDateRangeApi
     /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
     excludeAttributes?: boolean

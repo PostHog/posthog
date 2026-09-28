@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model"
+CONTROLLER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller"
 DB_RETRY_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry"
 
 
@@ -299,6 +300,92 @@ class TestCreateJobActivityStatusOrdering:
         schema.refresh_from_db()
         assert ExternalDataJob.objects.filter(schema_id=schema.id).exists()
         assert schema.status == ExternalDataSchema.Status.FAILED
+
+
+@pytest.mark.django_db
+class TestCreateJobActivityScheduledFullRefresh:
+    @parameterized.expand(
+        [
+            ("due_on_a_scheduled_run", True, dt.timedelta(days=-1), {}, False, True),
+            ("due_on_a_directly_started_run", False, dt.timedelta(days=-1), {}, False, False),
+            ("not_yet_due", True, dt.timedelta(days=1), {}, False, False),
+            (
+                "due_with_a_staged_repartition_swap",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_swap": {"state": "ready", "temp_uri": "s3://temp", "live_uri": "s3://live"}},
+                False,
+                False,
+            ),
+            (
+                "due_with_a_held_repartition_rewrite",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_rewrite": {"temp_uri": "s3://temp", "rows_written": 10}},
+                True,
+                False,
+            ),
+            (
+                "due_with_a_rewrite_while_the_hold_flag_is_off",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_rewrite": {"temp_uri": "s3://temp", "rows_written": 10}},
+                False,
+                True,
+            ),
+            (
+                "due_with_a_queued_repartition",
+                True,
+                dt.timedelta(days=-1),
+                {"repartition_pending": {"partition_mode": "datetime", "partition_keys": ["created_at"]}},
+                False,
+                True,
+            ),
+        ]
+    )
+    @patch(f"{MODULE}.close_old_connections")
+    @patch(f"{MODULE}.activity")
+    def test_only_a_due_scheduled_run_becomes_a_full_refresh(
+        self,
+        _name: str,
+        started_by_schedule: bool,
+        due_in: dt.timedelta,
+        repartition_config: dict,
+        hold_flag_enabled: bool,
+        expect_refresh: bool,
+        mock_activity: MagicMock,
+        _mock_close_connections: MagicMock,
+    ) -> None:
+        mock_activity.info.return_value.workflow_id = "wf-1"
+        mock_activity.info.return_value.workflow_run_id = "run-1"
+        team = _team()
+        schema = _schema(team, None)
+        schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        schema.full_refresh_interval_days = 7
+        schema.next_full_refresh_at = timezone.now() + due_in
+        config = {**(schema.sync_type_config or {}), **repartition_config}
+        if "repartition_rewrite" in config:
+            config["repartition_rewrite"] = {**config["repartition_rewrite"], "held_at": timezone.now().isoformat()}
+        schema.sync_type_config = config
+        schema.save()
+
+        with patch(f"{CONTROLLER_MODULE}.is_repartition_hold_enabled", return_value=hold_flag_enabled):
+            result = create_external_data_job_model_activity(
+                CreateExternalDataJobModelActivityInputs(
+                    team_id=team.id,
+                    schema_id=schema.id,
+                    source_id=schema.source_id,
+                    billable=True,
+                    started_by_schedule=started_by_schedule,
+                )
+            )
+
+        schema.refresh_from_db()
+        snapshot = ExternalDataJob.objects.get(schema_id=schema.id).schema_snapshot
+        assert snapshot is not None
+        assert result.scheduled_full_refresh is expect_refresh
+        assert snapshot.get("scheduled_full_refresh", False) is expect_refresh
+        assert schema.reset_pipeline is False
 
 
 @pytest.mark.django_db
