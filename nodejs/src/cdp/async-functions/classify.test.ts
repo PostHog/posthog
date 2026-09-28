@@ -73,6 +73,7 @@ describe('postHogClassify', () => {
             { ...payload, categories: { spam: 'x'.repeat(501), support: 'Help' } },
             /500 characters or fewer/,
         ],
+        ['an oversized context', { ...payload, context: { message: 'x'.repeat(65_536) } }, /65536 characters of JSON/],
     ])('rejects %s in both mocked and live calls', async (_name, args, expected) => {
         expect(() => getAsyncFunctionHandler('postHogClassify')!.mock([args], [] as MinimalLogEntry[])).toThrow(
             expected
