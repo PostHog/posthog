@@ -19,6 +19,8 @@ describe('recordingScanBlock', () => {
         ['too_long', { recording_duration: 10800, active_seconds: 4200 }],
         ['too_short', { recording_duration: 8, active_seconds: 8 }],
         ['too_inactive', { recording_duration: 600, active_seconds: 4 }],
+        // Clears the absolute floor, but 11s over 771s is a backgrounded tab.
+        ['too_inactive', { recording_duration: 771, active_seconds: 11 }],
     ])('blocks %s recordings with the numbers behind it', (kind, metadata) => {
         const block = recordingScanBlock(recording(metadata))
         expect(block?.kind).toEqual(kind)

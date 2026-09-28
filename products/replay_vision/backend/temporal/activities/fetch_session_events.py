@@ -27,11 +27,13 @@ from products.replay_vision.backend.queries.session_identity import (
 )
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
+    MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import IneligibleSessionError, IneligibleSessionKind
+from products.replay_vision.backend.temporal.metrics import record_session_active_ratio
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     get_redis_state_client,
@@ -194,6 +196,32 @@ def _group_type_labels(team: Team) -> dict[int, str]:
         return {}
 
 
+def _activity_ineligibility(active_seconds: float, duration_seconds: float) -> IneligibleSessionError | None:
+    """Why a recording holds too little to watch, or None when it qualifies.
+
+    The absolute floor is not enough on its own. A tab left open in the background for ten minutes collects
+    a few seconds of activity and clears it, and the rasterizer then renders the whole span, so the model
+    sees one motionless page and reports an application that never started. The ratio rejects that shape.
+    """
+    if active_seconds < MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
+        return IneligibleSessionError(
+            f"Only {round(active_seconds, 1)}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
+            kind=IneligibleSessionKind.TOO_INACTIVE,
+        )
+    if active_seconds < duration_seconds * MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER:
+        return IneligibleSessionError(
+            f"Only {round(active_seconds, 1)}s of active interaction in {round(duration_seconds, 1)}s; "
+            f"min is {round(MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER * 100)}% of the recording",
+            kind=IneligibleSessionKind.TOO_INACTIVE,
+        )
+    if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
+        return IneligibleSessionError(
+            f"{round(active_seconds, 1)}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
+            kind=IneligibleSessionKind.TOO_LONG,
+        )
+    return None
+
+
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     # select_related saves the extra round trip when fetch_product_context reads team.project.
     team = Team.objects.select_related("project").get(pk=team_id)
@@ -212,16 +240,15 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
         )
     # `RecordingMetadata` types this as `int` but it can be missing on sparse fixtures; default to 0.
     active_seconds = metadata.get("active_seconds") or 0
-    if active_seconds < MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
-        raise IneligibleSessionError(
-            f"Only {round(active_seconds, 1)}s of active interaction; min is {MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
-            kind=IneligibleSessionKind.TOO_INACTIVE,
-        )
-    if active_seconds > MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S:
-        raise IneligibleSessionError(
-            f"{round(active_seconds, 1)}s of active interaction; max is {MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S}s",
-            kind=IneligibleSessionKind.TOO_LONG,
-        )
+    ineligible = _activity_ineligibility(active_seconds, duration_seconds)
+    # Recorded for every recording the gate judges, admitted or not, because the ratio threshold cannot be
+    # tuned without the distribution behind it. The duration floor above guarantees a non-zero divisor.
+    record_session_active_ratio(
+        outcome=ineligible.kind.value if ineligible is not None else "admitted",
+        ratio=active_seconds / duration_seconds,
+    )
+    if ineligible is not None:
+        raise ineligible
 
     columns: list[str] | None = None
     all_rows: list[list[Any]] = []

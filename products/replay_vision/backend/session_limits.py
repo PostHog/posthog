@@ -13,5 +13,12 @@ MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S = 15
 # Sessions with less than this much actual interaction are skipped — they're mostly idle.
 MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 10
 
+# The absolute floor above admits a long backgrounded tab, because 11 active seconds over 13 minutes clears it.
+# The rasterizer renders the whole span, so such a recording becomes a video of one motionless page and the model
+# reads that as an application that never started. A recording must also spend this share of its wall time active.
+# The share is deliberately low, so the ratio only rejects a recording that is almost entirely idle. Below roughly
+# 200 seconds of wall time the absolute floor is still the binding limit.
+MIN_ACTIVE_RATIO_FOR_VIDEO_SCANNER = 0.05
+
 # Sessions with more than 1 hour of active interaction take too long to analyze well.
 MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 3600
