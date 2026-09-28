@@ -503,19 +503,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
         self.assertEqual(results[1]["aggregations"]["users"], 1)
 
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_search_query_matches_current_issue_id_and_event_text(self):
+    def test_search_query_matches_current_issue_id_and_event_text(self) -> None:
         current_issue_id = str(uuid7())
         self.create_issue(current_issue_id, "new_issue_fingerprint")
         self.override_fingerprint(self.issue_three_fingerprint, current_issue_id)
-        _create_event(
-            distinct_id=self.distinct_id_two,
-            event="$exception",
-            team=self.team,
-            properties={
-                "$exception_issue_id": self.issue_id_three,
-                "$exception_fingerprint": self.issue_three_fingerprint,
-            },
-        )
         _create_event(
             distinct_id=self.distinct_id_one,
             event="$exception",
