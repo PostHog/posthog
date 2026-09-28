@@ -30,6 +30,12 @@ _ENDPOINT_DESCRIPTIONS = {
     "last_quote": "Latest bid/ask quote per symbol. Point-in-time snapshot, full refresh.",
     "last_trade": "Latest trade (price and size) per symbol. Point-in-time snapshot, full refresh.",
     "aggregates": "Historical daily OHLCV bars per symbol from the backfill start date. Full refresh.",
+    "historical_dividends": "Past dividends per symbol, with the declaration, record and payment dates. Full refresh.",
+    "historical_stock_splits": "Past stock splits per symbol, with the split ratio and the date it took effect. Full refresh.",
+    "balance_sheet_statements": "Annual and quarterly balance sheet filings per symbol. Full refresh.",
+    "cash_flow_statement": "Annual and quarterly cash flow filings per symbol. Full refresh.",
+    "dividend_calendar": "Declared dividends across the whole market, not only your symbols. Full refresh.",
+    "stock_split_calendar": "Declared stock splits across the whole market, not only your symbols. Full refresh.",
 }
 
 
@@ -53,7 +59,7 @@ class FinageSource(SimpleSource[FinageSourceConfig]):
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Finage API key and the symbols you want to sync to pull market data into the PostHog Data warehouse.
 
-You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboard) after subscribing to a plan. The key needs access to the **US stocks** endpoints.""",
+You can find your API key in the [Finage dashboard](https://finage.co.uk/dashboard) after subscribing to a plan. The key needs access to the **US stocks** endpoints, plus **fundamentals** for the dividend, split and financial statement tables.""",
             iconPath="/static/services/finage.png",
             docsUrl="https://posthog.com/docs/cdp/sources/finage",
             keywords=["stocks", "market data", "ohlcv", "finance"],

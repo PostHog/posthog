@@ -58,6 +58,7 @@ from posthog.permissions import (
 from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.security.outbound_proxy import internal_requests_session
 from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
 from posthog.utils import absolute_uri
 
@@ -3333,7 +3334,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
 
         if not self._is_valid_sandbox_url(connection.sandbox_url):
-            logger.warning(f"Blocked request to disallowed sandbox URL for task run {pk}")
+            # The URL is in the log line on purpose: it is what the allowlist judged, and
+            # without it a block cannot be diagnosed from logs. It carries no credential —
+            # sandbox auth travels separately, attached per request.
+            logger.warning(f"Blocked request to disallowed sandbox URL for task run {pk}: {connection.sandbox_url}")
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Invalid sandbox URL"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
@@ -3438,7 +3442,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         - http://127.0.0.1:{port} (Docker sandboxes)
         - https://*.modal.run (Modal sandboxes)
         - https://*.modal.host (Modal connect token sandboxes)
-        - the exact host of settings.HOGLAND_API_URL (hogland box proxy)
+        - the exact https origin of settings.HOGLAND_API_URL (hogland box proxy)
         """
         from urllib.parse import urlparse
 
@@ -3457,11 +3461,12 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ):
             return True
 
-        hogland_host = urlparse(settings.HOGLAND_API_URL).hostname if settings.HOGLAND_API_URL else None
-        if parsed.scheme == "https" and hogland_host and parsed.hostname == hogland_host:
-            return True
-
-        return False
+        # Hogland is one configured origin, so delegate to the same exact-origin gate
+        # (https + host + port) that authorizes attaching the hogland bearer. One gate
+        # for both decisions means a URL this allowlist admits as hogland is always a
+        # URL the bearer may travel to, and vice versa — the previous inline check
+        # compared the hostname only, so it was slightly wider than the bearer gate.
+        return tasks_facade.is_hogland_sandbox_url(url)
 
     @staticmethod
     def _proxy_command_to_agent_server(
@@ -3486,14 +3491,26 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if sandbox_connect_token:
             params[sandbox_token_param] = sandbox_connect_token
 
-        return http_requests.post(
-            command_url,
-            json=payload,
-            headers=headers,
-            params=params,
-            timeout=5 if payload.get("method") == "credential_response" else 600,
-            allow_redirects=payload.get("method") != "credential_response",
-        )
+        request_kwargs: dict[str, Any] = {
+            "json": payload,
+            "headers": headers,
+            "params": params,
+            "timeout": 5 if payload.get("method") == "credential_response" else 600,
+            "allow_redirects": payload.get("method") != "credential_response",
+        }
+
+        if tasks_facade.is_hogland_sandbox_url(sandbox_url):
+            # In-cluster DNS answers for the hogland host with a private address, and the
+            # egress proxy answers 407 for it — so bypass HTTP(S)_PROXY for this one
+            # exact origin, the same way agent_command.send_agent_command does. Redirects are
+            # disabled outright (rather than validated against the allowlist) because this
+            # transport already skips the egress proxy that would otherwise constrain where a
+            # followed redirect could reach from the web pod.
+            request_kwargs["allow_redirects"] = False
+            with internal_requests_session() as session:
+                return session.post(command_url, **request_kwargs)
+
+        return http_requests.post(command_url, **request_kwargs)
 
     @validated_request(
         query_serializer=TaskRunSessionLogsQuerySerializer,
