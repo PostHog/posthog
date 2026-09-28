@@ -7,14 +7,14 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { API_SCOPE_GROUPS } from 'lib/scopeGroups.generated'
 import {
+    API_SCOPE_GROUPS,
     API_SCOPES,
     DEFAULT_OAUTH_SCOPES,
-    OTHER_SCOPE_GROUP_LABEL,
     getMinimumEquivalentScopes,
     getScopeDescription,
     getScopeGroupLabel,
+    OTHER_SCOPE_GROUP_LABEL,
 } from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
