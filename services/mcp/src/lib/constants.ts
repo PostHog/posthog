@@ -16,11 +16,12 @@ export {
 } from './oauth-constants'
 
 import { resolveAuthorizationServerUrl } from './oauth-constants'
+import packageJson from '../../package.json'
 
 export const getAuthorizationServerUrl = (): string => resolveAuthorizationServerUrl()
 
 export const MCP_SERVER_NAME = 'PostHog'
-export const MCP_SERVER_VERSION = '1.0.0'
+export const MCP_SERVER_VERSION = packageJson.version
 export const MCP_ANALYTICS_SOURCE = 'posthog_mcp_analytics'
 
 // Claude Code truncates a server's `instructions` payload at this many characters — silently,
