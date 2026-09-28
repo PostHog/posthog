@@ -1939,6 +1939,15 @@ class MarkdownBlock(BaseModel):
     type: Literal["markdown"] = "markdown"
 
 
+class MarketingAnalyticsActorsBreakdown(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    matchKey: str | None = None
+    source: str | None = None
+    value: str
+
+
 class MarketingAnalyticsAttributionModelCell(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -29743,6 +29752,20 @@ class InsightFilter(
     )
 
 
+class MarketingAnalyticsActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown: MarketingAnalyticsActorsBreakdown
+    conversionGoalId: str
+    kind: Literal["MarketingAnalyticsActorsQuery"] = "MarketingAnalyticsActorsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: MarketingAnalyticsTableQueryResponse | None = None
+    source: MarketingAnalyticsTableQuery
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32345,6 +32368,7 @@ class ActorsQuery(BaseModel):
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | MarketingAnalyticsActorsQuery
         | HogQLQuery
         | None
     ) = None
@@ -32612,6 +32636,7 @@ class HogQLAutocomplete(BaseModel):
         | HogQLMetadata
         | HogQLAutocomplete
         | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsActorsQuery
         | MarketingAnalyticsAggregatedQuery
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery
@@ -32739,6 +32764,7 @@ class HogQLMetadata(BaseModel):
         | HogQLMetadata
         | HogQLAutocomplete
         | MarketingAnalyticsTableQuery
+        | MarketingAnalyticsActorsQuery
         | MarketingAnalyticsAggregatedQuery
         | MarketingAnalyticsAttributionQuery
         | MarketingAnalyticsAttributionPathsQuery

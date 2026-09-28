@@ -1,0 +1,4 @@
+user_id,event_timestamp,campaign_name,source_name,revenue
+42,2023-01-12 11:00:00,summer_sale,google,250
+43,2023-01-10 10:00:00,winter-sale,newsletter,100
+\N,2023-01-12 11:00:00,summer_sale,google,50

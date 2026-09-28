@@ -187,6 +187,26 @@ Use that ID to find the failed request in the query log.
 The error's query ID takes precedence over the current request ID; a previous successful response is not a source for the error ID.
 Errors outside the query path, such as configuration failures, may have no query ID.
 
+## Marketing conversion details
+
+Ad performance and the legacy marketing dashboard share the conversion table.
+The `marketing-analytics-conversion-people` flag enables links on positive conversion goal values in both views.
+The people list preserves the selected goal, date range, filters, attribution settings, and row breakdown.
+It shows distinct people, so its count can differ from event totals or fractional attribution credit.
+Ad-platform reported conversions do not identify PostHog people and remain non-interactive.
+
+The details query reuses attribution before aggregation, including source normalization and click-ID fallback.
+Campaign and channel/source rows require the Source column; hiding it disables the conversion link.
+Campaign rows also require their attribution match key, separate from the display name.
+Old cached rows with a missing or null key remain non-interactive until refreshed.
+Warehouse goals resolve string and numeric distinct IDs to people; null IDs do not match a person.
+
+Cold details request background preparation instead of showing an empty list.
+Stale precomputed details use the same debounced refresh as the table.
+The query requires Web analytics viewer access, and warehouse permissions partition cached results.
+The recordings playlist action stays hidden because attribution-scoped recording filters are not available for this source.
+Individual recording actions require matching recordings, which this query does not supply.
+
 ## Campaign breakdown columns
 
 Campaign mappings apply before each goal aggregates conversions.

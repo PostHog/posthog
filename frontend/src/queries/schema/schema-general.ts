@@ -156,6 +156,7 @@ export enum NodeKind {
 
     // Marketing analytics queries
     MarketingAnalyticsTableQuery = 'MarketingAnalyticsTableQuery',
+    MarketingAnalyticsActorsQuery = 'MarketingAnalyticsActorsQuery',
     MarketingAnalyticsAggregatedQuery = 'MarketingAnalyticsAggregatedQuery',
     MarketingAnalyticsAttributionQuery = 'MarketingAnalyticsAttributionQuery',
     MarketingAnalyticsAttributionPathsQuery = 'MarketingAnalyticsAttributionPathsQuery',
@@ -240,6 +241,7 @@ export type AnyDataNode =
     | HogQLMetadata
     | HogQLAutocomplete
     | MarketingAnalyticsTableQuery
+    | MarketingAnalyticsActorsQuery
     | MarketingAnalyticsAggregatedQuery
     | MarketingAnalyticsAttributionQuery
     | MarketingAnalyticsAttributionPathsQuery
@@ -2966,6 +2968,7 @@ export interface ActorsQuery extends DataNode<ActorsQueryResponse> {
         | ExperimentActorsQuery
         | StickinessActorsQuery
         | PathsV2ActorsQuery
+        | MarketingAnalyticsActorsQuery
         | HogQLQuery
     select?: HogQLExpression[]
     search?: string
@@ -7759,6 +7762,19 @@ export interface MarketingAnalyticsTableQueryResponse extends AnalyticsQueryResp
 }
 
 export type CachedMarketingAnalyticsTableQueryResponse = CachedQueryResponse<MarketingAnalyticsTableQueryResponse>
+
+export interface MarketingAnalyticsActorsBreakdown {
+    value: string
+    source?: string
+    matchKey?: string
+}
+
+export interface MarketingAnalyticsActorsQuery extends DataNode<MarketingAnalyticsTableQueryResponse> {
+    kind: NodeKind.MarketingAnalyticsActorsQuery
+    source: MarketingAnalyticsTableQuery
+    conversionGoalId: string
+    breakdown: MarketingAnalyticsActorsBreakdown
+}
 
 export interface MarketingAnalyticsAggregatedQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, MarketingAnalyticsItem>
