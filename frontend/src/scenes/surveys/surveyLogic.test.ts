@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import {
     mergeResponsesByQuestion,
@@ -1456,27 +1457,58 @@ describe('survey filters', () => {
         expect((exportSource as { query: string }).query).not.toContain('AS response,')
     })
 
-    it('adds only the chosen context columns to the responses table and the export', async () => {
-        const tableQuery = (): string => (logic.values.dataTableQuery?.source as { query: string }).query
+    it.each([
+        {
+            column: { type: TaxonomicFilterGroupType.EventProperties, key: '$current_url' } as const,
+            read: 'properties.$current_url AS column_0',
+            select: 'column_0 AS "properties.$current_url"',
+            exportLabel: 'Current URL',
+        },
+        {
+            column: { type: TaxonomicFilterGroupType.PersonProperties, key: 'plan tier' } as const,
+            read: 'person.properties."plan tier" AS column_0',
+            select: 'column_0 AS "person.properties.plan tier"',
+            exportLabel: 'plan tier',
+        },
+        {
+            column: { type: 'person_id' } as const,
+            read: null,
+            select: 'person_id AS person_id',
+            exportLabel: 'Person ID',
+        },
+    ])(
+        'adds a chosen $column.type column to the responses table and the export',
+        async ({ column, read, select, exportLabel }) => {
+            const tableQuery = (): string => (logic.values.dataTableQuery?.source as { query: string }).query
 
-        await expectLogic(logic, () => {
-            logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
-        }).toDispatchActions(['loadSurveySuccess'])
+            await expectLogic(logic, () => {
+                logic.actions.loadSurveySuccess(MULTIPLE_CHOICE_SURVEY)
+            }).toDispatchActions(['loadSurveySuccess'])
 
-        expect(tableQuery()).not.toContain('current_url')
-        expect(logic.values.responsesExportQuery?.columns).not.toContain('Current URL')
+            expect(tableQuery()).not.toContain(select)
+            expect(logic.values.responsesExportQuery?.columns).not.toContain(exportLabel)
 
-        await expectLogic(logic, () => {
-            logic.actions.setResponseContextColumn('current_url', true)
-        }).toDispatchActions(['setResponseContextColumn'])
+            await expectLogic(logic, () => {
+                logic.actions.addResponseColumn(column)
+                logic.actions.addResponseColumn(column)
+            }).toDispatchActions(['addResponseColumn', 'addResponseColumn'])
 
-        expect(tableQuery()).toContain('properties.`$current_url` AS current_url')
-        // Row actions render in the rightmost column, so context columns come before them.
-        expect(tableQuery()).toContain('current_url AS current_url,\nuuid AS actions')
-        expect(tableQuery()).not.toContain('person_id AS person_id')
-        expect(logic.values.responsesExportQuery?.columns).toContain('Current URL')
-        expect(logic.values.responsesExportQuery?.columns).not.toContain('Person ID')
-    })
+            if (read) {
+                expect(tableQuery()).toContain(read)
+            }
+            // Row actions render in the rightmost column, so chosen columns come before them.
+            expect(tableQuery()).toContain(`${select},\nuuid AS actions`)
+            expect(tableQuery().split(select)).toHaveLength(2)
+            expect(logic.values.responsesExportQuery?.columns).toContain(exportLabel)
+
+            await expectLogic(logic, () => {
+                logic.actions.removeResponseColumn(column)
+            }).toDispatchActions(['removeResponseColumn'])
+
+            expect(tableQuery()).not.toContain(select)
+            expect(logic.values.responsesExportQuery?.columns).not.toContain(exportLabel)
+        }
+    )
 
     it('keeps question text out of the generated HogQL', async () => {
         // Regression for the "Unexpected character U+00E9" crash on the Survey Results tab: a question
