@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { DEFAULT_MAX_MEMORY } from '../constants'
 import { isHogAST, isHogCallable, isHogClosure, isHogDate, isHogDateTime, isHogError, newHogError } from '../objects'
-import { AsyncSTLFunction, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
+import { AsyncSTLFunction, ExecOptions, HogDate, HogDateTime, HogInterval, STLFunction } from '../types'
 import { COST_PER_UNIT, HogVMException, calculateCost, getNestedValue, like } from '../utils'
 import { md5, sha1, sha1HmacChain, sha256, sha256HmacChain } from './crypto'
 import {
@@ -429,14 +429,12 @@ function rangeMemoryCost(args: any[]): number {
     return COST_PER_UNIT + length * calculateCost(last)
 }
 
-// The VM skips the `memoryCost` check when the caller turns the limit off, so this ceiling applies in all cases.
-function rangeFn(args: any[]): any[] {
+// The VM skips the `memoryCost` check when the caller turns the limit off, so the default limit applies then.
+function rangeFn(args: any[], _name: string, options?: ExecOptions): any[] {
+    const limit = options?.memoryLimit && options.memoryLimit > 0 ? options.memoryLimit : DEFAULT_MAX_MEMORY
     const cost = rangeMemoryCost(args)
-    if (cost > DEFAULT_MAX_MEMORY) {
-        throw new HogVMException(
-            `Memory limit of ${DEFAULT_MAX_MEMORY} bytes exceeded. Tried to allocate ${cost} bytes.`,
-            'limit'
-        )
+    if (cost > limit) {
+        throw new HogVMException(`Memory limit of ${limit} bytes exceeded. Tried to allocate ${cost} bytes.`, 'limit')
     }
     if (args.length === 1) {
         return Array.from({ length: args[0] }, (_, i) => i)
