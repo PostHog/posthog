@@ -2,6 +2,9 @@ import { z } from "zod";
 import {
   TASK_SUMMARY_MAX_CHARS,
   TASK_SUMMARY_TOOL_NAME,
+  TASK_TAG_MAX_CHARS,
+  TASK_TAG_PATTERN,
+  TASK_TAGS_MAX_COUNT,
 } from "../../task-system-prompt/task-summary";
 import { defineLocalTool, type LocalToolResult } from "../registry";
 import {
@@ -25,6 +28,13 @@ export const taskSummaryUpdateTool = defineLocalTool({
       .max(TASK_SUMMARY_MAX_CHARS)
       .describe(
         "The complete summary, replacing any previous one. Plain text or short markdown.",
+      ),
+    tags: z
+      .array(z.string().max(TASK_TAG_MAX_CHARS).regex(TASK_TAG_PATTERN))
+      .max(TASK_TAGS_MAX_COUNT)
+      .optional()
+      .describe(
+        "The complete set of lowercase kebab-case slugs, for example `feature-flags` or `bug-fix`, replacing any previous tags. Omit to keep the current tags.",
       ),
   },
   alwaysLoad: true,
@@ -52,6 +62,7 @@ export const taskSummaryUpdateTool = defineLocalTool({
             ctx.taskId as string,
             ctx.taskRunId as string,
             summary,
+            args.tags,
             signal,
           ),
         "task summary update",

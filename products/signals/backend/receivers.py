@@ -116,6 +116,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
         # the signals contracts, both forbidden at django.setup() by the startup-import-budget test.
         from products.signals.backend.pull_requests import apply_report_completion
         from products.signals.backend.report_assignments import sync_task_pull_request_to_assignments  # noqa: PLC0415
+        from products.signals.backend.stack_plan import schedule_dependent_layers  # noqa: PLC0415
         from products.signals.backend.tasks import link_report_tracker_issues  # noqa: PLC0415
         from products.tasks.backend.facade.api import read_pr_urls
 
@@ -153,6 +154,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
                     )
             for report in reports:
                 apply_report_completion(report)
+            schedule_dependent_layers(team_id=instance.team_id, report_ids=[str(report.id) for report in reports])
     except Exception:
         logger.exception("signals.task_run_pr_assignment_sync_failed", task_run_id=str(instance.id))
 

@@ -1249,6 +1249,15 @@ class ScoutNotesQuerySerializer(serializers.Serializer):
             "full body — use this on wide scans so stacked notes can't dominate your context."
         ),
     )
+    text = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text=(
+            "Return only the notes whose content contains this text, case-insensitively. Pass an "
+            "entity (an error id, a flag key, a page path, an event name) to find the notes about "
+            "it, including older ones the newest-first cap would hide."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         min_value=1,
