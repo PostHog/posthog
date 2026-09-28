@@ -202,3 +202,19 @@ export const BillingUnsubscribeModal: Story = {
         return <UnsubscribeSurveyModal product={billingJson.products[0]} />
     },
 }
+
+export const BillingUnsubscribeModalWithDiscount: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/api/billing/': {
+                    ...billingJson,
+                    ...billingJsonWithDiscount,
+                    subscription_level: 'paid',
+                },
+            },
+        })
+
+        return <UnsubscribeSurveyModal product={billingJson.products[0]} />
+    },
+}
