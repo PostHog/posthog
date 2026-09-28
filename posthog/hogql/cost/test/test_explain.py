@@ -46,7 +46,9 @@ def _predicate(
         blocker=None,
         message=f"message about {name}",
         fix=overrides.get("fix"),
+        fix_action=None,
         ai_fix_prompt=overrides.get("ai_fix_prompt"),
+        quickfix=None,
         start=None,
         end=None,
     )

@@ -33,6 +33,7 @@ from posthog.passkey import (
     verify_passkey_authentication_response,
     verify_passkey_registration_response,
 )
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.rate_limit import WebAuthnSignupRegistrationThrottle
 from posthog.session.activity import revoke_other_sessions_for_request
 from posthog.tasks.email import send_passkey_added_email, send_passkey_removed_email
@@ -82,7 +83,7 @@ class WebAuthnRegistrationViewSet(viewsets.ViewSet):
     4. POST /verify_complete - Verify assertion, mark credential as verified
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
     authentication_classes = [SessionAuthentication]
 
     @action(detail=False, methods=["POST"], url_path="begin")
@@ -629,7 +630,7 @@ class WebAuthnCredentialViewSet(viewsets.ViewSet):
     Allows users to list, rename, and delete their passkeys.
     """
 
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
     authentication_classes = [SessionAuthentication]
 
     def list(self, request: Request) -> Response:

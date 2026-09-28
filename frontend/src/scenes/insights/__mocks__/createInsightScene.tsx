@@ -13,7 +13,7 @@ import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { isInsightVizNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
-import { QueryBasedInsightModel } from '~/types'
+import { InsightModel } from '~/types'
 
 /** Spread into a `createInsightStory` story's `parameters`, merging `testOptions` for extra keys. */
 export const insightSceneStoryParameters = {
@@ -122,7 +122,7 @@ interface InsightStoryOptions {
 
 let shortCounter = 0
 export function createInsightStory(
-    insight: Partial<QueryBasedInsightModel>,
+    insight: Partial<InsightModel>,
     mode: 'view' | 'edit' = 'view',
     showLegend: boolean = false,
     options: InsightStoryOptions = {}

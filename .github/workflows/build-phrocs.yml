@@ -3,6 +3,9 @@
 # Triggers:
 #   - Push to master (paths: tools/phrocs/**) → updates phrocs-latest release
 #   - Manual dispatch with version input       → creates phrocs-X.Y.Z semver release + updates Homebrew
+#
+# Both only run on master. The Homebrew job runs in the `homebrew-tap` environment,
+# which holds the tap token and only admits master, so a branch can't publish the formula.
 
 name: Build phrocs
 
@@ -34,7 +37,8 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
 
-        if: github.repository == 'PostHog/posthog'
+        # A manual run can start from any branch, so the ref check keeps a release on master.
+        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
 
         steps:
             - name: Checkout repository
@@ -91,10 +95,39 @@ jobs:
                       --notes "Built from commit ${GIT_SHA}" \
                       --latest=false
 
+            - name: Upload checksums for the Homebrew job
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+              with:
+                  name: phrocs-checksums
+                  path: tools/phrocs/dist/checksums.txt
+                  retention-days: 1
+
+    publish-homebrew:
+        needs: build
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        if: github.event_name == 'workflow_dispatch'
+        environment: homebrew-tap
+        permissions:
+            contents: read
+
+        steps:
+            - name: Checkout formula template
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: tools/phrocs/Formula/phrocs.rb
+                  sparse-checkout-cone-mode: false
+
+            - name: Download checksums
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: phrocs-checksums
+                  path: tools/phrocs/dist
+
             - name: Generate Homebrew tap token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              if: github.event_name == 'workflow_dispatch'
               with:
                   client-id: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_PRIVATE_KEY }}
@@ -102,7 +135,6 @@ jobs:
                   repositories: homebrew-tap
 
             - name: Prepare Homebrew formula
-              if: github.event_name == 'workflow_dispatch'
               env:
                   PHROCS_VERSION: ${{ inputs.version }}
               run: |
@@ -121,17 +153,14 @@ jobs:
 
             - name: Checkout Homebrew tap
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              if: github.event_name == 'workflow_dispatch'
               with:
                   repository: PostHog/homebrew-tap
                   token: ${{ steps.app-token.outputs.token }}
 
             - name: Update Homebrew formula
-              if: github.event_name == 'workflow_dispatch'
               run: cp /tmp/phrocs.rb Formula/phrocs.rb
 
             - name: Commit Homebrew formula update
-              if: github.event_name == 'workflow_dispatch'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
                   commit_message: 'chore: update phrocs formula to ${{ inputs.version }}'

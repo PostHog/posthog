@@ -900,6 +900,7 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "swissaitalent.ch",
         documentation_url="https://swissaitalent.ch/bot",
     ),
+    "AtlasSearchBot": BotDefinition("AtlasSearch", "search_crawler", "Bot", "AtlasSearch"),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -950,6 +951,10 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "BenchRankBot": BotDefinition(
         "BenchRank", "seo_crawler", "Bot", "BenchRank", documentation_url="https://benchrank.app/bot"
     ),
+    "QlyzeBot": BotDefinition("Qlyze", "seo_crawler", "Bot", "Qlyze", documentation_url="https://app.qlyze.io/bot"),
+    "AutozellaBot": BotDefinition(
+        "Autozella", "seo_crawler", "Bot", "Autozella", documentation_url="https://autozella.com"
+    ),
     # Social / link-preview crawlers
     "PagePeeker": BotDefinition(
         "PagePeeker", "social_crawler", "Bot", "PagePeeker", documentation_url="https://pagepeeker.com/robots/"
@@ -997,5 +1002,12 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # HTTP clients
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
+    ),
+    "PostHogImageFetcherBot": BotDefinition(
+        "PostHog Image Fetcher",
+        "http_client",
+        "Bot",
+        "PostHog",
+        documentation_url="https://posthog.com/docs/ai-research/image-fetcher-bot",
     ),
 }

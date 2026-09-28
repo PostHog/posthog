@@ -82,6 +82,23 @@ def is_context_window_error_message(message: str) -> bool:
     return any(marker in lowered for marker in _CONTEXT_WINDOW_ERROR_MARKERS)
 
 
+class OutputTokenLimitError(LLMError):
+    """Raised when the model stopped because it hit its output token limit.
+
+    Providers report an exhausted output budget in a 400 or through a `length` finish reason,
+    which the OpenAI SDK raises as `LengthFinishReasonError`. Rejected token settings stay
+    separate because the request must change before the model can generate a reply.
+    """
+
+
+_OUTPUT_LIMIT_ERROR_MARKERS = ("output limit was reached",)
+
+
+def is_output_limit_error_message(message: str) -> bool:
+    lowered = message.lower()
+    return any(marker in lowered for marker in _OUTPUT_LIMIT_ERROR_MARKERS)
+
+
 class ModelPermissionError(LLMError):
     """Raised when the API key doesn't have permission to access a model"""
 
@@ -141,6 +158,8 @@ def user_facing_error_message(error: Exception | None) -> str:
         return "The provider is rate limiting this key. Wait a moment, then try again."
     if isinstance(error, ContextWindowExceededError):
         return "This conversation is too long for the model's context window. Shorten it, then try again."
+    if isinstance(error, OutputTokenLimitError):
+        return "The model ran out of room before it finished its reply. Ask for a shorter answer, then try again."
     if isinstance(error, ProviderConnectionError):
         return "Could not reach the model provider. Try again."
     if isinstance(error, StructuredOutputParseError):

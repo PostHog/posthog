@@ -207,7 +207,6 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "has_signed_baa",
-            "default_experiment_stats_method",
             "default_anonymize_ips",
             "default_role_id",
             "is_active",

@@ -504,6 +504,25 @@ describe('markdown round trip', () => {
             expect(getNodeText(nodes[0])).toEqual('wiki end')
         })
 
+        it('parses the pointy-bracket href form that Slack copies produce', () => {
+            const nodes = parseMarkdownNotebook('See [Payloads](<https://posthog.com/docs/payloads>) now').nodes
+            const children = (nodes[0] as NotebookTextBlockNode).children
+
+            expect(children[1].type === 'text' && children[1].marks?.[0]).toEqual({
+                type: 'link',
+                href: 'https://posthog.com/docs/payloads',
+            })
+            expect(getNodeText(nodes[0])).toEqual('See Payloads now')
+        })
+
+        it('keeps the label but drops the link when a pointy bracket is left unclosed', () => {
+            const nodes = parseMarkdownNotebook('[Payloads](<https://posthog.com/docs) end').nodes
+
+            expect(getNodeText(nodes[0])).toEqual('Payloads end')
+            const child = (nodes[0] as NotebookTextBlockNode).children[0]
+            expect(child.type === 'text' && child.marks).toBeUndefined()
+        })
+
         it('drops disallowed link schemes but keeps the label text', () => {
             // eslint-disable-next-line no-script-url
             const nodes = parseMarkdownNotebook('[click](javascript:alert(1)) safe').nodes

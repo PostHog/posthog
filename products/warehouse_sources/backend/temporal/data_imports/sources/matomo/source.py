@@ -57,6 +57,14 @@ class MatomoSource(ResumableSource[MatomoSourceConfig, MatomoResumeConfig], Vali
             # customer's Matomo host, not PostHog's request, and every retry hits the same
             # expired cert until they renew it.
             "certificate has expired": "PostHog could not connect to your Matomo instance because its SSL certificate has expired. Renew the certificate on your Matomo host, then try again.",
+            # Every call goes to the one reporting endpoint, and Matomo answers a method it does
+            # not know with a 200 error envelope, so a 404 means the instance URL points at
+            # something that is not a Matomo instance, or at one that is gone. The URL is fixed
+            # until the customer edits it, so every retry replays the same 404.
+            "404 Client Error: Not Found for url": (
+                "PostHog couldn't find a Matomo instance at the URL configured for this source. "
+                "Check the instance URL, then reconnect."
+            ),
             "Matomo API error:": None,
         }
 

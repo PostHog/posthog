@@ -19,15 +19,13 @@ const STATS = {
     scorer: null,
 }
 
-const IMPACT = { affected_sessions: 0, affected_users: 0, sessions_without_user: 0, window_days: 14 }
-
 describe('scannerOverviewLogic', () => {
     let statsRequests: string[]
-    let impactRequests: string[]
+    let cohortBodies: Record<string, unknown>[]
 
     beforeEach(() => {
         statsRequests = []
-        impactRequests = []
+        cohortBodies = []
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': {
@@ -39,13 +37,15 @@ describe('scannerOverviewLogic', () => {
                     enabled: true,
                 },
                 '/api/projects/:team/vision/scanners/:id/observations/': { results: [], count: 0 },
-                '/api/projects/:team/vision/scanners/:id/impact/': ({ request }) => {
-                    impactRequests.push(request.url)
-                    return [200, IMPACT]
-                },
                 '/api/projects/:team/vision/scanners/:id/observations/stats/': ({ request }) => {
                     statsRequests.push(request.url)
                     return [200, STATS]
+                },
+            },
+            post: {
+                '/api/projects/:team/vision/scanners/:id/affected_cohort/': async ({ request }) => {
+                    cohortBodies.push((await request.json()) as Record<string, unknown>)
+                    return [201, { cohort_id: 1, name: 'c', users_in_cohort: 1, window_days: 7 }]
                 },
             },
         })
@@ -92,16 +92,40 @@ describe('scannerOverviewLogic', () => {
             expect(url.searchParams.get('tags')).toBe('checkout')
         })
 
-        it('reloads impact with a window derived from the date range, clamped to the endpoint max', async () => {
+        it('saves cohorts over a window derived from the date range, clamped to the endpoint max', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            impactRequests = []
 
+            // A cohort over a different window would hold users the panel never counted.
             await expectLogic(logic, () => logic.actions.setOverviewDateRange('-7d', null)).toFinishAllListeners()
-            expect(new URL(impactRequests[impactRequests.length - 1]).searchParams.get('window_days')).toBe('7')
+            await expectLogic(logic, () => logic.actions.saveCohort({ verdict: 'no' })).toFinishAllListeners()
 
             // A range past the endpoint's 90-day cap must clamp, not send an out-of-range value the API rejects.
             await expectLogic(logic, () => logic.actions.setOverviewDateRange('-180d', null)).toFinishAllListeners()
-            expect(new URL(impactRequests[impactRequests.length - 1]).searchParams.get('window_days')).toBe('90')
+            await expectLogic(logic, () => logic.actions.saveCohort({ tag: 'checkout' })).toFinishAllListeners()
+
+            expect(cohortBodies).toEqual([
+                { window_days: 7, verdict: 'no' },
+                { window_days: 90, tag: 'checkout' },
+            ])
+        })
+
+        it.each([
+            ['a range ending today', '-7d', null, null],
+            [
+                'a range ending yesterday',
+                '-14d',
+                '-1d',
+                'Cohorts cover the most recent days. Pick a date range that ends today to save one.',
+            ],
+            [
+                'a fixed range that ended weeks ago',
+                '2020-01-01',
+                '2020-01-14',
+                'Cohorts cover the most recent days. Pick a date range that ends today to save one.',
+            ],
+        ])('with %s, saving a cohort is blocked only when the range ended in the past', (_name, from, to, expected) => {
+            logic.actions.setOverviewDateRange(from, to)
+            expect(logic.values.cohortDisabledReason).toBe(expected)
         })
 
         it('clearOverviewFilters resets the date back to the default, not null', async () => {
@@ -135,40 +159,6 @@ describe('scannerOverviewLogic', () => {
                 await expectLogic(logic, () => logic.actions.drillIntoObservations(undefined)).toFinishAllListeners()
                 expect(router.values.location.pathname).toBe(before)
             })
-        })
-
-        describe('creditLimitStats', () => {
-            it('is null when the scanner has no limit, so callers render no panel instead of "0% of 0"', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-                expect(logic.values.creditLimitStats).toBeNull()
-            })
-
-            it.each([
-                { used: 200, limit: 1000, expectedPct: 20, expectedReached: false },
-                { used: 1000, limit: 1000, expectedPct: 100, expectedReached: true },
-                { used: 1200, limit: 1000, expectedPct: 100, expectedReached: true },
-                // The server reports reached as soon as what's left can't cover one more scan, so this
-                // must come from the API and not be re-derived from usedPct.
-                { used: 990, limit: 1000, expectedPct: 99, expectedReached: true },
-            ])(
-                'derives usedPct $expectedPct and limitReached $expectedReached from used=$used, limit=$limit',
-                async ({ used, limit, expectedPct, expectedReached }) => {
-                    await expectLogic(logic, () =>
-                        logic.actions.loadScannerSuccess({
-                            ...logic.values.scanner,
-                            credit_limit: limit,
-                            credits_used_against_limit: used,
-                            limit_reached: expectedReached,
-                        })
-                    ).toFinishAllListeners()
-                    expect(logic.values.creditLimitStats).toEqual({
-                        limit,
-                        used,
-                        usedPct: expectedPct,
-                        limitReached: expectedReached,
-                    })
-                }
-            )
         })
     })
 
@@ -288,13 +278,10 @@ describe('scannerOverviewLogic', () => {
             await jest.advanceTimersByTimeAsync(1_000)
             expect(freshLogic.values.firstScanPending).toBe(true)
 
-            // Pending arms a background reload on the calmer first-scan interval. Each tick refreshes
-            // stats and the watermark only; reloading impact per tick would triple the request count.
+            // Pending arms a background reload on the calmer first-scan interval.
             const before = statsRequests.length
-            const impactBefore = impactRequests.length
             await jest.advanceTimersByTimeAsync(16_000)
             expect(statsRequests.length).toBe(before + 1)
-            expect(impactRequests.length).toBe(impactBefore)
 
             // Once observations settle, the pending state dissolves and polling stops.
             statsBody = SETTLED_STATS

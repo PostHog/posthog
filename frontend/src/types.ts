@@ -83,7 +83,12 @@ import { QueryContext } from '~/queries/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
-import type { NodeApiSuspended, NodeEndpointApi } from 'products/data_modeling/frontend/generated/api.schemas'
+import {
+    type LineageIssueApi,
+    type NodeApiSuspended,
+    type NodeEndpointApi,
+    NodeTypeEnumApi,
+} from 'products/data_modeling/frontend/generated/api.schemas'
 import type {
     DataWarehouseSavedQueryApi,
     DataWarehouseSavedQueryApiSuspended,
@@ -235,6 +240,7 @@ export enum AvailableFeature {
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
+    MEMBER_GOVERNANCE = 'member_governance',
     TOOLBAR_HEATMAPS = 'toolbar_heatmaps',
 }
 
@@ -301,6 +307,7 @@ export enum AccessControlResourceType {
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
+    DataDeletion = 'data_deletion',
     FeatureFlag = 'feature_flag',
     Heatmap = 'heatmap',
     Insight = 'insight',
@@ -469,11 +476,13 @@ export interface NotificationSettings {
     discussions_mentioned: boolean
     data_pipeline_error_threshold?: number
     project_api_key_exposed?: boolean
+    ai_evaluation_disabled?: boolean
     materialized_view_sync_failed?: boolean
     materialized_view_sync_failed_daily?: boolean
     materialized_view_sync_failed_immediate?: boolean
     web_analytics_weekly_digest: boolean
     web_analytics_weekly_digest_project_enabled?: Record<string, boolean>
+    data_catalog_weekly_digest?: boolean
     organization_member_join_email_disabled?: Record<string, boolean>
     realtime_notifications_disabled?: Record<string, Record<string, boolean>>
     pipeline_notifications_disabled?: Record<string, boolean>
@@ -612,7 +621,6 @@ export interface OrganizationType extends OrganizationBasicType {
     allow_publicly_shared_resources: boolean
     metadata?: OrganizationMetadata
     member_count: number
-    default_experiment_stats_method: ExperimentStatsMethod
     default_anonymize_ips?: boolean
     default_role_id?: string | null
     uses_most_specific_access_resolution?: boolean | null
@@ -808,6 +816,7 @@ export interface ConversationsSettings {
     ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
     ai_reply_custom_instructions?: string | null
     docs_source?: 'posthog' | null
+    ai_context_account_property_ids?: string[] | null
 }
 
 export interface LogsSettings {
@@ -1105,6 +1114,7 @@ export enum PropertyOperator {
 }
 
 export enum SavedInsightsTabs {
+    Home = 'home',
     All = 'all',
     Yours = 'yours',
     History = 'history',
@@ -1136,10 +1146,11 @@ export enum ExperimentsTabs {
     Settings = 'settings',
 }
 
+// Values are URL path segments under /activity; `redirects` in scenes.ts keeps old ones working.
 export enum ActivityTab {
-    ExploreEvents = 'explore',
-    ExploreSessions = 'sessions',
+    ExploreEvents = 'events',
     LiveEvents = 'live',
+    ExploreSessions = 'sessions',
 }
 
 export enum ProgressStatus {
@@ -2563,9 +2574,9 @@ export interface Tileable {
 
 export type DashboardTileIdOrNew = number | null
 
-export interface DashboardTile<T = InsightModel> extends Tileable {
+export interface DashboardTile extends Tileable {
     id: number
-    insight?: T
+    insight?: InsightModel
     text?: TextModel
     button_tile?: ButtonTileModel
     widget?: DashboardWidgetModel
@@ -2625,7 +2636,8 @@ export interface ButtonTileModel extends DashboardWidgetInterface {
     team?: number
 }
 
-export interface InsightModel extends Cacheable, WithAccessControl {
+export interface InsightModel<R extends Node<Record<string, any>> = Node<Record<string, any>>>
+    extends Cacheable, WithAccessControl {
     /** The unique key we use when communicating with the user, e.g. in URLs */
     short_id: InsightShortId
     /** The primary key in the database, used as well in API endpoints */
@@ -2660,9 +2672,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     next?: string
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
-    filters: Partial<FilterType>
     alerts?: AlertType[]
-    query?: Node | null
+    query: R | null
     query_status?: QueryStatus
     query_scan?: QueryScanSummary
     is_cached?: boolean
@@ -2673,13 +2684,6 @@ export interface InsightModel extends Cacheable, WithAccessControl {
 }
 
 export type InsightFilterOverrideContext = InsightFilterOverrideContextApi
-
-export interface QueryBasedInsightModel<R extends Node<Record<string, any>> = Node<Record<string, any>>> extends Omit<
-    InsightModel,
-    'filters'
-> {
-    query: R | null
-}
 
 export interface EndpointType extends WithAccessControl {
     id: string
@@ -2768,8 +2772,8 @@ export interface DashboardTemplateListParams {
 
 export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
-export interface DashboardType<T = InsightModel> extends DashboardBasicType {
-    tiles: DashboardTile<T>[]
+export interface DashboardType extends DashboardBasicType {
+    tiles: DashboardTile[]
     filters: DashboardFilter
     variables?: Record<string, HogQLVariable>
     persisted_filters?: DashboardFilter | null
@@ -3071,9 +3075,9 @@ export interface RawAnnotationType {
     created_at: string
     updated_at: string
     dashboard_item?: number | null
-    insight_short_id?: QueryBasedInsightModel['short_id'] | null
-    insight_name?: QueryBasedInsightModel['name'] | null
-    insight_derived_name?: QueryBasedInsightModel['derived_name'] | null
+    insight_short_id?: InsightModel['short_id'] | null
+    insight_name?: InsightModel['name'] | null
+    insight_derived_name?: InsightModel['derived_name'] | null
     dashboard_id?: DashboardBasicType['id'] | null
     dashboard_name?: DashboardBasicType['name'] | null
     deleted?: boolean
@@ -3734,7 +3738,7 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
     /** cached insight */
-    cachedInsight?: Partial<QueryBasedInsightModel> | null
+    cachedInsight?: Partial<InsightModel> | null
     /** enable this to avoid API requests */
     doNotLoad?: boolean
     loadPriority?: number
@@ -3742,7 +3746,7 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     /** query when used as ad-hoc insight */
     query?: Q
     setQuery?: (node: Q) => void
-    refreshAfterDisplayOptionsChange?: (insight: QueryBasedInsightModel) => void
+    refreshAfterDisplayOptionsChange?: (insight: InsightModel) => void
 
     /** Used to group DataNodes into a collection for group operations like refreshAll **/
     dataNodeCollectionId?: string
@@ -5889,6 +5893,7 @@ export const API_SCOPE_OBJECTS = [
     'customer_profile_config',
     'data_catalog',
     'data_catalog_approval',
+    'data_deletion',
     'dashboard',
     'event_filter',
     'dashboard_template',
@@ -5936,6 +5941,7 @@ export const API_SCOPE_OBJECTS = [
     'mcp_analytics',
     'metrics',
     'notebook',
+    'offline_evaluation_ingestion',
     'organization',
     'organization_integration',
     'organization_member',
@@ -6287,7 +6293,7 @@ export interface DataWarehouseSavedQueryDependencies {
     downstream_count: number
 }
 
-export type DataModelingNodeType = 'table' | 'view' | 'matview' | 'endpoint'
+export type DataModelingNodeType = NodeTypeEnumApi
 
 export interface DataModelingNode {
     /** UUID */
@@ -6300,6 +6306,9 @@ export interface DataModelingNode {
     /** Human-readable DAG name */
     dag_name?: string
     saved_query_id?: string
+    /** UUID of the data catalog metric a metric node stands for */
+    metric_id?: string | null
+    lineage_issue?: LineageIssueApi | null
     created_at: string
     updated_at: string
     upstream_count: number

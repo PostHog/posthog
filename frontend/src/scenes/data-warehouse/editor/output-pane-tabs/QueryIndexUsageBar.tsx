@@ -4,7 +4,13 @@ import { IconInfo, IconWarning } from '@posthog/icons'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
-import { CostPlanStep, PredicateIndexUsage, ScanEstimate, ScanEstimateSource } from '~/queries/schema/schema-general'
+import {
+    CostPlanStep,
+    PredicateIndexUsage,
+    PredicateQuickfix,
+    ScanEstimate,
+    ScanEstimateSource,
+} from '~/queries/schema/schema-general'
 
 import { QueryCostPlan } from './QueryCostPlan'
 import { QueryIndexUsageTable } from './QueryIndexUsageTable'
@@ -14,10 +20,15 @@ import { QueryScanTablesTable } from './QueryScanTablesTable'
 interface QueryIndexUsageBarProps {
     predicates: PredicateIndexUsage[]
     estimate?: ScanEstimate | null
-    /** The plan that explains the estimate. When present it replaces the two tables below. */
+    /** The plan that explains the estimate. It replaces the per-table list; the filter table stays because it carries the quickfix actions. */
     plan?: CostPlanStep[] | null
     /** A refresh is in flight, so the report still describes the SQL the server last saw. */
     refreshing?: boolean
+    /** The report does not describe the text the editor holds, so its offsets would land elsewhere. */
+    stale?: boolean
+    onApplyQuickfix?: (quickfix: PredicateQuickfix) => void
+    onFixWithAI?: (prompt: string) => void
+    fixWithAILoading?: boolean
 }
 
 export function QueryIndexUsageBar({
@@ -25,6 +36,10 @@ export function QueryIndexUsageBar({
     estimate,
     plan,
     refreshing,
+    stale,
+    onApplyQuickfix,
+    onFixWithAI,
+    fixWithAILoading,
 }: QueryIndexUsageBarProps): JSX.Element | null {
     const summary = summarizeQueryScan(predicates, estimate)
     if (!summary) {
@@ -72,15 +87,22 @@ export function QueryIndexUsageBar({
                     key: 'index-usage',
                     dataAttr: 'sql-editor-index-usage',
                     header,
-                    content:
-                        hasPlan && plan ? (
-                            <QueryCostPlan steps={plan} />
-                        ) : (
-                            <>
-                                {showTables && estimate ? <QueryScanTablesTable estimate={estimate} /> : null}
-                                <QueryIndexUsageTable predicates={predicates} />
-                            </>
-                        ),
+                    content: (
+                        <>
+                            {hasPlan && plan ? (
+                                <QueryCostPlan steps={plan} />
+                            ) : showTables && estimate ? (
+                                <QueryScanTablesTable estimate={estimate} />
+                            ) : null}
+                            <QueryIndexUsageTable
+                                predicates={predicates}
+                                stale={stale}
+                                onApplyQuickfix={onApplyQuickfix}
+                                onFixWithAI={onFixWithAI}
+                                fixWithAILoading={fixWithAILoading}
+                            />
+                        </>
+                    ),
                 },
             ]}
         />
