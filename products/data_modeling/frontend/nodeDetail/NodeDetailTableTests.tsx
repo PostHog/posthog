@@ -39,9 +39,7 @@ export function NodeDetailTableTests({ id, subjectId }: { id: string; subjectId:
                 subjectType="table"
                 subjectId={subjectId}
                 columns={tableDetails?.table.columns ?? []}
-                dataLastSyncedAt={
-                    typeof lastSyncedAt === 'string' ? lastSyncedAt : lastSyncedAt?.toISOString()
-                }
+                dataLastSyncedAt={typeof lastSyncedAt === 'string' ? lastSyncedAt : lastSyncedAt?.toISOString()}
                 hideTitle
             />
         </div>

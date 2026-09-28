@@ -26,9 +26,12 @@ export function ModelTableSummary({
 }: {
     id: string
     node: Pick<DataModelingNode, 'origin' | 'downstream_count'>
-    table: DataWarehouseTable | null
-    source: ExternalDataSource | null
-    schema: ExternalDataSchemaWithSource | null
+    table: Pick<DataWarehouseTable, 'format'> | null
+    source: Pick<ExternalDataSource, 'id' | 'source_type' | 'access_method'> | null
+    schema: Pick<
+        ExternalDataSchemaWithSource,
+        'id' | 'status' | 'latest_error' | 'last_synced_at' | 'sync_type' | 'sync_frequency'
+    > | null
     loading: boolean
     error: boolean
     accessDenied: boolean
@@ -36,10 +39,7 @@ export function ModelTableSummary({
     metadata?: ReactNode
 }): JSX.Element {
     const downstream = (
-        <ModelDownstreamSummary
-            downstreamCount={node.downstream_count}
-            lineageUrl={urls.nodeDetail(id, 'lineage')}
-        />
+        <ModelDownstreamSummary downstreamCount={node.downstream_count} lineageUrl={urls.nodeDetail(id, 'lineage')} />
     )
 
     if (node.origin === 'posthog') {
@@ -124,7 +124,9 @@ export function ModelTableSummary({
                     ) : table ? (
                         <div>
                             <dt className="text-secondary mb-1">File format</dt>
-                            <dd className="mb-0">{table.format === 'CSVWithNames' ? 'CSV with headers' : table.format}</dd>
+                            <dd className="mb-0">
+                                {table.format === 'CSVWithNames' ? 'CSV with headers' : table.format}
+                            </dd>
                         </div>
                     ) : null}
                     {schema && (

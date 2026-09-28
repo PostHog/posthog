@@ -1,9 +1,8 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
-import { urls } from 'scenes/urls'
-
 import { FEATURE_FLAGS } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'

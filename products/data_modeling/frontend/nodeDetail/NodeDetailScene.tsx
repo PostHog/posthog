@@ -119,6 +119,10 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     return (
         <SceneContent>
             <NodeDetailHeader id={id} />
+            {/* A node row's timestamps describe the node, not the table: the DAG sync bumps
+                updated_at when it stamps identity onto the node. So they stand in only for a
+                node with no table of its own, and a failed table load says nothing rather than
+                the node's dates. */}
             <NodeDetailOverview
                 id={id}
                 metadata={
@@ -135,11 +139,11 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
                         createdAt={
                             node.saved_query_id
                                 ? savedQuery?.created_at
-                                : node.origin === 'posthog'
-                                  ? node.created_at
-                                  : (tableDetails?.source?.created_at ?? tableDetails?.table.created_at ?? node.created_at)
+                                : node.warehouse_table_id
+                                  ? (tableDetails?.source?.created_at ?? tableDetails?.table.created_at)
+                                  : node.created_at
                         }
-                        updatedAt={node.saved_query_id || tableDetails ? undefined : node.updated_at}
+                        updatedAt={node.saved_query_id || node.warehouse_table_id ? undefined : node.updated_at}
                         loading={
                             (!!node.saved_query_id && savedQueryLoading && !savedQuery) ||
                             (!!node.warehouse_table_id && tableDetailsLoading && !tableDetails)

@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import type { ExternalDataSchemaWithSource, ExternalDataSource } from '~/types'
+import { dayjs } from 'lib/dayjs'
+
+import { ExternalDataSchemaStatus } from '~/types'
 
 import { ModelTableSummary } from './ModelTableSummary'
 
@@ -36,42 +38,23 @@ export const PostHog: Story = {}
 export const SelfManaged: Story = {
     args: {
         node: { origin: 'warehouse', downstream_count: 0 },
-        table: {
-            id: 'table-1',
-            name: 'orders',
-            format: 'Parquet',
-            url_pattern: 'https://example.com/orders/*.parquet',
-            credential: null,
-        },
+        table: { format: 'Parquet' },
     },
 }
 
 export const Synced: Story = {
     args: {
         node: { origin: 'warehouse', downstream_count: 2 },
-        table: {
-            id: 'table-1',
-            name: 'orders',
-            format: 'Parquet',
-            url_pattern: '',
-            credential: null,
-        },
-        source: {
-            id: 'source-1',
-            source_type: 'Postgres',
-            access_method: 'warehouse',
-        } as ExternalDataSource,
+        table: { format: 'Parquet' },
+        source: { id: 'source-1', source_type: 'Postgres', access_method: 'warehouse' },
         schema: {
             id: 'schema-1',
-            name: 'orders',
-            label: 'Orders',
-            should_sync: true,
-            status: 'Completed',
+            status: ExternalDataSchemaStatus.Completed,
             latest_error: null,
-            last_synced_at: '2026-09-19T10:00:00Z',
+            last_synced_at: dayjs('2026-09-19T10:00:00Z'),
             sync_type: 'incremental',
             sync_frequency: '24hour',
-        } as unknown as ExternalDataSchemaWithSource,
+        },
     },
 }
 

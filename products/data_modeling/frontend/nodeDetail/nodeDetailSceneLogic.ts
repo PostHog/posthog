@@ -369,9 +369,15 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     return null
                 }
                 const table = await api.dataWarehouseTables.get(node.warehouse_table_id)
+                // A grant on the table alone outranks a denial on its source, so a refused or
+                // failed source or schema read narrows the summary rather than emptying it.
                 const [source, schema] = await Promise.all([
-                    table.external_data_source ? api.externalDataSources.get(table.external_data_source.id) : null,
-                    table.external_schema ? api.externalDataSchemas.get(table.external_schema.id) : null,
+                    table.external_data_source
+                        ? api.externalDataSources.get(table.external_data_source.id).catch(() => null)
+                        : null,
+                    table.external_schema
+                        ? api.externalDataSchemas.get(table.external_schema.id).catch(() => null)
+                        : null,
                 ])
                 return { table, source, schema }
             },
