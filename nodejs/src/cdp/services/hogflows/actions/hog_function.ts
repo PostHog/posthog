@@ -157,6 +157,10 @@ export class HogFunctionHandler implements ActionHandler {
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
         result.messageAssets = [...result.messageAssets, ...functionResult.messageAssets]
+        result.conversationCaptures = [
+            ...(result.conversationCaptures ?? []),
+            ...(functionResult.conversationCaptures ?? []),
+        ]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution

@@ -119,6 +119,7 @@ export class HogExecutorAsyncService {
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
+        const conversationCaptures: NonNullable<CyclotronJobInvocationResult['conversationCaptures']> = []
 
         while (!result || !result.finished) {
             const nextInvocation: CyclotronJobInvocationHogFunction = result?.invocation ?? invocation
@@ -192,7 +193,12 @@ export class HogExecutorAsyncService {
             } else {
                 // Finish execution, carrying forward previous execResult
                 // Tricky: We don't pass metrics in previousResult as they're accumulated in the local metrics array
-                const { metrics: _m, logs: _l, ...previousResultWithoutMetrics } = result || {}
+                const {
+                    metrics: _m,
+                    logs: _l,
+                    conversationCaptures: _c,
+                    ...previousResultWithoutMetrics
+                } = result || {}
                 result = await this.execute(
                     nextInvocation,
                     options,
@@ -203,6 +209,7 @@ export class HogExecutorAsyncService {
 
             logs.push(...result.logs)
             metrics.push(...result.metrics)
+            conversationCaptures.push(...(result.conversationCaptures ?? []))
 
             // If we have finished _or_ something has been scheduled to run later _or_ the job was routed to a different queue then we break the loop
             if (result.finished || result.invocation.queueScheduledAt || result.invocation.queue !== invocation.queue) {
@@ -220,6 +227,7 @@ export class HogExecutorAsyncService {
 
         result.logs = logs
         result.metrics = metrics
+        result.conversationCaptures = conversationCaptures
 
         return result
     }

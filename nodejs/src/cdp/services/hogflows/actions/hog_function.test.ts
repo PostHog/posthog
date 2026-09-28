@@ -628,6 +628,39 @@ describe('HogFunctionHandler', () => {
         expect(billableMetrics).toHaveLength(0)
     })
 
+    it('preserves a completed email capture for the workflow queue finalizer', async () => {
+        const capture = {
+            source_id: 'invocation-example',
+            provider_message_id: '010001-example-000000',
+            email_integration_id: 1,
+            sent_at: '2026-09-28T12:00:00Z',
+            sender: { email: 'agent@example.com', name: 'Agent' },
+            to: { email: 'customer@example.net', name: 'Customer' },
+            cc: [],
+            subject: 'Example subject',
+            body_plain: 'Example body',
+        }
+        jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
+            finished: true,
+            invocation: invocation as any,
+            logs: [],
+            metrics: [],
+            capturedPostHogEvents: [],
+            warehouseWebhookPayloads: [],
+            messageAssets: [],
+            conversionWatchers: [],
+            conversationCaptures: [capture],
+        })
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        expect(invocationResult.conversationCaptures).toEqual([capture])
+    })
+
     it('drops the stale execResult when the function fails so the step stores no result', async () => {
         jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
             finished: true,

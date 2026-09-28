@@ -9,6 +9,7 @@ from django.db.models.functions import Lower
 
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 
 from products.conversations.backend.models import (
     EMAIL_THREAD_COMMENT_SCOPE,
@@ -150,17 +151,18 @@ def _upsert_participants(
     *,
     team_id: int,
     thread: EmailThread,
-    channel: EmailChannel,
+    channel: EmailChannel | None,
     email: ParsedEmail,
+    internal_sender_email: str | None = None,
 ) -> None:
-    owner = channel.owner
-    if owner is None:
-        raise ValueError("Customer communication channels require an owner")
-
     addresses = [email.sender, *email.to_recipients, *email.cc_recipients]
-    addresses.append(EmailAddress(name=channel.from_name, email=channel.from_email.lower()))
-    if owner.email.lower() != channel.from_email.lower():
-        addresses.append(EmailAddress(name="", email=owner.email.lower()))
+    if channel is not None:
+        owner = channel.owner
+        if owner is None:
+            raise ValueError("Customer communication channels require an owner")
+        addresses.append(EmailAddress(name=channel.from_name, email=channel.from_email.lower()))
+        if owner.email.lower() != channel.from_email.lower():
+            addresses.append(EmailAddress(name="", email=owner.email.lower()))
 
     addresses_by_email: dict[str, EmailAddress] = {}
     capture_address = email.capture_address.lower()
@@ -172,16 +174,24 @@ def _upsert_participants(
         if current is None or (not current.name and address.name):
             addresses_by_email[normalized_email] = EmailAddress(name=address.name[:400], email=normalized_email)
 
+    organization_id = (
+        channel.team.organization_id
+        if channel is not None
+        else Team.objects.only("organization_id").get(id=team_id).organization_id
+    )
     organization_member_emails = set(
         OrganizationMembership.objects.filter(
-            organization_id=channel.team.organization_id,
+            organization_id=organization_id,
             user__is_active=True,
         )
         .annotate(normalized_member_email=Lower("user__email"))
         .filter(normalized_member_email__in=list(addresses_by_email))
         .values_list("normalized_member_email", flat=True)
     )
-    organization_member_emails.update({channel.from_email.lower(), owner.email.lower()})
+    if channel is not None:
+        organization_member_emails.update({channel.from_email.lower(), owner.email.lower()})
+    if internal_sender_email is not None:
+        organization_member_emails.add(internal_sender_email.lower())
 
     for address in addresses_by_email.values():
         kind = (
@@ -237,11 +247,12 @@ def _update_thread_summary(*, thread: EmailThread, email: ParsedEmail, content: 
 def _ingest_customer_email_once(
     *,
     team_id: int,
-    channel: EmailChannel,
+    channel: EmailChannel | None,
     email: ParsedEmail,
     direction: EmailThreadMessageDirection,
     source_type: str,
     source_id: str | None,
+    internal_sender_email: str | None,
 ) -> EmailThreadIngestionResult:
     existing_message = _find_existing_message(
         team_id=team_id, email=email, source_type=source_type, source_id=source_id
@@ -290,7 +301,9 @@ def _ingest_customer_email_once(
         source_type=source_type,
         source_id=source_id or _mailgun_source_id(email.message_id),
     )
-    _upsert_participants(team_id=team_id, thread=thread, channel=channel, email=email)
+    _upsert_participants(
+        team_id=team_id, thread=thread, channel=channel, email=email, internal_sender_email=internal_sender_email
+    )
     _update_thread_summary(thread=thread, email=email, content=content)
     return EmailThreadIngestionResult(thread_id=thread.id, message_id=message.id, created=True)
 
@@ -298,11 +311,12 @@ def _ingest_customer_email_once(
 def ingest_customer_email(
     *,
     team_id: int,
-    channel: EmailChannel,
+    channel: EmailChannel | None,
     email: ParsedEmail,
     direction: EmailThreadMessageDirection,
     source_type: str = "mailgun",
     source_id: str | None = None,
+    internal_sender_email: str | None = None,
 ) -> EmailThreadIngestionResult:
     try:
         with transaction.atomic():
@@ -313,6 +327,7 @@ def ingest_customer_email(
                 direction=direction,
                 source_type=source_type,
                 source_id=source_id,
+                internal_sender_email=internal_sender_email,
             )
     except IntegrityError:
         existing_message = _find_existing_message(

@@ -167,6 +167,27 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     // Emails authored through the API or MCP often carry html only.
     text: z.string().optional(),
     html: z.string(),
+    conversationEligibilityFirstFailedAt: z.string().optional(),
+})
+
+const WorkflowConversationAddressSchema = z.object({ email: z.string(), name: z.string() })
+
+export const WorkflowConversationCaptureSchema = z.object({
+    source_id: z.string(),
+    provider_message_id: z.string(),
+    email_integration_id: z.number(),
+    sent_at: z.string(),
+    sender: WorkflowConversationAddressSchema,
+    to: WorkflowConversationAddressSchema,
+    cc: z.array(WorkflowConversationAddressSchema),
+    subject: z.string(),
+    body_plain: z.string(),
+})
+
+export const CyclotronInvocationQueueParametersEmailCaptureSchema = z.object({
+    type: z.literal('emailCapture'),
+    capture: WorkflowConversationCaptureSchema,
+    attempts: z.number().default(0),
 })
 
 export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({
@@ -188,6 +209,10 @@ export type CyclotronInvocationQueueParametersFetchStandardWebhooksType = z.infe
 >
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
+export type CyclotronInvocationQueueParametersEmailCaptureType = z.infer<
+    typeof CyclotronInvocationQueueParametersEmailCaptureSchema
+>
+export type WorkflowConversationCaptureType = z.infer<typeof WorkflowConversationCaptureSchema>
 export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer<
     typeof CyclotronInvocationQueueParametersSendPushNotificationSchema
 >
@@ -195,4 +220,5 @@ export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer
 export type CyclotronInvocationQueueParametersType =
     | CyclotronInvocationQueueParametersFetchType
     | CyclotronInvocationQueueParametersEmailType
+    | CyclotronInvocationQueueParametersEmailCaptureType
     | CyclotronInvocationQueueParametersSendPushNotificationType
