@@ -30,6 +30,7 @@ class TestAccountViews(APIBaseTest):
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            {"key": AvailableFeature.AUDIT_LOGS, "name": AvailableFeature.AUDIT_LOGS},
         ]
         self.organization.save()
         self.endpoint = f"/api/projects/{self.team.id}/account_views/"
@@ -150,3 +151,9 @@ class TestAccountViews(APIBaseTest):
             self.assertNotIn("Updated private view", str(activity.detail))
             self.assertNotIn("Product usage", str(activity.detail))
             self.assertNotIn("Renewal details", str(activity.detail))
+
+        for user in (self.user, self.viewer):
+            self.client.force_login(user)
+            feed = self.client.get(f"/api/projects/{self.team.id}/activity_log/?scope=AccountView")
+            self.assertEqual(feed.status_code, status.HTTP_200_OK, feed.json())
+            self.assertEqual(feed.json()["results"], [])
