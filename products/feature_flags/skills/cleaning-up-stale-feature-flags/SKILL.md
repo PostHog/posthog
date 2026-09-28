@@ -246,12 +246,14 @@ The flag still stays untouched — the user may need to check other repositories
 
 ### 6. Apply the retained path
 
-Before your first Edit, Write, or MultiEdit call in this step, and before any other action in this step, fetch the flag definition again.
+Before your first Edit, Write, or MultiEdit call in this step, and before any other action in this step, fetch the flag definition and its status again.
 Do this even if you read it earlier in this session and are confident nothing changed — confidence is not a substitute for the call.
 A definition read that happens after you have already written to a file is too late; it does not satisfy this check.
 Do not use a cached response for this check.
 If the read fails, stop before editing.
-If the version or rollout changed, stop: do not edit, and do not revert an edit you already made instead of not making it. Return to step 2, "Find and assess candidates," and repeat its reads and exclusions before touching any file.
+Compare three values: the definition's `version` and `updated_at`, and the status `rollout` object.
+The definition has no rollout summary, and `version` is null on a flag written before versioning, so no single value is enough.
+If any of them changed, stop: do not edit, and do not revert an edit you already made instead of not making it. Return to step 2, "Find and assess candidates," and repeat its reads and exclusions before touching any file.
 The change is itself an update, and step 2 excludes a recently updated flag.
 
 - **Fully rolled out boolean**: remove the flag check, keep the enabled path.
@@ -306,12 +308,12 @@ Finish this step with one of three outcomes, because step 8 gates on it:
 
 ### 8. Publish only when authorized
 
-Before anything else in this step, fetch the flag definition one more time — even though step 6
+Before anything else in this step, fetch the flag definition and its status one more time — even though step 6
 already did this once. A change can land between editing and publishing just as easily as between
 assessment and editing, and this is the last point before anything leaves your local session, so it
 gets its own independent check rather than relying on step 6 having gone right.
 If the read fails, stop before publishing.
-Compare its version and rollout against what step 6 used to choose the retained path:
+Compare the same three values as step 6 against what step 6 used to choose the retained path:
 
 - **If they match**, name the version and rollout percentage you just confirmed in your summary or
   PR description, so a reviewer can see the check happened without re-running it themselves.
@@ -416,8 +418,8 @@ End the instructions with:
 "After cleanup, remove the branches, constants, and imports this flag check left dead.
 Keep general-purpose flag helpers that only lost their last caller, and list them in your summary.
 Then run the tests and relevant checks that cover the retained behavior.
-Before pushing or opening a PR, fetch the flag definition one more time, even though you already
-did this before editing. If the read fails, stop before publishing. Compare its version and rollout
+Before pushing or opening a PR, fetch the flag definition and its status one more time, even though you already
+did this before editing. If the read fails, stop before publishing. Compare its version, update time, and rollout summary
 against what you used to choose the retained path. If they match, name the version and rollout you
 just confirmed in your summary or PR description. If they differ, do not push or open a PR — revert
 any edit made against the old data and restart from the rollout classification instead. Do this even
