@@ -11,7 +11,6 @@ import pyarrow.compute as pc
 import deltalake.exceptions
 
 from posthog.exceptions_capture import capture_exception
-from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MISSING_PRIMARY_KEYS_ERROR,
@@ -26,7 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    DELTA_TABLE_PROPERTIES,
     delta_merge_spill_kwargs,
+    ensure_table_properties,
     execute_with_conflict_retry,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
@@ -160,34 +161,21 @@ class DeltaWriter:
         use_partitioning: bool,
         commit_metadata: dict[str, str] | None,
     ) -> bool:
-        """Phase 2: perform the incremental merge via deltalite instead of the delta-rs MERGE.
+        """Perform the incremental merge via deltalite instead of the delta-rs MERGE.
 
         Returns True if deltalite committed the write (caller then skips the delta-rs MERGE), or False
-        to fall back to the MERGE. Falls back on *anything* — flag off, import failure, deltalite error /
-        commit conflict / refusal — so switching a schema to deltalite can only change which engine
-        writes, never whether the sync succeeds; the worst case is today's behaviour. Controlled solely
-        by the per-schema ``data-warehouse-deltalite-write`` feature flag (no env switch), so it can be
-        ramped / killed entirely from the flag UI without a deploy.
+        to fall back to the MERGE. Falls back on *anything* — import failure, deltalite error / commit
+        conflict / refusal — so deltalite can only change which engine writes, never whether the sync
+        succeeds; the worst case is the delta-rs behaviour that predates it.
+
+        Every incremental merge with primary keys now goes through here. The rollout flag this used to
+        consult was evaluated on the hot path before every merge — two Postgres queries plus a
+        non-local ``feature_enabled`` call per batch — and is gone.
         """
         if not normalized_primary_keys:
             return False
 
-        # The flag check is a rollout gate, not part of the write: a flag miss (off) or any error here
-        # (including the import) must fall back to the delta-rs MERGE *silently*.
-        try:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.deltalite_write import (
-                is_deltalite_write_enabled,
-            )
-
-            enabled = await database_sync_to_async_pool(is_deltalite_write_enabled)(
-                self._table.job.team_id, str(self._table.job.schema_id), None
-            )
-        except Exception:  # noqa: BLE001 - a flag-eval / import error just means "don't use deltalite"
-            return False
-        if not enabled:
-            return False
-
-        # deltalite is enabled. Only the upsert *commit* gates the fallback: a pre-commit failure means
+        # Only the upsert *commit* gates the fallback: a pre-commit failure means
         # nothing was written, so we re-run the delta-rs MERGE. Anything AFTER the commit is best-effort
         # bookkeeping and must NOT return False — otherwise the MERGE would re-run on top of deltalite's
         # already-committed write. (Lazy metrics import keeps the heavy pipeline_v3 chain off the module
@@ -497,6 +485,7 @@ class DeltaWriter:
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="ignore",
+                    configuration=DELTA_TABLE_PROPERTIES,
                 )
 
             if mode == "append":
@@ -508,11 +497,13 @@ class DeltaWriter:
                 # column's type in place.
                 data = align_incoming_decimals_to_delta(data, delta_table.schema())
 
+            # Bound outside the lambdas: mypy does not carry the None narrowing into a closure.
+            overwrite_target = delta_table
             try:
                 await execute_with_conflict_retry(
                     delta_table,
                     lambda: _write_deltalake(
-                        delta_table,
+                        overwrite_target,
                         data,
                         partition_by=PARTITION_KEY if use_partitioning else None,
                         mode=mode,
@@ -529,7 +520,7 @@ class DeltaWriter:
                 await execute_with_conflict_retry(
                     delta_table,
                     lambda: _write_deltalake(
-                        delta_table,
+                        overwrite_target,
                         data,
                         partition_by=None,
                         mode=mode,
@@ -551,6 +542,7 @@ class DeltaWriter:
                     storage_options=storage_options,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="ignore",
+                    configuration=DELTA_TABLE_PROPERTIES,
                 )
             else:
                 # An append re-casts each source column to its stored type, same as a merge. A decimal
@@ -562,10 +554,11 @@ class DeltaWriter:
 
             await self._logger.adebug(f"write: write_type = append")
 
+            append_target = delta_table
             await execute_with_conflict_retry(
                 delta_table,
                 lambda: _write_deltalake(
-                    delta_table,
+                    append_target,
                     data,
                     partition_by=PARTITION_KEY if use_partitioning else None,
                     mode="append",
@@ -578,6 +571,8 @@ class DeltaWriter:
 
         delta_table = await self._table.get_delta_table()
         assert delta_table is not None
+
+        await ensure_table_properties(delta_table, self._logger)
 
         return delta_table
 

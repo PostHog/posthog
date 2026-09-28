@@ -1,17 +1,23 @@
 from datetime import date
 from typing import Optional, cast
 
+import requests
+
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
     SourceConfig,
+    SourceFieldCredentialAccountSelectConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.apple_search_ads import (
+    AppleSearchAdsAuthError,
+    AppleSearchAdsClient,
     AppleSearchAdsCredentials,
     AppleSearchAdsResumeConfig,
     apple_search_ads_source,
+    readable_ad_accounts,
     validate_credentials as validate_apple_search_ads_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.settings import (
@@ -32,6 +38,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import CredentialAccountsMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -46,7 +57,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class AppleSearchAdsSource(ResumableSource[AppleSearchAdsSourceConfig, AppleSearchAdsResumeConfig]):
+class AppleSearchAdsSource(
+    ResumableSource[AppleSearchAdsSourceConfig, AppleSearchAdsResumeConfig],
+    CredentialAccountsMixin[AppleSearchAdsSourceConfig],
+):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = (APPLE_SEARCH_ADS_API_VERSION_V5, APPLE_ADS_API_VERSION_V1)
@@ -120,7 +134,7 @@ Apple does not generate an API key for you. You supply your own key pair, and on
 2. Generate an EC P-256 key pair. On macOS or Linux, run `openssl ecparam -genkey -name prime256v1 -noout -out private-key.pem` and then `openssl ec -in private-key.pem -pubout -out public-key.pem`.
 3. Signed in as that user, open **Account settings > API**, paste the contents of `public-key.pem` into the public key field and save. Saving the key creates the client.
 4. Apple then shows the client ID, team ID and key ID above the field. Enter those below, along with the contents of `private-key.pem`.
-5. Leave **Ad account ID** blank on the first connect. PostHog stops and shows the ad account IDs your credentials can read. That stop is the expected result of the first connect, not a credential failure. Enter one of the IDs and connect again. To look it up yourself, read `adAccount.id` from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`, with an access token signed by the credentials from step 4 — follow [Apple's OAuth guide](https://developer.apple.com/documentation/apple_ads/implementing-oauth-for-the-apple-search-ads-api) to exchange them for one. The ad account ID is not the same value as your organization ID.
+5. Pick your **Ad account ID** from the list, which fills in once the four fields above are complete. Apple shows this ID nowhere in its UI, and it is not the same value as your organization ID. To look it up yourself, read `adAccount.id` from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`, with an access token signed by the credentials from step 4. [Apple's OAuth guide](https://developer.apple.com/documentation/apple_ads/implementing-oauth-for-the-apple-search-ads-api) covers that exchange.
 
 PostHog stores the private key encrypted and uses it to sign a short-lived token on every sync. The token itself is never stored.
 
@@ -135,18 +149,6 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="ad_account_id",
-                        label="Ad account ID",
-                        type=SourceFieldInputConfigType.TEXT,
-                        # Optional at the form level because a source pinned to Apple's older
-                        # API needs the organization ID below instead. `validate_credentials`
-                        # requires whichever one the source's API version uses.
-                        required=False,
-                        placeholder="123456789",
-                        caption="Leave this blank on the first connect. PostHog stops and shows the ad account IDs your credentials can read. That stop is the expected result, not a credential failure. Enter one of the IDs and connect again. To look it up yourself, read `adAccount.id` from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`, with an access token signed by the credentials above.",
-                        secret=False,
-                    ),
                     SourceFieldInputConfig(
                         name="client_id",
                         label="Client ID",
@@ -182,6 +184,20 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
                         placeholder="-----BEGIN EC PRIVATE KEY-----",
                         caption="The unencrypted EC P-256 private key matching the public key you uploaded to Apple.",
                         secret=True,
+                    ),
+                    SourceFieldCredentialAccountSelectConfig(
+                        name="ad_account_id",
+                        label="Ad account ID",
+                        # Optional at the form level because a source pinned to Apple's older API
+                        # needs the organization ID below instead. `validate_credentials` requires
+                        # whichever one the source's API version uses.
+                        required=False,
+                        placeholder="123456789",
+                        # Ordered after the four fields it names, because the lookup signs a token
+                        # with them. Apple exposes the ad account id nowhere in its UI, so without
+                        # this the only way to read one is to call the ACL endpoint by hand.
+                        credentialFields=["client_id", "apple_team_id", "key_id", "private_key"],
+                        caption="Fill in the credentials above and this lists the ad accounts they can read. You can also type one in: it is `adAccount.id` from Apple's Get User ACL endpoint, `GET https://api.ads.apple.com/v1/acls`, and it is not the same as your organization ID.",
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
@@ -253,6 +269,36 @@ Reporting tables use daily granularity, which Apple serves for the last 90 days 
             self.resolve_api_version(api_version),
             schema_name,
         )
+
+    def get_credential_accounts(
+        self, config: AppleSearchAdsSourceConfig, team_id: int, api_version: str | None = None
+    ) -> list[IntegrationAccount]:
+        """The ad accounts the entered credentials can read.
+
+        Only the Platform API scopes on an ad account; a source pinned to the older Campaign
+        Management API takes an organization ID, which Apple does show in its UI, so there is
+        nothing to list.
+        """
+        resolved_version = self.resolve_api_version(api_version)
+        # Checked before authenticating: a token exchange to then list nothing still spends the
+        # customer's Apple rate-limit budget on every keystroke that completes the form.
+        if resolved_version != APPLE_ADS_API_VERSION_V1:
+            return []
+
+        client = AppleSearchAdsClient(self._credentials(config), resolved_version)
+        try:
+            client.authenticate()
+        except AppleSearchAdsAuthError as e:
+            raise IntegrationAccountListingError(str(e)) from e
+        except requests.RequestException as e:
+            raise IntegrationAccountListingError(
+                f"Could not exchange the Apple Ads credentials for an access token: {e}"
+            ) from e
+
+        # None means the ACL lookup itself failed. The picker has no better answer than an empty
+        # list either way, and its field stays free text, so the user can still type an id.
+        accounts = readable_ad_accounts(client, resolved_version) or []
+        return [IntegrationAccount(value=account.id, display_name=account.name or account.id) for account in accounts]
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AppleSearchAdsResumeConfig]:
         # Entity and report endpoints store incompatible checkpoint shapes, so keep each

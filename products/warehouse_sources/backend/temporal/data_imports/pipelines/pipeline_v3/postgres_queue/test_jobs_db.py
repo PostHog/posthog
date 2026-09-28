@@ -1,6 +1,7 @@
 import re
 import time
 import asyncio
+from collections.abc import Coroutine
 from datetime import timedelta
 from typing import Any
 from uuid import uuid4
@@ -25,7 +26,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     PendingBatch,
+    QueueDepth,
     _orphaned_candidate_runs_sql,
+    _queue_depth_sql,
     build_status_dual_write_sql,
 )
 
@@ -604,6 +607,80 @@ class TestBatchQueueLeaseRenewal:
             conn, team_id=1, schema_id="s1", owner_token=OWNER_A, lease_ttl_seconds=300
         )
         assert renewed is (not deleted), "delete must fence the old owner without touching live leases"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLeaseLockOrder:
+    # Every multi-row lease statement must lock rows in ascending (team_id, schema_id).
+    # Pods claim and release overlapping group sets constantly, so two statements that
+    # disagree on the order deadlock as soon as their sets cross. Blocking one row in the
+    # middle of the set and asking which of the others are already locked pins the order
+    # without needing a deadlock to actually happen.
+
+    GROUPS = [(team_id, f"schema-{team_id}") for team_id in range(1, 6)]
+    BLOCKED_INDEX = 2  # the middle group, so both an earlier and a later row are observable
+
+    async def _await_lock_wait(self, probe: psycopg.AsyncConnection[Any], backend_pid: int) -> None:
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            row = await (
+                await probe.execute("SELECT wait_event_type FROM pg_stat_activity WHERE pid = %s", (backend_pid,))
+            ).fetchone()
+            if row is not None and row[0] == "Lock":
+                return
+            await asyncio.sleep(0.02)
+        raise AssertionError("the statement under test never blocked on the group we locked")
+
+    async def _is_locked(self, probe: psycopg.AsyncConnection[Any], team_id: int, schema_id: str) -> bool:
+        try:
+            await probe.execute(
+                f"SELECT 1 FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s FOR UPDATE NOWAIT",
+                (team_id, schema_id),
+            )
+        except psycopg.errors.LockNotAvailable:
+            return True
+        return False
+
+    @pytest.mark.parametrize("statement", ["claim", "unlock"])
+    @pytest.mark.asyncio
+    async def test_multi_group_statements_lock_in_ascending_key_order(self, conn, conn_b, _db_url, statement):
+        for team_id, schema_id in self.GROUPS:
+            await _insert_batch(
+                conn, team_id=team_id, schema_id=schema_id, job_id=f"job-{team_id}", run_uuid=f"run-{team_id}"
+            )
+        batches = await _claim(conn, owner=OWNER_A, limit=50)
+        assert len(batches) == len(self.GROUPS)
+
+        run: Coroutine[Any, Any, object]
+        if statement == "claim":
+            # Re-claiming has to lock the existing rows, so expire them rather than delete.
+            await conn.execute(f"UPDATE {LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+            run = _claim(conn_b, owner=OWNER_A, limit=50)
+        else:
+            run = BatchQueue.unlock_for_batches(conn_b, batches=batches, owner_token=OWNER_A)
+
+        blocked_team_id, blocked_schema_id = self.GROUPS[self.BLOCKED_INDEX]
+        blocker = await psycopg.AsyncConnection.connect(_db_url)
+        probe = await psycopg.AsyncConnection.connect(_db_url, autocommit=True)
+        try:
+            await blocker.execute(
+                f"SELECT 1 FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s FOR UPDATE",
+                (blocked_team_id, blocked_schema_id),
+            )
+
+            task = asyncio.create_task(run)
+            await self._await_lock_wait(probe, conn_b.info.backend_pid)
+
+            locked = [await self._is_locked(probe, team_id, schema_id) for team_id, schema_id in self.GROUPS]
+            await blocker.rollback()
+            await asyncio.wait_for(task, timeout=10.0)
+        finally:
+            await blocker.close()
+            await probe.close()
+
+        # Everything below the blocked group is already locked; nothing above it has been
+        # touched. Plan order would leave an arbitrary subset locked instead.
+        assert locked == [index <= self.BLOCKED_INDEX for index in range(len(self.GROUPS))]
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1466,6 +1543,25 @@ class TestStateDualWrite:
             assert (await _batch_state(conn, sibling))[0] == "failed"
         assert (await _batch_state(conn, current))[0] == "pending"
 
+    @pytest.mark.parametrize("spare,expected_state", [(True, "pending"), (False, "failed")])
+    @pytest.mark.asyncio
+    async def test_supersede_can_drop_the_progress_guard(self, conn, sync_conn, spare, expected_state):
+        # A fresh full_refresh overwrites the table on its batch 0, so an older run's loaded rows
+        # are discarded no matter what. Sparing it there only leaves its batches draining through
+        # the serial per-(team, schema) gate to write data that is already gone.
+        signal = await _insert_batch(conn, batch_index=0, run_uuid="run-old", job_id="job-dw")
+        sibling = await _insert_batch(conn, batch_index=1, run_uuid="run-old", job_id="job-dw")
+        current = await _insert_batch(conn, batch_index=0, run_uuid="run-new", job_id="job-dw")
+        await _write_backdated_status(conn, batch_id=signal, job_state="succeeded", age_seconds=60)
+
+        superseded = BatchQueue.supersede_other_runs(
+            sync_conn, job_id="job-dw", current_run_uuid="run-new", spare_runs_with_progress=spare
+        )
+
+        assert (superseded == 0) is spare
+        assert (await _batch_state(conn, sibling))[0] == expected_state
+        assert (await _batch_state(conn, current))[0] == "pending"
+
     @pytest.mark.asyncio
     async def test_supersede_judges_progress_per_run(self, conn, sync_conn):
         # One live run must not shield a stalled sibling run of the same job.
@@ -1739,7 +1835,19 @@ class TestClaimGates:
 
 
 @pytest.mark.django_db(transaction=True)
-class TestGetClaimableBatchCount:
+class TestGetQueueDepth:
+    @pytest.mark.asyncio
+    async def test_empty_queue_reads_all_zero(self, conn):
+        # Every aggregate is NULL over no rows; the share must come back as 0,
+        # not as a division by zero or a NULL the gauge cannot take.
+        assert await BatchQueue.get_queue_depth(conn) == QueueDepth(
+            claimable_batches=0,
+            claimable_groups=0,
+            top_groups_claimable_share=0.0,
+            slot_waiting_batches=0,
+            serialized_batches=0,
+        )
+
     @pytest.mark.asyncio
     async def test_counts_claimable_states_within_eligibility_window(self, conn):
         # Feeds the queue-depth gauge; dropping a state or the window bound here
@@ -1752,7 +1860,104 @@ class TestGetClaimableBatchCount:
         expired = await _insert_batch(conn, batch_index=0, run_uuid="r-old")
         await conn.execute(f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 days' WHERE id = %s", (expired,))
 
-        assert await BatchQueue.get_claimable_batch_count(conn) == 2
+        assert await BatchQueue.get_queue_depth(conn) == QueueDepth(
+            claimable_batches=2,
+            claimable_groups=1,
+            top_groups_claimable_share=1.0,
+            slot_waiting_batches=2,
+            serialized_batches=0,
+        )
+
+    @pytest.mark.asyncio
+    async def test_one_deep_group_among_shallow_ones_reads_as_concentrated(self, conn):
+        executing = await _insert_batch(conn, schema_id="deep", run_uuid="run-deep", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=executing, job_state="executing", attempt=1)
+        for batch_index in range(1, 11):
+            await _insert_batch(conn, schema_id="deep", run_uuid="run-deep", batch_index=batch_index)
+        for n in range(1, 7):
+            await _insert_batch(conn, schema_id=f"shallow-{n}", run_uuid=f"run-shallow-{n}", batch_index=1)
+        busy_shallow = await _insert_batch(conn, schema_id="shallow-1", run_uuid="run-shallow-1", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=busy_shallow, job_state="executing", attempt=1)
+
+        depth = await BatchQueue.get_queue_depth(conn)
+
+        # Top 5 by depth: the deep group (10) plus four shallow ones (1 each) of 16.
+        assert depth == QueueDepth(
+            claimable_batches=16,
+            claimable_groups=7,
+            top_groups_claimable_share=14 / 16,
+            slot_waiting_batches=5,
+            serialized_batches=11,
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "sibling_state,sibling_run,expected_slot_waiting,expected_serialized",
+        [
+            ("executing", "run-1", 0, 1),
+            # The busy check is per group, not per run, matching the claim query's schema-busy gate.
+            ("executing", "run-2", 0, 1),
+            ("succeeded", "run-1", 1, 0),
+            ("waiting", "run-1", 1, 0),
+            # A failure in another run of the same group blocks nothing here.
+            ("failed", "run-2", 1, 0),
+        ],
+    )
+    async def test_only_an_executing_batch_in_the_group_serializes_its_waiting_work(
+        self, conn, sibling_state, sibling_run, expected_slot_waiting, expected_serialized
+    ):
+        sibling = await _insert_batch(conn, run_uuid=sibling_run, batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=sibling, job_state=sibling_state, attempt=1)
+        await _insert_batch(conn, run_uuid="run-1", batch_index=1)
+
+        depth = await BatchQueue.get_queue_depth(conn)
+
+        assert depth.claimable_batches == 1
+        assert (depth.slot_waiting_batches, depth.serialized_batches) == (expected_slot_waiting, expected_serialized)
+
+    @pytest.mark.asyncio
+    async def test_blocked_batches_stay_in_the_depth_but_leave_the_split(self, conn):
+        # A run holding a failed batch can never be claimed. Its leftovers must keep
+        # the depth gauge's meaning (the claim query could scan them), but counting
+        # them as waiting work would report capacity demand that no slot can serve,
+        # the distortion that made the age gauge exclude them.
+        failed = await _insert_batch(conn, schema_id="dead", run_uuid="run-dead", batch_index=0)
+        await BatchQueue.update_status(conn, batch_id=failed, job_state="failed", attempt=1)
+        await _insert_batch(conn, schema_id="dead", run_uuid="run-dead", batch_index=1)
+        await _insert_batch(conn, schema_id="dead", run_uuid="run-dead", batch_index=2)
+        await _insert_batch(conn, schema_id="live", run_uuid="run-live", batch_index=0)
+
+        depth = await BatchQueue.get_queue_depth(conn)
+        freshness = await BatchQueue.get_queue_freshness(conn, backlog_threshold_seconds=0)
+
+        assert depth == QueueDepth(
+            claimable_batches=3,
+            claimable_groups=1,
+            top_groups_claimable_share=1.0,
+            slot_waiting_batches=1,
+            serialized_batches=0,
+        )
+        assert depth.claimable_batches - freshness.blocked_batches == (
+            depth.slot_waiting_batches + depth.serialized_batches
+        )
+
+    @pytest.mark.asyncio
+    async def test_probe_uses_the_partial_indexes(self, conn):
+        # Every pod runs this probe on its own timer. The scan must stay on
+        # sb_claimable_idx, and the per-run and per-group gates must stay index
+        # probes; a predicate edit that widens either falls back to scanning
+        # every retained partition on every pod, every reconcile interval.
+        await _insert_batch(conn)
+        await conn.execute("SET enable_seqscan = off")
+        try:
+            cur = await conn.execute("EXPLAIN (FORMAT TEXT) " + _queue_depth_sql(), {"top_groups": 5})
+            plan = "\n".join(row[0] for row in await cur.fetchall())
+        finally:
+            await conn.execute("SET enable_seqscan = on")
+
+        assert "sb_claimable_idx" in plan
+        assert "sb_run_gate_idx" in plan
+        assert "sb_schema_busy_idx" in plan
 
 
 @pytest.mark.django_db(transaction=True)

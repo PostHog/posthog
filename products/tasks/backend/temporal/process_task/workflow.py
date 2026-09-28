@@ -2465,7 +2465,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow_start_at=self._workflow_start_at_iso(),
                 boot_excluded_ms=boot_excluded_ms,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -2523,7 +2523,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 workflow_start_at=self._workflow_start_at_iso(),
                 boot_excluded_ms=boot_excluded_ms,
             ),
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 

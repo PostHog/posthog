@@ -78,6 +78,8 @@ export interface RasterizeRecordingOutput {
     video_duration_s: number // actual playback duration of the output video
     playback_speed: number
     show_metadata_footer: boolean
+    // Pixels at the bottom of each frame the footer takes, which a consumer crops to get the page alone.
+    footer_height_px: number
     truncated: boolean // true when max_virtual_time stopped the recording early
     inactivity_periods: InactivityPeriod[]
     file_size_bytes: number
