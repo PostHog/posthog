@@ -46,6 +46,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
+from .evaluation_event_io import hydrate_event_reference
 from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
@@ -878,6 +879,16 @@ class TestRunEvaluationWorkflow:
         [
             pytest.param({"uuid": "g1", "team_id": 1}, True, id="thin_reference_reaches_the_activity"),
             pytest.param(create_mock_event_data(team_id=1, uuid="g1"), False, id="full_event_is_used_as_is"),
+            pytest.param(
+                create_mock_event_data(
+                    team_id=1,
+                    uuid="g1",
+                    # Under the reference threshold as UTF-8, over it once the worker escapes the non-ASCII text.
+                    properties=json.dumps({"$ai_input": "日本語" * 70_000, "$ai_trace_id": "t1"}, ensure_ascii=False),
+                ),
+                True,
+                id="oversized_live_event_becomes_a_reference",
+            ),
         ],
     )
     async def test_the_event_never_travels_through_the_workflow(
@@ -969,6 +980,22 @@ class TestRunEvaluationWorkflow:
 
         assert mock_fetch.call_count == 1
         assert mock_capture.call_args.kwargs["properties"]["$ai_target_event_id"] == full_event["uuid"]
+
+    @pytest.mark.parametrize(
+        "reference,expects_retry",
+        [
+            pytest.param(dict(THIN_REFERENCE), False, id="backfill_reference_is_terminal"),
+            pytest.param({**THIN_REFERENCE, "awaiting_ingestion": True}, True, id="live_reference_waits_for_ingestion"),
+        ],
+    )
+    def test_a_missing_generation_retries_only_while_ingestion_can_catch_up(
+        self, reference: dict[str, Any], expects_retry: bool
+    ):
+        with patch(HYDRATE_FETCH, return_value=None):
+            with pytest.raises(ApplicationError) as exc_info:
+                hydrate_event_reference(reference)
+
+        assert exc_info.value.non_retryable is not expects_retry
 
     def test_the_llm_judge_activity_hydrates_a_thin_reference(self):
         full_event = create_mock_event_data(team_id=1, uuid="g1")

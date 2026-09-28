@@ -12,7 +12,11 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.api.capture import CaptureInternalError
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_event_io import (
+    extract_event_io,
+    hydrate_event_reference,
+    reference_oversized_event,
+)
 from posthog.temporal.ai_observability.evaluation_workflow_activities import update_key_state_activity
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.model_resolution import ResolvedModel, model_spec
@@ -224,7 +228,7 @@ async def _resolve_model(model_configuration: dict[str, Any] | None, team_id: in
 async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
     tagger = inputs.tagger
-    event_data = inputs.event_data
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
 
     tagger_config = tagger.get("tagger_config", {})
     prompt = tagger_config.get("prompt")
@@ -467,7 +471,7 @@ async def execute_hog_tagger_activity(tagger: dict[str, Any], event_data: dict[s
     valid_tag_names = {tag["name"] for tag in tags_def}
 
     def _execute():
-        return run_hog_tagger(bytecode, event_data, valid_tag_names)
+        return run_hog_tagger(bytecode, hydrate_event_reference(event_data), valid_tag_names)
 
     result = await database_sync_to_async(_execute, thread_sensitive=False)()
 
@@ -503,7 +507,7 @@ class EmitTaggerEventInputs:
 async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
     """Emit $ai_tag event via capture_internal."""
     tagger = inputs.tagger
-    event_data = inputs.event_data
+    event_data = await database_sync_to_async(hydrate_event_reference, thread_sensitive=False)(inputs.event_data)
     result = inputs.result
     start_time = inputs.start_time
 
@@ -599,12 +603,14 @@ class RunTaggerWorkflow(PostHogWorkflow):
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
+        # An event too large to forward to an activity travels as a reference that each activity reads.
+        event_data = reference_oversized_event(inputs.event_data)
 
         # Activity 1: Fetch tagger config
         try:
             tagger = await temporalio.workflow.execute_activity(
                 fetch_tagger_activity,
-                inputs,
+                RunTaggerInputs(tagger_id=inputs.tagger_id, event_data=event_data),
                 schedule_to_close_timeout=timedelta(seconds=30),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
@@ -625,19 +631,20 @@ class RunTaggerWorkflow(PostHogWorkflow):
 
         # Activity 2: Execute tagger based on type
         if tagger_type == "hog":
-            # Hog taggers are deterministic — don't retry
+            # Hog errors are non-retryable. The retries only cover a referenced event that is not
+            # in ClickHouse yet.
             result = await temporalio.workflow.execute_activity(
                 execute_hog_tagger_activity,
-                args=[tagger, inputs.event_data],
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                args=[tagger, event_data],
+                schedule_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
         else:
             # LLM tagger
             try:
                 result = await temporalio.workflow.execute_activity(
                     execute_tagger_activity,
-                    ExecuteTaggerInputs(tagger=tagger, event_data=inputs.event_data),
+                    ExecuteTaggerInputs(tagger=tagger, event_data=event_data),
                     schedule_to_close_timeout=timedelta(minutes=6),
                     retry_policy=LLM_TAGGER_RETRY_POLICY,
                 )
@@ -689,11 +696,12 @@ class RunTaggerWorkflow(PostHogWorkflow):
             emit_tagger_event_activity,
             EmitTaggerEventInputs(
                 tagger=tagger,
-                event_data=inputs.event_data,
+                event_data=event_data,
                 result=result,
                 start_time=start_time,
             ),
-            schedule_to_close_timeout=timedelta(seconds=30),
+            # A referenced event is read again here, and it can run to several MiB.
+            schedule_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 

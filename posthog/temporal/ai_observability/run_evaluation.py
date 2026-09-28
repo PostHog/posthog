@@ -16,7 +16,11 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
+from posthog.temporal.ai_observability.evaluation_event_io import (
+    extract_event_io,
+    extract_event_tools,
+    reference_oversized_event,
+)
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_activity, run_hog_eval
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     DEFAULT_JUDGE_MODEL,
@@ -267,8 +271,9 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
         # A backfill dispatcher ships only a reference, because capture accepts an AI event up to
         # 8 MiB while a Temporal payload is capped near 2 MiB, so a large generation cannot cross
-        # this boundary at all. Each activity that needs the body now reads it itself.
-        event_data = inputs.event_data
+        # this boundary at all. A live event too large to forward becomes a reference here. Each
+        # activity that needs the body reads it itself.
+        event_data = reference_oversized_event(inputs.event_data)
 
         # One activity fetches the evaluation and, for hog and sentiment, also executes it and
         # emits its event, so three Temporal Cloud actions become one for these local evaluation
@@ -411,8 +416,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             and result.get("verdict") is True
             and result.get("reasoning")
         ):
-            event_uuid = event_data.get("uuid", "")
-            properties = event_data.get("properties", {})
+            event_uuid = inputs.event_data.get("uuid", "")
+            properties = inputs.event_data.get("properties", {})
             if isinstance(properties, str):
                 properties = json.loads(properties)
 
@@ -422,7 +427,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 evaluation_name=evaluation.get("name", "Unknown evaluation"),
                 evaluation_prompt=(evaluation.get("evaluation_config") or {}).get("prompt", ""),
                 event_uuid=event_uuid,
-                event_type=event_data.get("event", ""),
+                event_type=inputs.event_data.get("event", ""),
                 trace_id=properties.get("$ai_trace_id", ""),
                 reasoning=result.get("reasoning", ""),
                 model=result.get("model", ""),
