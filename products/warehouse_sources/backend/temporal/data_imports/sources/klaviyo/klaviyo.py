@@ -1,12 +1,14 @@
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta, tzinfo
+from email.utils import parsedate_to_datetime
 from typing import Any, Optional
+from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 
@@ -41,9 +43,16 @@ MAX_CONVERSION_METRIC_PAGES = 20
 # statistics. The same metric would be re-resolved on every retry, so this can never self-heal.
 CONVERSION_METRIC_INELIGIBLE_DETAIL = "does not support querying for values data"
 
+# Klaviyo's reporting endpoints allow only a few requests per minute, so a 429 can ask for a wait of
+# up to a minute. The cap keeps a hostile Retry-After from parking the worker.
+MAX_RETRY_AFTER_SECONDS = 120
+FETCH_PAGE_MAX_ATTEMPTS = 8
+
 
 class KlaviyoRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
 
 
 class KlaviyoConversionMetricError(Exception):
@@ -277,6 +286,36 @@ def _raise_for_status_with_detail(response: requests.Response) -> None:
         raise
 
 
+def _parse_retry_after(value: str | None) -> float | None:
+    # Retry-After is either delta-seconds or an HTTP-date (RFC 7231).
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        retry_at = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return max(0.0, (retry_at - datetime.now(UTC)).total_seconds())
+
+
+_backoff = wait_exponential_jitter(initial=1, max=30)
+
+
+def _wait_klaviyo(retry_state: RetryCallState) -> float:
+    # A fixed backoff lands every retry inside the same rate-limit window, so wait as long as
+    # Klaviyo asks. Fall back to jittered backoff for a 5xx or a 429 without the header.
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    if isinstance(exc, KlaviyoRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return _backoff(retry_state)
+
+
 @retry(
     # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
     # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
@@ -288,8 +327,8 @@ def _raise_for_status_with_detail(response: requests.Response) -> None:
             requests.exceptions.ChunkedEncodingError,
         )
     ),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    stop=stop_after_attempt(FETCH_PAGE_MAX_ATTEMPTS),
+    wait=_wait_klaviyo,
     reraise=True,
 )
 def _fetch_page(
@@ -306,7 +345,16 @@ def _fetch_page(
         response = session.post(page_url, headers=headers, json=json_body, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
-        raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")
+        retry_after = _parse_retry_after(response.headers.get("Retry-After")) if response.status_code == 429 else None
+        logger.warning(
+            f"Klaviyo API error (retryable): status={response.status_code}, retry_after={retry_after}, url={page_url}"
+        )
+        # The message keeps only the path: the query string carries a per-page cursor, and error
+        # tracking groups on the message.
+        raise KlaviyoRetryableError(
+            f"Klaviyo API error (retryable): status={response.status_code}, path={urlsplit(page_url).path}",
+            retry_after=retry_after,
+        )
 
     if not response.ok:
         # 404 is expected and handled during a fan-out (a parent deleted mid-sync).

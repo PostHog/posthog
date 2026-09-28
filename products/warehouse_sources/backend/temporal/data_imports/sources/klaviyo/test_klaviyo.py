@@ -327,7 +327,30 @@ class TestFetchPageRetries:
             with pytest.raises(requests.exceptions.ChunkedEncodingError):
                 klaviyo._fetch_page(session, "https://a.klaviyo.com/api/events", {}, MagicMock())
 
-        assert session.get.call_count == 5
+        assert session.get.call_count == klaviyo.FETCH_PAGE_MAX_ATTEMPTS
+
+    @parameterized.expand(
+        [
+            ("delta_seconds", "45", [45.0] * (klaviyo.FETCH_PAGE_MAX_ATTEMPTS - 1)),
+            ("capped", "86400", [float(klaviyo.MAX_RETRY_AFTER_SECONDS)] * (klaviyo.FETCH_PAGE_MAX_ATTEMPTS - 1)),
+        ]
+    )
+    def test_rate_limited_report_waits_for_retry_after(
+        self, _name: str, retry_after: str, expected_sleeps: list[float]
+    ) -> None:
+        throttled = _response_with_status(429)
+        throttled.headers["Retry-After"] = retry_after
+        session = MagicMock()
+        session.post.return_value = throttled
+        sleeps: list[float] = []
+        page_url = "https://a.klaviyo.com/api/flow-values-reports?page%5Bcursor%5D=abc123"
+
+        with patch.object(klaviyo._fetch_page.retry, "sleep", sleeps.append):  # type: ignore[attr-defined]
+            with pytest.raises(klaviyo.KlaviyoRetryableError) as exc_info:
+                klaviyo._fetch_page(session, page_url, {}, MagicMock(), json_body={"data": {}})
+
+        assert sleeps == expected_sleeps
+        assert str(exc_info.value) == "Klaviyo API error (retryable): status=429, path=/api/flow-values-reports"
 
 
 def _response_with_status(status_code: int, body: bytes | None = None, url: str | None = None) -> requests.Response:
