@@ -58,6 +58,7 @@ from ee.partners.stripe.api.provisioning.constants import (
 from ee.partners.stripe.api.provisioning.core import (
     ProjectIdCollisionError,
     StripeOAuthAppMissingError,
+    base_team_id_from_scope,
     compute_partner_scoped_teams,
     get_available_teams_for_user,
     get_oauth_app_for_code,
@@ -477,15 +478,12 @@ class OAuthTokenView(StripeProvisioningAPIView):
                 raise SpecError("invalid_grant", "Refresh token was not issued for the Stripe Projects app")
             user = old_refresh.user
             old_scoped_teams = old_refresh.scoped_teams or []
-            # base_team_id at refresh: the first team in the prior scope. That is the consent
-            # team, because compute_partner_scoped_teams returns the base team first and teams
-            # added later are appended. This ordering is load-bearing: the helper keeps
-            # base_team_id unconditionally but keeps other teams only when they have a
-            # TeamProvisioningConfig for this app, so a consent team without one would
-            # silently drop out of the refreshed scope if another team sat at [0]. If the
-            # prior token was somehow empty-scoped, fall back to zero so the helper
-            # short-circuits without claiming a team.
-            base_team_id = old_scoped_teams[0] if old_scoped_teams else 0
+            # base_team_id at refresh must be the consent team. compute_partner_scoped_teams
+            # keeps base_team_id unconditionally but keeps other teams only when they have a
+            # TeamProvisioningConfig for this app, so any other base silently drops an
+            # unattributed consent team from the refreshed scope. An empty prior scope yields
+            # zero, so the helper short-circuits without claiming a team.
+            base_team_id = base_team_id_from_scope(oauth_app, old_scoped_teams)
 
             # Deactivation drops the user's login sessions but leaves their OAuth tokens
             # intact, and the team check below answers only about membership and roles, so a

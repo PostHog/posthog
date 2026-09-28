@@ -33,6 +33,7 @@ class Command(BaseCommand):
         # registry; the provisioning package pulls in a much larger dependency
         # surface than the rest of the command suite.
         from ee.api.agentic_provisioning.tokens import (
+            base_team_id_from_scope,
             compute_partner_scoped_teams,  # noqa: PLC0415 — keeps the heavy dep off the import path
         )
 
@@ -68,7 +69,7 @@ class Command(BaseCommand):
                 if user is None:
                     continue
                 old_scope = list(access_token.scoped_teams or [])
-                base_team_id = old_scope[0] if old_scope else 0
+                base_team_id = base_team_id_from_scope(application, old_scope)
                 new_scope = compute_partner_scoped_teams(application, user, base_team_id)
                 # compute_partner_scoped_teams returns [] when the base team is gone or the
                 # user lost access. An empty scoped_teams is treated as unrestricted by the
@@ -109,7 +110,7 @@ class Command(BaseCommand):
                 if user is None:
                     continue
                 old_scope = list(refresh_token.scoped_teams or [])
-                base_team_id = old_scope[0] if old_scope else 0
+                base_team_id = base_team_id_from_scope(application, old_scope)
                 new_scope = compute_partner_scoped_teams(application, user, base_team_id)
                 # Same fail-closed rule as access tokens: never overwrite a restricted scope
                 # with an empty (unrestricted) one. Leave it for re-authorization.
