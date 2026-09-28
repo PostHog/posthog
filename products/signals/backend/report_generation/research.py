@@ -187,11 +187,14 @@ Hard rules:
     @field_validator("layers")
     @classmethod
     def layers_form_a_plan(cls, layers: list[ReportLayer]) -> list[ReportLayer]:
-        # A plan outside the bounds keeps the report a single pull request instead of failing the
-        # whole presentation turn. A dependency must point at an earlier layer, which keeps the order
-        # acyclic. A forward or self reference falls back to the previous layer, the usual shape of
-        # a stack, and the first layer falls back to no dependency.
+        # A plan outside the bounds, or with a layer that has no title or scope, keeps the report a
+        # single pull request instead of failing the whole presentation turn. A dependency must point
+        # at an earlier layer, which keeps the order acyclic. A forward or self reference falls back
+        # to the previous layer, the usual shape of a stack, and the first layer falls back to no
+        # dependency.
         if not MIN_REPORT_LAYERS <= len(layers) <= MAX_REPORT_LAYERS:
+            return []
+        if any(not layer.title.strip() or not layer.scope.strip() for layer in layers):
             return []
         return [
             layer

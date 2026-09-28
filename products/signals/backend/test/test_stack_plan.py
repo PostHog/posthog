@@ -54,6 +54,27 @@ class TestReportLayersValidation(SimpleTestCase):
         )
         assert [layer.depends_on for layer in output.layers] == expected
 
+    @parameterized.expand(
+        [
+            ("empty_title", {"title": ""}),
+            ("whitespace_title", {"title": "  \n"}),
+            ("empty_scope", {"scope": ""}),
+            ("whitespace_scope", {"scope": " \t"}),
+        ]
+    )
+    def test_blank_layer_text_is_no_plan(self, _name: str, blank: dict[str, str]):
+        output = ReportPresentationOutput.model_validate(
+            {
+                "title": "feat(x): plan",
+                "summary": "s",
+                "layers": [
+                    {"title": "layer 0", "scope": "scope"},
+                    {"title": "layer 1", "scope": "scope", "depends_on": 0, **blank},
+                ],
+            }
+        )
+        assert output.layers == []
+
 
 class TestStackPlan(BaseTest):
     def setUp(self):
