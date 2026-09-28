@@ -3077,6 +3077,7 @@ SQL
       index_granularity                       = "8192"
       index_granularity_bytes                 = "104857600"
       map_serialization_version               = "with_buckets"
+      storage_policy                          = "s3_tiered"
       ttl_only_drop_parts                     = "1"
     }
     column "time_bucket" {
@@ -3246,6 +3247,16 @@ SQL
     index "idx_span_id_bloom_part" {
       expr        = "span_id"
       type        = "bloom_filter(0.00001)"
+      granularity = 99999
+    }
+    index "idx_trace_bloom_part_v2" {
+      expr        = "trace_id"
+      type        = "bloom_filter(0.05)"
+      granularity = 99999
+    }
+    index "idx_span_id_bloom_part_v2" {
+      expr        = "span_id"
+      type        = "bloom_filter(0.05)"
       granularity = 99999
     }
     projection "projection_index_span_id" {

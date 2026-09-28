@@ -35,6 +35,8 @@ impl ActiveConditions {
     }
 }
 
+/// Every day the run seeds, through the last day the live path may have missed the start of.
+/// [`Boundary::schedule`] decides when each one may be scanned.
 pub fn plan_days(
     conditions: &[PinnedCondition],
     boundary: Boundary,
@@ -44,6 +46,7 @@ pub fn plan_days(
     let Some(last_historical_day) = boundary.day().checked_sub(1) else {
         return days;
     };
+    let last_seedable_day = boundary.last_seedable_day(caps.live_tracking_lag);
     let capped_start = window_start_for_now(boundary.day(), caps.max_lookback_days);
 
     for condition in conditions {
@@ -55,9 +58,10 @@ pub fn plan_days(
                 }
                 (
                     window_start_for_now(boundary.day(), effective_days),
-                    last_historical_day,
+                    last_seedable_day,
                 )
             }
+            // The processor discards sub-day tiles, and a sub-day gap closes within a day anyway.
             Lookback::SubDay => {
                 if caps.max_lookback_days == 0 {
                     continue;
@@ -68,9 +72,7 @@ pub fn plan_days(
             // in the past would otherwise plan one chunk per day since that date, unbounded.
             Lookback::FixedRange { from_day, to_day } => (
                 from_day.unwrap_or(capped_start).max(capped_start),
-                to_day
-                    .unwrap_or(last_historical_day)
-                    .min(last_historical_day),
+                to_day.unwrap_or(last_seedable_day).min(last_seedable_day),
             ),
         };
         if start > end {
@@ -111,6 +113,8 @@ pub fn bands_for_day(_day: DayIdx, bands_per_day: NonZeroU16) -> Vec<Band> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use chrono_tz::UTC;
     use cohort_core::filters::CohortId;
     use proptest::prelude::*;
@@ -171,6 +175,40 @@ mod tests {
     }
 
     #[test]
+    fn open_ended_lookbacks_plan_through_the_last_day_the_live_path_may_have_missed() {
+        let caps = PlanCaps {
+            live_tracking_lag: Duration::from_secs(420),
+            ..PlanCaps::default()
+        };
+        let boundary_at = |seconds_into_day_100: i64| {
+            Boundary::new(
+                UtcMillis::new((100 * 86_400 + seconds_into_day_100) * 1000),
+                UTC,
+            )
+        };
+        for lookback in [
+            Lookback::SlidingDays(2),
+            Lookback::FixedRange {
+                from_day: Some(98),
+                to_day: None,
+            },
+        ] {
+            let conditions = [condition("condition0000000", lookback)];
+            assert_eq!(
+                plan_days(&conditions, boundary_at(12 * 3_600), &caps),
+                BTreeSet::from([98, 99, 100]),
+                "{lookback:?} at noon"
+            );
+            // The live path may start counting after midnight, so the next day is trailing too.
+            assert_eq!(
+                plan_days(&conditions, boundary_at(86_400 - 300), &caps),
+                BTreeSet::from([98, 99, 100, 101]),
+                "{lookback:?} five minutes before midnight"
+            );
+        }
+    }
+
+    #[test]
     fn bands_fan_out_zero_indexed() {
         assert_eq!(bands_for_day(0, NonZeroU16::MIN), vec![Band(0)]);
         assert_eq!(
@@ -204,6 +242,7 @@ mod tests {
         fn planned_days_are_deterministic_and_stay_inside_the_capped_history(
             boundary_day in -20_000i32..20_000,
             cap in 0u16..500,
+            live_lag_secs in 0u64..200_000,
             windows in prop::collection::vec(0u16..1_000, 0..20),
             ranges in prop::collection::vec(
                 (prop::option::of(-30_000i32..30_000), prop::option::of(-30_000i32..30_000)),
@@ -222,12 +261,17 @@ mod tests {
                 .enumerate()
                 .map(|(index, lookback)| condition(&format!("{index:016}"), lookback))
                 .collect::<Vec<_>>();
-            let caps = PlanCaps { max_lookback_days: u32::from(cap), ..PlanCaps::default() };
+            let caps = PlanCaps {
+                max_lookback_days: u32::from(cap),
+                live_tracking_lag: Duration::from_secs(live_lag_secs),
+                ..PlanCaps::default()
+            };
             let first = plan_days(&conditions, boundary, &caps);
             let second = plan_days(&conditions, boundary, &caps);
             prop_assert_eq!(&first, &second);
             let lower = window_start_for_now(boundary.day(), u32::from(cap));
-            prop_assert!(first.iter().all(|day| lower <= *day && *day < boundary.day()));
+            let upper = boundary.last_seedable_day(caps.live_tracking_lag);
+            prop_assert!(first.iter().all(|day| lower <= *day && *day <= upper));
         }
     }
 }

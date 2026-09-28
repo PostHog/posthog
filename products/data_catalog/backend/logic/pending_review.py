@@ -98,18 +98,26 @@ def build_team_pending_review(team: Team, sample_size: int = DEFAULT_SAMPLE_SIZE
     )
 
 
-def build_org_pending_reviews(
-    teams: list[Team], sample_size: int = DEFAULT_SAMPLE_SIZE
-) -> dict[int, TeamPendingReview]:
-    """Teams with something to review, keyed by team id. A team that raises is logged and left out."""
+@frozen
+class PendingReviewBuild:
+    reviews: dict[int, TeamPendingReview]
+    failed_team_ids: list[int]
+
+
+def build_org_pending_reviews(teams: list[Team], sample_size: int = DEFAULT_SAMPLE_SIZE) -> PendingReviewBuild:
+    """Teams with something to review, keyed by team id, and the teams that raised. Raises if all raised."""
     reviews: dict[int, TeamPendingReview] = {}
+    failed_team_ids: list[int] = []
     for team in teams:
         try:
             review = build_team_pending_review(team, sample_size)
         except Exception as e:
             logger.warning("failed to build data catalog pending review", team_id=team.id, error=str(e))
             capture_exception(e, {"team_id": team.id})
+            failed_team_ids.append(team.id)
             continue
         if review is not None:
             reviews[team.id] = review
-    return reviews
+    if teams and len(failed_team_ids) == len(teams):
+        raise RuntimeError("Data catalog digest: no project's pending review could be built")
+    return PendingReviewBuild(reviews=reviews, failed_team_ids=failed_team_ids)

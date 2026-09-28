@@ -56,6 +56,18 @@ class TaskDTO:
 
 
 @dataclass(frozen=True)
+class StreamNotificationDelivery:
+    """Where a server-originated stream notification landed.
+
+    ``live`` reached the run's Redis stream, so connected threads show the frame now. ``persisted``
+    reached the run's S3 log, so a thread loaded after the stream expires replays it too.
+    """
+
+    live: bool
+    persisted: bool
+
+
+@dataclass(frozen=True)
 class SignalImplementationRunDTO:
     """Identity of a signals-origin ("self-driving") implementation run that produced a PR.
 

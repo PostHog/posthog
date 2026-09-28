@@ -554,6 +554,7 @@ export interface taxonomicFilterLogicValues {
     infiniteListResultCounts: {
         [k: string]: number
     }
+    intentPromotedGroupType: TaxonomicFilterGroupType | null
     loadingGroupTypes: TaxonomicFilterGroupType[]
     maxContextOptions: any
     metaGroupTypes: Set<string>
@@ -648,6 +649,9 @@ export interface taxonomicFilterLogicActions {
     }
     setIncludeStaleEvents: (includeStaleEvents: boolean) => {
         includeStaleEvents: boolean
+    }
+    setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => {
+        groupType: TaxonomicFilterGroupType | null
     }
     setSearchQuery: (searchQuery: string) => {
         searchQuery: string
@@ -805,7 +809,8 @@ export interface taxonomicFilterLogicMeta {
         ) => string
         suggestedFilterGroupOrder: (
             taxonomicGroupTypes: TaxonomicFilterGroupType[],
-            metaGroupTypes: Set<string>
+            metaGroupTypes: Set<string>,
+            intentPromotedGroupType: TaxonomicFilterGroupType | null
         ) => TaxonomicFilterGroupType[]
         redistributedTopMatchItems: (
             topMatchItems: (TaxonomicDefinitionTypes & {
@@ -893,6 +898,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         }),
         openRevealBarrier: true,
         setIncludeStaleEvents: (includeStaleEvents: boolean) => ({ includeStaleEvents }),
+        setIntentPromotedGroupType: (groupType: TaxonomicFilterGroupType | null) => ({ groupType }),
     })),
     reducers(({ props }) => ({
         searchQuery: [
@@ -975,6 +981,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     includeStaleEvents,
                 setSearchQuery: () => false,
                 setActiveTab: () => false,
+            },
+        ],
+        intentPromotedGroupType: [
+            // Set by taxonomicSearchIntentLogic in the promote arm of its experiment. Every new
+            // search clears it, so a promotion never outlives the search it was made for.
+            null as TaxonomicFilterGroupType | null,
+            {
+                setIntentPromotedGroupType: (_, { groupType }) => groupType,
+                setSearchQuery: () => null,
             },
         ],
     })),
@@ -2464,12 +2479,18 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         suggestedFilterGroupOrder: [
             // The order the cross-category "All" list renders its groups in. Every consumer of that
             // list must read this, so the skeleton rows and the revealed rows land in the same place.
-            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes, s.intentPromotedGroupType],
             (
                 taxonomicGroupTypes: TaxonomicFilterGroupType[],
-                metaGroupTypes: Set<string>
-            ): TaxonomicFilterGroupType[] =>
-                demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t))),
+                metaGroupTypes: Set<string>,
+                intentPromotedGroupType: TaxonomicFilterGroupType | null
+            ): TaxonomicFilterGroupType[] => {
+                const order = demoteValueShortcutGroups(taxonomicGroupTypes.filter((t) => !metaGroupTypes.has(t)))
+                if (!intentPromotedGroupType || !order.includes(intentPromotedGroupType)) {
+                    return order
+                }
+                return [intentPromotedGroupType, ...order.filter((t) => t !== intentPromotedGroupType)]
+            },
         ],
         redistributedTopMatchItems: [
             (s) => [s.topMatchItems, s.suggestedFilterGroupOrder],
