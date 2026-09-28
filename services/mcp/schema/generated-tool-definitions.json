@@ -1128,7 +1128,7 @@
         "required_scopes": ["autoresearch:write", "query:read"],
         "annotations": {
             "destructiveHint": false,
-            "idempotentHint": true,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         },
@@ -1165,7 +1165,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-resolve-template-create": {
-        "description": "Start here to create a pipeline from a template. Resolve a template key and optional overrides into a ready-to-use pipeline config. An unknown key returns 400. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target_event is auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and 'repeat_key_behavior', supply target_event (required). After resolving: (1) call autoresearch-validate-create with the resolved target_event, horizon_days, training_lookback_days, training_population and inference_population, so validation counts the same window the pipeline will use; (2) if can_proceed is true, call autoresearch-create with name set to suggested_name and the same five fields plus output_person_property.",
+        "description": "Start here to create a pipeline from a template. Resolve a template key and optional overrides into a ready-to-use pipeline config. An unknown key returns 400. For activity-based templates ('likely_active_soon', 'at_risk_of_inactivity', 'return_after_first_use'), the target_event is auto-resolved from your event schema — review resolved_activity_event and activity_event_alternatives, then re-resolve with a target_event override if the chosen event is wrong. For 'feature_adoption' and 'repeat_key_behavior', supply target_event (required). After resolving: (1) call autoresearch-validate-create with the resolved target_event, horizon_days, training_lookback_days, training_population and inference_population, so validation counts the same window the pipeline will use; (2) if can_proceed is true, call autoresearch-create with name set to suggested_name and the same five fields plus output_person_property. For an action target, pass the same target_definition to both calls; target_event then only labels it, and both calls need the action:read scope.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Resolve a template",
@@ -1345,7 +1345,7 @@
         "feature_flag": "autoresearch"
     },
     "autoresearch-training-runs-iterations-create": {
-        "description": "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration in place. The recipe is validated server-side: feature_sql in recipe_snapshot must be a read-only SELECT that outputs the anchor key exactly once as a.person_id AS distinct_id, and every event it reads must be bounded by e.timestamp < fromUnixTimestamp(a.cutoff_ts). The validator cannot prove that bound, and without it the features see the outcome window and the holdout AUC is leaked. model_class in model_spec is informational when you upload your own train.py and predict.py bundle; it must be in the sklearn/xgboost allowlist only when the run completes without a bundle. Use status='kept' if the iteration beats the best AUC so far in this run (the first scored iteration is always kept, whatever the current champion scores), 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose the champion. If this iteration was spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution and marks the suggestion 'acted_on'.",
+        "description": "Record one iteration of an open training run. Idempotent on iteration_number — re-sending the same number updates that iteration in place. The recipe is validated server-side: feature_sql in recipe_snapshot must be a read-only SELECT that outputs the anchor key exactly once as a.person_id AS distinct_id, and every events join must be bounded by e.timestamp < fromUnixTimestamp(a.cutoff_ts) and exclude NOT startsWith(e.event, 'autoresearch_'), the model's own prediction events. The validator cannot prove either rule, and without them the features see the outcome window or the model's own past scores, and the holdout AUC is leaked. model_class in model_spec is informational when you upload your own train.py and predict.py bundle; it must be in the sklearn/xgboost allowlist only when the run completes without a bundle. Use status='kept' if the iteration beats the best AUC so far in this run (the first scored iteration is always kept, whatever the current champion scores), 'discarded' otherwise, 'crashed' on failure. Iterations are picked up at completion time to choose the champion. If this iteration was spawned from a pending steering suggestion, pass parent_suggestion = the suggestion's ID — that links the iteration to the suggestion for attribution and marks the suggestion 'acted_on'.",
         "category": "Autoresearch",
         "feature": "autoresearch",
         "summary": "Record a training iteration",

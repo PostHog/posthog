@@ -533,7 +533,17 @@ const autoresearchTrainingRunsCompleteCreate = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/autoresearch/${encodeURIComponent(String(params.pipeline_id))}/training_runs/${encodeURIComponent(String(params.id))}/complete/`,
             body,
         })
-        return result
+        const filtered = pickResponseFields(result, [
+            'id',
+            'pipeline',
+            'status',
+            'iteration_count',
+            'best_holdout_score',
+            'summary',
+            'error',
+            'completed_at',
+        ]) as typeof result
+        return filtered
     },
 })
 
