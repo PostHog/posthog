@@ -16,8 +16,11 @@ import {
     SlackChannelType,
 } from '~/types'
 
-import { AlertNotificationPagerDutySeverity } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
-import { LogsAlertConfigurationApi, LogsAlertCreateDestinationApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertConfigurationApi,
+    LogsAlertCreateDestinationApi,
+    PagerdutySeverityEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 export type LogsAlertEventKind = 'firing' | 'resolved' | 'broken' | 'errored'
 
@@ -126,7 +129,7 @@ export type PendingLogsAlertNotification =
     | {
           type: typeof LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY
           routingKey: string
-          severity: AlertNotificationPagerDutySeverity
+          severity: PagerdutySeverityEnumApi
       }
 
 export function buildLogsAlertDestinationPayload(

@@ -8,11 +8,9 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { HogFunctionType, IntegrationType } from '~/types'
 
-import {
-    AlertNotificationPagerDutySeverity,
-    AlertNotificationUrlInput,
-} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import { AlertNotificationUrlInput } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from 'products/logs/frontend/generated/api'
+import { PagerdutySeverityEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import {
     buildLogsAlertDestinationPayload,
@@ -50,7 +48,7 @@ export interface logsAlertNotificationLogicValues {
     firstSlackIntegration: IntegrationType | undefined
     integrationsFailed: boolean
     pagerdutyRoutingKey: string
-    pagerdutySeverity: AlertNotificationPagerDutySeverity
+    pagerdutySeverity: PagerdutySeverityEnumApi
     pendingNotifications: PendingLogsAlertNotification[]
     selectedType: LogsAlertNotificationType
     slackChannelValue: string | null
@@ -114,8 +112,8 @@ export interface logsAlertNotificationLogicActions {
     setPagerdutyRoutingKey: (pagerdutyRoutingKey: string) => {
         pagerdutyRoutingKey: string
     }
-    setPagerdutySeverity: (pagerdutySeverity: AlertNotificationPagerDutySeverity) => {
-        pagerdutySeverity: AlertNotificationPagerDutySeverity
+    setPagerdutySeverity: (pagerdutySeverity: PagerdutySeverityEnumApi) => {
+        pagerdutySeverity: PagerdutySeverityEnumApi
     }
     setPendingNotifications: (notifications: PendingLogsAlertNotification[]) => {
         notifications: PendingLogsAlertNotification[]
@@ -178,7 +176,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
         setSlackChannelValue: (slackChannelValue: string | null) => ({ slackChannelValue }),
         setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
         setPagerdutyRoutingKey: (pagerdutyRoutingKey: string) => ({ pagerdutyRoutingKey }),
-        setPagerdutySeverity: (pagerdutySeverity: AlertNotificationPagerDutySeverity) => ({ pagerdutySeverity }),
+        setPagerdutySeverity: (pagerdutySeverity: PagerdutySeverityEnumApi) => ({ pagerdutySeverity }),
     }),
 
     reducers({
@@ -218,7 +216,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
             },
         ],
         pagerdutySeverity: [
-            'error' as AlertNotificationPagerDutySeverity,
+            PagerdutySeverityEnumApi.Error as PagerdutySeverityEnumApi,
             {
                 setPagerdutySeverity: (_, { pagerdutySeverity }) => pagerdutySeverity,
             },
