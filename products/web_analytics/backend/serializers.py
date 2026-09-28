@@ -96,7 +96,10 @@ class DigestMetadataSerializer(serializers.Serializer):
     date_to = ProjectTimezoneDateTimeField(help_text="End of the current period, in the project timezone.")
     timezone = serializers.CharField(help_text="Project timezone for the period boundaries.")
     filter_test_accounts = serializers.BooleanField(
-        help_text="True when every metric excludes events from test accounts."
+        help_text=(
+            "True when the headline metrics, top pages and top sources exclude events from test accounts. "
+            "Goal conversions include them."
+        )
     )
     notes = serializers.ListField(
         child=serializers.CharField(),

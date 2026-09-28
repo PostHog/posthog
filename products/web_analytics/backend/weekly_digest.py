@@ -49,7 +49,8 @@ DIGEST_METRIC_NOTES = [
     "Visitors, sessions, bounce rate and session duration count only sessions that contain at least one "
     "$pageview or $screen event. A direct count of the sessions table also includes sessions with other events, "
     "so it can be higher.",
-    "Events from test accounts are excluded, as set in the project's test account filters.",
+    "Visitors, pageviews, sessions, bounce rate, session duration, top pages and top sources exclude events from "
+    "test accounts, as set in the project's test account filters. Goal conversions include them.",
     "The period starts at the start of the day `days` days ago and ends now, in the project timezone.",
 ]
 

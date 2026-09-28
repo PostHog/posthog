@@ -32750,7 +32750,7 @@ export namespace Schemas {
       date_to: string;
       /** Project timezone for the period boundaries. */
       timezone: string;
-      /** True when every metric excludes events from test accounts. */
+      /** True when the headline metrics, top pages and top sources exclude events from test accounts. Goal conversions include them. */
       filter_test_accounts: boolean;
       /** Metric definitions to use when you compare the digest with a direct query. */
       notes: string[];
