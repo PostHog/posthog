@@ -100,6 +100,51 @@ function taskAction(flow: LoopHogFlowSource): Record<string, unknown> {
   return must(actions.find((action) => action.type === "function"));
 }
 
+function slackStep(): Schemas.HogFlowAction {
+  return {
+    id: "notify",
+    name: "Notify",
+    type: "function",
+    config: {
+      template_id: "template-slack",
+      inputs: {
+        channel: { value: "C123" },
+        text: { value: "{variables.task_final_message}" },
+      },
+    },
+  };
+}
+
+/** The step customer analytics adds after the task. The form never reads its
+ * inputs or output variable, so a save has to return them exactly as stored. */
+function reportStep(): Schemas.HogFlowAction {
+  return {
+    id: "report",
+    name: "Report to customer analytics",
+    type: "function",
+    config: {
+      template_id: "template-posthog-report-customer-task",
+      inputs: { summary: { value: "{variables.task_final_message}" } },
+    },
+    output_variable: [{ key: "report_id", result_path: "id" }],
+  };
+}
+
+/** Puts `steps` between the task and the exit and redraws the edges as the
+ * straight line through every action, as the workflow editor would. */
+function insertAfterTask(
+  flow: LoopHogFlowSource,
+  steps: Schemas.HogFlowAction[],
+): void {
+  const actions = flow.actions as Schemas.HogFlowAction[];
+  actions.splice(2, 0, ...steps);
+  flow.edges = actions.slice(1).map((action, index) => ({
+    from: actions[index].id,
+    to: action.id,
+    type: "continue",
+  }));
+}
+
 describe("loopHogFlowMapping", () => {
   it("writes a schedule loop as trigger, create-task step and exit plus a schedule row", () => {
     const { flow, schedule } = formValuesToHogFlowWrite(scheduleValues(), {
@@ -500,52 +545,58 @@ describe("loopHogFlowMapping", () => {
     expect(isLoopShapedHogFlow(flow)).toBe(false);
   });
 
-  it("marks a graph with an extra edge as foreign", () => {
+  it.each([
+    [
+      "an extra edge",
+      (flow: LoopHogFlowSource) => {
+        (flow.edges as unknown[]).push({
+          from: "trigger",
+          to: "exit",
+          type: "continue",
+        });
+      },
+    ],
+    [
+      "a report step after the notify step",
+      (flow: LoopHogFlowSource) => {
+        insertAfterTask(flow, [slackStep(), reportStep()]);
+      },
+    ],
+  ])("marks a graph with %s as foreign", (_label, mutate) => {
     const flow = flowFromWrite(scheduleValues());
-    (flow.edges as unknown[]).push({
-      from: "trigger",
-      to: "exit",
-      type: "continue",
-    });
+    mutate(flow);
     expect(isLoopShapedHogFlow(flow)).toBe(false);
   });
 
-  it("keeps a notify step between the task and the exit when reading and rewriting", () => {
-    const existing = flowFromWrite(scheduleValues());
-    const actions = existing.actions as Array<Record<string, unknown>>;
-    const notify = {
-      id: "notify",
-      name: "Notify",
-      type: "function",
-      config: {
-        template_id: "template-slack",
-        inputs: {
-          channel: { value: "C123" },
-          text: { value: "{variables.task_final_message}" },
-        },
-      },
-    };
-    actions.splice(2, 0, notify);
-    existing.edges = [
-      { from: "trigger", to: "create_task", type: "continue" },
-      { from: "create_task", to: "notify", type: "continue" },
-      { from: "notify", to: "exit", type: "continue" },
-    ];
-    expect(isLoopShapedHogFlow(existing)).toBe(true);
+  it.each<[string, Schemas.HogFlowAction[], string[]]>([
+    ["a notify step", [slackStep()], ["Slack"]],
+    ["a report step", [reportStep()], []],
+    ["a report step and a notify step", [reportStep(), slackStep()], ["Slack"]],
+  ])(
+    "keeps %s between the task and the exit when reading and rewriting",
+    (_label, steps, destinations) => {
+      const existing = flowFromWrite(scheduleValues());
+      insertAfterTask(existing, steps);
+      expect(isLoopShapedHogFlow(existing)).toBe(true);
+      const loop = hogFlowToLoop(existing, { projectId: PROJECT_ID });
+      expect(summarizeNotificationDestinations(loop.notifications)).toEqual(
+        destinations,
+      );
 
-    const { flow } = formValuesToHogFlowWrite(
-      scheduleValues({ instructions: "Updated prompt" }),
-      { enabled: true, existing },
-    );
-    expect(flow.actions.map((action) => action.id)).toEqual([
-      "trigger",
-      "create_task",
-      "notify",
-      "exit",
-    ]);
-    expect(flow.actions[2]).toEqual(notify);
-    expect(flow.edges).toEqual(existing.edges);
-  });
+      const { flow } = formValuesToHogFlowWrite(
+        scheduleValues({ instructions: "Updated prompt" }),
+        { enabled: true, existing },
+      );
+      expect(flow.actions.map((action) => action.id)).toEqual([
+        "trigger",
+        "create_task",
+        ...steps.map((step) => step.id),
+        "exit",
+      ]);
+      expect(flow.actions.slice(2, -1)).toEqual(steps);
+      expect(flow.edges).toEqual(existing.edges);
+    },
+  );
 
   it.each([
     [

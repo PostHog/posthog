@@ -17,6 +17,11 @@ import {
 } from "./loopScheduleRRule";
 
 export const CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task";
+/** Customer analytics creates loops in the background with a step after the
+ * task that reports the task's outcome back to it. The form does not draw the
+ * step, so a save carries it through as found. */
+const REPORT_CUSTOMER_TASK_TEMPLATE_ID =
+  "template-posthog-report-customer-task";
 const SLACK_TEMPLATE_ID = "template-slack";
 const GITHUB_EVENT_RECEIVED_EVENT = "$github_event_received";
 
@@ -208,7 +213,7 @@ function preservedTaskInputs(existing: ParsedLoopActions | null): Json {
   );
 }
 
-/** One of the three steps the loop form draws, as the API holds it. */
+/** An action of a loop-shaped graph, as the API holds it. */
 interface LoopAction extends Schemas.HogFlowAction {
   type: "trigger" | "function" | "function_email" | "exit";
   config: Json;
@@ -253,7 +258,8 @@ const DEFAULT_EXIT_ACTION: LoopAction = {
  * one exit. `enabled` decides whether the flow is created live or as a draft.
  * Pass `existing` on an edit: the save then only replaces the fields the form
  * owns (the trigger config, the task template and inputs), so step names,
- * skip filters and error handling set in the workflow editor survive.
+ * skip filters and error handling set in the workflow editor survive, and so
+ * do the report and notify steps.
  */
 export function formValuesToHogFlowWrite(
   values: LoopFormValues,
@@ -265,13 +271,23 @@ export function formValuesToHogFlowWrite(
     : null;
   const triggerAction = existing?.actions.trigger ?? DEFAULT_TRIGGER_ACTION;
   const taskAction = existing?.actions.task ?? DEFAULT_TASK_ACTION;
-  const notifyAction = existing?.actions.notify ?? null;
-  const exitAction = existing?.actions.exit ?? DEFAULT_EXIT_ACTION;
-  const steps = [
-    taskAction,
-    ...(notifyAction ? [notifyAction] : []),
-    exitAction,
-  ];
+  const chain = loopActionChain({
+    trigger: { ...triggerAction, config: trigger.config },
+    task: {
+      ...taskAction,
+      config: {
+        ...taskAction.config,
+        template_id: CREATE_TASK_TEMPLATE_ID,
+        inputs: {
+          ...preservedTaskInputs(existing),
+          ...taskInputs(values),
+        },
+      },
+    },
+    report: existing?.actions.report ?? null,
+    notify: existing?.actions.notify ?? null,
+    exit: existing?.actions.exit ?? DEFAULT_EXIT_ACTION,
+  });
   return {
     flow: {
       name: values.name.trim(),
@@ -279,30 +295,8 @@ export function formValuesToHogFlowWrite(
       status: options.enabled ? "active" : "draft",
       origin_product: LOOPS_ORIGIN_PRODUCT,
       exit_condition: "exit_only_at_end",
-      actions: [
-        { ...triggerAction, config: trigger.config },
-        {
-          ...taskAction,
-          config: {
-            ...taskAction.config,
-            template_id: CREATE_TASK_TEMPLATE_ID,
-            inputs: {
-              ...preservedTaskInputs(existing),
-              ...taskInputs(values),
-            },
-          },
-        },
-        ...(notifyAction ? [notifyAction] : []),
-        exitAction,
-      ],
-      edges: [
-        { from: triggerAction.id, to: taskAction.id, type: "continue" },
-        ...steps.slice(1).map((step, index) => ({
-          from: steps[index].id,
-          to: step.id,
-          type: "continue" as const,
-        })),
-      ],
+      actions: chain,
+      edges: chainEdges(chain),
     },
     schedule: trigger.schedule,
   };
@@ -314,9 +308,14 @@ interface ParsedLoopActions {
   actions: {
     trigger: LoopAction;
     task: LoopAction;
+    report: LoopAction | null;
     notify: LoopAction | null;
     exit: LoopAction | null;
   };
+}
+
+function isFunctionStep(action: LoopAction, templateId: string): boolean {
+  return action.type === "function" && action.config.template_id === templateId;
 }
 
 /** A Slack or email step after the task is the loop's notification; the form
@@ -328,12 +327,13 @@ function isNotifyAction(action: LoopAction): boolean {
   );
 }
 
-/** The trigger and task step of a loop-shaped graph, or null when the graph
- * holds anything the loop form did not put there. */
+/** The actions of a loop-shaped graph by role, or null when the graph holds
+ * anything outside that shape. */
 function parseLoopActions(actions: unknown): ParsedLoopActions | null {
   if (!Array.isArray(actions)) return null;
   let trigger: LoopAction | null = null;
   let task: LoopAction | null = null;
+  let report: LoopAction | null = null;
   let notify: LoopAction | null = null;
   let exit: LoopAction | null = null;
   for (const action of actions) {
@@ -341,12 +341,12 @@ function parseLoopActions(actions: unknown): ParsedLoopActions | null {
     if (action.type === "trigger") {
       if (trigger) return null;
       trigger = action;
-    } else if (
-      action.type === "function" &&
-      action.config.template_id === CREATE_TASK_TEMPLATE_ID
-    ) {
+    } else if (isFunctionStep(action, CREATE_TASK_TEMPLATE_ID)) {
       if (task) return null;
       task = action;
+    } else if (isFunctionStep(action, REPORT_CUSTOMER_TASK_TEMPLATE_ID)) {
+      if (report || !task) return null;
+      report = action;
     } else if (action.type !== "exit") {
       if (notify || !task || !isNotifyAction(action)) return null;
       notify = action;
@@ -359,28 +359,43 @@ function parseLoopActions(actions: unknown): ParsedLoopActions | null {
   return {
     trigger: trigger.config,
     taskInputs: isRecord(task.config.inputs) ? task.config.inputs : {},
-    actions: { trigger, task, notify, exit },
+    actions: { trigger, task, report, notify, exit },
   };
 }
 
-/** Whether the edges are exactly the straight line the form draws:
- * trigger to task, then task to exit. A branch or a loop back would be lost
- * when a save rewrites the edges. */
+/** The straight line the form draws: trigger, task, then the report and notify
+ * steps when the graph has them, then the exit. A save writes the actions in
+ * this order with one `continue` edge between each pair. */
+function loopActionChain(actions: ParsedLoopActions["actions"]): LoopAction[] {
+  return [
+    actions.trigger,
+    actions.task,
+    ...(actions.report ? [actions.report] : []),
+    ...(actions.notify ? [actions.notify] : []),
+    ...(actions.exit ? [actions.exit] : []),
+  ];
+}
+
+function chainEdges(chain: LoopAction[]): Schemas.HogFlowEdge[] {
+  return chain.slice(1).map((step, index) => ({
+    from: chain[index].id,
+    to: step.id,
+    type: "continue",
+  }));
+}
+
+/** Whether the edges are exactly the straight line the form draws through the
+ * actions it found. A branch or a loop back would be lost when a save rewrites
+ * the edges. */
 function hasLoopShapedEdges(
   edges: unknown,
   actions: ParsedLoopActions["actions"],
 ): boolean {
   if (edges === undefined || edges === null) return true;
   if (!Array.isArray(edges)) return false;
-  const chain = [
-    actions.trigger,
-    actions.task,
-    ...(actions.notify ? [actions.notify] : []),
-    ...(actions.exit ? [actions.exit] : []),
-  ];
-  const expected = chain
-    .slice(1)
-    .map((step, index) => `${chain[index].id}>${step.id}`);
+  const expected = chainEdges(loopActionChain(actions)).map(
+    (edge) => `${edge.from}>${edge.to}`,
+  );
   const actual = edges.map((edge) =>
     isRecord(edge) && edge.type === "continue"
       ? `${edge.from}>${edge.to}`
