@@ -78,9 +78,9 @@ describe('broadcastWizardLogic', () => {
             },
             patch: {
                 '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
-                    const body = await request.json()
-                    const subject = body.actions.find((action: any) => action.type === 'function_email').config.inputs
-                        .email.value.subject
+                    const body = (await request.json()) as { actions: any[] }
+                    const subject = body.actions.find((action) => action.type === 'function_email').config.inputs.email
+                        .value.subject
                     patchedSubjects.push(subject)
                     return [200, savedBroadcast({ name: '', subject, updatedAt: '2026-09-24T10:00:05Z' })]
                 },
@@ -160,7 +160,9 @@ describe('broadcastWizardLogic', () => {
         router.actions.push('/broadcasts/broadcast-1', { step: 'content', other: 'kept' })
         const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
 
-        await expectLogic(draftLogic, () => draftLogic.mount())
+        await expectLogic(draftLogic, () => {
+            draftLogic.mount()
+        })
             .toDispatchActions(['hydrateFromBroadcast', 'setStep'])
             .toMatchValues({ currentStep: 'content' })
         expect(router.values.searchParams).toEqual({ other: 'kept' })
