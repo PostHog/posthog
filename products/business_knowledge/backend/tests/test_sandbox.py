@@ -21,7 +21,6 @@ from products.business_knowledge.backend.api.serializers import SandboxQuestionS
 from products.business_knowledge.backend.logic import KnowledgeSearchResult
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource, SafetyVerdict
 from products.business_knowledge.backend.sandbox import (
-    BK_MCP_SCOPE,
     BK_SEARCH_TOOL,
     BK_WINDOW_TOOL,
     DOCS_SEARCH_TOOL,
@@ -204,7 +203,7 @@ class TestSandboxAPI(APIBaseTest):
         assert task.internal is True
         assert task.repository is None
         assert task.created_by_id == self.user.id
-        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == [BK_MCP_SCOPE]
+        assert run.state["pending_dispatch"]["posthog_mcp_scopes"] == ["business_knowledge:read", "user:read"]
         assert run.state["mcp_exclude_tools"] == [DOCS_SEARCH_TOOL]
         assert run.state["config_snapshot"]["connectors"]["mcp_installation_ids"] == []
         assert run.state["model"] == "claude-sonnet-5"

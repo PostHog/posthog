@@ -28,6 +28,8 @@ MAX_OPEN_RUNS_PER_OWNER = 3
 FINISHED_ACTIVITY_CACHE_SECONDS = 60 * 60
 
 BK_MCP_SCOPE = "business_knowledge:read"
+# The PostHog MCP server reads /api/users/@me/ to start a session, so without user:read it never connects.
+BK_MCP_SCOPES = [BK_MCP_SCOPE, "user:read"]
 BK_SEARCH_TOOL = "business-knowledge-documents-search"
 BK_WINDOW_TOOL = "business-knowledge-document-window-retrieve"
 DOCS_SEARCH_TOOL = "docs-search"
@@ -213,7 +215,7 @@ def start_sandbox_run(
             create_pr=False,
             internal=True,
             sandbox_environment_id=str(env_id),
-            posthog_mcp_scopes=[BK_MCP_SCOPE],
+            posthog_mcp_scopes=BK_MCP_SCOPES,
             model=SANDBOX_MODEL,
             runtime_adapter=SANDBOX_RUNTIME_ADAPTER,
             output_schema=SandboxAnswer,
