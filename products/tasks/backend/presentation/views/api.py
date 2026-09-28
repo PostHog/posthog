@@ -2042,7 +2042,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Set task run summary",
-        description="Replace the running summary for a task run.",
+        description="Replace the running summary for a task run, and optionally its slug tags.",
         strict_request_validation=True,
     )
     @action(
@@ -2058,6 +2058,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             task_id,
             self.team_id,
             summary=request.validated_data["summary"],
+            tags=request.validated_data.get("tags"),
             include_agent_state=self._is_sandbox_agent_request(task_id),
             user_id=self._user_id(),
         )

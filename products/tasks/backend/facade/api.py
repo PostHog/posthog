@@ -126,8 +126,10 @@ from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     MCP_CREDENTIAL_OWNER_STATE_KEY,
     PRIOR_RUN_SUMMARY_STATE_KEY,
+    PRIOR_RUN_TAGS_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     TASK_RUN_SUMMARY_STATE_KEY,
+    TASK_RUN_TAGS_STATE_KEY,
     Channel,
     ChannelContextGeneration,
     ChannelFeedMessage,
@@ -553,19 +555,17 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_summary_for_viewer(
+def _can_read_task_run_summary(
     run: TaskRun,
     *,
     task: Task | None = None,
     user_id: int | None = None,
     include_agent_state: bool = False,
-) -> str | None:
+) -> bool:
     if include_agent_state:
-        return run.task_summary
+        return True
     parent = task if task is not None else run.task
-    if parent.origin_product == Task.OriginProduct.WORKFLOW and parent.created_by_id != user_id:
-        return None
-    return run.task_summary
+    return parent.origin_product != Task.OriginProduct.WORKFLOW or parent.created_by_id == user_id
 
 
 def _task_run_detail_to_dto(
@@ -587,6 +587,9 @@ def _task_run_detail_to_dto(
     )
 
     state = parse_run_state(run.state)
+    can_read_summary = _can_read_task_run_summary(
+        run, task=task, user_id=user_id, include_agent_state=include_agent_state
+    )
     return contracts.TaskRunDetailDTO(
         id=run.id,
         task=run.task_id,
@@ -601,9 +604,8 @@ def _task_run_detail_to_dto(
         log_url=_task_run_log_url(run) if include_log_url else None,
         error_message=run.error_message,
         output=run.output,
-        task_summary=_task_run_summary_for_viewer(
-            run, task=task, user_id=user_id, include_agent_state=include_agent_state
-        ),
+        task_summary=run.task_summary if can_read_summary else None,
+        task_tags=run.task_tags if can_read_summary else [],
         state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
@@ -2525,6 +2527,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "warm_activated",
         TASK_RUN_SUMMARY_STATE_KEY,
         PRIOR_RUN_SUMMARY_STATE_KEY,
+        TASK_RUN_TAGS_STATE_KEY,
+        PRIOR_RUN_TAGS_STATE_KEY,
         "sandbox_id",
         # Sandbox connection state is written only by the provisioning activity. A PATCHable
         # sandbox_backend/sandbox_url would let a task controller point the account-wide hogland
@@ -3289,6 +3293,8 @@ def update_task_run(
 
 
 TASK_RUN_SUMMARY_MAX_CHARS = 1500
+TASK_RUN_TAGS_MAX_COUNT = 10
+TASK_RUN_TAG_MAX_CHARS = 50
 
 
 def validate_set_output(run_id: str | UUID, task_id: str | UUID, team_id: int, *, output: dict) -> str | None:
@@ -3338,13 +3344,18 @@ def set_task_run_summary(
     team_id: int,
     *,
     summary: str,
+    tags: list[str] | None = None,
     include_agent_state: bool = False,
     user_id: int | None = None,
 ) -> contracts.TaskRunDetailDTO | None:
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return None
-    run.state = TaskRun.update_state_atomic(run.id, updates={TASK_RUN_SUMMARY_STATE_KEY: summary})
+    updates: dict[str, Any] = {TASK_RUN_SUMMARY_STATE_KEY: summary}
+    # Omitted tags keep the current set, so a summary-only call does not erase them.
+    if tags is not None:
+        updates[TASK_RUN_TAGS_STATE_KEY] = list(dict.fromkeys(tags))
+    run.state = TaskRun.update_state_atomic(run.id, updates=updates)
     run.refresh_from_db()
     run.publish_stream_state_event()
     return _task_run_detail_to_dto(run, include_agent_state=include_agent_state, user_id=user_id)
@@ -8624,6 +8635,8 @@ def run_task(
         extra_state = extra_state or {}
         if previous_run.task_summary:
             extra_state[PRIOR_RUN_SUMMARY_STATE_KEY] = previous_run.task_summary
+        if previous_run.task_tags:
+            extra_state[PRIOR_RUN_TAGS_STATE_KEY] = previous_run.task_tags
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())

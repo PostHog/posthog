@@ -606,6 +606,7 @@ class TaskRunDetailDTO:
     task_summary: str | None
     state: dict
     artifacts: list = Field(default_factory=list)
+    task_tags: list[str] = Field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
     completed_at: datetime | None = None
