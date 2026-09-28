@@ -501,16 +501,33 @@ def test_execute_event_deletion_delete_all_events_drops_every_event_for_team(clu
     assert cluster.any_host(partial(_count_events, TEAM_ID + 1)).result() == 10
 
 
+def _insert_events_with_distinct_ids(events: list[tuple], client: Client) -> None:
+    client.execute(
+        "INSERT INTO writable_events (team_id, event, uuid, distinct_id, timestamp, properties) VALUES",
+        events,
+    )
+
+
+def _insert_person_distinct_id(team_id: int, distinct_id: str, person_id: UUID, client: Client) -> None:
+    client.execute(
+        "INSERT INTO person_distinct_id2 (team_id, distinct_id, person_id, is_deleted, version) VALUES",
+        [(team_id, distinct_id, person_id, 0, 1)],
+    )
+
+
+CHROME_PERSON_ID = UUID("0199a7c1-0000-7000-8000-000000000001")
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize(
     "hogql_predicate",
     [
         "properties.$browser = 'Chrome'",
-        # writable_events leaves person_id at the zero UUID.
-        "person_id = '00000000-0000-0000-0000-000000000000' AND properties.$browser = 'Chrome'",
+        # The form the validation error suggests for matching a person's events.
+        f"distinct_id IN (SELECT distinct_id FROM person_distinct_ids WHERE person_id = '{CHROME_PERSON_ID}')",
     ],
 )
-def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseCluster, hogql_predicate: str):
+def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseCluster, hogql_predicate: str) -> None:
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
@@ -522,13 +539,16 @@ def test_execute_event_deletion_applies_hogql_predicate(cluster: ClickhouseClust
     end_time = now + timedelta(minutes=1)
 
     chrome_events = [
-        (team.id, "$pageview", uuid4(), now - timedelta(hours=i), '{"$browser": "Chrome"}') for i in range(10)
+        (team.id, "$pageview", uuid4(), "chrome-user", now - timedelta(hours=i), '{"$browser": "Chrome"}')
+        for i in range(10)
     ]
     firefox_events = [
-        (team.id, "$pageview", uuid4(), now - timedelta(hours=i), '{"$browser": "Firefox"}') for i in range(5)
+        (team.id, "$pageview", uuid4(), "firefox-user", now - timedelta(hours=i), '{"$browser": "Firefox"}')
+        for i in range(5)
     ]
 
-    cluster.any_host(partial(_insert_events_with_properties, chrome_events + firefox_events)).result()
+    cluster.any_host(partial(_insert_events_with_distinct_ids, chrome_events + firefox_events)).result()
+    cluster.any_host(partial(_insert_person_distinct_id, team.id, "chrome-user", CHROME_PERSON_ID)).result()
     assert cluster.any_host(partial(_count_events_by_name, team.id, "$pageview")).result() == 15
 
     deletion_ctx = DeletionRequestContext(

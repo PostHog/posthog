@@ -171,12 +171,14 @@ To sweep it again:
 
 Neither restores what earlier runs left behind. That needs a backfill sweep over the affected uuids.
 
-### A HogQL predicate matches the stored `person_id`
+### A HogQL predicate cannot read `person_id`
 
-`compile_hogql_predicate` splices the predicate into a bare `WHERE`, so it cannot carry a join, and it raises on any predicate that needs one.
-A normal HogQL query corrects `person_id` by joining `person_distinct_id_overrides`, so the predicate reads the stored column instead, like every other events-shaped deletion.
-After a merge, a row keeps the old `person_id` until the person-overrides squash rewrites it.
-Until then, a predicate on `person_id` or `person.id` does not match that row.
+`compile_hogql_predicate` splices the predicate into a bare `WHERE`, so it cannot carry a join, and validation rejects any predicate that needs one.
+`person_id` and `person.id` need one: HogQL corrects them by joining `person_distinct_id_overrides`.
+The stored column is not a safe substitute.
+After a merge, a row keeps the absorbed person's id until the person-overrides squash rewrites it, so a request would complete and leave that row behind.
+To match a person's events, use `distinct_id IN (SELECT distinct_id FROM person_distinct_ids WHERE person_id = '<uuid>')`.
+`person_distinct_ids` maps each distinct id to the person it belongs to now, so the subquery also reaches rows the squash has not rewritten yet.
 
 ### Property removal does not reach `flag_evaluations`
 

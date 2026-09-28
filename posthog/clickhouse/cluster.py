@@ -963,9 +963,12 @@ class MutationRunner(abc.ABC):
         # `formatQuerySingleLine` + collapse-whitespace + trim on both sides of the join so
         # cosmetic spacing differences between our formatting and what
         # `system.mutations.command` stored don't break the byte-equality match.
-        # Callers must pass fully-qualified identifiers (`db.table` / `db.dictionary`) —
-        # ClickHouse normalizes bare references against the connection database when
-        # storing the mutation, and a bare-vs-qualified mismatch defeats the join.
+        # ClickHouse qualifies a bare table reference with the connection database when it stores
+        # the mutation, so both sides drop the `db.` prefix after FROM and JOIN before the join. A
+        # command can then name a table either way, including inside a subquery such as a compiled
+        # HogQL predicate. Only FROM and JOIN are rewritten, so a string value such as 'posthog.com'
+        # stays intact and two different commands never compare equal. Dictionary names are string
+        # arguments that ClickHouse does not qualify, so callers still pass them as `db.dictionary`.
         alter_prefix = f"ALTER TABLE {settings.CLICKHOUSE_DATABASE}.{self.table} "
         # Render each command's parameters here and bind the finished text as an ordinary parameter,
         # rather than interpolating the template into a $__sql$ heredoc and letting the driver
@@ -988,7 +991,10 @@ class MutationRunner(abc.ABC):
                             arrayMap(
                                 alter -> trim(BOTH ' ' FROM
                                     replaceRegexpAll(
-                                        replaceOne(formatQuerySingleLine(alter), %(__alter_prefix)s, ''),
+                                        replaceRegexpAll(
+                                            replaceOne(formatQuerySingleLine(alter), %(__alter_prefix)s, ''),
+                                            %(__table_database_prefix)s, '\\1 '
+                                        ),
                                         '[ \\t\\n]+', ' '
                                     )
                                 ),
@@ -1001,7 +1007,7 @@ class MutationRunner(abc.ABC):
             ) commands
             LEFT OUTER JOIN (
                 SELECT
-                    trim(BOTH ' ' FROM replaceRegexpAll(command, '[ \\t\\n]+', ' ')) as command,
+                    trim(BOTH ' ' FROM replaceRegexpAll(replaceRegexpAll(command, %(__table_database_prefix)s, '\\1 '), '[ \\t\\n]+', ' ')) as command,
                     argMax(mutation_id, create_time) as mutation_id  -- Get the most recent mutation for each command
                 FROM system.mutations
                 WHERE
@@ -1018,6 +1024,7 @@ class MutationRunner(abc.ABC):
                 "__database": settings.CLICKHOUSE_DATABASE,
                 "__table": self.table,
                 "__alter_prefix": alter_prefix,
+                "__table_database_prefix": rf"\b(FROM|JOIN) {re.escape(settings.CLICKHOUSE_DATABASE)}\.",
                 "__since": since,
                 # self.parameters are already rendered into __command_*; passing them again would
                 # reintroduce the substitution this avoids.

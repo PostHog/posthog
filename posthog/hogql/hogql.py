@@ -9,6 +9,10 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 
+class ExpressionNeedsJoinError(QueryError):
+    pass
+
+
 # This is called only from "non-hogql-based" insights to translate HogQL expressions into ClickHouse SQL
 # All the constant string values will be collected into context.values
 def translate_hogql(
@@ -24,7 +28,7 @@ def translate_hogql(
     """Translate a HogQL expression into a ClickHouse expression.
 
     The result holds only the expression, so a join it needs is lost. With ``forbid_joins`` such an
-    expression raises QueryError instead of printing a reference to a table alias that does not exist.
+    expression raises ExpressionNeedsJoinError instead of printing a reference to a table alias that does not exist.
     """
     if query == "":
         raise QueryError("Empty query")
@@ -62,7 +66,7 @@ def translate_hogql(
             and prepared_select_query.select_from is not None
             and prepared_select_query.select_from.next_join is not None
         ):
-            raise QueryError("The expression needs a join to another table, which is not supported here")
+            raise ExpressionNeedsJoinError("The expression needs a join to another table, which is not supported here")
         return print_prepared_ast(
             prepared_select_query.select[0],
             context=context,

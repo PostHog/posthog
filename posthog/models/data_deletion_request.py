@@ -53,7 +53,7 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
     from posthog.schema import PersonsOnEventsMode
 
     from posthog.hogql.context import HogQLContext
-    from posthog.hogql.hogql import translate_hogql
+    from posthog.hogql.hogql import ExpressionNeedsJoinError, translate_hogql
     from posthog.hogql.modifiers import create_default_modifiers_for_team
     from posthog.hogql.parser import parse_expr
 
@@ -86,16 +86,16 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
     # fragment is spliced bare into the ``events`` SELECT and the ``sharded_events`` DELETE, so
     # ``person.properties`` must read the on-events ``person_properties`` column — a joined
     # persons table (the ``..._joined`` / ``disabled`` modes) would reference an alias that does
-    # not exist in either splice site. For the same reason ``person_id`` reads the stored column:
-    # the override modes join person_distinct_id_overrides. Every other events-shaped deletion
-    # also matches on the stored ``person_id``. ``forbid_joins`` rejects any predicate that still
-    # needs a join.
+    # not exist in either splice site. ``forbid_joins`` rejects any predicate that still needs a
+    # join, such as ``person_id``, which joins person_distinct_id_overrides. Reading the stored
+    # ``person_id`` instead would miss rows that keep a merged person's old id until the overrides
+    # squash rewrites them, and the request would still complete.
     try:
         team = Team.objects.get(id=obj.team_id)
     except Team.DoesNotExist as exc:
         raise ValidationError({"hogql_predicate": "team no longer exists; cannot validate the predicate."}) from exc
     modifiers = create_default_modifiers_for_team(team)
-    modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+    modifiers.personsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
     context = HogQLContext(
         team_id=obj.team_id,
         team=team,
@@ -119,6 +119,14 @@ def compile_hogql_predicate(obj, use_new_events_schema: bool = False) -> tuple[s
         # can't resolve ``common.hogvm`` during compilation), not that the predicate is invalid.
         # Let it propagate as-is rather than masquerading as a predicate validation error.
         raise
+    except ExpressionNeedsJoinError as exc:
+        raise ValidationError(
+            {
+                "hogql_predicate": "The predicate reads a field that needs a join, such as person_id, which a "
+                "deletion can't run. To match a person's events, use distinct_id IN (SELECT distinct_id FROM "
+                "person_distinct_ids WHERE person_id = '<person uuid>')."
+            }
+        ) from exc
     except Exception as exc:
         raise ValidationError({"hogql_predicate": f"Could not compile HogQL: {exc}"}) from exc
 

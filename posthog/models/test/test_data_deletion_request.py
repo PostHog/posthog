@@ -126,7 +126,7 @@ def test_property_removal_clean_raises(events, delete_all_events, match):
         ("this is not hogql", "hogql_predicate"),
         ("nonexistent_column = 1", "hogql_predicate"),
         ("event IN (SELECT event FROM events)", None),
-        ("session.$session_duration > 10", "needs a join"),
+        ("person_id = '0199a7c1-0000-7000-8000-000000000001'", "person_distinct_ids"),
     ],
     ids=["valid", "blank", "invalid_syntax", "unknown_field", "subquery_allowed", "join_rejected"],
 )
@@ -144,7 +144,7 @@ def test_hogql_predicate_validation(team, predicate, error_match):
 @pytest.mark.parametrize(
     "predicate",
     [
-        "person_id IN (SELECT id FROM persons WHERE properties.email = 'foo@example.com')",
+        "distinct_id IN (SELECT distinct_id FROM person_distinct_ids WHERE person.properties.email = 'foo@example.com')",
         "event IN (SELECT event FROM events WHERE timestamp > now() - INTERVAL 1 DAY)",
     ],
     ids=["person_subquery", "events_subquery"],
@@ -178,7 +178,9 @@ def test_hogql_predicate_subquery_is_team_scoped(db):
     team_b = Team.objects.create(organization=org, name="team-b")
     assert team_a.id != team_b.id
 
-    predicate = "person_id IN (SELECT id FROM persons WHERE properties.email = 'foo@example.com')"
+    predicate = (
+        "distinct_id IN (SELECT distinct_id FROM person_distinct_ids WHERE person.properties.email = 'foo@example.com')"
+    )
 
     req_a = DataDeletionRequest(**_base_kwargs(team_id=team_a.id, events=["$pageview"], hogql_predicate=predicate))
     req_b = DataDeletionRequest(**_base_kwargs(team_id=team_b.id, events=["$pageview"], hogql_predicate=predicate))
