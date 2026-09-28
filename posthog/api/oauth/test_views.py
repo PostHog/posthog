@@ -3729,6 +3729,45 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_render.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("team", None, None),
+            ("team", "{ }", "{ }"),
+            ("organization", "invalid", "invalid"),
+        ]
+    )
+    def test_auto_approval_inherits_token_access_instead_of_query_parameters(
+        self, access_level, teams_param, orgs_param
+    ):
+        scoped_teams = [self.team.id] if access_level == "team" else []
+        scoped_organizations = [str(self.organization.id)] if access_level == "organization" else []
+        self._set_scope_split(["experiment:read"], [])
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token=f"existing_{access_level}_token",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="experiment:read",
+            scoped_teams=scoped_teams,
+            scoped_organizations=scoped_organizations,
+        )
+
+        url = f"{self.base_authorization_url}&scope=experiment:read&approval_prompt=auto"
+        if teams_param is not None and orgs_param is not None:
+            url += f"&scoped_teams={quote(teams_param)}&scoped_organizations={quote(orgs_param)}"
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        code = parse_qs(urlparse(response["Location"]).query)["code"][0]
+        grant = OAuthGrant.objects.get(code=code)
+        self.assertEqual(grant.scoped_teams, scoped_teams)
+        self.assertEqual(grant.scoped_organizations, scoped_organizations)
+
+        token_response = self.post("/oauth/token/", {**self.base_token_body, "code": code})
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        token_data = token_response.json()
+        self.assertEqual(token_data["scoped_teams"], scoped_teams)
+        self.assertEqual(token_data["scoped_organizations"], scoped_organizations)
+
     def test_authorize_get_passes_required_scopes_to_consent_page(self):
         self._set_scope_split(["experiment:read"], ["dashboard:read"])
         with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
