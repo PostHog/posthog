@@ -155,6 +155,21 @@ class TestPlanRollup(BaseTest):
         parent.refresh_from_db()
         assert parent.status == SignalReport.Status.RESOLVED
 
+    def test_a_plan_still_settles_when_a_shortcut_edge_reached_it_first(self):
+        grandparent = self._report("programme")
+        parent = self._report("plan")
+        child = self._report("step")
+        self._part_of(child, grandparent)
+        self._part_of(child, parent)
+        self._part_of(parent, grandparent)
+
+        self._close(child, SignalReport.Status.RESOLVED)
+
+        parent.refresh_from_db()
+        grandparent.refresh_from_db()
+        assert parent.status == SignalReport.Status.RESOLVED
+        assert grandparent.status == SignalReport.Status.RESOLVED
+
     def test_a_step_linked_into_a_plan_after_it_closed_still_closes_the_plan(self):
         parent = self._report("plan")
         child = self._report("step")
