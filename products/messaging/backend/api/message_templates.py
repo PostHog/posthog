@@ -22,6 +22,7 @@ from products.messaging.backend.api.design_validation import validate_design
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
+from products.notifications.backend.facade.api import publish_resource_edited
 
 logger = structlog.get_logger(__name__)
 
@@ -304,6 +305,27 @@ class MessageTemplatesViewSet(
             .order_by("-created_at")
         )
 
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        instance: MessageTemplate = serializer.save()
+        self._emit_resource_edited(instance)
+
+    def _emit_resource_edited(self, instance: MessageTemplate) -> None:
+        # Realtime "edited elsewhere" signal so an open editor can refresh instead of overwriting a write
+        # from another channel (UI/MCP/API). Fires for every channel; the frontend drops its own echo by
+        # comparing updated_at. Transient, so no inbox notification. The write is already committed when
+        # this runs, so a publish failure must not turn a saved template into an error response.
+        try:
+            publish_resource_edited(
+                team=self.team,
+                resource_type="MessageTemplate",
+                resource_id=str(instance.id),
+                updated_at=instance.updated_at.isoformat(),
+                actor_user_id=getattr(self.request.user, "id", None),
+                ac_resource_type=self.scope_object,
+            )
+        except Exception as e:
+            logger.warning("Failed to publish message template edited event", error=str(e))
+
     @extend_schema(request=DesignPatchSerializer, responses={200: MessageTemplateSerializer})
     @action(detail=True, methods=["PATCH"])
     def design(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -346,4 +368,5 @@ class MessageTemplatesViewSet(
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
+        self._emit_resource_edited(locked)
         return Response(self.get_serializer(locked).data)
