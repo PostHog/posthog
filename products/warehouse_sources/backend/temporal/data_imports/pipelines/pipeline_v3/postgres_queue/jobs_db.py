@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import json
 import time
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -803,6 +806,109 @@ class QueueDepth:
     serialized_batches: int
 
 
+# Idle sync connections kept per queue DB for the worker-thread lease checks. Sized to the loader's
+# group concurrency: every in-flight batch checks its lease a few times, and each check used to dial
+# a fresh connection.
+SYNC_POOL_MAX_IDLE = 16
+
+
+class _SyncConnectionPool:
+    """A small pool of autocommit connections for callers that run outside the event loop.
+
+    Connections are handed out LIFO so the warm ones stay in use and are checked for liveness on
+    the way out; one the server dropped while idle is closed instead of reused. Callers that hit an
+    error mid-query discard the connection through `discard`, since the pool cannot tell a broken
+    session from a healthy one until it fails.
+    """
+
+    def __init__(self, database_url: str, *, connect_timeout_seconds: int, max_idle: int = SYNC_POOL_MAX_IDLE) -> None:
+        self._database_url = database_url
+        self._connect_timeout_seconds = connect_timeout_seconds
+        self._max_idle = max_idle
+        self._lock = threading.Lock()
+        self._idle: list[psycopg.Connection[Any]] = []
+
+    def _checkout(self) -> psycopg.Connection[Any]:
+        while True:
+            with self._lock:
+                conn = self._idle.pop() if self._idle else None
+            if conn is None:
+                return psycopg.connect(
+                    self._database_url, autocommit=True, connect_timeout=self._connect_timeout_seconds
+                )
+            if not conn.closed and not conn.broken:
+                return conn
+            self._close_quietly(conn)
+
+    def _checkin(self, conn: psycopg.Connection[Any]) -> None:
+        if conn.closed or conn.broken:
+            self._close_quietly(conn)
+            return
+        with self._lock:
+            if len(self._idle) < self._max_idle:
+                self._idle.append(conn)
+                return
+        self._close_quietly(conn)
+
+    def discard(self, conn: psycopg.Connection[Any]) -> None:
+        """Take `conn` out of circulation: the caller saw it fail and nothing should reuse it."""
+        with self._lock:
+            if conn in self._idle:
+                self._idle.remove(conn)
+        self._close_quietly(conn)
+
+    @contextmanager
+    def connection(self) -> Iterator[psycopg.Connection[Any]]:
+        conn = self._checkout()
+        try:
+            yield conn
+        finally:
+            if not conn.closed:
+                self._checkin(conn)
+
+    @property
+    def idle_count(self) -> int:
+        with self._lock:
+            return len(self._idle)
+
+    @staticmethod
+    def _close_quietly(conn: psycopg.Connection[Any]) -> None:
+        with suppress(Exception):
+            conn.close()
+
+
+_SYNC_POOLS: dict[tuple[str, int], _SyncConnectionPool] = {}
+_SYNC_POOLS_LOCK = threading.Lock()
+
+
+def _sync_connection_pool(database_url: str, connect_timeout_seconds: int) -> _SyncConnectionPool:
+    key = (database_url, connect_timeout_seconds)
+    with _SYNC_POOLS_LOCK:
+        pool = _SYNC_POOLS.get(key)
+        if pool is None:
+            pool = _SyncConnectionPool(database_url, connect_timeout_seconds=connect_timeout_seconds)
+            _SYNC_POOLS[key] = pool
+        return pool
+
+
+def _lease_is_held(conn: psycopg.Connection[Any], *, team_id: int, schema_id: str, owner_token: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT EXISTS (
+                SELECT 1 FROM {LEASE_TABLE}
+                WHERE team_id = %(team_id)s
+                  AND schema_id = %(schema_id)s
+                  AND owner_token = %(owner)s
+                  AND expires_at > now()
+            )
+            """,
+            {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
+        )
+        row = cur.fetchone()
+        return bool(row and row[0])
+
+
 class BatchQueue:
     """
     Async interface to the Postgres batch queue tables. Each method runs
@@ -1228,24 +1334,23 @@ class BatchQueue:
         owner_token: str,
         connect_timeout_seconds: int = 10,
     ) -> bool:
-        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread
-        that can't share the group's async connection, so use a short-lived sync one."""
-        with psycopg.connect(database_url, autocommit=True, connect_timeout=connect_timeout_seconds) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT EXISTS (
-                        SELECT 1 FROM {LEASE_TABLE}
-                        WHERE team_id = %(team_id)s
-                          AND schema_id = %(schema_id)s
-                          AND owner_token = %(owner)s
-                          AND expires_at > now()
-                    )
-                    """,
-                    {"team_id": team_id, "schema_id": schema_id, "owner": owner_token},
-                )
-                row = cur.fetchone()
-                return bool(row and row[0])
+        """Sync counterpart of verify_advisory_lock: the Delta write runs in a worker thread that
+        can't share the group's async connection, so it borrows one from a small sync pool.
+
+        A connection the queue DB dropped while idle (a pooler cull, a failover) surfaces as an
+        OperationalError on first use; that connection is discarded and the query runs once more
+        on a fresh one, so a stale pool entry cannot read as a lost lease.
+        """
+        pool = _sync_connection_pool(database_url, connect_timeout_seconds)
+        for attempt in (1, 2):
+            with pool.connection() as conn:
+                try:
+                    return _lease_is_held(conn, team_id=team_id, schema_id=schema_id, owner_token=owner_token)
+                except psycopg.OperationalError:
+                    pool.discard(conn)
+                    if attempt == 2:
+                        raise
+        raise AssertionError("unreachable")
 
     @staticmethod
     async def get_stale_executing(

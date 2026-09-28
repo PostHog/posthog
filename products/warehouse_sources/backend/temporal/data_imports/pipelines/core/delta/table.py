@@ -13,6 +13,9 @@ from posthog.sync import database_sync_to_async_pool
 from products.data_warehouse.backend.facade.api import aget_s3_client, delta_proxy_storage_options, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
+    get_handle_cache,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
     is_transient_delta_maintenance_error,
@@ -161,6 +164,7 @@ class DeltaTableRef:
     _logger: FilteringBoundLogger
     _is_first_sync: bool
     _cached_table: deltalake.DeltaTable | None
+    _table_uri: str | None
 
     def __init__(
         self, resource_name: str, job: ExternalDataJob, logger: FilteringBoundLogger, is_first_sync: bool = False
@@ -170,6 +174,7 @@ class DeltaTableRef:
         self._logger = logger
         self._is_first_sync = is_first_sync
         self._cached_table = None
+        self._table_uri = None
 
     @property
     def is_first_sync(self) -> bool:
@@ -192,11 +197,14 @@ class DeltaTableRef:
 
     async def _get_delta_table_uri(self) -> str:
         folder_path = await database_sync_to_async_pool(self._job.folder_path)()
-        return build_delta_table_uri(folder_path, self._resource_name)
+        self._table_uri = build_delta_table_uri(folder_path, self._resource_name)
+        return self._table_uri
 
     async def get_table_uri(self) -> str:
         """Public accessor for the live Delta table S3 URI (used by the in-place repartitioner)."""
-        return await self._get_delta_table_uri()
+        uri = await self._get_delta_table_uri()
+        self._table_uri = uri
+        return uri
 
     def get_storage_options(self) -> dict[str, str]:
         """Public accessor for the delta-rs storage options (used by the in-place repartitioner)."""
@@ -254,8 +262,14 @@ class DeltaTableRef:
         return table
 
     def invalidate_cached_table(self) -> None:
-        """Drop the cached handle so the next `get_delta_table` re-reads the live Delta log."""
+        """Drop the cached handle so the next `get_delta_table` re-reads the live Delta log.
+
+        The process-wide deltalite handle for this table goes with it: a reset or a repartition swap
+        has replaced the table under the same URI, and that handle's snapshot describes the old one.
+        """
         self._cached_table = None
+        if self._table_uri is not None:
+            get_handle_cache().invalidate(self._table_uri)
 
     def pop_cached_table(self) -> deltalake.DeltaTable | None:
         """Release the cached handle without opening the table, for end-of-run memory cleanup."""
