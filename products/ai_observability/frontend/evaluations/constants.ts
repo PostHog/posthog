@@ -115,7 +115,7 @@ export function categoricalResultPasses(
     if (categories == null || !rule || !('categories' in rule)) {
         return null
     }
-    return categories.every((category) => rule.categories.includes(category))
+    return categories.length > 0 && categories.every((category) => rule.categories.includes(category))
 }
 
 export function categoricalEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {
@@ -124,7 +124,7 @@ export function categoricalEvaluationPassedHogQL(evaluation: Pick<EvaluationConf
         return 'false'
     }
     const categories = rule.categories.map(escapeHogQLString).join(', ')
-    return `hasAll([${categories}], ${EVALUATION_CATEGORIES_HOGQL})`
+    return `notEmpty(${EVALUATION_CATEGORIES_HOGQL}) AND hasAll([${categories}], ${EVALUATION_CATEGORIES_HOGQL})`
 }
 
 export const MAX_CATEGORICAL_OPTIONS = 100
@@ -173,5 +173,5 @@ export function categoricalEvaluationsPassedHogQL(
     const ids = rules.map(({ id }) => escapeHogQLString(id)).join(', ')
     const categories = rules.map(({ categories }) => `[${categories.map(escapeHogQLString).join(', ')}]`).join(', ')
     const indexes = rules.map((_, index) => index + 1).join(', ')
-    return `properties.$ai_evaluation_id IN (${ids}) AND hasAll(arrayElement([${categories}], transform(properties.$ai_evaluation_id, [${ids}], [${indexes}], 0)), ${EVALUATION_CATEGORIES_HOGQL})`
+    return `properties.$ai_evaluation_id IN (${ids}) AND notEmpty(${EVALUATION_CATEGORIES_HOGQL}) AND hasAll(arrayElement([${categories}], transform(properties.$ai_evaluation_id, [${ids}], [${indexes}], 0)), ${EVALUATION_CATEGORIES_HOGQL})`
 }

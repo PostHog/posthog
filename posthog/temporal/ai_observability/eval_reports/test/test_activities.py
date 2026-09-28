@@ -894,8 +894,8 @@ class TestEvaluationReportResultMetrics(ClickhouseTestMixin, BaseTest):
         )
         assert metrics is not None
         self.assertEqual(metrics.total_runs, 4)
-        self.assertEqual(metrics.result_counts, {"pass": 2, "fail": 1, "na": 1})
-        self.assertEqual(metrics.pass_rate, 66.67)
+        self.assertEqual(metrics.result_counts, {"pass": 1, "fail": 2, "na": 1})
+        self.assertEqual(metrics.pass_rate, 33.33)
         self.assertEqual(metrics.output_config, config)
 
     @parameterized.expand(

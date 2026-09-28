@@ -703,7 +703,7 @@ export const EvaluationsCreateBody = () => zod
                             categories: zod
                                 .array(zod.string())
                                 .describe(
-                                    'Passing category keys. Every returned category must be in this list; an empty result passes.'
+                                    'Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass.'
                                 ),
                         }),
                         zod.null(),
@@ -998,7 +998,7 @@ export const EvaluationsPartialUpdateBody = () => zod
                             categories: zod
                                 .array(zod.string())
                                 .describe(
-                                    'Passing category keys. Every returned category must be in this list; an empty result passes.'
+                                    'Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass.'
                                 ),
                         }),
                         zod.null(),
@@ -1241,7 +1241,7 @@ export const EvaluationsTestHogCreateBody = () => zod.object({
                         categories: zod
                             .array(zod.string())
                             .describe(
-                                'Passing category keys. Every returned category must be in this list; an empty result passes.'
+                                'Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass.'
                             ),
                     }),
                     zod.null(),

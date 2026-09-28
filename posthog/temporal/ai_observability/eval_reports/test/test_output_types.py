@@ -10,22 +10,34 @@ from posthog.temporal.ai_observability.eval_reports.output_types import (
 
 class TestOutcomeDefinitions(SimpleTestCase):
     @parameterized.expand(
-        [(["resolved"], "pass"), (["resolved", "incorrect"], "fail"), (["incorrect"], "fail"), ([], "pass")]
+        [
+            (["resolved"], ["resolved"], "pass"),
+            (["resolved", "incorrect"], ["resolved"], "fail"),
+            (["incorrect"], ["resolved"], "fail"),
+            ([], ["resolved"], "fail"),
+            ([], [], "fail"),
+            (["resolved"], [], "fail"),
+            ([], None, None),
+            (["resolved"], None, None),
+        ]
     )
-    def test_categorical_passing_categories(self, categories: list[str], outcome: str) -> None:
+    def test_categorical_passing_categories(
+        self, categories: list[str], passing_categories: list[str] | None, outcome: str | None
+    ) -> None:
         definition = get_outcome_definition(
             "categorical",
             output_config={
                 "options": [{"key": "resolved", "label": "Resolved"}, {"key": "incorrect", "label": "Incorrect"}],
                 "selection_mode": "multiple",
-                "passing_rule": {"categories": ["resolved"]},
+                "passing_rule": {"categories": passing_categories} if passing_categories is not None else None,
             },
         )
         self.assertEqual(definition.label_for(categories), outcome)
         self.assertEqual(definition.label_for(None, applicable=False), "na")
         self.assertIsNone(definition.label_for(None))
         self.assertIsNone(definition.label_for("resolved"))
-        self.assertEqual(definition.query_placeholders["passing_categories"].value, ["resolved"])
+        if passing_categories is not None:
+            self.assertEqual(definition.query_placeholders["passing_categories"].value, passing_categories)
 
     @parameterized.expand(
         [

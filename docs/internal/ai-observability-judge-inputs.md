@@ -85,7 +85,8 @@ Invalid model responses and unknown category keys from Hog skip the run.
 Wrong Hog return types follow the existing return-contract error path.
 
 An optional `passing_rule: {categories: [key]}` marks the passing categories.
-Every returned category must be marked as passing; `[]` passes, and N/A is excluded from pass rates.
+A result passes only when it contains at least one category and every returned category is marked as passing.
+With a rule, `[]` fails; N/A is excluded from pass rates.
 Without a rule, results stay ungraded and new reports are unavailable.
 Rule edits reclassify stored results, while each report retains its own configuration snapshot.
 

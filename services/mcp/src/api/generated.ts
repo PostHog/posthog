@@ -38414,7 +38414,7 @@ export namespace Schemas {
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
     } | {
-      /** Passing category keys. Every returned category must be in this list; an empty result passes. */
+      /** Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass. */
       categories: string[];
     } | null;
 
@@ -39021,7 +39021,7 @@ export namespace Schemas {
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
     } | {
-      /** Passing category keys. Every returned category must be in this list; an empty result passes. */
+      /** Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass. */
       categories: string[];
     } | null;
 
@@ -72839,7 +72839,7 @@ export namespace Schemas {
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
     } | {
-      /** Passing category keys. Every returned category must be in this list; an empty result passes. */
+      /** Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass. */
       categories: string[];
     } | null;
 
@@ -100067,7 +100067,7 @@ export namespace Schemas {
       /** Finite passing threshold within any configured score bounds. */
       threshold: number;
     } | {
-      /** Passing category keys. Every returned category must be in this list; an empty result passes. */
+      /** Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass. */
       categories: string[];
     } | null;
 

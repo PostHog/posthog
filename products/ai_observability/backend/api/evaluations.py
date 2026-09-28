@@ -256,7 +256,7 @@ class _EvaluationConfigField(serializers.JSONField):
                                 "type": "array",
                                 "uniqueItems": True,
                                 "items": {"type": "string"},
-                                "description": "Passing category keys. Every returned category must be in this list; an empty result passes.",
+                                "description": "Passing category keys. A result must contain at least one category, and every returned category must be in this list, to pass.",
                             },
                         },
                         "additionalProperties": False,

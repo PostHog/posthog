@@ -64,13 +64,16 @@ describe('EvalResultBadges', () => {
     })
 
     it.each([
-        [[], true, 'success', 'No categories'],
-        [['resolved'], true, 'success', 'Resolved'],
-        [['resolved', 'incorrect'], true, 'danger', 'Resolved, incorrect'],
-        [null, false, 'muted', 'N/A'],
+        [[], true, ['resolved'], 'danger', 'No categories'],
+        [['resolved'], true, ['resolved'], 'success', 'Resolved'],
+        [['resolved', 'incorrect'], true, ['resolved'], 'danger', 'Resolved, incorrect'],
+        [[], true, [], 'danger', 'No categories'],
+        [['resolved'], true, [], 'danger', 'Resolved'],
+        [[], true, null, 'none', 'No categories'],
+        [null, false, ['resolved'], 'muted', 'N/A'],
     ] as const)(
         'renders categorical results %s without confusing empty selections and N/A',
-        (categories, applicable, type, label) => {
+        (categories, applicable, passingCategories, type, label) => {
             expect(
                 getEvaluationResultDisplay(
                     makeRun({
@@ -80,7 +83,7 @@ describe('EvalResultBadges', () => {
                         applicable,
                     }),
                     {
-                        passingRule: { categories: ['resolved'] },
+                        passingRule: passingCategories ? { categories: [...passingCategories] } : null,
                         categoryOptions: [{ key: 'resolved', label: 'Resolved' }],
                     }
                 )

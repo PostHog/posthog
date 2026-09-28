@@ -124,7 +124,7 @@ def _categorical_definition(output_config: dict | None) -> EvaluationReportOutco
     graded = "properties.$ai_evaluation_applicable = 'true'"
     passed = failed = "false"
     if config is not None and config.passing_rule is not None:
-        condition = f"hasAll({{passing_categories}}, {categories})"
+        condition = f"(notEmpty({categories}) AND hasAll({{passing_categories}}, {categories}))"
         passed = f"{condition} AND {graded}"
         failed = f"NOT {condition} AND {graded}"
     return EvaluationReportOutcomeDefinition(
