@@ -127,7 +127,10 @@ import {
   RunBudgetGuard,
 } from "./session/budget-guard";
 import { getAvailableSlashCommands } from "./session/commands";
-import { SessionInitialization } from "./session/initialization";
+import {
+  type CliOutputSummary,
+  SessionInitialization,
+} from "./session/initialization";
 import { getSessionJsonlPath } from "./session/jsonl-hydration";
 import { parseMcpServers } from "./session/mcp-config";
 import {
@@ -3270,15 +3273,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
     if (isResume) {
       const resumeStartedAt = Date.now();
+      let cliOutput: CliOutputSummary | undefined;
       // Resume must block on initialization to validate the session is still alive.
       // For stale sessions this throws (e.g. "No conversation found").
       try {
         const result = await initialization.wait(q.initializationResult());
         if (result.result === "timeout") {
+          cliOutput = result.cliOutput;
           throw new RequestError(
             -32603,
             `Session ${result.phase === "setup_hooks" ? "setup hooks" : forkSession ? "fork" : "resumption"} timed out after ${result.timeoutMs}ms`,
-            { sessionId, taskId, taskRunId: meta?.taskRunId },
+            { sessionId, taskId, taskRunId: meta?.taskRunId, cliOutput },
           );
         }
         session.knownSlashCommands = collectKnownSlashCommands(
@@ -3310,6 +3315,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             taskRunId: meta?.taskRunId,
             initializationPhase: initialization.phase,
             timeoutMs: initialization.timeoutMs,
+            cliOutput: cliOutput ?? null,
             initMs: Date.now() - resumeStartedAt,
             transcriptBytes,
             requestedModel: requestedModel ?? null,
@@ -3362,15 +3368,17 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (initPromise) {
       let initializationPhase = initialization.phase;
       let timeoutMs = SESSION_VALIDATION_TIMEOUT_MS;
+      let cliOutput: CliOutputSummary | undefined;
       try {
         const initResult = await initPromise;
         if (initResult.result === "timeout") {
           initializationPhase = initResult.phase;
           timeoutMs = initResult.timeoutMs;
+          cliOutput = initResult.cliOutput;
           throw new RequestError(
             -32603,
             `Session ${initializationPhase === "setup_hooks" ? "setup hooks" : "initialization"} timed out after ${timeoutMs}ms`,
-            { sessionId, taskId, taskRunId: meta?.taskRunId },
+            { sessionId, taskId, taskRunId: meta?.taskRunId, cliOutput },
           );
         }
         session.knownSlashCommands = collectKnownSlashCommands(
@@ -3396,6 +3404,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskRunId: meta?.taskRunId,
           initializationPhase,
           timeoutMs,
+          cliOutput: cliOutput ?? null,
           modelConfigMs,
           initMs,
           requestedModel: requestedModel ?? null,

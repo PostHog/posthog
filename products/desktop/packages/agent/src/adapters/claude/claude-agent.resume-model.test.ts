@@ -539,13 +539,23 @@ describe("ClaudeAcpAgent session creation", () => {
         });
         await vi.advanceTimersByTimeAsync(30_001);
 
+        const silentCli = {
+          lines: 0,
+          hasPartialLine: false,
+          msSinceLastLine: null,
+          lastMessageType: null,
+        };
         await expect(promise).rejects.toBeInstanceOf(RequestError);
+        await expect(promise).rejects.toMatchObject({
+          data: expect.objectContaining({ cliOutput: silentCli }),
+        });
         expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
         expect(errorSpy).toHaveBeenCalledWith(
           log,
           expect.objectContaining({
             initializationPhase: "sdk_initialization",
             timeoutMs: 30_000,
+            cliOutput: silentCli,
             initMs: expect.any(Number),
             requestedModel: "claude-opus-5",
             gatewayConfigured: false,
