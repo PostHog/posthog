@@ -27,8 +27,9 @@ class OrganizationFeatureFlagsConfig(models.Model):
     )
 
     class Meta:
-        # Raw SQL writers bypass the choices check, so the database rejects any mode that
-        # FlagEvaluationsMode does not define. A new mode needs a migration that widens this constraint.
+        # Django checks choices only in full_clean(). ORM saves, QuerySet.update(), and raw SQL writes
+        # skip full_clean(). This CHECK makes the database reject any mode that FlagEvaluationsMode
+        # does not define. A new mode needs a migration that widens this constraint.
         constraints = [
             models.CheckConstraint(
                 name="org_ff_config_flag_evaluations_mode_valid",
