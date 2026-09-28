@@ -375,111 +375,45 @@ def _json_subcolumn_access(
 
 
 def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
-    # Inspect the per-row variant only to choose its string format. Every branch casts the
-    # whole Dynamic value, so mixed numeric variants are never filtered by a typed projection.
-    dynamic_type = ast.Call(
-        name="dynamicType",
-        args=[ast.Call(name="accurateCast", args=[clone_expr(value), _sentinel("Dynamic")])],
-        type=ast.StringType(nullable=False),
-    )
-    # ClickHouse infers DateTime for ISO strings at ingest, and toString renders it as a wall clock in the
-    # session timezone with no zone marker. Take the wall clock from a UTC-typed cast instead, keep the
-    # fractional digits of the plain rendering (they don't depend on the zone), and mark the text 'Z'.
-    utc_wall_clock = ast.Call(
-        name="substring",
-        args=[
-            ast.Call(
-                name="toString",
-                args=[
-                    ast.Call(
-                        name="accurateCastOrNull",
-                        args=[clone_expr(value), _sentinel("DateTime64(9, 'UTC')")],
-                    )
-                ],
-                type=ast.StringType(nullable=True),
-            ),
-            ast.Constant(value=1),
-            ast.Constant(value=19),
-        ],
-        type=ast.StringType(nullable=True),
-    )
-    fractional_seconds = ast.Call(
-        name="substring",
-        args=[
-            ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-            ast.Constant(value=20),
-            ast.Constant(value=10),  # '.' plus at most nine digits
-        ],
-        type=ast.StringType(nullable=False),
-    )
-    datetime_string = ast.Call(
-        name="concat",
-        args=[
-            ast.Call(
-                name="replaceOne",
-                args=[utc_wall_clock, _sentinel(" "), _sentinel("T")],
-                type=ast.StringType(nullable=True),
-            ),
-            fractional_seconds,
-            _sentinel("Z"),
-        ],
-        type=ast.StringType(nullable=False),
-    )
-    datetime_expr: ast.Expr
-    if as_json:
-        datetime_expr = ast.Call(
-            name="concat",
-            args=[_sentinel('"'), datetime_string, _sentinel('"')],
-            type=ast.StringType(nullable=False),
-        )
-    else:
-        datetime_expr = datetime_string
-
-    json_value = ast.Call(
-        name="toJSONString",
-        args=[clone_expr(value)],
-        type=ast.StringType(nullable=False),
-    )
     json_value = ast.Call(
         name="nullIf",
-        args=[ast.Call(name="nullIf", args=[json_value, _sentinel("[]")]), _sentinel("{}")],
+        args=[
+            ast.Call(
+                name="nullIf",
+                args=[
+                    ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
+                    _sentinel("[]"),
+                ],
+            ),
+            _sentinel("{}"),
+        ],
         type=ast.StringType(nullable=True),
     )
-    scalar_expr: ast.Expr = json_value
-    if not as_json:
-        scalar_expr = ast.Call(
-            name="if",
+    if as_json:
+        return json_value
+
+    # Arrays and maps read as JSON text, like the raw property blob. Their plain text starts with '[' or '{',
+    # which a string can too, but a string's JSON form starts with '"'. toJSONString runs only for those rows.
+    def starts_with_container(expr: ast.Expr) -> ast.Expr:
+        return ast.Call(
+            name="in",
             args=[
-                ast.Or(
-                    exprs=[
-                        ast.Call(
-                            name="startsWith",
-                            args=[clone_expr(dynamic_type), _sentinel(family)],
-                            type=ast.BooleanType(nullable=False),
-                        )
-                        for family in ("Array", "Map", "Tuple")
-                    ]
-                ),
-                json_value,
-                ast.Call(
-                    name="toString",
-                    args=[clone_expr(value)],
-                    type=ast.StringType(nullable=False),
-                ),
+                ast.Call(name="substring", args=[expr, ast.Constant(value=1), ast.Constant(value=1)]),
+                ast.Tuple(exprs=[_sentinel("["), _sentinel("{")]),
             ],
-            type=ast.StringType(nullable=False),
+            type=ast.BooleanType(nullable=False),
         )
 
+    plain = ast.Call(name="toString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    json_text = ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
     return ast.Call(
         name="if",
         args=[
-            ast.Call(
-                name="startsWith", args=[dynamic_type, _sentinel("DateTime")], type=ast.BooleanType(nullable=False)
-            ),
-            datetime_expr,
-            scalar_expr,
+            ast.And(exprs=[starts_with_container(clone_expr(plain)), starts_with_container(json_text)]),
+            json_value,
+            plain,
         ],
-        type=ast.StringType(nullable=False),
+        type=ast.StringType(nullable=True),
     )
 
 

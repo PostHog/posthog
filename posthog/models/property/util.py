@@ -80,20 +80,14 @@ def get_property_string_expr(
 def _json_events_property_expr(property_name: PropertyName, var: str, column_ref: str) -> tuple[str, bool]:
     scalar_value = _json_events_subcolumn_expr(property_name, var, column_ref)
     object_value = f"JSONStripEmptyStringsAndNulls(toJSONString({_json_events_subcolumn_expr(property_name, var, column_ref, sub_object=True)}))"
-    # dynamicType only chooses scalar versus container formatting; both branches cast the
-    # whole Dynamic value rather than selecting one physical variant.
-    dynamic_type = f"dynamicType(accurateCast({scalar_value}, 'Dynamic'))"
-    is_container = " OR ".join(f"startsWith({dynamic_type}, '{family}')" for family in ("Array", "Map", "Tuple"))
     scalar_string = f"toString({scalar_value})"
-    # toString renders an inferred DateTime as a session-timezone wall clock with no zone marker, so take the
-    # wall clock from a UTC-typed cast, keep the zone-independent fractional digits, and mark it 'Z' (see the
-    # HogQL resolver).
-    utc_wall_clock = f"substring(toString(accurateCastOrNull({scalar_value}, 'DateTime64(9, \\'UTC\\')')), 1, 19)"
-    utc_datetime = f"concat(replaceOne({utc_wall_clock}, ' ', 'T'), substring({scalar_string}, 20, 10), 'Z')"
-    formatted_scalar = f"if(startsWith({dynamic_type}, 'DateTime'), {utc_datetime}, {scalar_string})"
+    # Arrays and maps read as JSON text. Their plain text starts with '[' or '{', which a string can too, but a
+    # string's JSON form starts with '"' (see the HogQL resolver).
+    scalar_json = f"toJSONString({scalar_value})"
+    is_container = f"substring({scalar_string}, 1, 1) IN ('[', '{{') AND substring({scalar_json}, 1, 1) IN ('[', '{{')"
     raw_value = (
         f"if({object_value} != '{{}}', {object_value}, "
-        f"if({is_container}, nullIf(nullIf(toJSONString({scalar_value}), '[]'), '{{}}'), {formatted_scalar}))"
+        f"if({is_container}, nullIf(nullIf({scalar_json}, '[]'), '{{}}'), {scalar_string}))"
     )
     return f"ifNull({raw_value}, '')", False
 

@@ -2519,9 +2519,9 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
     @parameterized.expand(
         [
-            # The native table infers DateTime for these values at ingest, and a non-UTC ClickHouse
-            # session renders a DateTime as local wall clock. Read back as UTC, u1 stays 10:00Z and
-            # u2 stays 18:00Z; read back as Los Angeles wall clock marked Z, both would fall before 14:00Z.
+            # A non-UTC ClickHouse session must not shift the stored value. Read back as UTC, u1 stays
+            # 10:00Z and u2 stays 18:00Z; read back as Los Angeles wall clock marked Z, both would fall
+            # before 14:00Z.
             ("la_session_is_date_before_iso_z", "2026-03-19T14:00:00Z", "is_date_before", 1),
             ("la_session_is_date_after_iso_z", "2026-03-19T14:00:00Z", "is_date_after", 1),
         ]

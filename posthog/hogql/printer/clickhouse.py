@@ -115,20 +115,12 @@ INLINE_SENTINEL_LITERALS = frozenset(
         "false",
         '^"|"$',
         "{}",
-        "DateTime",
-        "DateTime64(9, 'UTC')",
-        "Dynamic",
         "Float64",
         "Int64",
         "Array(String)",
         "[]",
-        "Array",
-        "Map",
-        "Tuple",
-        " ",
-        "T",
-        "Z",
-        '"',
+        "[",
+        "{",
     }
 )
 
