@@ -263,7 +263,7 @@ export function SessionRecordingCollections(): JSX.Element {
                     </div>
                 </div>
 
-                {!playlistsLoading && playlists.results.length < 1 ? (
+                {!playlistsLoading && playlists.count < 1 ? (
                     <SessionRecordingCollectionsEmptyState />
                 ) : (
                     <LemonTable
