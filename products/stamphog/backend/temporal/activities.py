@@ -928,6 +928,14 @@ def refuse_on_pre_gates(input: StamphogReviewInput) -> dict:
         return {"refused": False, "skipped": "error"}
 
 
+def _save_step_timings(run: ReviewRun, key: str, timings_ms: dict[str, int]) -> None:
+    """Store step timings. Best effort: a failed write must not fail a review that already ran."""
+    try:
+        _merge_run_output(run, {key: timings_ms})
+    except Exception:
+        activity.logger.exception(f"Failed to store {key} for run {run.id}")
+
+
 def _begin_sandbox_phase(input: StamphogReviewInput) -> ReviewRun | None:
     """Load the run and flip it to REVIEWING. None when the run is superseded or already terminal."""
     run = _load_run(input)
@@ -1144,7 +1152,7 @@ def start_review_sandbox(input: StamphogReviewInput) -> dict:
     try:
         sandbox = _create_review_sandbox(run, gateway, token, timer, deadline)
     finally:
-        _merge_run_output(run, {"sandbox_start_timings_ms": timer.timings_ms})
+        _save_step_timings(run, "sandbox_start_timings_ms", timer.timings_ms)
     return {"sandbox_id": sandbox.id}
 
 
@@ -1171,7 +1179,7 @@ def checkout_review_sandbox(input: ReviewSandboxInput) -> dict:
         fetch_head_ms = ((run.output or {}).get("sandbox_start_timings_ms") or {}).get("fetch_head")
         if isinstance(fetch_head_ms, int) and "checkout" in steps:
             steps["clone"] = fetch_head_ms + steps["checkout"]
-        _merge_run_output(run, {"checkout_timings_ms": steps})
+        _save_step_timings(run, "checkout_timings_ms", steps)
     return {"merge_base_sha": merge_base_sha}
 
 
@@ -1201,7 +1209,7 @@ def review_in_sandbox(input: ReviewSandboxInput) -> dict:
                 # to be persisted and posted.
                 with timer.step("destroy_dispatch"):
                     _destroy_sandbox_in_background(sandbox, str(run.id))
-                _merge_run_output(run, {"timings_ms": timer.timings_ms})
+                _save_step_timings(run, "timings_ms", timer.timings_ms)
                 activity.logger.info(f"Sandbox step timings for run {run.id}: {timer.timings_ms}")
         except Exception as exc:
             # Give the type only. Every step in this phase touches the sandbox, and anyone with
@@ -1273,7 +1281,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
             raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
         finally:
-            _merge_run_output(run, {"timings_ms": timer.timings_ms})
+            _save_step_timings(run, "timings_ms", timer.timings_ms)
             activity.logger.info(f"Sandbox step timings for run {run.id}: {timer.timings_ms}")
     finally:
         _release_reviewer_token(gateway, gateway_token)
