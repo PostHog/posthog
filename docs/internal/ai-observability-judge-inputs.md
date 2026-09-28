@@ -89,7 +89,7 @@ With passing categories selected, a result passes only when it contains at least
 Single selection requires at least one passing category when a rule is enabled.
 Multiple selection allows an empty passing-categories list; only `[]` passes that rule.
 N/A and skipped runs are excluded from pass rates.
-Skipped runs display as "Skipped" in run details and text representations, even when N/A is disabled.
+Run details, text representations, and report-agent generation details distinguish skipped runs from N/A, even when N/A is disabled.
 Without a rule, results stay ungraded and new reports are unavailable.
 Rule edits reclassify stored results, while each report retains its own configuration snapshot.
 

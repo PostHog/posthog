@@ -857,7 +857,7 @@ def _label_generation_evals(
         entry = {
             "evaluation_id": evaluation_id,
             "output_type": output_type,
-            "outcome": definition.label_for(raw_result, row[6]),
+            "outcome": "skipped" if row[9] in (True, "true") else definition.label_for(raw_result, row[6]),
             "reasoning": row[5] or "",
         }
         if output_type in ("sentiment", "numeric"):
@@ -969,7 +969,8 @@ def get_generation_detail(
             properties.$ai_evaluation_reasoning as reasoning,
             properties.$ai_evaluation_applicable as applicable,
             toFloat(properties.$ai_evaluation_numeric_result) as numeric_score,
-            JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)') as categories
+            JSONExtract(ifNull(properties.$ai_evaluation_categorical_result, '[]'), 'Array(String)') as categories,
+            properties.$ai_evaluation_skipped as skipped
         FROM events
         WHERE event = '$ai_evaluation'
             AND properties.$ai_target_event_id = {generation_id}

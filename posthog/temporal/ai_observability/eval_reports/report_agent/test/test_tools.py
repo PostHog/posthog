@@ -1402,7 +1402,9 @@ class TestToolsCoordinate(SimpleTestCase):
 
 class TestLabelGenerationEvals(SimpleTestCase):
     def test_numeric_evaluations_use_their_own_rule_and_keep_unrated_scores(self):
-        rows = [[name, "numeric", None, None, None, "reason", True, 7.5] for name in ["high", "low", "unrated"]]
+        rows = [
+            [name, "numeric", None, None, None, "reason", True, 7.5, None, None] for name in ["high", "low", "unrated"]
+        ]
         configs = {
             "high": {"passing_rule": {"operator": "gte", "threshold": 7}},
             "low": {"passing_rule": {"operator": "lte", "threshold": 7}},
@@ -1411,12 +1413,43 @@ class TestLabelGenerationEvals(SimpleTestCase):
         self.assertEqual([row["outcome"] for row in labeled], ["pass", "fail", None])
         self.assertEqual([row["score"] for row in labeled], [7.5, 7.5, 7.5])
 
-    # (eval_id, result_type, result, sentiment_label, sentiment_score, reasoning, applicable)
+    # (eval_id, result_type, result, sentiment_label, sentiment_score, reasoning, applicable, numeric_score, categories, skipped)
     ROWS: list[list[object]] = [
-        ["detector-eval", "boolean", True, None, None, "struggled", None],
-        ["quality-eval", "boolean", True, None, None, "accurate", None],
-        ["sentiment-eval", "sentiment", None, "negative", 0.9, "", None],
+        ["detector-eval", "boolean", True, None, None, "struggled", None, None, None, None],
+        ["quality-eval", "boolean", True, None, None, "accurate", None, None, None, None],
+        ["sentiment-eval", "sentiment", None, "negative", 0.9, "", None, None, None, None],
     ]
+
+    @parameterized.expand(
+        [
+            (True, False, "skipped"),
+            ("true", "false", "skipped"),
+            (1, False, "skipped"),
+            (False, False, "na"),
+            ("false", "false", "na"),
+            (None, False, "na"),
+            ("false", True, "pass"),
+            (None, True, "pass"),
+        ]
+    )
+    def test_categorical_skips_are_distinct_from_na(
+        self, skipped: bool | str | int | None, applicable: bool | str, expected_outcome: str
+    ) -> None:
+        categories = ["resolved"] if applicable is True else []
+        rows = [["categorical-eval", "categorical", None, None, None, "reason", applicable, None, categories, skipped]]
+        configs = {
+            "categorical-eval": {
+                "allows_na": False,
+                "options": [{"key": "resolved", "label": "Resolved"}],
+                "passing_rule": {"categories": ["resolved"]},
+            }
+        }
+
+        labeled = _label_generation_evals(rows, set(), configs)
+
+        self.assertEqual(labeled[0]["outcome"], expected_outcome)
+        self.assertEqual(labeled[0]["reasoning"], "reason")
+        self.assertEqual(labeled[0]["categories"], categories)
 
     def test_each_evaluation_is_labeled_by_its_own_polarity(self):
         labeled = _label_generation_evals(self.ROWS, {"detector-eval"})
