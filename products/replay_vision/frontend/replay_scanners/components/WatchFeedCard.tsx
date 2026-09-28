@@ -278,7 +278,10 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                         </span>
                     )}
                 </button>
-                {!observation.viewed && <UnviewedObservationTag className="absolute top-1 left-1 z-10" />}
+                {/* Sits above the button, so it lets clicks through to open the clip. */}
+                {!observation.viewed && (
+                    <UnviewedObservationTag className="absolute top-1 left-1 z-10 pointer-events-none" />
+                )}
             </div>
             <div className="flex-1 min-w-0 flex flex-col gap-1.5">
                 {/* Stretched to cover the card: clicking anywhere opens the observation with the
@@ -290,7 +293,11 @@ export function WatchFeedCard({ item, position }: WatchFeedCardProps): JSX.Eleme
                     className="text-default after:absolute after:inset-0 after:content-['']"
                     data-attr="vision-watch-feed-card-body"
                 >
-                    <h3 className="text-sm font-semibold m-0 line-clamp-2">{headline?.title ?? scannerName}</h3>
+                    <h3 className="text-sm font-semibold m-0 line-clamp-2">
+                        {/* The tag hides with the thumbnail on narrow cards, so screen readers get it here. */}
+                        {!observation.viewed && <span className="sr-only">New: </span>}
+                        {headline?.title ?? scannerName}
+                    </h3>
                 </Link>
                 <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
                     {person &&
