@@ -47,6 +47,9 @@ tools:
     ai-observability-offline-experiments-list:
         operation: ai_observability_offline_experiments_list
         enabled: false
+    ai-observability-offline-experiments-result-cells-retrieve:
+        operation: ai_observability_offline_experiments_result_cells_retrieve
+        enabled: false
     ai-observability-offline-experiments-results-payload-retrieve:
         operation: ai_observability_offline_experiments_results_payload_retrieve
         enabled: false
