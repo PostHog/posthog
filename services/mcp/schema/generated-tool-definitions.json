@@ -7180,7 +7180,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur. Optional `key_id` scopes to a key's reachable deployments (mainly azure_openai) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
+        "description": "List provider+model combinations supported for llm_judge. Call it with no arguments to get every supported provider and its models in one response; each model carries the `provider` to pair it with. Pass `provider` to narrow to one of these lowercase values: openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax, zeabur, openai_compatible. Optional `key_id` scopes to a key's reachable deployments or models (mainly azure_openai and openai_compatible) and implies that key's provider. The `providers` list in the response flags providers whose models only appear once you pass `key_id` for one of the team's keys; those return no models otherwise. Call this before creating an llm_judge eval to pick a valid combo, and prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -8178,7 +8178,10 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["workflows-create"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\"."
     },
     "loops-create-prepare": {
         "description": "Step 1 of 2 for create loop. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Create a new loop: a named, cloud-executed agent automation that runs on a schedule, a GitHub event, or an authenticated API call. Set `instructions` (the prompt delivered to the agent on every run), `runtime_adapter`/`model`/`reasoning_effort`, `repositories` (at most 1, may be empty for a connector-only loop), `visibility` (`personal` or `team`), `behaviors` (PR creation, CI watch, auto-fix) and `triggers`.",
@@ -8193,7 +8196,10 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["workflows-create"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\"."
     },
     "loops-destroy": {
         "description": "Soft-delete a loop and pause every trigger's schedule so it stops firing. Only the loop owner or a project admin can delete a loop.",
@@ -8208,7 +8214,10 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["workflows-archive"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\"."
     },
     "loops-list": {
         "description": "List loops visible to the current user in the project: personal loops the user owns plus every team-visible loop. Returns loop config, trigger summaries, and run bookkeeping (`last_run_at`, `last_run_status`, `consecutive_failures`).",
@@ -8223,7 +8232,10 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["workflows-list"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\"."
     },
     "loops-partial-update": {
         "description": "Update an existing loop's config. On a team loop, identity-bearing fields (`instructions`, `repositories`, `connectors`, `behaviors`, `triggers`) are editable only by the current owner: editing them as another member takes ownership and re-validates repositories and connectors against that member's own access. Editing a loop never affects its in-flight or queued runs; every run snapshots its config at fire time.",
@@ -8238,7 +8250,10 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["workflows-patch-graph", "workflows-update"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\"."
     },
     "loops-preview-create": {
         "description": "Dry-run a loop: render the assembled instructions and trigger context for a sample payload (or a synthetic schedule fire when omitted) without creating a task, run, or any other side effect. Use it to check a loop's prompt before enabling it.",
@@ -8253,7 +8268,10 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["workflows-test-run"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\"."
     },
     "loops-retrieve": {
         "description": "Get a specific loop by ID, including its full config (instructions, model, repositories, triggers, behaviors, connectors, notifications) and run bookkeeping.",
@@ -8268,7 +8286,10 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["workflows-get"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\"."
     },
     "loops-run-create": {
         "description": "Manually fire a loop right now, outside its configured triggers. Creates a fresh task run using the loop's current config snapshot and returns it. Subject to the same usage-gate, overlap policy and rate limits as trigger-fired runs.",
@@ -8283,7 +8304,10 @@
             "openWorldHint": true,
             "readOnlyHint": false
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["workflows-test-run"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\". A test run steps one node at a time and mocks outbound calls, so it checks the graph and creates no task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger."
     },
     "loops-runs-retrieve": {
         "description": "List a loop's run history, newest first, cursor-paginated. Each entry carries the run's status, branch, error message and output (including any PR URL), so an agent can check whether a loop's runs succeeded and what they produced. Set status=failed to find failure records without reading canvas state. Keep the status filter unchanged when following next_cursor. Use these records and the loop's last_run_status, last_error, and consecutive_failures for current health; an enabled schedule alone does not show successful work.",
@@ -8298,7 +8322,10 @@
             "openWorldHint": true,
             "readOnlyHint": true
         },
-        "feature_flag": "loops"
+        "feature_flag": "loops",
+        "hidden_when_flag_on": "loops-hog-flows",
+        "superseded_by": ["tasks-list", "tasks-runs-retrieve", "workflows-list-invocations"],
+        "redirect_hint": "Loops in this project run on workflows: read the building-loops skill, then use the workflows tools with origin_product \"loops\". For run history, call tasks-list with the hog_flow_id of the loop and archived set to all: it lists the tasks the loop created, newest first, each with the status and error of its latest run. Then call tasks-runs-retrieve on a run for its branch and output, including any PR URL. workflows-list-invocations carries the engine outcome only, with no task output."
     },
     "managed-migrations-support-get": {
         "description": "Get one batch import (managed migration) job by id, from any PostHog team, including the raw worker `state` and `import_config` blobs. PostHog staff only: the backend requires a staff user AND a personal API key explicitly carrying the `batch_import_support:read` scope (a full-access `*` key is rejected; OAuth sign-in can never grant it).\n\nAdds to the list fields:\n\n- `state`: the worker-owned progress blob, `{\"parts\": [{\"key\", \"current_offset\", \"total_size\"}]}`. A part is done when `current_offset >= total_size`; parts are processed in order, so the first unfinished part is the one in flight. `current_offset` is a byte offset into the DECOMPRESSED part - only meaningful against the exact byte stream it was measured on.\n- `import_config`: the job's source / data format / sink configuration. It references credentials by secret key NAME only; secret values live in an encrypted column that is never returned by any API.\n- `created_by_email`: who started the migration, when known.\n\nTroubleshooting reminders (same semantics as the list tool): `waiting_to_start` = running with no worker lease yet; `lease_expired: true` on a running job = the worker died or the job is about to be re-claimed; a `paused` job keeps its lease and resuming (a Django admin action - this API is read-only) must clear it; `paused` with an invalid-JSON parse error at the resume point usually means the source bytes changed under the committed offset and the in-flight part needs a reset to offset 0 via Django admin's \"Resume + re-import in-flight part\".",
@@ -9410,7 +9437,7 @@
         "system_prompt_hint": "Error issue details and impact (error-tracking category)"
     },
     "query-error-tracking-issue-events": {
-        "description": "Fetch sampled `$exception` events for one Error tracking issue.\n\nUse this when the user asks for concrete examples, stack traces, code variables, affected URLs, browser/OS/library context, release details, diagnostics, or Session replay links for a specific issue.\n\nReturns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_level`, `$exception_handled`, `$session_id`, OpenTelemetry and AI trace/span IDs, `$lib`, browser/OS fields, and `$current_url`.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for sampled events. Defaults to last 7 days.\n- `searchQuery`: search exception types, values, and current URL.\n- `filterGroup`: advanced flat AND property filters applied to sampled events.\n- `include`: context groups to return. Defaults to compact exception, environment, navigation, and correlation context. Add `stacktrace`, `code_variables`, `release`, or `diagnostics` only when needed. `code_variables` implies stack frames and may contain SDK-masked sensitive values.\n- `onlyAppFrames`: defaults to true to reduce vendor-frame noise.\n- `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.\n\n# Session recordings\n\nWhen `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.",
+        "description": "Fetch sampled `$exception` events for one Error tracking issue.\n\nUse this when the user asks for concrete examples, stack traces, code variables, affected URLs, browser/OS/library context, release details, diagnostics, or Session replay links for a specific issue.\n\nReturns sampled events with plural exception fields (`$exception_types`, `$exception_values`), normalized `$exception_list`, `$exception_fingerprint`, `$exception_level`, `$exception_handled`, `$session_id`, OpenTelemetry and AI trace/span IDs, `$lib`, browser/OS fields, and `$current_url`.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for sampled events. Defaults to last 7 days.\n- `searchQuery`: search exception types, values, and current URL.\n- `filterGroup`: advanced flat AND property filters applied to sampled events.\n- `include`: context groups to return. Defaults to compact exception, environment, navigation, and correlation context. Add `stacktrace`, `code_variables`, `release`, or `diagnostics` only when needed. `code_variables` implies stack frames and may contain SDK-masked sensitive values.\n- `onlyAppFrames`: defaults to true to reduce vendor-frame noise.\n- `limit`: defaults to 1 and maxes at 20. Keep low unless the user asks for multiple examples.\n\n# Stack traces\n\n- A stack trace keeps at most the 50 frames closest to the error. `frames_omitted` gives the number of older frames that were left out.\n- When a stack trace is the same as one returned earlier on the page, its `stacktrace` is `{\"same_as_event\": \"<uuid>\", \"same_as_exception\": <index>}`. Read the frames from that event, at that index of its `$exception_list`. The event can be the same event, when two of its exceptions share a stack.\n\n# Session recordings\n\nWhen `$session_id` is present and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids` to fetch matching recordings. Use multiple `$session_id` values in one call when available.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Query error tracking issue events",
@@ -9425,7 +9452,7 @@
         "system_prompt_hint": "Error event samples, stack traces, code variables, and session IDs (error-tracking category)"
     },
     "query-error-tracking-issues-list": {
-        "description": "List and filter Error tracking issues. Returns compact issue rows with aggregate impact counts (`occurrences`, `users`, `sessions`) and optional volume buckets.\n\nUse this first when the user asks which errors are happening, which errors are most common, or wants to narrow issues by status, severity, release, library, fingerprint, URL, user, person, or properties.\n\nDefaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, and compact aggregate counts.\n\nFor all-time issue counts by status or severity, query `system.error_tracking_issues` with `posthog:execute-sql`. The table follows the connected user's Error tracking access and only returns issues from the current project. This list tool only includes issues observed during `dateRange`.\n\nBe minimalist. Only add filters needed to answer the user’s question. Do not add \"is set\" filters unless the user explicitly asks for them.\n\n# Common filters\n\n- `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.\n- `searchQuery`: free-text search for exception names, values, stack frames, and email text.\n- `library`: exact `$lib` match, for example `posthog-js`.\n- `release`: exact release ID, release version, or git commit ID captured in `$exception_releases`. This intentionally does not match project name, branch, or timestamp fragments.\n- `fingerprint`: exact `$exception_fingerprint` match.\n- `url`: substring match on `$current_url`.\n- `personId`: exact PostHog person UUID.\n- `user`: user/email text search.\n- `filePath`: stack-frame file/source text search.\n- `filterGroup`: advanced flat AND property filters. Prefer typed fields above when they fit. For severity, use type `error_tracking_issue`, key `severity`, and `exact`, `is_set`, or `is_not_set`.\n\nUse `dateRange` for time, not property filters. Omit `date_to` for now.\n\n# Next steps\n\n- Use `query-error-tracking-issue` with `issueId` to inspect one issue.\n- Use `query-error-tracking-issue-events` with `issueId` to fetch sampled exception events, stack traces, URLs, and `$session_id` values.\n- If the user asks what people were doing before the error, use `$session_id` values from issue events with `query-session-recordings-list` and its `session_ids` parameter.",
+        "description": "List and filter Error tracking issues. Returns compact issue rows with aggregate impact counts (`occurrences`, `users`, `sessions`) and optional volume buckets.\n\nUse this first when the user asks which errors are happening, which errors are most common, or wants to narrow issues by status, severity, release, library, fingerprint, URL, user, person, or properties.\n\nDefaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, 10 rows per page, and compact aggregate counts. Each row carries a short `description` preview. Use `query-error-tracking-issue` for the full description.\n\nKeep `limit` small. When `hasMore` is true and you need more rows, fetch the next page with `offset` set to `nextOffset`. Set `volumeResolution` only when the user asks for volume over time.\n\nFor all-time issue counts by status or severity, query `system.error_tracking_issues` with `posthog:execute-sql`. The table follows the connected user's Error tracking access and only returns issues from the current project. This list tool only includes issues observed during `dateRange`.\n\nBe minimalist. Only add filters needed to answer the user’s question. Do not add \"is set\" filters unless the user explicitly asks for them.\n\n# Common filters\n\n- `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.\n- `searchQuery`: free-text search for exception names, values, stack frames, and email text.\n- `library`: exact `$lib` match, for example `posthog-js`.\n- `release`: exact release ID, release version, or git commit ID captured in `$exception_releases`. This intentionally does not match project name, branch, or timestamp fragments.\n- `fingerprint`: exact `$exception_fingerprint` match.\n- `url`: substring match on `$current_url`.\n- `personId`: exact PostHog person UUID.\n- `user`: user/email text search.\n- `filePath`: stack-frame file/source text search.\n- `filterGroup`: advanced flat AND property filters. Prefer typed fields above when they fit. For severity, use type `error_tracking_issue`, key `severity`, and `exact`, `is_set`, or `is_not_set`.\n\nUse `dateRange` for time, not property filters. Omit `date_to` for now.\n\n# Next steps\n\n- Use `query-error-tracking-issue` with `issueId` to inspect one issue.\n- Use `query-error-tracking-issue-events` with `issueId` to fetch sampled exception events, stack traces, URLs, and `$session_id` values.\n- If the user asks what people were doing before the error, use `$session_id` values from issue events with `query-session-recordings-list` and its `session_ids` parameter.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Query error tracking issues list",
@@ -10176,7 +10203,7 @@
         }
     },
     "scout-check-record-result": {
-        "description": "Close the follow-up check your run was dispatched to answer, and only that check. A report check says what had to stay true after the report was acted on; your run note carries its `check_id` and what to establish. Pass the `run_id`, the `check_id`, an `outcome` of `passed` (it still holds), `failed` (it does not), or `errored` (you could not settle it either way), and an `explanation` a person reading the report will understand. The verdict lands on the report as a `check_result` entry in the inbox. Record what you established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it. Nothing else closes a check, so a run that investigates and never calls this leaves the report with an unanswered follow-up. The call is refused for a check dispatched to another scout, one no run is waiting on, and one the coordinator measures itself.",
+        "description": "Close the follow-up check your run was dispatched to answer, and only that check. A report check says what had to stay true after the report was acted on; your run note carries its `check_id` and what to establish. Pass the `run_id`, the `check_id`, an `outcome` of `passed` (it still holds), `failed` (it does not), or `errored` (you could not settle it either way), and an `explanation` a person reading the report will understand. The verdict lands on the report as a `check_result` entry in the inbox. Record what you established rather than what closes the loop: `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it. Nothing else closes a check, so a run that investigates and never calls this leaves the report with an unanswered follow-up. You may also record a check on your own scout whose `run_state` in `scout-report-check-list` is `due`, `queued`, `running`, or `stale`. The call is refused for a check on another scout, a `pending` check whose report has not resolved, a check that is not due yet, a `paused` check whose report is suppressed or whose horizon passed, a check your run already answered, and a check the coordinator measures itself.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Record the verdict on a report check",
@@ -10456,7 +10483,7 @@
         }
     },
     "scout-report-check-list": {
-        "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal.",
+        "description": "Every follow-up check on one report, newest first, with its kind, status, next run and last verdict. Pass the `report_id` of the report to read; no `run_id` is needed. Read this before writing a check: a report already carrying one for the same claim needs no second, and a report holds at most five open checks at a time. A `pending` check is waiting for the report to resolve before its clock starts; every status other than `pending` and `active` is terminal. `run_state` says where an open check is: `waiting_on_report`, `paused`, `scheduled`, `due`, `queued`, `running`, or `stale`. For an `agent` check, `waiting_on_run`, `dispatched_run_id`, and `dispatched_at` name the run the coordinator dispatched and when.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's follow-up checks",
