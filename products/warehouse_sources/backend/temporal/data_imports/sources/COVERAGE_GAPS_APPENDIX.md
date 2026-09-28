@@ -2699,24 +2699,26 @@ Note on the aggregation endpoints, added 2026-09-25: `/analytics` is imported as
 
 ## Dynatrace — gaps
 
-Today (20): `applications`, `audit_logs`, `cloud_applications`, `custom_devices`, `databases`, `disks`, `events`, `hosts`, `kubernetes_clusters`, `kubernetes_nodes`, `metric_data_points`, `metrics`, `problems`, `process_groups`, `queues`, `security_problems`, `services`, `slos`, `synthetic_executions`, `synthetic_monitors`
+Today (23): `applications`, `audit_logs`, `cloud_applications`, `custom_devices`, `databases`, `disks`, `entity_tags`, `entity_types`, `events`, `hosts`, `kubernetes_clusters`, `kubernetes_nodes`, `metric_data_points`, `metrics`, `problems`, `process_groups`, `queues`, `releases`, `security_problems`, `services`, `slos`, `synthetic_executions`, `synthetic_monitors`
 
 Diffed against: <https://docs.dynatrace.com/docs/dynatrace-api/environment-api/metric-v2/get-data-points>
 
 - [x] `GET /api/v2/metrics/query` — actual metric data points; the existing `metrics` table is descriptor metadata only (settings.py hits GET /api/v2/metrics), so no timeseries values are syncable today (high)
-- [ ] `GET /api/v2/entityTypes` — lookup of every monitored entity type and its properties/relationships - needed to interpret entity IDs and to know what else is syncable (high)
+- [x] `GET /api/v2/entityTypes` — lookup of every monitored entity type and its properties/relationships - needed to interpret entity IDs and to know what else is syncable (high)
 - [x] `GET /api/v2/entities with entitySelector for types beyond HOST/SERVICE/APPLICATION/PROCESS_GROUP` — DATABASE, KUBERNETES_CLUSTER/NODE, CLOUD_APPLICATION, DISK, QUEUE and custom devices are all served by the same endpoint the source already calls, just with a different type selector (high)
 - [x] `GET /api/v1/synthetic/monitors` — synthetic monitor definitions - the availability side of the product is entirely absent (high)
 - [x] `GET /api/v2/synthetic/executions` — synthetic monitor execution results, the per-run success/duration facts you would actually chart (high)
 - [ ] `GET /api/v1/userSessionQueryLanguage/table` — RUM user sessions - session-level real-user data, currently only aggregate application entities are synced (medium)
-- [ ] `GET /api/v2/tags` — entity tag lookup; management-zone and tag dimensions are how Dynatrace users slice everything (medium)
-- [ ] `GET /api/v2/releases` — release inventory joining deployed versions to entities, for change-vs-problem correlation (medium)
+- [x] `GET /api/v2/tags` — entity tag lookup; management-zone and tag dimensions are how Dynatrace users slice everything (medium)
+- [x] `GET /api/v2/releases` — release inventory joining deployed versions to entities, for change-vs-problem correlation (medium)
 - [ ] `GET /api/v2/attacks` — application-security attack events, the transactional counterpart to the security_problems already synced (medium)
 - [ ] `GET /api/v2/securityProblems/{id}/remediationItems` — per-vulnerability remediation items and their tracking state (medium)
 - [ ] `GET /api/v2/logs/search` — log records; high volume but the standard analytical join partner for problems and events (medium)
 - [ ] `GET /api/v2/synthetic/locations` — synthetic location lookup resolving the location IDs on executions (low)
 
-Note: Diffed against the Environment API section of docs.dynatrace.com/docs/sitemap.xml (770 URLs under /dynatrace-api/environment-api/), then confirmed individual paths on their doc pages (/api/v2/entityTypes, /api/v1/synthetic/monitors, /api/v2/synthetic/executions, /api/v2/releases, /api/v2/tags, /api/v2/attacks, /api/v2/logs/search, /api/v1/userSessionQueryLanguage/table). Important: the source's `metrics` table is descriptors, not values - verified in products/warehouse_sources/backend/temporal/data_imports/sources/dynatrace/settings.py. Entity tables are hardcoded per type via \_entity_endpoint(); no dynamic type discovery. Config-only areas (settings objects, extensions, credential vault, tokens, network zones, ActiveGate deployment) deliberately excluded. `DATABASE` is not a Dynatrace entity type, so the `databases` table selects `RELATIONAL_DATABASE_SERVICE`. `/api/v2/synthetic/executions` returns on-demand executions only, and Dynatrace serves at most the last six hours of them, so the watermark is clamped to that window. Synthetic monitors are read from the v1 listing: the v2 equivalent needs the broad `settings.read` scope and currently covers only browser and multi-protocol monitors.
+`/api/v1/userSessionQueryLanguage/table` stays unticked: it runs a USQL query supplied by the caller and answers with `columnNames` plus positional `values` rows, so the table's schema is whatever the query asked for rather than anything the source can declare. Dynatrace also computes the result from a sample of the data when it needs to (`extrapolationLevel`), and paginates it by `pageOffset` over a live result set, so the rows are neither complete nor stable between pages. It needs a different token scope (`DTAQLAccess`) from every other endpoint here. A user who wants this should point the custom REST source at it with their own query.
+
+Note: Diffed against the Environment API section of docs.dynatrace.com/docs/sitemap.xml (770 URLs under /dynatrace-api/environment-api/), then confirmed individual paths on their doc pages (/api/v2/entityTypes, /api/v1/synthetic/monitors, /api/v2/synthetic/executions, /api/v2/releases, /api/v2/tags, /api/v2/attacks, /api/v2/logs/search, /api/v1/userSessionQueryLanguage/table). Important: the source's `metrics` table is descriptors, not values - verified in products/warehouse_sources/backend/temporal/data_imports/sources/dynatrace/settings.py. Entity tables are hardcoded per type via \_entity_endpoint(); no dynamic type discovery. Config-only areas (settings objects, extensions, credential vault, tokens, network zones, ActiveGate deployment) deliberately excluded. `DATABASE` is not a Dynatrace entity type, so the `databases` table selects `RELATIONAL_DATABASE_SERVICE`. `/api/v2/synthetic/executions` returns on-demand executions only, and Dynatrace serves at most the last six hours of them, so the watermark is clamped to that window. Synthetic monitors are read from the v1 listing: the v2 equivalent needs the broad `settings.read` scope and currently covers only browser and multi-protocol monitors. `/api/v2/tags` requires an `entitySelector` naming a single entity type and returns no entity reference, so the `entity_tags` table reads it once per type the entity tables cover and keys each row on that type. `/api/v2/releases` needs its own `releases.read` scope, and a release row carries no timestamp, so the table is full refresh over a 30-day window rather than incremental.
 
 ## E2B — gaps
 
@@ -2842,14 +2844,14 @@ Note: Official spec is large (277 paths); the ConvAI surface is the bulk of it. 
 
 ## EmailOctopus — gaps
 
-Today (3): `campaigns`, `contacts`, `lists`
+Today (7): `campaign_report_links`, `campaign_report_summaries`, `campaign_reports`, `campaigns`, `contacts`, `list_tags`, `lists`
 
 Diffed against: <https://emailoctopus.com/api-documentation/v2>
 
-- [ ] `/campaigns/{campaign_id}/reports/summary` — headline campaign metrics (sent, opened, clicked, bounced, complained, unsubscribed) — currently no campaign performance data at all (high)
-- [ ] `/campaigns/{campaign_id}/reports?status={sent|opened|clicked|bounced|complained|unsubscribed|not-opened|not-clicked}` — per-contact campaign engagement events, the join between campaigns and contacts (high)
-- [ ] `/campaigns/{campaign_id}/reports/links` — per-link click breakdown for a campaign (medium)
-- [ ] `/lists/{list_id}/tags` — tag lookup resolving the tags carried on the contacts we already sync (medium)
+- [x] `/campaigns/{campaign_id}/reports/summary` — headline campaign metrics (sent, opened, clicked, bounced, complained, unsubscribed) — currently no campaign performance data at all (high)
+- [x] `/campaigns/{campaign_id}/reports?status={sent|opened|clicked|bounced|complained|unsubscribed|not-opened|not-clicked}` — per-contact campaign engagement events, the join between campaigns and contacts (high)
+- [x] `/campaigns/{campaign_id}/reports/links` — per-link click breakdown for a campaign (medium)
+- [x] `/lists/{list_id}/tags` — tag lookup resolving the tags carried on the contacts we already sync (medium)
 
 Note: The docs URL serves the raw OpenAPI 3.1 JSON directly. The v2 API GET surface is only lists, campaigns, contacts and the campaign reports — contacts are already synced via /lists/{list_id}/contacts, so list membership is covered. Automations are write-only (POST queue), so there is nothing to sync there.
 
@@ -2897,14 +2899,14 @@ Note: eppo.cloud/api/docs is a Swagger UI shell; the machine-readable spec is at
 
 ## Eventbrite — gaps
 
-Today (8): `attendees`, `categories`, `events`, `formats`, `orders`, `organizations`, `ticket_classes`, `venues`
+Today (13): `attendee_report`, `attendees`, `canned_questions`, `categories`, `events`, `formats`, `orders`, `organizations`, `questions`, `sales_report`, `subcategories`, `ticket_classes`, `venues`
 
 Diffed against: <https://jsapi.apiary.io/apis/eventbriteapiv3public/api-description-document>
 
-- [ ] `/reports/sales/ (Retrieve a Sales Report)` — the vendor's headline sales metric, aggregated gross/net/fees by event and date (high)
-- [ ] `/reports/attendees/ (Retrieve an Attendee Report)` — aggregated attendee report, the companion headline metric to the sales report (high)
-- [ ] `/events/{event_id}/questions/ and /events/{event_id}/canned_questions/` — lookup resolving the question ids referenced by the answers embedded in attendee and order records (high)
-- [ ] `/subcategories/ (List of Subcategories)` — lookup resolving subcategory_id on events; only top-level categories are synced (high)
+- [x] `/reports/sales/ (Retrieve a Sales Report)` — the vendor's headline sales metric, aggregated gross/net/fees by event and date (high) — added as `sales_report`, fanned out per event
+- [x] `/reports/attendees/ (Retrieve an Attendee Report)` — aggregated attendee report, the companion headline metric to the sales report (high) — added as `attendee_report`, fanned out per event
+- [x] `/events/{event_id}/questions/ and /events/{event_id}/canned_questions/` — lookup resolving the question ids referenced by the answers embedded in attendee and order records (high) — added as `questions` and `canned_questions`
+- [x] `/subcategories/ (List of Subcategories)` — lookup resolving subcategory_id on events; only top-level categories are synced (high) — added as `subcategories`
 - [ ] `/organizations/{organization_id}/discounts/ (Search Discounts by Organization)` — discount and promo code definitions plus usage counts, needed to explain order pricing (medium)
 - [ ] `/organizations/{organization_id}/ticket_groups/` — ticket group lookup that groups the ticket classes already synced (medium)
 - [ ] `/organizations/{organization_id}/members/ (List Members of an Organization)` — organization membership, resolving who has access to the organizations already synced (medium)
@@ -2938,14 +2940,14 @@ Note: The Redoc page embeds the full OpenAPI document. Its entire GET surface is
 
 ## Everhour — gaps
 
-Today (5): `clients`, `projects`, `tasks`, `time_records`, `users`
+Today (9): `assignments`, `clients`, `expenses`, `invoices`, `projects`, `tasks`, `time_records`, `timecards`, `users`
 
 Diffed against: <https://everhour.docs.apiary.io/api-description-document>
 
-- [ ] `GET /invoices, GET /invoices/{id}` — client billing documents and line items; the revenue side of tracked time (high)
-- [ ] `GET /expenses` — project cost records that pair with time_records for margin analysis (high)
-- [ ] `GET /timecards, GET /users/{user_id}/timecards` — clock-in/clock-out attendance records, distinct from time_records (high)
-- [ ] `GET /resource-planner/assignments` — scheduled/planned work per user, project and task - planned vs actual (high)
+- [x] `GET /invoices, GET /invoices/{id}` — client billing documents and line items; the revenue side of tracked time (high)
+- [x] `GET /expenses` — project cost records that pair with time_records for margin analysis (high)
+- [x] `GET /timecards, GET /users/{user_id}/timecards` — clock-in/clock-out attendance records, distinct from time_records (high)
+- [x] `GET /resource-planner/assignments` — scheduled/planned work per user, project and task - planned vs actual (high)
 - [ ] `GET /expenses/categories` — lookup table resolving the category id carried on every expense (high)
 - [ ] `GET /timesheets, GET /users/{user_id}/timesheets` — weekly timesheet approval state and transitions (medium)
 - [ ] `GET /resource-planner/time-off-types` — lookup resolving time-off type ids on assignments/allocations (medium)
@@ -2990,14 +2992,14 @@ Note: Endpoint list extracted from the \*.api URLs on the developers page. Also 
 
 ## Factorial — **thin**
 
-Today (17): `allowances`, `applications`, `attendance_shifts`, `candidates`, `contract_versions`, `employees`, `expenses`, `flexible_time_records`, `job_postings`, `leave_types`, `leaves`, `legal_entities`, `locations`, `payroll_supplements`, `projects`, `team_memberships`, `teams`
+Today (21): `allowance_stats`, `allowances`, `applications`, `attendance_shifts`, `candidates`, `compensations`, `contract_versions`, `employees`, `expenses`, `flexible_time_records`, `job_postings`, `leave_types`, `leaves`, `legal_entities`, `locations`, `payroll_supplements`, `projects`, `team_memberships`, `teams`, `time_records`, `worked_times`
 
 Diffed against: <https://apidoc.factorialhr.com/reference>
 
-- [ ] `attendance/worked_times` — aggregated worked time per employee and day - the headline attendance metric, currently only raw shifts are synced (high)
-- [ ] `project_management/time_records` — time booked against projects; projects are synced but the time booked to them is not (high)
-- [ ] `contracts/compensations` — salary and compensation amounts attached to contract versions we already sync (high)
-- [ ] `timeoff/allowance_stats` — consumed vs remaining balance per employee and allowance - the number leave reporting actually needs (high)
+- [x] `attendance/worked_times` — aggregated worked time per employee and day - the headline attendance metric, currently only raw shifts are synced (high)
+- [x] `project_management/time_records` — time booked against projects; projects are synced but the time booked to them is not (high)
+- [x] `contracts/compensations` — salary and compensation amounts attached to contract versions we already sync (high)
+- [x] `timeoff/allowance_stats` — consumed vs remaining balance per employee and allowance - the number leave reporting actually needs (high)
 - [ ] `ats/hiring_stages and ats/application_phases` — lookup tables resolving the stage/phase id carried on every synced application (high)
 - [ ] `finance/cost_centers` — lookup table for cost allocation across employees, expenses and projects (high)
 - [ ] `employee_updates/terminations` — attrition events with dates and reasons; headcount churn is not derivable from the employees snapshot (high)
@@ -3011,15 +3013,15 @@ Note: The reference exposes roughly 140 list endpoints across ATS, attendance, c
 
 ## Fastly — **thin**
 
-Today (7): `current_user`, `service_acls`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
+Today (11): `acl_entries`, `billing_usage_metrics`, `current_user`, `dictionary_items`, `invoices`, `service_acls`, `service_backends`, `service_dictionaries`, `service_domains`, `service_versions`, `services`
 
 Diffed against: <https://www.fastly.com/documentation/reference/api/>
 
 - [ ] `metrics-stats/historical-stats (/stats, /stats/service/{id})` — per-service historical traffic, cache hit ratio, bandwidth and errors - Fastly's headline metric and the main reason to warehouse this data (high)
-- [ ] `account/billing-usage-metrics` — usage and spend per product and service over time (high)
-- [ ] `dictionaries/dictionary-item` — lookup table - the actual key/value rows inside the service_dictionaries we already sync (high)
-- [ ] `acls/acl-entry` — lookup table - the IP entries inside the service_acls we already sync (high)
-- [ ] `account/invoices` — billed amounts per period for cost reporting (high)
+- [x] `account/billing-usage-metrics` — usage and spend per product and service over time (high)
+- [x] `dictionaries/dictionary-item` — lookup table - the actual key/value rows inside the service_dictionaries we already sync (high)
+- [x] `acls/acl-entry` — lookup table - the IP entries inside the service_acls we already sync (high)
+- [x] `account/invoices` — billed amounts per period for cost reporting (high)
 - [ ] `metrics-stats/origin-inspector` — origin-level latency, status and byte breakdowns (medium)
 - [ ] `metrics-stats/domain-inspector` — per-domain request and error breakdowns, the natural dimension for service_domains (medium)
 - [ ] `account/events` — account audit event log - who changed what and when (medium)
@@ -3027,7 +3029,7 @@ Diffed against: <https://www.fastly.com/documentation/reference/api/>
 - [ ] `account/service-authorization` — user-to-service permission membership table (medium)
 - [ ] `utils/pops` — lookup resolving POP/datacenter codes that appear in stats and inspector breakdowns (medium)
 
-Note: Current coverage is almost entirely service configuration objects; none of the metrics-stats or account/billing families are exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
+Note: Coverage is service configuration objects plus the account/billing family; none of the metrics-stats family is exposed. Fastly's own OpenAPI YAML is no longer served at the old developer.fastly.com path (404) - the category tree was read from the live documentation reference index and its per-category pages. Logging endpoint types (~25 of them), TLS, purging and VCL objects are config/plumbing and deliberately excluded.
 
 ## Featurebase — **thin**
 
