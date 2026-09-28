@@ -43,6 +43,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     pr_association_entry,
     repo_id,
 )
+from products.engineering_analytics.backend.tests._logic_helpers import _job_row
 
 
 class TestListGithubSourcesAccessControl(BaseTest):
@@ -240,18 +241,6 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         assert rows[4][6:] == (9002, 0)
 
     def test_depot_ci_attempts_read_as_runs_jobs_and_cost(self) -> None:
-        def github_job(job_id: int, run_id: int, name: str, conclusion: str, head_sha: str) -> dict[str, Any]:
-            return dict.fromkeys(WORKFLOW_JOBS_COLUMNS) | {
-                "id": job_id,
-                "run_id": run_id,
-                "run_attempt": 1,
-                "name": name,
-                "workflow_name": "Backend CI",
-                "status": "completed",
-                "conclusion": conclusion,
-                "head_sha": head_sha,
-            }
-
         # Run 901 handed its commit to Depot, which ran it, so only Depot's run of that commit counts.
         # Run 902 handed off a commit Depot never ran, so its relayed verdict is the only record of it.
         runs_table = self._create_table(
@@ -268,10 +257,10 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "github_workflow_jobs",
             WORKFLOW_JOBS_COLUMNS,
             [
-                github_job(9011, 901, "Hand off backend tests to Depot CI", "success", "abc123"),
-                github_job(9012, 901, "Django Tests Pass", "success", "abc123"),
-                github_job(9021, 902, "Hand off backend tests to Depot CI", "success", "def456"),
-                github_job(9031, 903, "Hand off backend tests to Depot CI", "skipped", "fed789"),
+                _job_row(9011, 901, "Hand off backend tests to Depot CI", "success", head_sha="abc123"),
+                _job_row(9012, 901, "Django Tests Pass", "success", head_sha="abc123"),
+                _job_row(9021, 902, "Hand off backend tests to Depot CI", "success", head_sha="def456"),
+                _job_row(9031, 903, "Hand off backend tests to Depot CI", "skipped", head_sha="fed789"),
             ],
         )
 

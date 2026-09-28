@@ -217,36 +217,39 @@ def _jobs(attempts: str) -> str:
 def _handoff_workflows(depot: DepotJobAttempts) -> str:
     # Depot lists no attempt for a skipped job, so a workflow that declined the hand-off holds the wait job alone.
     is_wait = f"endsWith(ifNull(job_key, ''), '{_DEPOT_WAIT_JOB_KEY_SUFFIX}')"
-    return f"""
-        SELECT github_run_id, any(head_sha) AS head_sha, countIf(NOT {is_wait}) > 0 AS took_handoff
+    return f"""(
+        SELECT
+            github_run_id,
+            any(head_sha) AS head_sha,
+            min(parseDateTimeBestEffort(workflow_created_at)) AS created_at,
+            countIf(NOT {is_wait}) > 0 AS took_handoff
         FROM {_attempts(depot, pull_requests_table=None)}
         GROUP BY github_run_id
         HAVING countIf({is_wait}) > 0
-    """
-
-
-def _executed_attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
-    return f"""(
-        SELECT * FROM {_attempts(depot, pull_requests_table)}
-        WHERE github_run_id NOT IN (SELECT github_run_id FROM ({_handoff_workflows(depot)}) WHERE NOT took_handoff)
     )"""
 
 
-def _github_shells(jobs_table: str, depot: DepotJobAttempts) -> str:
+def _executed_attempts(depot: DepotJobAttempts, handoffs: str, pull_requests_table: str | None) -> str:
+    return f"""(
+        SELECT * FROM {_attempts(depot, pull_requests_table)}
+        WHERE github_run_id NOT IN (SELECT github_run_id FROM {handoffs} WHERE NOT took_handoff)
+    )"""
+
+
+def _github_shells(jobs_table: str, handoffs: str) -> str:
+    # No hand-off job predates Depot's first hand-off, so the day before it floors the scan of the jobs table.
     return f"""
         SELECT run_id FROM {jobs_table}
         WHERE name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success'
-            AND head_sha IN (SELECT head_sha FROM ({_handoff_workflows(depot)}) WHERE took_handoff)
+            AND created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
+            AND head_sha IN (SELECT head_sha FROM {handoffs} WHERE took_handoff)
     """
 
 
-def _union(
-    github_table: str, columns: dict[str, dict[str, str]], run_id_column: str, shells: str | None, depot_select: str
-) -> str:
+def _union(github_table: str, columns: dict[str, dict[str, str]], depot_select: str, where: str) -> str:
     # UNION ALL matches columns by position, so the GitHub side names them in the contract order the
     # Depot side follows.
-    where = f" WHERE {run_id_column} NOT IN ({shells})" if shells else ""
-    return f"(SELECT {', '.join(columns)} FROM {github_table}{where} UNION ALL {depot_select})"
+    return f"(SELECT {', '.join(columns)} FROM {github_table} WHERE {where} UNION ALL {depot_select})"
 
 
 def with_depot_runs(
@@ -258,9 +261,10 @@ def with_depot_runs(
     """
     if depot is None:
         return runs_table
-    shells = _github_shells(jobs_table, depot) if jobs_table else None
+    handoffs = _handoff_workflows(depot)
+    where = f"id NOT IN ({_github_shells(jobs_table, handoffs)})" if jobs_table else "1"
     return _union(
-        runs_table, WORKFLOW_RUNS_COLUMNS, "id", shells, _runs(_executed_attempts(depot, pull_requests_table))
+        runs_table, WORKFLOW_RUNS_COLUMNS, _runs(_executed_attempts(depot, handoffs, pull_requests_table)), where
     )
 
 
@@ -273,10 +277,10 @@ def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None) -> str:
     """
     if depot is None:
         return jobs_table
+    handoffs = _handoff_workflows(depot)
     return _union(
         jobs_table,
         WORKFLOW_JOBS_COLUMNS,
-        "run_id",
-        _github_shells(jobs_table, depot),
-        _jobs(_executed_attempts(depot, pull_requests_table=None)),
+        _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None)),
+        f"run_id NOT IN ({_github_shells(jobs_table, handoffs)})",
     )
