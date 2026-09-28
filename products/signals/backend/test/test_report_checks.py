@@ -34,6 +34,7 @@ from products.signals.backend.report_check_agent import (
     FALLBACK_CHECK_SKILL_NAME,
     build_check_run_note,
     resolve_check_skill_name,
+    run_agent_check,
 )
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
@@ -508,15 +509,23 @@ class TestReportCheckExecution(APIBaseTest):
 
         assert collect_due_checks(timezone.now()) == []
 
-    def test_a_check_cancelled_while_its_query_ran_records_nothing(self) -> None:
+    @parameterized.expand([("cancelled",), ("reopened",)])
+    def test_a_check_invalidated_while_its_query_ran_records_nothing(self, reason: str) -> None:
         check = self._check()
-        check.status = SignalReportCheck.Status.CANCELLED
-        check.save(update_fields=["status"])
+        if reason == "cancelled":
+            check.status = SignalReportCheck.Status.CANCELLED
+            check.save(update_fields=["status"])
+        else:
+            self.report.status = SignalReport.Status.READY
+            self.report.save(update_fields=["status"])
 
         record_check_verdict(check, CheckVerdict(outcome="passed", explanation="held", observed_value=1.0))
 
         check.refresh_from_db()
-        assert check.status == SignalReportCheck.Status.CANCELLED
+        assert check.status == (
+            SignalReportCheck.Status.CANCELLED if reason == "cancelled" else SignalReportCheck.Status.ACTIVE
+        )
+        assert check.last_run_at is None
         assert self._results() == []
 
     def test_an_unrun_check_past_its_horizon_expires(self) -> None:
@@ -872,6 +881,19 @@ class TestAgentCheckDispatch(APIBaseTest):
         assert check.status == SignalReportCheck.Status.ACTIVE
         assert check.dispatched_at is not None
         assert check.next_run_at > timezone.now() + AGENT_CHECK_RESULT_WINDOW - timedelta(minutes=5)
+        assert self._results() == []
+
+    def test_a_report_reopened_after_collection_does_not_dispatch_a_check(self) -> None:
+        check = self._check()
+        self.report.status = SignalReport.Status.READY
+        self.report.save(update_fields=["status"])
+
+        with patch(_CONNECT), patch(_DISPATCH) as dispatch:
+            assert run_agent_check(check) == "deferred"
+
+        dispatch.assert_not_called()
+        check.refresh_from_db()
+        assert check.dispatched_at is None
         assert self._results() == []
 
     def test_the_run_note_carries_the_brief_and_the_resolution_note(self) -> None:
@@ -1443,16 +1465,26 @@ class TestScoutCheckTools(APIBaseTest):
         assert check.status == SignalReportCheck.Status.ACTIVE
         assert before + soak <= check.next_run_at <= timezone.now() + soak
 
-    def test_a_check_on_a_resolved_report_runs_on_the_date_the_run_named(self) -> None:
+    def test_a_recurring_check_keeps_its_initial_soak_after_reopening(self) -> None:
         self.report.status = SignalReport.Status.RESOLVED
         self.report.save(update_fields=["status"])
         first_run = timezone.now() + timedelta(days=3)
 
-        check = SignalReportCheck.objects.for_team(self.team.id).get(id=self._create(next_run_at=first_run).check_id)
+        check = SignalReportCheck.objects.for_team(self.team.id).get(
+            id=self._create(next_run_at=first_run, run_interval_minutes=24 * 60, runs_remaining=3).check_id
+        )
 
         assert check.status == SignalReportCheck.Status.ACTIVE
         assert check.next_run_at == first_run
-        assert check.soak_minutes is None
+        assert check.soak_minutes == 3 * 24 * 60
+        record_check_verdict(check, CheckVerdict(outcome="passed", explanation="held"), now=first_run)
+        self.report.status = SignalReport.Status.READY
+        self.report.save(update_fields=["status"])
+        run_due_report_checks(now=first_run + timedelta(hours=1))
+
+        check.refresh_from_db()
+        assert check.status == SignalReportCheck.Status.PENDING
+        assert check.soak_minutes == 3 * 24 * 60
 
     def test_a_date_beyond_the_longest_soak_becomes_the_longest_soak(self) -> None:
         check = SignalReportCheck.objects.for_team(self.team.id).get(

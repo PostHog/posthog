@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -234,12 +235,16 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
     run is waiting on. The conditional update is also the concurrency guard: a check cancelled
     between collection and dispatch, or already claimed by an overlapping tick, matches nothing.
     """
-    claimed = (
-        SignalReportCheck.objects.for_team(check.team_id)
-        .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE, dispatched_at__isnull=True)
-        .update(dispatched_at=now, next_run_at=now + AGENT_CHECK_RESULT_WINDOW, updated_at=now)
-    )
-    return bool(claimed)
+    with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
+        if report is None or report.status != SignalReport.Status.RESOLVED:
+            return False
+        claimed = (
+            SignalReportCheck.objects.for_team(check.team_id)
+            .filter(id=check.id, status=SignalReportCheck.Status.ACTIVE, dispatched_at__isnull=True)
+            .update(dispatched_at=now, next_run_at=now + AGENT_CHECK_RESULT_WINDOW, updated_at=now)
+        )
+        return bool(claimed)
 
 
 def _release_dispatch_claim(check: SignalReportCheck, now: datetime) -> None:

@@ -54,6 +54,7 @@ from products.signals.backend.report_check_telemetry import (
     capture_report_checks_expired,
 )
 from products.signals.backend.report_checks import (
+    DEFAULT_CHECK_SOAK_HOURS,
     MAX_CHECK_HORIZON,
     MAX_CONSECUTIVE_CHECK_ERRORS,
     CheckComparison,
@@ -287,6 +288,9 @@ def record_check_verdict(
     config = parsed if isinstance(parsed, MetricThresholdConfig) else None
 
     with transaction.atomic():
+        report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
+        if report is None or report.status != SignalReport.Status.RESOLVED:
+            return
         current = (
             SignalReportCheck.objects.for_team(check.team_id)
             .select_for_update()
@@ -514,11 +518,20 @@ def park_checks_on_unresolved_reports(now: datetime) -> int:
     active = list(
         SignalReportCheck.all_teams.filter(status=SignalReportCheck.Status.ACTIVE)
         .exclude(report__status=SignalReport.Status.RESOLVED)
-        .only("id", "team_id", "created_at", "next_run_at", "soak_minutes")[:MAX_CHECK_PARKS_PER_TICK]
+        .only("id", "team_id", "created_at", "next_run_at", "soak_minutes", "last_run_at", "dispatched_at")[
+            :MAX_CHECK_PARKS_PER_TICK
+        ]
     )
     parked = 0
     for check in active:
-        soak_minutes = check.soak_minutes or soak_minutes_from_gap(check.next_run_at, check.created_at)
+        soak_minutes = check.soak_minutes
+        if soak_minutes is None:
+            # A legacy row's retry or recurring date no longer identifies its initial soak.
+            soak_minutes = (
+                DEFAULT_CHECK_SOAK_HOURS * 60
+                if check.last_run_at is not None or check.dispatched_at is not None
+                else soak_minutes_from_gap(check.next_run_at, check.created_at)
+            )
         parked += (
             SignalReportCheck.all_teams.filter(id=check.id, status=SignalReportCheck.Status.ACTIVE)
             .exclude(report__status=SignalReport.Status.RESOLVED)

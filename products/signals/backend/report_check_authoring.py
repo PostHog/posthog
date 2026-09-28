@@ -115,6 +115,8 @@ def create_check(
             if next_run_at is None:
                 assert soak_minutes is not None
                 next_run_at = now + timedelta(minutes=soak_minutes)
+            if soak_minutes is None:
+                soak_minutes = soak_minutes_from_gap(next_run_at, now)
             if expires_at is None:
                 expires_at = min(
                     _last_run_at(next_run_at, run_interval_minutes, runs_remaining)
