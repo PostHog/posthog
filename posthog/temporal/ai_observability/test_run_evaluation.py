@@ -53,7 +53,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import hydrate_event_reference
+from .evaluation_event_io import INGESTION_LAG_RETRY_DELAY, hydrate_event_reference
 from .evaluation_llm_judge import (
     JUDGE_EVENT_MAX_CHARS,
     NumericWithNAEvalResult,
@@ -1470,6 +1470,16 @@ class TestRunEvaluationWorkflow:
         [
             pytest.param({"uuid": "g1", "team_id": 1}, True, id="thin_reference_reaches_the_activity"),
             pytest.param(create_mock_event_data(team_id=1, uuid="g1"), False, id="full_event_is_used_as_is"),
+            pytest.param(
+                create_mock_event_data(
+                    team_id=1,
+                    uuid="g1",
+                    # Under the reference threshold as UTF-8, over it once the worker escapes the non-ASCII text.
+                    properties=json.dumps({"$ai_input": "日本語" * 70_000, "$ai_trace_id": "t1"}, ensure_ascii=False),
+                ),
+                True,
+                id="oversized_live_event_becomes_a_reference",
+            ),
         ],
     )
     async def test_the_event_never_travels_through_the_workflow(
@@ -1591,16 +1601,21 @@ class TestRunEvaluationWorkflow:
             pytest.param(3, False, id="last attempt"),
         ],
     )
-    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(self, attempt: int, retryable: bool):
+    @pytest.mark.parametrize("live", [pytest.param(False, id="backfill"), pytest.param(True, id="live")])
+    def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
+        self, attempt: int, retryable: bool, live: bool
+    ):
+        reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
         env = ActivityEnvironment()
         env.info = dataclasses.replace(env.info, attempt=attempt)
         with patch(HYDRATE_FETCH, return_value=None):
             with pytest.raises(ApplicationError) as raised:
-                env.run(hydrate_event_reference, dict(THIN_REFERENCE))
+                env.run(hydrate_event_reference, reference)
 
         assert raised.value.type == "generation_not_found"
         assert raised.value.non_retryable is not retryable
         assert isinstance(raised.value, NonReportableError) is retryable
+        assert raised.value.next_retry_delay == (INGESTION_LAG_RETRY_DELAY if live and retryable else None)
 
     def test_parse_inputs(self):
         """Test that parse_inputs correctly parses workflow inputs"""

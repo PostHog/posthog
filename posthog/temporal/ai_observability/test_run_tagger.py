@@ -7,7 +7,10 @@ from typing import Any, TypedDict
 import pytest
 from unittest.mock import MagicMock, patch
 
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.capture import CaptureInternalError
 from posthog.models import Organization, Team
@@ -500,6 +503,69 @@ class TestRunTaggerWorkflow:
 
         await database_sync_to_async(tagger.refresh_from_db)()
         assert tagger.enabled is False
+
+    @pytest.mark.asyncio
+    async def test_an_oversized_event_reaches_every_activity_as_a_reference(self):
+        # Under the reference threshold as UTF-8, over it once the worker escapes the non-ASCII text.
+        event_data = create_mock_event_data(
+            team_id=1,
+            properties=json.dumps({"$ai_input": "日本語" * 70_000, "$ai_trace_id": "t1"}, ensure_ascii=False),
+        )
+        seen_events: list[dict[str, Any]] = []
+        tagger = make_hog_tagger_dict(team_id=1, source="return ['billing']")
+
+        @activity.defn(name="fetch_tagger_activity")
+        async def mock_fetch(inputs: RunTaggerInputs) -> dict[str, Any]:
+            seen_events.append(inputs.event_data)
+            return tagger
+
+        @activity.defn(name="execute_hog_tagger_activity")
+        async def mock_execute(_tagger: dict[str, Any], event: dict[str, Any]) -> dict[str, Any]:
+            seen_events.append(event)
+            return {"tags": ["billing"], "reasoning": "ok", "is_hog": True}
+
+        @activity.defn(name="emit_tagger_event_activity")
+        async def mock_emit(inputs: EmitTaggerEventInputs) -> None:
+            seen_events.append(inputs.event_data)
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunTaggerWorkflow],
+                activities=[mock_fetch, mock_execute, mock_emit],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                await env.client.execute_workflow(
+                    RunTaggerWorkflow.run,
+                    RunTaggerInputs(tagger_id="tagger-1", event_data=event_data),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        reference = {
+            "uuid": event_data["uuid"],
+            "team_id": 1,
+            "timestamp": event_data["timestamp"],
+            "trace_id": "t1",
+            "awaiting_ingestion": True,
+        }
+        assert seen_events == [reference, reference, reference]
+
+    @pytest.mark.asyncio
+    async def test_the_hog_tagger_activity_hydrates_a_reference(self):
+        full_event = create_mock_event_data(team_id=1, uuid="g1")
+        with patch(
+            "posthog.temporal.ai_observability.evaluation_event_io.fetch_generation_event", return_value=full_event
+        ) as mock_fetch:
+            result = await execute_hog_tagger_activity(
+                make_hog_tagger_dict(team_id=1, source="return ['billing']"),
+                {"uuid": "g1", "team_id": 1, "timestamp": "2024-01-01T10:00:00+00:00", "awaiting_ingestion": True},
+            )
+
+        assert mock_fetch.call_count == 1
+        assert result["tags"] == ["billing"]
 
     def test_parse_inputs(self):
         event_data = create_mock_event_data(team_id=1)
