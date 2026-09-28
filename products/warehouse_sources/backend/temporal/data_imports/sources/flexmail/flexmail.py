@@ -22,11 +22,12 @@ Built on the shared ``rest_source`` framework: framework ``http_basic`` auth car
 per-contact fan-out, and a ``data_map`` strips each row's ``_links``.
 """
 
-import dataclasses
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
 
 from requests.auth import HTTPBasicAuth
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -66,7 +67,7 @@ DEFAULT_PROBE_PATH = "/sources"
 _DATA_SELECTOR = "_embedded.item"
 
 
-@dataclasses.dataclass
+@frozen
 class FlexmailResumeConfig:
     # Offset of the next page to fetch. Flexmail paginates with `limit`/`offset` query params, so a
     # crashed full-refresh sync resumes from the page after the last one yielded; merge dedupes the
