@@ -455,8 +455,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/core
       '@posthog/react-native-plugin':
-        specifier: ^2.11.0
-        version: 2.11.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
+        specifier: ^2.12.0
+        version: 2.12.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       '@posthog/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -567,7 +567,7 @@ importers:
         version: 3.0.3(react-native-svg@15.15.5(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6))(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       posthog-react-native:
         specifier: ^4.78.0
-        version: 4.78.0(0b49552cbeae34b114b5ada88d252a83)
+        version: 4.78.0(e17d88aa9a46c3b9f27d29109e381977)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -1421,8 +1421,8 @@ importers:
         specifier: ^11.17.0
         version: 11.17.0
       posthog-js:
-        specifier: ^1.434.13
-        version: 1.434.13(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.434.14
+        version: 1.434.14(@types/react@19.2.17)(react@19.2.6)
       radix-themes-tw:
         specifier: 0.2.3
         version: 0.2.3
@@ -1717,8 +1717,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared
       posthog-js:
-        specifier: ^1.434.13
-        version: 1.434.13(@types/react@19.2.17)(react@19.2.6)
+        specifier: ^1.434.14
+        version: 1.434.14(@types/react@19.2.17)(react@19.2.6)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -6206,8 +6206,8 @@ packages:
       react-dom: 19.2.6
       tailwindcss: ^4.0.0
 
-  '@posthog/react-native-plugin@2.11.0':
-    resolution: {integrity: sha512-HjWHx1t64NCvcGDdZ8B+WnMb3pJuCMI4U7vyG5L04D6irJdDJDsh5xc3S8G9IqcNfXcggTmpkB2swU2pWNIq0g==}
+  '@posthog/react-native-plugin@2.12.0':
+    resolution: {integrity: sha512-GjOgNVdXfD3iXNEFXgfz8F5QnR552ITpX+3tVwMld6V6nCJvGbePsALJ+jPXJ9yZjGyGFLkoykDBUsy/lmvBaQ==}
     peerDependencies:
       react: 19.2.6
       react-native: '*'
@@ -13855,8 +13855,8 @@ packages:
     resolution: {integrity: sha512-g50586zr4bZmwFiTlflMu8E0bDTb5I5gertgwAKmsdUlTQIhZtunzUlD1WSzwcVWPoAVpsrA6vlfCD7oXvRwgg==}
     engines: {node: ^10 || ^12 || >=14}
 
-  posthog-js@1.434.13:
-    resolution: {integrity: sha512-xqY2Pk7+aLBgS2z5bQXfEBh3kacrK/VwHhCSuAzr2mJ2RCoqGU+WuP7U5weH0pFzhhAsZ6HGHUVlq+JiaTcpqQ==}
+  posthog-js@1.434.14:
+    resolution: {integrity: sha512-x1ilSlqpMIYVXq5oerLPRXx4P0sHfTuS43YtCuVkI7Myi5FSeU6lVDitoGZvfhgggc5SFEcKD300l7OGLTDBwQ==}
     peerDependencies:
       '@types/react': ^19.2.15
       react: 19.2.6
@@ -20913,7 +20913,7 @@ snapshots:
       tailwind-merge: 2.6.1
       tailwindcss: 4.3.1
 
-  '@posthog/react-native-plugin@2.11.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)':
+  '@posthog/react-native-plugin@2.12.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)':
     dependencies:
       react: 19.2.6
       react-native: 0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6)
@@ -21887,9 +21887,7 @@ snapshots:
       metro-runtime: 0.84.4
     transitivePeerDependencies:
       - '@babel/core'
-      - bufferutil
       - supports-color
-      - utf-8-validate
 
   '@react-native/normalize-colors@0.74.89': {}
 
@@ -29923,7 +29921,7 @@ snapshots:
       picocolors: 1.1.1
       source-map-js: 1.2.1
 
-  posthog-js@1.434.13(@types/react@19.2.17)(react@19.2.6):
+  posthog-js@1.434.14(@types/react@19.2.17)(react@19.2.6):
     dependencies:
       '@posthog/browser-common': 0.9.0
       '@posthog/core': 1.55.2
@@ -29947,12 +29945,12 @@ snapshots:
     optionalDependencies:
       rxjs: 7.8.2
 
-  posthog-react-native@4.78.0(0b49552cbeae34b114b5ada88d252a83):
+  posthog-react-native@4.78.0(e17d88aa9a46c3b9f27d29109e381977):
     dependencies:
       '@posthog/core': 1.55.2
       '@posthog/types': 1.412.4
     optionalDependencies:
-      '@posthog/react-native-plugin': 2.11.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
+      '@posthog/react-native-plugin': 2.12.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       '@react-native-async-storage/async-storage': 2.2.0(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))
       '@react-navigation/native': 7.1.28(react-native@0.86.0(@babel/core@7.29.0)(@react-native/metro-config@0.86.0(@babel/core@7.29.0))(@types/react@19.2.17)(react@19.2.6))(react@19.2.6)
       expo-application: 57.0.2(expo@57.0.8)

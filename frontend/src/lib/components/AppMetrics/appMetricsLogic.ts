@@ -48,6 +48,8 @@ export type AppMetricsLogicProps = {
     loadOnChanges?: boolean
     /** If true, loads data immediately when logic mounts. Default: false */
     loadOnMount?: boolean
+    /** Set false when the caller never shows the previous-period comparison. Default: true */
+    loadPreviousPeriod?: boolean
 }
 
 export type AppMetricsTimeSeriesRequest = AppMetricsCommonParams
@@ -522,7 +524,9 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
         // Auto-load data immediately on mount if explicitly requested
         if (props.loadOnMount) {
             actions.loadAppMetricsTrends()
-            actions.loadAppMetricsTrendsPreviousPeriod()
+            if (props.loadPreviousPeriod ?? true) {
+                actions.loadAppMetricsTrendsPreviousPeriod()
+            }
         }
     }),
 
@@ -539,7 +543,9 @@ export const appMetricsLogic = kea<appMetricsLogicType>([
             if (props.loadOnChanges ?? true) {
                 if (values.appMetricsTrends !== null) {
                     actions.loadAppMetricsTrends()
-                    actions.loadAppMetricsTrendsPreviousPeriod()
+                    if (props.loadPreviousPeriod ?? true) {
+                        actions.loadAppMetricsTrendsPreviousPeriod()
+                    }
                 }
             }
         },
