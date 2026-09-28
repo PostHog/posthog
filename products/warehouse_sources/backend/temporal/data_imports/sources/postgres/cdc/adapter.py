@@ -385,28 +385,29 @@ class PostgresCDCAdapter:
 
     def add_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
         """ALTER PUBLICATION ADD TABLE. No-op for self-managed / no publication. Raises on failure."""
+        self._alter_publication_membership(source, schema, table, add=True)
+
+    def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
+        """Best-effort ALTER PUBLICATION DROP TABLE. No-op for self-managed / no publication."""
+        try:
+            self._alter_publication_membership(source, schema, table, add=False)
+        except Exception:
+            logger.exception(
+                "Failed to remove table %s.%s from CDC publication (best-effort), source_id=%s",
+                schema,
+                table,
+                source.id,
+            )
+
+    def _alter_publication_membership(self, source: ExternalDataSource, schema: str, table: str, add: bool) -> None:
         publication_name = self._managed_publication_name(source)
         if publication_name is None:
             return
         with cdc_pg_connection(source) as conn:
-            add_table_to_publication(conn, publication_name, schema, table)
-
-    def remove_table(self, source: ExternalDataSource, schema: str, table: str) -> None:
-        """Best-effort ALTER PUBLICATION DROP TABLE. No-op for self-managed / no publication."""
-        publication_name = self._managed_publication_name(source)
-        if publication_name is None:
-            return
-        try:
-            with cdc_pg_connection(source) as conn:
+            if add:
+                add_table_to_publication(conn, publication_name, schema, table)
+            else:
                 remove_table_from_publication(conn, publication_name, schema, table)
-        except Exception:
-            logger.exception(
-                "Failed to remove table %s.%s from CDC publication '%s' (best-effort), source_id=%s",
-                schema,
-                table,
-                publication_name,
-                source.id,
-            )
 
     def _managed_publication_name(self, source: ExternalDataSource) -> str | None:
         cdc_config = self.parse_cdc_config(source)
