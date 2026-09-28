@@ -12,11 +12,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import {
-    type AppMetricsTimeSeriesResponse,
-    loadAppMetricsTimeSeries,
-    loadAppMetricsTotals,
-} from 'lib/components/AppMetrics/appMetricsLogic'
+import { type AppMetricsTimeSeriesResponse, loadAppMetricsTimeSeries } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -178,9 +174,20 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
         sources: [
             null as ExternalDataSourceSerializersApi[] | null,
             {
-                loadSources: async () =>
-                    ((await externalDataSourcesList(String(values.currentTeamId))).results ??
-                        []) as ExternalDataSourceSerializersApi[],
+                loadSources: async () => {
+                    const sources: ExternalDataSourceSerializersApi[] = []
+                    let offset = 0
+                    let hasNextPage = true
+
+                    while (hasNextPage) {
+                        const page = await externalDataSourcesList(String(values.currentTeamId), { limit: 100, offset })
+                        sources.push(...(page.results ?? []))
+                        offset += page.results?.length ?? 0
+                        hasNextPage = Boolean(page.next) && (page.results?.length ?? 0) > 0
+                    }
+
+                    return sources
+                },
             },
         ],
         destinationRowSeries: [
@@ -196,10 +203,9 @@ export const pipelineOverviewSceneLogic = kea<pipelineOverviewSceneLogicType>([
                             // to a single point.
                             interval: values.window === 1 ? 'hour' : 'day',
                             // Both bounds are interpolated into `toDateTime(...)`, so they have to
-                            // be absolute timestamps. The upper bound sits an hour ahead because
-                            // the comparison is exclusive and rows land continuously.
+                            // be absolute timestamps.
                             dateFrom: dayjs().subtract(values.window, 'day').toISOString(),
-                            dateTo: dayjs().add(1, 'hour').toISOString(),
+                            dateTo: dayjs().toISOString(),
                         },
                         values.currentTeam?.timezone ?? 'UTC'
                     ),

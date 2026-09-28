@@ -17,7 +17,6 @@ jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
 }))
 
 jest.mock('lib/components/AppMetrics/appMetricsLogic', () => ({
-    loadAppMetricsTotals: jest.fn(),
     loadAppMetricsTimeSeries: jest.fn(),
 }))
 
@@ -47,7 +46,6 @@ describe('pipelineOverviewSceneLogic', () => {
         api.dataWarehouseCompletedActivityRetrieve.mockResolvedValue({ results: [], next: null, previous: null })
         wsApi.externalDataDestinationsList.mockResolvedValue({ results: [] })
         wsApi.externalDataSourcesList.mockResolvedValue({ results: [] })
-        metrics.loadAppMetricsTotals.mockResolvedValue({})
         metrics.loadAppMetricsTimeSeries.mockResolvedValue({ labels: [], interval: 'day', timezone: 'UTC', series: [] })
         logic = pipelineOverviewSceneLogic()
         logic.mount()
@@ -197,22 +195,27 @@ describe('pipelineOverviewSceneLogic', () => {
         expect(Date.parse(request.dateFrom)).toBeLessThan(Date.parse(request.dateTo))
     })
 
-    it('counts only the tables switched on', async () => {
-        // A source lists every schema it could offer. Counting them all would claim the pipeline
-        // runs tables nobody turned on.
+    it('counts only the tables switched on across every page', async () => {
         logic.unmount()
-        wsApi.externalDataSourcesList.mockResolvedValue({
-            results: [
-                { id: 'a', schemas: [{ should_sync: true }, { should_sync: false }, { should_sync: true }] },
-                { id: 'b', schemas: [{ should_sync: true }] },
-                { id: 'c', schemas: [] },
-                { id: 'd' },
-            ],
-        })
+        wsApi.externalDataSourcesList.mockReset()
+        wsApi.externalDataSourcesList
+            .mockResolvedValueOnce({
+                next: '/api/projects/1/external_data_sources/?limit=100&offset=2',
+                results: [
+                    { id: 'a', schemas: [{ should_sync: true }, { should_sync: false }] },
+                    { id: 'b', schemas: [] },
+                ],
+            })
+            .mockResolvedValueOnce({
+                next: null,
+                results: [{ id: 'c', schemas: [{ should_sync: true }, { should_sync: true }] }],
+            })
 
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.syncingTableCount).toEqual(3)
+        expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(1, expect.anything(), { limit: 100, offset: 0 })
+        expect(wsApi.externalDataSourcesList).toHaveBeenNthCalledWith(2, expect.anything(), { limit: 100, offset: 2 })
     })
 })
