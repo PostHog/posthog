@@ -46,7 +46,7 @@ A bullet can have several entries when one trap is not enough, for example a tas
 A claim with no small task that has one right answer gets `untestable` with the reason instead of a task.
 A claim whose right answer is to refuse the task gets `no_change_is_compliant`, so an empty diff scores zero instead of "cannot tell".
 The `judge` detector asks the model three times and reports the share of answers that saw a violation.
-The report marks a rule "no evidence" when no run without the rule broke it, because that says the trap did not tempt, not that the rule is useless.
+The report marks a rule "no evidence" when no run in either arm broke it, because that says the trap did not tempt, not that the rule is useless.
 
 Detectors take their parameters from the entry. `count_added_matching` and `missing_added_matching` cover most rules with a regex.
 Add a function to `detectors.py` when a rule needs to read the file or parse the code.

@@ -127,15 +127,15 @@ def _delta(results: list[dict]) -> float | None:
     return mean(by_arm["without"]) - mean(by_arm["with"])
 
 
-def _broken_without(results: list[dict]) -> bool:
-    return any(r["violations"] for r in results if r["arm"] == "without")
+def _broken(results: list[dict]) -> bool:
+    return any(r["violations"] for r in results)
 
 
 def _effect(results: list[dict]) -> str:
     delta = _delta(results)
     if delta is None:
         return "n/a"
-    if not _broken_without(results):
+    if not _broken(results):
         return "no evidence"
     return f"{delta:+.2f}"
 
@@ -189,14 +189,14 @@ def report(results: list[dict]) -> str:
 
 
 def _untempted_traps(results: list[dict]) -> str:
-    """A rule nobody breaks without it says nothing about the rule, only about the trap."""
+    """A rule nobody breaks in either arm says nothing about the rule, only about the trap."""
     by_claim: dict[str, list[dict]] = defaultdict(list)
     for result in results:
         by_claim[result["claim"]].append(result)
-    quiet = sorted(claim for claim, claim_results in by_claim.items() if not _broken_without(claim_results))
+    quiet = sorted(claim for claim, claim_results in by_claim.items() if not _broken(claim_results))
     if not quiet:
         return ""
-    return f"\nNo model broke these rules without them, so the trap did not tempt: {', '.join(quiet)}\n"
+    return f"\nNo model broke these rules in either arm, so the trap did not tempt: {', '.join(quiet)}\n"
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
