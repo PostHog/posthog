@@ -1411,6 +1411,20 @@
         },
         "feature_flag": "organization-billing-api"
     },
+    "broadcasts-create": {
+        "description": "Create a broadcast: a one-time or scheduled email to an audience, which the user reviews and launches from the broadcast wizard. It is created as a draft and never sends from this tool; do not enable it, run it or attach a schedule. The actions array must be exactly three nodes connected in order by two 'continue' edges: a trigger with id 'trigger_node' and config {type:'batch', filters:{properties:[...]}} holding the audience as person-property conditions and/or cohort references (empty properties means everyone), then a function_email with id 'email_1', config.template_id 'template-email' and config.inputs.email.value {to:{email:'{{ person.properties.email }}', name:''}, from:{email, name, integrationId}, subject, preheader, html, text}, then an exit with id 'exit_node'. Any other shape does not open in the wizard. Put a verified email sender in from when the project has one; otherwise leave from empty and the user picks one in the wizard. Write the email as html plus a plain-text fallback, and refine it afterwards with workflows-patch-action-email.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Create broadcast",
+        "title": "Create broadcast",
+        "required_scopes": ["hog_flow:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "business-knowledge-document-window-retrieve": {
         "description": "Returns a window of content chunks from a business knowledge document, centered around a specific ordinal. Use after searching knowledge to get more surrounding context for a specific result.",
         "category": "Business knowledge",

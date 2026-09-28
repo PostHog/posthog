@@ -3,16 +3,23 @@ import { BindLogic, useValues } from 'kea'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
+import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { NEW_BROADCAST_AGENT_HEADLINES, buildNewBroadcastComposerContext } from './broadcastAgentContext'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { canEditInWizard, isBroadcastShaped } from './broadcastsLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { BroadcastWizard } from './BroadcastWizard'
 import { BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
+import { NewBroadcastAgent } from './NewBroadcastAgent'
+import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
+
+const NEW_BROADCAST_COMPOSER_CONTEXT = buildNewBroadcastComposerContext()
 
 export const scene: SceneExport<BroadcastWizardLogicProps> = {
     component: BroadcastScene,
@@ -37,6 +44,22 @@ export function BroadcastScene({ id }: BroadcastWizardLogicProps): JSX.Element {
 
 function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
     const { broadcast, broadcastLoading } = useValues(broadcastWizardLogic)
+    const { aiComposerAvailable } = useValues(newBroadcastAgentLogic)
+    // The escape hatch lands on the wizard instead (see `aiComposerAvailable`).
+    const showAiComposer = id === 'new' && aiComposerAvailable
+    useSceneAgentPanel({
+        sceneKey: 'broadcast-new',
+        contextItems: showAiComposer ? NEW_BROADCAST_COMPOSER_CONTEXT : null,
+        headlines: NEW_BROADCAST_AGENT_HEADLINES,
+        composer: AI_FIRST_COMPOSER_OVERRIDE,
+        active: showAiComposer,
+        // The composer is the page while drafting; the panel opens itself once the broadcast exists.
+        autoOpen: false,
+    })
+
+    if (showAiComposer) {
+        return <NewBroadcastAgent />
+    }
 
     if (id !== 'new') {
         if (!broadcast && broadcastLoading) {

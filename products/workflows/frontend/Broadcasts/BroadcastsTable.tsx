@@ -20,6 +20,7 @@ import {
     isEligibleWorkflow,
 } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
+import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
 
 const METRIC_COLUMNS: { title: string; metricName: string }[] = [
     { title: 'Sent', metricName: 'email_sent' },
@@ -35,6 +36,7 @@ export function BroadcastsTable(): JSX.Element {
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
     const hideRows = loadFailed && filtersPending
     const { setFilters } = useActions(broadcastsLogic)
+    const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     const { page } = filters
     const isFiltered = !!filters.search || filters.status !== 'all' || !!filters.createdBy
 
@@ -103,7 +105,7 @@ export function BroadcastsTable(): JSX.Element {
             >
                 <h3 className="m-0 text-lg font-semibold">No broadcasts yet</h3>
                 <p className="m-0 text-secondary">Send a one-time or scheduled email to an audience of your users.</p>
-                <LemonButton type="primary" to={urls.broadcastNew()} data-attr="broadcasts-empty-new">
+                <LemonButton type="primary" onClick={startNewBroadcast} data-attr="broadcasts-empty-new">
                     New broadcast
                 </LemonButton>
             </div>

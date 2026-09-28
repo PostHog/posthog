@@ -8,6 +8,60 @@ import { WorkflowActionEmailPatchSchema, WorkflowGraphPatchSchema } from '@/sche
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const BroadcastsCreateSchema = () => {
+    const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
+    return HogFlowsCreateBody
+}
+
+const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>, Schemas.HogFlow> => ({
+    name: 'broadcasts-create',
+    schema: BroadcastsCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof BroadcastsCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.description !== undefined) {
+            body['description'] = params.description
+        }
+        if (params.status !== undefined) {
+            body['status'] = params.status
+        }
+        if (params.origin_product !== undefined) {
+            body['origin_product'] = params.origin_product
+        }
+        if (params.trigger_masking !== undefined) {
+            body['trigger_masking'] = params.trigger_masking
+        }
+        if (params.conversion !== undefined) {
+            body['conversion'] = params.conversion
+        }
+        if (params.exit_condition !== undefined) {
+            body['exit_condition'] = params.exit_condition
+        }
+        if (params.email_sending_rate_limit !== undefined) {
+            body['email_sending_rate_limit'] = params.email_sending_rate_limit
+        }
+        if (params.edges !== undefined) {
+            body['edges'] = params.edges
+        }
+        if (params.actions !== undefined) {
+            body['actions'] = params.actions
+        }
+        if (params.variables !== undefined) {
+            body['variables'] = params.variables
+        }
+        body['origin_product'] = 'broadcasts'
+        const result = await context.api.request<Schemas.HogFlow>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
     return HogFlowsCreateBody
@@ -544,6 +598,7 @@ const workflowsUpdateSchedule = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'broadcasts-create': broadcastsCreate,
     'workflows-create': workflowsCreate,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-get': workflowsGet,
