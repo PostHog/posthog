@@ -1,6 +1,8 @@
-import api from 'lib/api'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
+
+import { hogFlowsList } from '../generated/api'
 
 // pinned: MCP tool name from products/workflows/mcp/tools.yaml
 const CREATE_WORKFLOW_TOOL = 'workflows-create'
@@ -14,7 +16,8 @@ export async function findCreatedWorkflowId(name: unknown): Promise<string | nul
     if (!search) {
         return null
     }
-    const { results } = await api.hogFlows.getHogFlows({ search, limit: 5 })
+    const projectId = String(projectLogic.findMounted()?.values.currentProjectId)
+    const { results } = await hogFlowsList(projectId, { search, limit: 5 })
     const match = results
         .filter((workflow) => workflow.name === search)
         .sort((a, b) => b.created_at.localeCompare(a.created_at))[0]
