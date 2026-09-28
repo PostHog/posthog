@@ -22,8 +22,9 @@ export function BroadcastSceneHeader({ canEdit = false, nameSuffix, actions }: B
             description={null}
             resourceType={{ type: 'broadcasts' }}
             canEdit={canEdit}
+            // Each keystroke lands in the wizard's state, which Continue saves. A blur-save would reach it a tick
+            // after a click on Continue, so that save would carry the old name.
             onNameChange={setName}
-            saveOnBlur
             renameDebounceMs={0}
             isLoading={broadcastLoading && !broadcast}
             nameSuffix={nameSuffix}
