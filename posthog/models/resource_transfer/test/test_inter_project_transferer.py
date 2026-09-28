@@ -273,7 +273,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
         text = Text.objects.create(
             team=self.team,
             body="Dashboard summary",
-            agent_context="Use the semantic layer activation metric.",
+            agent_context="Use the Data Catalog metric activation_rate.",
         )
         DashboardTile.objects.create(dashboard=dashboard, text=text)
 

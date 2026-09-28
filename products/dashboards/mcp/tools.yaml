@@ -151,10 +151,12 @@ tools:
             lay out insight tiles or create a mixed layout, first call dashboard-get to get tile IDs, then use
             dashboard-update with complete `layouts.sm` boxes. An image tile body must contain exactly one Markdown
             image, such as `![Accessible description](https://example.com/image.png)`. The image URL must be reachable
-            by dashboard viewers. Put concise, user-facing copy in `body`. Put semantic-layer metric names, data
-            sources, tile-specific query assumptions, caveats, and editing guidance in `agent_context`. Keep canonical
-            metric definitions in the semantic layer. Dashboard viewers can inspect agent context on authenticated
-            dashboards, while shared and exported dashboards omit it.
+            by dashboard viewers. Put concise, user-facing copy in `body`. Put context for consistent future updates in
+            `agent_context`, such as Data Catalog metric names, data sources, tile-specific query assumptions, caveats,
+            or editing guidance. PostHog's Data Catalog is the semantic layer. Before you reference a reusable metric,
+            call metric-list and metric-describe. If no governed definition exists, use data-catalog-metric-create
+            instead of writing the definition in `agent_context`. Authenticated dashboard APIs return agent context;
+            shared and exported dashboards omit it.
     dashboard-delete:
         operation: dashboards_destroy
         enabled: true
@@ -206,9 +208,10 @@ tools:
         description: >
             Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights, widget
             configurations, and layout information. Text tiles include both the user-facing `body` and the
-            `agent_context` that agents must use for semantic-layer metric references, data sources, tile-specific
-            assumptions, caveats, and editing guidance. Resolve metric names with metric-describe instead of treating
-            the dashboard as the metric definition. Widget tiles include a `widget` object with `widget_type` and
+            `agent_context` that agents use as continuity notes for future updates. PostHog's Data Catalog is the
+            semantic layer. Treat Data Catalog metric names in agent context as references, call metric-describe for
+            their current definitions, and never treat the dashboard as the metric definition. Widget tiles include a
+            `widget` object with `widget_type` and
             `config` but no live data — use dashboard-widgets-run with tile IDs from this response. Insight results,
             filters, and query metadata are omitted to save context — use dashboard-insights-run to fetch the actual
             data for every insight on the dashboard in one call, or insight-query for a single insight. Supports
@@ -570,9 +573,11 @@ tools:
         description: >
             Update the user-facing markdown body, agent context, layout, or color of an existing text tile on a
             dashboard. Pass the DashboardTile id as `tile_id` (use dashboard-get to look up tile IDs). Keep concise,
-            human-readable copy in `body`. Put semantic-layer metric names, data sources, tile-specific query
-            assumptions, caveats, and editing guidance in `agent_context`. Keep canonical metric definitions in the
-            semantic layer. Only the fields you provide are updated; omitted fields are left unchanged.
+            human-readable copy in `body`. Put context for consistent future updates in `agent_context`, such as Data
+            Catalog metric names, data sources, tile-specific query assumptions, caveats, or editing guidance.
+            PostHog's Data Catalog is the semantic layer. Use data-catalog-metric-create or data-catalog-metric-update
+            for canonical metric definitions instead of writing them in `agent_context`. Only the fields you provide
+            are updated; omitted fields are left unchanged.
         param_overrides:
             id:
                 cast: string-int

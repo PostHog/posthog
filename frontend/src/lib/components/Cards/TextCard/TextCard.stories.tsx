@@ -129,7 +129,7 @@ export const WithAgentContext: Story = {
                     tile={makeTextTile(
                         'This chart shows weekly activated organizations.',
                         null,
-                        'Semantic layer metric: activation_rate. Keep the weekly date range when editing this tile.'
+                        'Data Catalog metric: activation_rate. Keep the weekly date range when editing this tile.'
                     )}
                     placement={DashboardPlacement.Dashboard}
                     dashboardId={1}
@@ -164,7 +164,7 @@ export const EditModalWithAgentContext: Story = {
                 makeTextTile(
                     'This chart shows weekly activated organizations.',
                     null,
-                    'Semantic layer metric: activation_rate. Keep the weekly date range when editing this tile.'
+                    'Data Catalog metric: activation_rate. Keep the weekly date range when editing this tile.'
                 ),
             ],
             filters: {},

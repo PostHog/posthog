@@ -17,7 +17,7 @@ const tile = {
     text: {
         id: 10,
         body: 'Human-readable summary',
-        agent_context: 'Semantic layer metric: activation_rate',
+        agent_context: 'Data Catalog metric: activation_rate',
         dashboard_tiles: [],
         last_modified_at: '2022-04-01T12:24:36',
     },

@@ -105,14 +105,14 @@ describe('textCardModalLogic', () => {
 
     it('loads existing agent context', () => {
         const logic = textCardModalLogic({
-            dashboard: makeDashboard('Dashboard summary', 'Semantic layer metric: activation_rate'),
+            dashboard: makeDashboard('Dashboard summary', 'Data Catalog metric: activation_rate'),
             textTileId: 1,
             onClose: jest.fn(),
             tileType: 'text',
         })
         logic.mount()
 
-        expect(logic.values.textTile.agent_context).toBe('Semantic layer metric: activation_rate')
+        expect(logic.values.textTile.agent_context).toBe('Data Catalog metric: activation_rate')
     })
 
     it('does not mutate the dashboard tile before an update succeeds', () => {
@@ -204,7 +204,7 @@ describe('textCardModalLogic', () => {
         ['image', '![Diagram](https://example.com/diagram.png)'],
         ['text', 'Dashboard context'],
     ])('reports %s content type when a text tile saves', (contentType, body) => {
-        const agentContext = 'Semantic layer metric: activation_rate'
+        const agentContext = 'Data Catalog metric: activation_rate'
         const logic = textCardModalLogic({
             dashboard: makeDashboard(),
             textTileId: null,

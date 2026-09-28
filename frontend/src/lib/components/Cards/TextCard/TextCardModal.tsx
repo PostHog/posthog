@@ -94,7 +94,8 @@ export function TextCardModal({
                                                     <div className="py-1 text-left">
                                                         <div className="font-semibold">Agent context</div>
                                                         <div className="text-secondary text-sm font-normal">
-                                                            Reference details that PostHog AI uses for this text card.
+                                                            Context that helps agents update this dashboard
+                                                            consistently.
                                                         </div>
                                                     </div>
                                                 ),
@@ -104,8 +105,8 @@ export function TextCardModal({
                                                     {({ value, onChange }) => (
                                                         <div className="flex flex-col gap-2">
                                                             <p className="m-0 text-secondary">
-                                                                Reference semantic layer metrics. Add data sources,
-                                                                caveats, or editing guidance for AI agents.
+                                                                Add data sources, assumptions, caveats, or editing
+                                                                guidance for future updates.
                                                             </p>
                                                             <LemonTextArea
                                                                 aria-label="Agent context"
