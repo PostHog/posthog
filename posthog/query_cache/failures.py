@@ -195,13 +195,16 @@ class QueryFailureCache:
 
 
 class WarmingQueryFailureCache(QueryFailureCache):
-    """Apply longer retry cooldowns to background cache warming.
+    """Stop cache warming from retrying failing insights every hour.
 
-    QueryFailureCache stores the ordinary foreground deadline. This subclass shares its
-    Redis key, failure counter, recording and clearing logic, but derives the warming
-    deadline from the last failure time and count when reading. The longer deadline is
-    never persisted, so foreground retries keep their ordinary cooldown. A successful
-    calculation clears the shared history and allows both paths to retry normally.
+    An insight can stay in the warming pool even when nobody opens it. The normal
+    cooldown starts at two minutes, so it can expire before the next hourly warm.
+    This class makes warming wait longer once the failure threshold is reached.
+
+    Both paths share the same failure history. record_failure() saves the normal
+    cooldown in open_until. retry_after() calculates a longer wait for warming from
+    that history without saving it. Foreground retries keep the normal cooldown,
+    and a successful calculation clears the failure history for both paths.
     """
 
     def retry_after(self, record: QueryFailureRecord) -> Optional[datetime]:

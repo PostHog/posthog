@@ -53,7 +53,8 @@ class TestQueryFailureCache(SimpleTestCase):
         with self.assertRaises(ValueError):
             QueryFailureCache("cache_key_bad").record_failure("not_a_kind", "failed")  # type: ignore[arg-type]
 
-    def test_unknown_kind_in_cache_fails_open(self):
+    @parameterized.expand([("foreground", QueryFailureCache), ("warming", WarmingQueryFailureCache)])
+    def test_unknown_kind_in_cache_fails_open(self, _name: str, cache_class: type[QueryFailureCache]) -> None:
         caches[QUERY_CACHE_ALIAS].set(
             "query_failure:cache_key_future",
             {
@@ -66,7 +67,7 @@ class TestQueryFailureCache(SimpleTestCase):
             },
             300,
         )
-        assert QueryFailureCache("cache_key_future").get_open() is None
+        assert cache_class("cache_key_future").get_open() is None
 
     @parameterized.expand(
         [
