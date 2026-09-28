@@ -206,18 +206,29 @@ _ASSESSMENT_READS: list[tuple[Any, ...]] = [
     ("mcp__posthog__feature-flags-dependent-flags-retrieve", {"id": 91001}, "ok"),
     ("mcp__posthog__scheduled-changes-list", {"model_name": "FeatureFlag", "record_id": 91001}, "ok"),
 ]
-# Step 5 searches for the flag's call sites, then the agent reads the file it is about to
-# edit because the Edit tool refuses a file it has not read.
+# The "Find every repository reference" step searches for the flag's call sites, then the
+# agent reads the file it is about to edit because the Edit tool refuses a file it has not
+# read.
 _REPOSITORY_SEARCH: list[tuple[Any, ...]] = [
     ("Grep", {"pattern": "sunset-widget-rollout"}, "src/widget.js:12"),
     ("Read", {"file_path": "/repo/src/widget.js"}, "ok"),
 ]
 _FIRST_EDIT: tuple[Any, ...] = ("Edit", {"file_path": "/repo/src/widget.js"}, "ok")
+_SECOND_EDIT: tuple[Any, ...] = ("Write", {"file_path": "/repo/src/other.js"}, "ok")
 _SECOND_DEFINITION_READ: tuple[Any, ...] = _DEFINITION_READ
+_OTHER_FLAG_READ: tuple[Any, ...] = (
+    "mcp__posthog__feature-flag-get-definition-by-key",
+    {"key": "some-other-flag"},
+    "ok",
+)
+# The shape the cleanup seeders return, which is what the scorer matches reads against.
+_CLEANUP_SEED = {"flag_id": 91001, "flag_key": "sunset-widget-rollout"}
 
 
 def _fresh_read_score(calls: Sequence[tuple[Any, ...]], expected: dict | None):
-    return FreshDefinitionReadBeforeEdit()._run_eval_sync({"raw_log": _raw_tool_log(calls)}, expected)
+    return FreshDefinitionReadBeforeEdit()._run_eval_sync(
+        {"raw_log": _raw_tool_log(calls), "seed": _CLEANUP_SEED}, expected
+    )
 
 
 class TestFreshDefinitionReadBeforeEdit:
@@ -230,8 +241,8 @@ class TestFreshDefinitionReadBeforeEdit:
         assert score.metadata["fresh_reads_before_edit"] == 0
 
     def test_flags_two_assessment_reads_followed_by_an_edit(self) -> None:
-        # Both reads land while assessing, so neither one is the pre-edit read step 6 asks
-        # for. Counting reads before the edit would pass this run.
+        # Both reads land while assessing, so neither one is the pre-edit read the "Apply
+        # the retained path" step asks for. Counting reads before the edit would pass this run.
         score = _fresh_read_score(
             [_DEFINITION_READ, *_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT],
             self._REQUIRED,
@@ -248,6 +259,40 @@ class TestFreshDefinitionReadBeforeEdit:
 
         assert score.score == 1.0
         assert score.metadata["fresh_reads_before_edit"] == 1
+
+    def test_flags_a_search_that_ran_before_the_assessment_read(self) -> None:
+        # The skill's "Establish scope" step searches the repository for the key before any
+        # definition is read. Taking the first search in the run as the divider would score
+        # this assessment read as the fresh one.
+        score = _fresh_read_score(
+            [_REPOSITORY_SEARCH[0], *_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT],
+            self._REQUIRED,
+        )
+
+        assert score.score == 0.0
+        assert score.metadata["fresh_reads_before_edit"] == 0
+
+    def test_a_read_of_another_flag_does_not_count(self) -> None:
+        # Without the seed match, any flag's definition read between the search and the edit
+        # would pass, including one that never looked at the flag under cleanup.
+        score = _fresh_read_score(
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _OTHER_FLAG_READ, _FIRST_EDIT],
+            self._REQUIRED,
+        )
+
+        assert score.score == 0.0
+        assert score.metadata["fresh_reads_before_edit"] == 0
+
+    def test_flags_a_first_edit_made_against_the_assessment_read(self) -> None:
+        # The fresh read arrives between the two edits, so the first file was edited against
+        # the assessment read. Measuring from the last edit instead would pass this run.
+        score = _fresh_read_score(
+            [*_ASSESSMENT_READS, *_REPOSITORY_SEARCH, _FIRST_EDIT, _SECOND_DEFINITION_READ, _SECOND_EDIT],
+            self._REQUIRED,
+        )
+
+        assert score.score == 0.0
+        assert score.metadata["fresh_reads_before_edit"] == 0
 
     def test_a_read_after_the_edit_does_not_count(self) -> None:
         score = _fresh_read_score(

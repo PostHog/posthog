@@ -621,35 +621,29 @@ EXPLAINED_TAG_REQUIREMENT_QUESTION = (
 # suites that grade edit direction refuse codex runs (see seeders._require_claude_runtime).
 FILE_EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit"})
 
-# The search tools step 5 runs to find the flag's references. The first of these calls is
-# the point where assessment ends and the cleanup itself starts, which is what
-# FreshDefinitionReadBeforeEdit needs to tell the two apart. Read is deliberately not here:
-# the Edit tool refuses a file the agent has not read, so a Read sits between the fresh
-# definition read and the first edit on every correct run.
+# The search tools the skill's "Find every repository reference" step runs. A call here
+# that lands after the first definition read is the point where assessment ends and the
+# cleanup itself starts, which is what FreshDefinitionReadBeforeEdit needs to tell the two
+# apart. Read is deliberately not here: the Edit tool refuses a file the agent has not
+# read, so a Read sits between the fresh definition read and the first edit on every
+# correct run.
 REPO_SEARCH_TOOLS = frozenset({"Grep", "Glob"})
+
+# The two lookups that return the full definition, as opposed to a status summary or
+# a dependents/schedule list.
+DEFINITION_READ_TOOLS = frozenset({"feature-flag-get-definition", "feature-flag-get-definition-by-key"})
 
 # The read tools the cleanup skill's assessment steps go through. A run that never calls
 # any of them decided about the seeded flag without looking at it. The by-key variant is
 # here because it is the lookup the MCP surface steers an agent toward when a prompt hands
 # it a flag key and no numeric id.
-FLAG_LOOKUP_TOOLS = frozenset(
-    {
-        "feature-flag-get-all",
-        "feature-flags-status-retrieve",
-        "feature-flag-get-definition",
-        "feature-flag-get-definition-by-key",
-    }
-)
+FLAG_LOOKUP_TOOLS = DEFINITION_READ_TOOLS | frozenset({"feature-flag-get-all", "feature-flags-status-retrieve"})
 
 # The reads behind the skill's dependency and schedule exclusions, one group per scorer
 # so each read is graded on its own: folded into one any-of group, a run that skipped the
 # schedule read would still score green. Kept out of FLAG_LOOKUP_TOOLS for the same reason.
 DEPENDENTS_READ_TOOLS = frozenset({"feature-flags-dependent-flags-retrieve"})
 SCHEDULE_READ_TOOLS = frozenset({"scheduled-changes-list"})
-
-# The two lookups that return the full definition, as opposed to a status summary or
-# a dependents/schedule list.
-DEFINITION_READ_TOOLS = frozenset({"feature-flag-get-definition", "feature-flag-get-definition-by-key"})
 
 # Every write verb the current MCP surface offers for a flag. The cleanup skill must not
 # call any of them on any case — it never changes a flag, and archival belongs to a
@@ -716,12 +710,12 @@ class ToolGroupDirection(Scorer):
 class FreshDefinitionReadBeforeEdit(Scorer):
     """Binary: did a definition read land after the repository search and before the first edit?
 
-    The skill's step 6 says to re-fetch the flag definition immediately before the first
-    write, even when it was already read at assessment time, so a rollout that moved
-    between the two is never edited against stale data. An agent that assessed once and
-    edited straight off that read satisfies every other cleanup scorer here, because the
-    edit direction is right and the flag itself is never mutated, so nothing else in this
-    suite catches a skipped second read.
+    The skill's "Apply the retained path" step says to re-fetch the flag definition
+    immediately before the first write, even when it was already read at assessment time,
+    so a rollout that moved between the two is never edited against stale data. An agent
+    that assessed once and edited straight off that read satisfies every other cleanup
+    scorer here, because the edit direction is right and the flag itself is never mutated,
+    so nothing else in this suite catches a skipped second read.
 
     Applies only when ``expected.fresh_definition_read_before_edit.required`` is true and
     at least one file-edit tool call ran; a case with no edit is a different scorer's question
@@ -729,14 +723,19 @@ class FreshDefinitionReadBeforeEdit(Scorer):
     one skips with ``score=None`` rather than penalizing a correct refusal.
 
     A count of the reads that precede the edit cannot answer the question, because two reads
-    taken while assessing look the same as an assessment read plus a fresh one. The step 5
-    repository search is the divider: an agent cannot edit a call site it has not searched
-    for, so the first ``REPO_SEARCH_TOOLS`` call marks the end of assessment. The read must
-    land after that call and before the first edit. A run that edits without searching at all
-    fails, because it has no divider and therefore no fresh read to find.
+    taken while assessing look the same as an assessment read plus a fresh one. A repository
+    search divides the two instead, because an agent cannot edit a call site it has not
+    searched for. The divider is the first ``REPO_SEARCH_TOOLS`` call that follows the first
+    definition read, and not the first one in the run: the skill's "Establish scope" step
+    searches the repository for the key before any definition is read, so a divider placed
+    at that search would count the assessment read itself as the fresh one. The fresh read
+    must land after the divider and before the first edit. A run that never reads the
+    definition before editing fails, and so does one that edits with no search after its
+    first read, because it has no divider and therefore no fresh read to find.
 
     Whether the definition actually changed is deliberately not re-derived from the log. The
-    failure this grades is the missing call, not a wrong read of a right one.
+    failure this grades is the missing call. It does not check what the agent concluded from
+    the response.
     """
 
     def _name(self) -> str:
@@ -755,27 +754,41 @@ class FreshDefinitionReadBeforeEdit(Scorer):
             return Score(name=self._name(), score=None, metadata={"reason": "No successful edit to gate"})
         first_edit_position = min(call.position for call in edit_calls)
 
+        seed = _seed(output)
+        read_positions = sorted(
+            call.position
+            for tool in DEFINITION_READ_TOOLS
+            for call in _on_seeded_flag(_successful(parser, tool), seed)
+            if call.position < first_edit_position
+        )
+        if not read_positions:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={
+                    "reason": "The agent edited without reading the flag definition first",
+                    "fresh_reads_before_edit": 0,
+                },
+            )
+
         search_positions = [
             call.position
             for tool in REPO_SEARCH_TOOLS
             for call in _successful(parser, tool)
-            if call.position < first_edit_position
+            if read_positions[0] < call.position < first_edit_position
         ]
         if not search_positions:
             return Score(
                 name=self._name(),
                 score=0.0,
-                metadata={"reason": "The agent edited without searching the repository first"},
+                metadata={
+                    "reason": "The agent edited without searching the repository after its first read",
+                    "fresh_reads_before_edit": 0,
+                },
             )
         assessment_ends_at = min(search_positions)
 
-        seed = _seed(output)
-        fresh_reads = [
-            call
-            for tool in DEFINITION_READ_TOOLS
-            for call in _on_seeded_flag(_successful(parser, tool), seed)
-            if assessment_ends_at < call.position < first_edit_position
-        ]
+        fresh_reads = [position for position in read_positions if position > assessment_ends_at]
         if fresh_reads:
             return Score(
                 name=self._name(),
