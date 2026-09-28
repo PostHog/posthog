@@ -15,7 +15,12 @@ from rest_framework.exceptions import ValidationError
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import STRIPPED_EMAIL_EXPRESSION, EmailLookupHandler, EmailNormalizer
+from posthog.helpers.email_utils import (
+    GMAIL_CANONICAL_LOCAL_EXPRESSION,
+    STRIPPED_EMAIL_EXPRESSION,
+    EmailLookupHandler,
+    EmailNormalizer,
+)
 from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization_notification_lock import GovernedSetting, effective_notification_settings
@@ -348,6 +353,7 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         verbose_name_plural = _("users")
         indexes = [
             models.Index(STRIPPED_EMAIL_EXPRESSION, name="user_stripped_alias_idx"),
+            models.Index(GMAIL_CANONICAL_LOCAL_EXPRESSION, name="user_gmail_canonical_idx"),
             # Serves the `LOWER(email)` fold `EmailLookupHandler.get_user_by_email` resolves on.
             models.Index(Lower("email"), name="posthog_user_lower_email_idx"),
         ]

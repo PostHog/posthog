@@ -1454,7 +1454,7 @@ export const getSignalsScoutNotesListUrl = (projectId: string, params?: SignalsS
 }
 
 /**
- * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Results capped at 500.
+ * Return the steering notes left for this project's scouts, newest first. Pass `skill_name` to get the notes addressed to one scout (or one pipeline audience, e.g. `pipeline:report-research`) plus the general (blank-target) fleet-wide notes — the shape a scout run reads at cold start. Omit `skill_name` to browse every note. Expired notes are excluded unless `include_expired=true`. `date_from` / `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`); pass `date_to` (the `created_at` of the oldest note seen) to walk past the cap. Pass `text` to keep only the notes whose content contains it, case-insensitively. Results capped at 500.
  * @summary List scout notes
  */
 export const signalsScoutNotesList = async (
@@ -1593,7 +1593,7 @@ export const getSignalsScoutRecordCheckResultUrl = (projectId: string, runId: st
 }
 
 /**
- * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may only close a check dispatched to its own scout.
+ * Close the follow-up check this run was dispatched to answer. The run note carries the check id and what to establish; this call is the only thing that records the answer, so a run that investigates and says nothing leaves the check unanswered. The verdict lands on the report as a `check_result` entry people read in the inbox. `failed` retires the check, `passed` re-arms a recurring one, and `errored` retries it, so send the outcome you actually reached rather than the one that closes the loop. A run may close the check it was dispatched for, or a check on its own scout that is due or waiting on a run.
  * @summary Record the verdict on a report check
  */
 export const signalsScoutRecordCheckResult = async (
