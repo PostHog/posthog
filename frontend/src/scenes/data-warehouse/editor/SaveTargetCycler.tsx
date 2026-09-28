@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
@@ -80,7 +80,9 @@ export function SaveTargetCycler({ candidates, onChange, children }: SaveTargetC
     // churning: when onChange writes form state, the re-render must not re-run the effect, or the
     // effect and the write feed each other into an infinite render loop that freezes the dialog.
     const onChangeRef = useRef(onChange)
-    onChangeRef.current = onChange
+    useLayoutEffect(() => {
+        onChangeRef.current = onChange
+    }, [onChange])
 
     // Clamp the active index whenever the candidate set shrinks so we never read past the end.
     useEffect(() => {

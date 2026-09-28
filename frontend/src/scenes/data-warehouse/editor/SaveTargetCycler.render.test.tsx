@@ -34,7 +34,7 @@ describe('SaveTargetCycler', () => {
 
         expect(() => render(<Harness />)).not.toThrow()
         // The selection is reported for the initial index once, not stormed.
-        expect(selected.mock.calls.length).toBeLessThanOrEqual(2)
+        expect(selected).toHaveBeenCalledTimes(1)
         expect(selected).toHaveBeenLastCalledWith('SELECT 1', 0)
     })
 })
