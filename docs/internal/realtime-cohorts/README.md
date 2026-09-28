@@ -84,8 +84,9 @@ When all partitions have reported, Django stamps the cohort ready, and feature f
 
 - **Live output is at most once, and the next reconcile repairs it.**
   The live paths commit state before they produce a membership change, so a failed produce loses the change for good on that path.
+  At most once means a failed produce is never retried, not that a change never repeats: a host crash that loses unflushed writes can emit it again.
   Every backfill ends with a reconcile that re-emits the cohort's full membership, and the downstream sweep deletes rows the reconcile did not re-assert.
-  Reconcile runs only inside a backfill, and nothing schedules one, so a change lost on a cohort nobody edits stays lost until an edit or an operator starts a run.
+  Reconcile runs only inside a backfill, and nothing schedules one, so a change lost on a cohort nobody edits stays lost until an edit or an operator starts a run, and that run repairs it only with reconcile enabled on the processor.
   Reconcile re-emits from the state the processor holds, so it repairs lost output, not lost state.
   [Processor runtime](processor-runtime.md#delivery-semantics) lists each path's guarantee.
 - **The processor runs as a single pod.**
