@@ -450,7 +450,7 @@ export function FeatureFlagReleaseConditions({
                                         return (
                                             <div
                                                 role="status"
-                                                className="basis-full flex items-start gap-2 mt-1 text-secondary"
+                                                className="basis-full flex items-start gap-2 mt-1 min-h-[calc(3lh_+_0.25rem)] text-secondary"
                                             >
                                                 <IconErrorOutline className="text-danger text-base shrink-0 mt-0.5" />
                                                 <BlastRadiusErrorMessage

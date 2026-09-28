@@ -694,7 +694,7 @@ const ConditionContent = ({
                                         {blastRadiusError ? (
                                             <div
                                                 role="status"
-                                                className="text-xs text-muted mt-2 flex items-start gap-2"
+                                                className="text-xs text-muted mt-2 flex items-start gap-2 min-h-[calc(3lh_+_0.25rem)]"
                                             >
                                                 <IconErrorOutline className="text-danger text-sm shrink-0 mt-0.5" />
                                                 <BlastRadiusErrorMessage

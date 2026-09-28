@@ -126,8 +126,9 @@ describe('feature flag release conditions matching users link', () => {
                 '/api/projects/:team/feature_flags/user_blast_radius': () => new Promise(() => {}),
             },
         })
-        const { findByLabelText } = render(<Provider>{component}</Provider>)
+        const { findByText } = render(<Provider>{component}</Provider>)
 
-        expect(await findByLabelText(`Calculating affected ${targetName}`)).toBeInTheDocument()
+        const status = await findByText(`Calculating affected ${targetName}…`)
+        expect(status.parentElement).toHaveAttribute('role', 'status')
     })
 })

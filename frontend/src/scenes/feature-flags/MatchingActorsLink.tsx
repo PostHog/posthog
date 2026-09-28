@@ -15,7 +15,6 @@ export interface MatchingActorsLinkProps {
 /**
  * Drills from a release condition's blast-radius count into the actors it matches. Both release
  * condition editors render it, so a change here lands in the plain editor and the collapsible one.
- * BlastRadiusSkeleton copies this link's `mt-1` top margin to reserve the same height while counts load.
  */
 export function MatchingActorsLink({
     properties,
