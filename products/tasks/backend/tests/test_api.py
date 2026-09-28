@@ -10522,7 +10522,7 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertEqual(response["X-Filtered-Count"], "3")
 
     @parameterized.expand([("retrieve", ""), ("session_logs", "session_logs/")])
-    def test_malformed_run_id_returns_404(self, _name: str, suffix: str):
+    def test_malformed_run_id_returns_404(self, _name: str, suffix: str) -> None:
         task = self.create_task()
 
         response = self.client.get(
