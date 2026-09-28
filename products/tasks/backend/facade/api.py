@@ -8285,7 +8285,7 @@ def warm_task_resume_sandbox(
         "custom_image_id": custom_image_id,
     }
     extra_state.update(_github_credential_source_extra_state(resolved_pr_authorship_mode, None))
-    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "github_read_access"):
+    for protected_key in ("wizard_head_branch", "self_driving_head_branch", "stack_base_branch", "github_read_access"):
         if protected_key in (previous_run.state or {}):
             extra_state[protected_key] = (previous_run.state or {})[protected_key]
     if "imported_from" in (previous_run.state or {}):
