@@ -114,7 +114,7 @@ class NumericOutputConfig(BaseModel):
         return score
 
 
-# boffin: bound category config before it crosses Temporal activity payloads.
+# Limit category configuration size to stay within Temporal's activity payload limit.
 MAX_CATEGORICAL_OPTIONS = 100
 
 
