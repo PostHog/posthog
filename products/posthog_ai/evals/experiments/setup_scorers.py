@@ -337,21 +337,31 @@ def closing_texts(messages: Sequence[Any]) -> list[str]:
     one block further back, so a judge reading `last_message` sees the sign-off alone.
     Bookkeeping calls are session control rather than work, so prose on either side of
     one belongs to the same closing statement.
+
+    The message that did the last real work can still carry closing prose, when the agent
+    writes its summary in the same turn. Blocks are ordered, so text after that message's
+    final working call counts and text before it is narration.
     """
+
+    def _texts(blocks: Sequence[dict[str, Any]]) -> list[str]:
+        return [
+            block["text"]
+            for block in blocks
+            if block.get("type") == "text" and isinstance(block.get("text"), str) and block["text"].strip()
+        ]
+
+    def _is_work(block: dict[str, Any]) -> bool:
+        return block.get("type") == "tool_use" and not _is_bookkeeping(str(block.get("name") or ""))
+
     texts: list[str] = []
     for message in reversed(messages):
         if not isinstance(message, dict) or message.get("role") != "assistant":
             continue
         blocks = [block for block in message.get("content") or [] if isinstance(block, dict)]
-        if any(
-            block.get("type") == "tool_use" and not _is_bookkeeping(str(block.get("name") or "")) for block in blocks
-        ):
-            break
-        texts = [
-            block["text"]
-            for block in blocks
-            if block.get("type") == "text" and isinstance(block.get("text"), str) and block["text"].strip()
-        ] + texts
+        work_positions = [index for index, block in enumerate(blocks) if _is_work(block)]
+        if work_positions:
+            return _texts(blocks[work_positions[-1] + 1 :]) + texts
+        texts = _texts(blocks) + texts
     return texts
 
 

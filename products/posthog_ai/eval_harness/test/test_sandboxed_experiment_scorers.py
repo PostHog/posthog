@@ -326,6 +326,14 @@ _SIGN_OFF = "Left everything as a draft."
             ],
             [_SUMMARY, _SIGN_OFF],
         ),
+        # A summary written in the same turn as the last working call, after it.
+        (
+            [
+                _assistant(_text("Creating it now."), _tool("mcp__posthog__exec"), _text(_SUMMARY)),
+                _assistant(_text(_SIGN_OFF)),
+            ],
+            [_SUMMARY, _SIGN_OFF],
+        ),
         (
             [
                 _assistant(_text("Creating it now."), _tool("mcp__posthog__exec")),

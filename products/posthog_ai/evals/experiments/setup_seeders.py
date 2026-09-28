@@ -32,6 +32,7 @@ from posthog.dataclasses import frozen
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
 from posthog.models.person.sql import INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_SQL
 
+from products.demo.backend.facade.api import infer_taxonomy_for_team
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
@@ -431,6 +432,9 @@ def _seed_scenario(context: CustomPromptSandboxContext, key: str) -> dict[str, A
     generated = build_scenario_events(scenario, now)
     _insert_persons(context.team_id, generated.persons, now)
     _insert_events(context.team_id, generated.events)
+    # The team clone infers its taxonomy before this hook runs, so without a second pass the
+    # scenario's events and properties have no definitions and the agent cannot discover them.
+    infer_taxonomy_for_team(context.team_id)
     _create_running_flag(context.team_id, context.user_id, scenario.running_flag_key)
     logger.info(
         "Seeded setup scenario %s for team_id=%s: %d persons, %d events",
