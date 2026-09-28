@@ -306,7 +306,7 @@ fn parse_remote_section_header(header: &str) -> Option<String> {
         return None;
     }
 
-    let name = unescape_config_string(subsection.strip_suffix('"')?);
+    let name = unescape_config_subsection(subsection.strip_suffix('"')?);
     if name.is_empty() {
         return None;
     }
@@ -335,6 +335,24 @@ fn strip_config_comment(line: &str) -> &str {
     }
 
     line
+}
+
+/// Decodes a git config subsection name. Git keeps the escaped character of `\"` and `\\`, and
+/// drops a backslash that precedes anything else: it reads `[remote "ori\gin"]` as the remote
+/// `origin` and `[remote "tab\there"]` as `tabthere`. A value follows different rules, so it
+/// has its own decoder.
+fn unescape_config_subsection(name: &str) -> String {
+    let mut parsed = String::with_capacity(name.len());
+    let mut characters = name.chars();
+
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' => parsed.extend(characters.next()),
+            _ => parsed.push(character),
+        }
+    }
+
+    parsed
 }
 
 /// Unwraps a git config value: it can be quoted, and a quoted value can escape a quote or a
@@ -815,6 +833,17 @@ mod tests {
                 "[remote \"deploy\\\"prod\"]\n\turl = https://github.com/PostHog/posthog.git\n",
                 "deploy\"prod",
             ),
+            (
+                "an escaped backslash in the name",
+                "[remote \"back\\\\slash\"]\n\turl = https://github.com/PostHog/posthog.git\n",
+                "back\\slash",
+            ),
+            (
+                // Git drops a backslash that precedes anything else, so this names `origin`.
+                "a backslash before another character in the name",
+                "[remote \"ori\\gin\"]\n\turl = https://github.com/PostHog/posthog.git\n",
+                "origin",
+            ),
         ];
 
         for (name, config, expected_remote) in cases {
@@ -827,6 +856,21 @@ mod tests {
                 "case: {name}"
             );
         }
+    }
+
+    #[test]
+    fn get_repo_infos_prefer_origin_written_with_a_dropped_escape() {
+        // Git reads `[remote "ori\gin"]` as the remote `origin`, so the release belongs to it
+        // rather than to the remote above it.
+        let (_dir, paths) = write_config_content(
+            "[remote \"upstream\"]\n\turl = https://github.com/Other/upstream.git\n\
+             [remote \"ori\\gin\"]\n\turl = https://github.com/PostHog/posthog.git\n",
+        );
+
+        assert_eq!(
+            get_remote_url_from_paths(&paths),
+            Some("https://github.com/PostHog/posthog.git".to_string())
+        );
     }
 
     #[test]
