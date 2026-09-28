@@ -14,6 +14,14 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
 
 
 class TestVisitor(BaseTest):
+    def test_cloning_preserves_set_query_view_provenance(self) -> None:
+        query = ast.SelectSetQuery(
+            initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+            subsequent_select_queries=[],
+            view_name="saved_counts",
+        )
+        self.assertEqual(CloningVisitor().visit(query).view_name, "saved_counts")
+
     def test_visitor_pattern(self):
         class ConstantVisitor(CloningVisitor):
             def __init__(self):

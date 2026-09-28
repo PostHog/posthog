@@ -7,6 +7,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.query_scan.tree import find_events_reads
 from posthog.query_scan.tree_facts import TreeFacts, tree_facts
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
@@ -15,6 +16,23 @@ _RECENT = "timestamp >= now() - interval 7 day"
 
 
 class TestTreeFacts(BaseTest):
+    @parameterized.expand(
+        [
+            (
+                "nested definition",
+                "SELECT * FROM (WITH totals AS (SELECT count() AS n FROM events) SELECT sum(n) FROM totals UNION ALL SELECT max(n) FROM totals)",
+            ),
+            (
+                "anonymous source",
+                "WITH totals AS (SELECT count() AS n FROM (SELECT * FROM events)) SELECT sum(n) FROM totals UNION ALL SELECT max(n) FROM totals",
+            ),
+        ]
+    )
+    def test_repeated_cte_in_user_subqueries(self, _name: str, sql: str) -> None:
+        facts = tree_facts(self.prepare(sql))
+        assert facts is not None
+        self.assertEqual(facts.repeated_cte_branches, 2)
+
     def test_repeated_cte_presentation_branches(self) -> None:
         tree = self.prepare("""
             WITH totals AS (
@@ -84,8 +102,6 @@ class TestTreeFacts(BaseTest):
         self.assertEqual(facts.repeated_cte_branches if facts else 0, 0)
 
     def test_repeated_cte_is_scoped_to_the_selected_reads(self) -> None:
-        from posthog.query_scan.tree import find_events_reads
-
         tree = self.prepare("""
             WITH totals AS (SELECT count() AS n FROM events)
             SELECT sum(n) FROM totals UNION ALL SELECT max(n) FROM totals
@@ -96,13 +112,17 @@ class TestTreeFacts(BaseTest):
         assert facts is not None
         self.assertEqual(TreeFacts.from_payload(facts.to_payload()), facts)
 
-    def test_repeated_cte_inside_a_view_is_not_reported_on_the_outer_query(self) -> None:
+    @parameterized.expand([("set query", False), ("nested set query", True)])
+    def test_repeated_cte_inside_a_view_is_not_reported_on_the_outer_query(self, _name: str, nested: bool) -> None:
+        sql = "WITH totals AS (SELECT count() AS n FROM events) SELECT sum(n) AS n FROM totals UNION ALL SELECT max(n) AS n FROM totals"
+        if nested:
+            sql = f"SELECT * FROM ({sql})"
         DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="v_counts",
             query={
                 "kind": "HogQLQuery",
-                "query": "WITH totals AS (SELECT count() AS n FROM events) SELECT sum(n) AS n FROM totals UNION ALL SELECT max(n) AS n FROM totals",
+                "query": sql,
             },
             columns={"n": "UInt64"},
         )

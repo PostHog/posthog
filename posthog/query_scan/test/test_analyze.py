@@ -100,6 +100,7 @@ class TestAnalyze(SimpleTestCase):
         if expected:
             self.assertTrue(warnings[0].actionable)
             self.assertEqual(warnings[0].fix_location, "query")
+            assert warnings[0].evidence is not None
             self.assertIn("2 UNION ALL branches", warnings[0].evidence)
             self.assertIn("ARRAY JOIN", warnings[0].message)
             self.assertIn("empty", warnings[0].fix)

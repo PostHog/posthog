@@ -139,21 +139,35 @@ def tree_facts(tree: ast.AST, reads: list[EventsRead] | None = None) -> TreeFact
 
 
 def _repeated_cte_branches(tree: ast.AST, reads: list[EventsRead]) -> int:
-    # Only CTEs defined by this query: inlined set-query views lose their view provenance.
-    initial = tree.initial_select_query if isinstance(tree, ast.SelectSetQuery) else tree
-    if not isinstance(initial, ast.SelectQuery) or not initial.ctes:
-        return 0
-    definitions = {
-        id(cte.expr.type): cte
-        for cte in initial.ctes.values()
-        if cte.cte_type == "subquery" and cte.expr.type is not None
-    }
-    finder = _RepeatedCTEBranches(definitions, {id(read.table_type) for read in reads})
+    definitions = _UserCTEDefinitions()
+    definitions.visit(tree)
+    finder = _RepeatedCTEBranches(definitions.by_type, {id(read.table_type) for read in reads})
     finder.visit(tree)
     return finder.branches
 
 
-class _RepeatedCTEBranches(TraversingVisitor):
+class _OutsideViews(TraversingVisitor):
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if not node.view_name:
+            super().visit_select_query(node)
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        if not node.view_name:
+            super().visit_select_set_query(node)
+
+
+class _UserCTEDefinitions(_OutsideViews):
+    def __init__(self) -> None:
+        super().__init__()
+        self.by_type: dict[int, ast.CTE] = {}
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        if node.cte_type == "subquery" and node.expr.type is not None:
+            self.by_type[id(node.expr.type)] = node
+        super().visit_cte(node)
+
+
+class _RepeatedCTEBranches(_OutsideViews):
     def __init__(self, definitions: dict[int, ast.CTE], events_types: set[int]) -> None:
         super().__init__()
         self.definitions = definitions
@@ -161,6 +175,8 @@ class _RepeatedCTEBranches(TraversingVisitor):
         self.branches = 0
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        if node.view_name:
+            return
         if node.subsequent_select_queries and all(
             branch.set_operator == "UNION ALL" for branch in node.subsequent_select_queries
         ):
@@ -217,7 +233,7 @@ class _RepeatedCTEBranches(TraversingVisitor):
         if isinstance(source, ast.CTETableType | ast.SelectQueryAliasType | ast.SelectViewType):
             return self._reads_events(source.select_query_type, seen)
         if isinstance(source, ast.SelectQueryType):
-            return any(self._reads_events(table, seen) for table in source.tables.values())
+            return any(self._reads_events(table, seen) for table in [*source.tables.values(), *source.anonymous_tables])
         if isinstance(source, ast.SelectSetQueryType):
             return any(self._reads_events(branch, seen) for branch in source.types)
         return False

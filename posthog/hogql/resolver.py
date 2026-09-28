@@ -452,6 +452,7 @@ class Resolver(CloningVisitor):
         result = ast.SelectSetQuery(
             start=node.start,
             end=node.end,
+            view_name=node.view_name,
             initial_select_query=initial,
             subsequent_select_queries=subsequent,
             limit=self.visit(node.limit) if node.limit is not None else None,
@@ -1436,7 +1437,7 @@ class Resolver(CloningVisitor):
 
                 node.table = parse_select(str(database_table.query))
 
-                if isinstance(node.table, ast.SelectQuery):
+                if isinstance(node.table, ast.SelectQuery | ast.SelectSetQuery):
                     node.table.view_name = database_table.name
 
                 node.alias = table_alias or database_table.name

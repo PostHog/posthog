@@ -961,6 +961,7 @@ class CloningVisitor(Visitor[Any]):
         return ast.SelectSetQuery(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
+            view_name=node.view_name,
             type=None if self.clear_types else node.type,
             initial_select_query=self.visit(node.initial_select_query),
             subsequent_select_queries=[
