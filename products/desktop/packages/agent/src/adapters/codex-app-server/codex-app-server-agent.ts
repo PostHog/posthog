@@ -823,7 +823,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         APP_SERVER_METHODS.MODEL_LIST,
         {},
       );
+      const requested = this.config.model;
       this.config.loadModels(res?.data ?? []);
+      if (this.config.model !== requested) {
+        this.logger.warn(
+          "Requested model is not in model/list; using default",
+          {
+            requested,
+            fallback: this.config.model,
+          },
+        );
+      }
     } catch (err) {
       this.logger.warn("model/list failed; using current model only", {
         error: String(err),

@@ -19,6 +19,8 @@ describe("searchSettings", () => {
       "STE100",
       "Simplified Technical English (ASD-STE100)",
     ],
+    ["finds the Codex billing source", "codex billing", "ChatGPT subscription"],
+    ["finds the billing source by BYOS", "byos", "ChatGPT subscription"],
   ])("%s", (_name, query, expectedFirstLabel) => {
     const results = searchSettings(query, NO_HIDDEN);
     expect(results[0]?.label).toBe(expectedFirstLabel);
