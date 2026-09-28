@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { tomlBasicString } from "@posthog/shared";
 import {
   findSkillDirs,
   getUserSkillsDir,
@@ -190,8 +191,7 @@ export async function writeCodexGatewayProvider(
       MODEL_PROVIDERS.header,
       MODEL_PROVIDERS.key,
     ).replace(/\s*$/, "");
-    const url = baseUrl.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    const table = `[model_providers.posthog]\nbase_url = "${url}"\n`;
+    const table = `[model_providers.posthog]\nbase_url = ${tomlBasicString(baseUrl)}\n`;
     await fs.promises.writeFile(
       configPath,
       stripped ? `${stripped}\n\n${table}` : table,

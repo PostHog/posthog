@@ -6,6 +6,7 @@ import {
   applyContextWikiEnv,
   type ContextWikiEnv,
 } from "@posthog/harness/extensions/context-wiki";
+import { tomlBasicString } from "@posthog/shared";
 import type { ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
 
@@ -136,10 +137,6 @@ function getUnixProcessTreePids(rootPid: number): number[] | undefined {
 }
 
 /** Serialize a string map as a TOML basic string (escapes `\` and `"`). */
-function tomlBasicString(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
 /** Render a `Record<string, string>` as a TOML inline table. */
 function tomlInlineTable(entries: Record<string, string>): string {
   const pairs = Object.entries(entries).map(

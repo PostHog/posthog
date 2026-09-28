@@ -88,6 +88,10 @@
       "types": "./dist/adapters/claude/machine-auth.d.ts",
       "import": "./dist/adapters/claude/machine-auth.js"
     },
+    "./adapters/claude/session/pinned-settings": {
+      "types": "./dist/adapters/claude/session/pinned-settings.d.ts",
+      "import": "./dist/adapters/claude/session/pinned-settings.js"
+    },
     "./adapters/claude/subscription-login": {
       "types": "./dist/adapters/claude/subscription-login.d.ts",
       "import": "./dist/adapters/claude/subscription-login.js"

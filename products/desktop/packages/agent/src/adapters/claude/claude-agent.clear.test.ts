@@ -167,6 +167,23 @@ function installFakeSession(
   return { session, oldQuery, endSpy, abortController };
 }
 
+function pinSettingsFile(
+  session: { queryOptions: object },
+  sessionId: string,
+): string {
+  const dir = path.join(
+    process.env.CLAUDE_CONFIG_DIR ?? "",
+    "posthog-session-settings",
+  );
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${sessionId}.json`);
+  fs.writeFileSync(file, "{}");
+  (session.queryOptions as { extraArgs?: Record<string, string> }).extraArgs = {
+    settings: file,
+  };
+  return file;
+}
+
 function findUpdate(
   client: ClientMocks,
   sessionUpdate: string,
@@ -566,15 +583,7 @@ describe("ClaudeAcpAgent /clear", () => {
   it("removes the pinned settings file when the query stream closes", () => {
     const { agent } = makeAgent();
     const { session } = installFakeSession(agent, "s-pinned");
-    const dir = path.join(
-      process.env.CLAUDE_CONFIG_DIR ?? "",
-      "posthog-session-settings",
-    );
-    fs.mkdirSync(dir, { recursive: true });
-    const file = path.join(dir, "s-pinned.json");
-    fs.writeFileSync(file, "{}");
-    (session.queryOptions as { extraArgs?: Record<string, string> }).extraArgs =
-      { settings: file };
+    const file = pinSettingsFile(session, "s-pinned");
 
     (
       agent as unknown as { closeQueryStream(session: unknown): void }
@@ -590,6 +599,7 @@ describe("ClaudeAcpAgent /clear", () => {
     // it spinning with the session half-swapped.
     const { agent, client } = makeAgent();
     const { session } = installFakeSession(agent, "s-init-crash");
+    const pinned = pinSettingsFile(session, "s-init-crash");
     const init = deferInit();
 
     const promptPromise = agent.prompt({
@@ -600,12 +610,14 @@ describe("ClaudeAcpAgent /clear", () => {
       /SDK subprocess crashed/,
     );
     await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+    expect(fs.existsSync(pinned)).toBe(true);
     init.reject(new Error("SDK subprocess crashed"));
     await rejection;
 
     expect((session as unknown as { queryClosed: boolean }).queryClosed).toBe(
       true,
     );
+    expect(fs.existsSync(pinned)).toBe(false);
     // The failed replacement query is torn down, not leaked.
     expect(createdQueries).toHaveLength(1);
     expect(createdQueries[0].close).toHaveBeenCalled();

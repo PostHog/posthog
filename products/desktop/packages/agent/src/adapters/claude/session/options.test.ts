@@ -941,6 +941,37 @@ describe("buildSessionOptions", () => {
       );
     });
 
+    it("pins provider, endpoint and proxy keys so repo settings cannot reroute", () => {
+      const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+
+      const env = flagSettings(options).env;
+      for (const key of [
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_GATEWAY",
+        "ANTHROPIC_BEDROCK_BASE_URL",
+        "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
+        "ANTHROPIC_UNIX_SOCKET",
+        "HTTPS_PROXY",
+      ]) {
+        expect(env[key]).toBe(options.env?.[key] ?? "");
+      }
+    });
+
+    it("keeps an inherited routing value in the pin", () => {
+      const saved = process.env.HTTPS_PROXY;
+      process.env.HTTPS_PROXY = "http://corp-proxy.example:3128";
+      try {
+        const options = buildSessionOptions({ ...makeParams(), gatewayEnv });
+        expect(options.env?.HTTPS_PROXY).toBe("http://corp-proxy.example:3128");
+        expect(flagSettings(options).env.HTTPS_PROXY).toBe(
+          "http://corp-proxy.example:3128",
+        );
+      } finally {
+        if (saved === undefined) delete process.env.HTTPS_PROXY;
+        else process.env.HTTPS_PROXY = saved;
+      }
+    });
+
     it("merges the pins into a caller's SDK settings object", () => {
       const options = buildSessionOptions({
         ...makeParams(),

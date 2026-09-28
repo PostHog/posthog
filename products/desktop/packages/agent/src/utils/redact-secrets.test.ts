@@ -130,6 +130,28 @@ describe("redactSecrets", () => {
     expect(streamText(["see alpha_blend here"])).toBe("see alpha_blend here");
   });
 
+  it("keeps a prefix-bearing word intact across every chunk split", () => {
+    const text = "see alpha_blend graphe_x here";
+    for (let cut = 1; cut < text.length; cut++) {
+      expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(text);
+    }
+  });
+
+  it.each(TOKEN_RULES.filter((rule) => rule.wordStart).map((r) => r.prefix))(
+    "redacts an escaped %s token split at every point",
+    (prefix) => {
+      for (const text of [
+        `x%3D${prefix}aaaa1111 end`,
+        `x\\n${prefix}aaaa1111 end`,
+      ]) {
+        for (let cut = 1; cut < text.length; cut++) {
+          const out = streamText([text.slice(0, cut), text.slice(cut)]);
+          expect(out).not.toContain("aaaa1111");
+        }
+      }
+    },
+  );
+
   it.each(TOKEN_RULES.map((rule) => rule.prefix))(
     "redacts %s after an escaped newline or a percent code",
     (prefix) => {

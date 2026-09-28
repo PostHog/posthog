@@ -3523,6 +3523,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       }
     } catch (err) {
       settingsManager.dispose();
+      removePinnedSettings(options);
       this.terminateQuery(q, abortController);
       session.queryClosed = true;
       startupLogger.error("Session configuration failed", {

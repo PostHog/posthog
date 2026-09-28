@@ -182,6 +182,27 @@ describe("Agent", () => {
     expect(createAcpConnectionMock).not.toHaveBeenCalled();
   });
 
+  it("ignores a gateway key sent without a gateway URL", async () => {
+    const getApiKey = vi.fn().mockResolvedValue("pha_oauth");
+    const agent = new Agent({
+      posthog: { apiUrl: "https://us.posthog.com", getApiKey, projectId: 1 },
+      skipLogPersistence: true,
+    });
+
+    await agent.run("__preview__", "run-1", {
+      adapter: "claude",
+      gatewayApiKey: "stray-key",
+    });
+
+    const [[config]] = createAcpConnectionMock.mock.calls as unknown as [
+      [AcpConnectionConfig],
+    ];
+    expect(JSON.stringify(config)).not.toContain("stray-key");
+    expect(config.claudeGatewayEnv).toMatchObject({
+      anthropicAuthToken: "pha_oauth",
+    });
+  });
+
   it("stops before starting Codex without authentication", async () => {
     const agent = new Agent({ skipLogPersistence: true });
 

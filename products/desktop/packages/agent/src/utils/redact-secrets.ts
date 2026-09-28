@@ -194,11 +194,23 @@ function withText(event: TextEvent, text: string): TextEvent {
   };
 }
 
+// Enough emitted text for WORD_START's lookbehind: one character plus an escape ("%3", "\\").
+const CONTEXT_LENGTH = 3;
+
+/** Redacts `text` as if `context` preceded it; `context` was already emitted. */
+function redactAfter(context: string, text: string): string {
+  const out = redactSecrets(context + text);
+  return out.startsWith(context)
+    ? out.slice(context.length)
+    : redactSecrets(text);
+}
+
 export class SecretEventRedactor {
   private pending: TextEvent | null = null;
   private active: CompiledRule | null = null;
   private chunkKind: string | null = null;
   private heldDots = 0;
+  private context = "";
 
   redact(event: Record<string, unknown>): Record<string, unknown>[] {
     const events: Record<string, unknown>[] = [];
@@ -208,6 +220,7 @@ export class SecretEventRedactor {
       if (this.pending) events.push(this.pending);
       this.pending = null;
       this.active = null;
+      this.context = "";
     }
     this.chunkKind = kind;
     if (!chunk) {
@@ -231,18 +244,19 @@ export class SecretEventRedactor {
       if (remainder === dots) heldDots = dots.length;
       else if (remainder.length > 0) this.active = null;
     }
+    const context = this.context;
     for (const rule of RULES) {
-      text = text.replace(
-        rule.head,
-        (match, offset: number, source: string) => {
+      text = (context + text)
+        .replace(rule.head, (match, offset: number, source: string) => {
+          if (offset < context.length) return match;
           const dots = trailingDots(match);
           if (offset + match.length === source.length) {
             this.active = rule;
             heldDots = dots.length;
           }
           return REDACTED + dots;
-        },
-      );
+        })
+        .slice(context.length);
     }
     text = text.replace(
       LOOPBACK_PROXY_TOKEN,
@@ -254,14 +268,19 @@ export class SecretEventRedactor {
         return host + REDACTED;
       },
     );
-    const redacted = redactSecrets(withText(event, text)) as TextEvent;
+    const redacted = withText(
+      redactSecrets(withText(event, "")) as TextEvent,
+      redactAfter(context, text),
+    );
     const held = this.active
       ? heldDots
       : Math.max(partialPrefixLength(text), loopbackPrefixLength(text));
     this.heldDots = this.active ? heldDots : 0;
     if (held > 0) {
       if (previous) {
-        events.push(withText(previous, text.slice(0, -held)));
+        const emitted = text.slice(0, -held);
+        events.push(withText(previous, emitted));
+        this.context = (context + emitted).slice(-CONTEXT_LENGTH);
         this.pending = withText(redacted, text.slice(-held));
       } else {
         this.pending = redacted;
@@ -269,6 +288,9 @@ export class SecretEventRedactor {
       return events;
     }
     events.push(redacted);
+    this.context = (
+      context + redacted.notification.params.update.content.text
+    ).slice(-CONTEXT_LENGTH);
     return events;
   }
 }

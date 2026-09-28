@@ -54,6 +54,7 @@ import type { EffortLevel } from "../types";
 import type { RunBudgetGuard } from "./budget-guard";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
 import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
+import { isPinnedSettingsFile, pinnedSettingsDir } from "./pinned-settings";
 import { createRtkRewriteHook } from "./rtk-hook";
 import type { SettingsManager } from "./settings";
 import { buildTraceparentHookSettingsJson } from "./traceparent-hook";
@@ -598,16 +599,33 @@ const PINNED_GATEWAY_ENV_KEYS = [
   "ANTHROPIC_CUSTOM_HEADERS",
 ] as const;
 
-function pinnedSettingsDir(): string {
-  return path.join(
-    process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude"),
-    "posthog-session-settings",
-  );
-}
-
-function isPinnedSettingsFile(value: string): boolean {
-  return path.dirname(value) === pinnedSettingsDir();
-}
+// Each selects the CLI's provider, endpoint or transport without touching
+// ANTHROPIC_BASE_URL; pinned to the session's value, or empty when unset.
+const PINNED_ROUTING_ENV_KEYS = [
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "CLAUDE_CODE_USE_FOUNDRY",
+  "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+  "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
+  "CLAUDE_CODE_USE_MANTLE",
+  "CLAUDE_CODE_USE_GATEWAY",
+  "ANTHROPIC_BEDROCK_BASE_URL",
+  "ANTHROPIC_BEDROCK_MANTLE_BASE_URL",
+  "ANTHROPIC_AWS_BASE_URL",
+  "ANTHROPIC_VERTEX_BASE_URL",
+  "ANTHROPIC_GOOGLE_CLOUD_BASE_URL",
+  "ANTHROPIC_FOUNDRY_BASE_URL",
+  "AWS_ENDPOINT_URL",
+  "AWS_ENDPOINT_URL_BEDROCK",
+  "AWS_ENDPOINT_URL_BEDROCK_RUNTIME",
+  "ANTHROPIC_UNIX_SOCKET",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "ALL_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "all_proxy",
+] as const;
 
 export function settingsFlagIncludes(options: Options, nonce: string): boolean {
   const settings = options.extraArgs?.settings;
@@ -640,6 +658,9 @@ function pinGatewayEnvSettings(options: Options, sessionId: string): boolean {
   for (const key of PINNED_GATEWAY_ENV_KEYS) {
     const value = options.env?.[key];
     if (value !== undefined) pins[key] = value;
+  }
+  for (const key of PINNED_ROUTING_ENV_KEYS) {
+    pins[key] = options.env?.[key] ?? "";
   }
   if (typeof options.settings === "string") return false;
   let base: Settings = options.settings ?? {};

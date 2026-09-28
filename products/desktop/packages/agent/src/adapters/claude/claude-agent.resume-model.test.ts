@@ -858,4 +858,81 @@ describe("ClaudeAcpAgent session creation", () => {
       expect(existsSync(settingsOf(2))).toBe(false);
     },
   );
+
+  it.skipIf(process.platform === "win32").each(["new", "resume"] as const)(
+    "removes pinned settings when %s session init fails",
+    async (kind) => {
+      let rejectInit!: (error: Error) => void;
+      nextInitPromise = new Promise((_, reject) => {
+        rejectInit = reject;
+      });
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://127.0.0.1:1",
+          anthropicAuthToken: "tok",
+          openaiBaseUrl: "http://127.0.0.1:1/v1",
+          openaiApiKey: "tok",
+        },
+      });
+      const params = {
+        sessionId: "0197a000-0000-7000-8000-0000000000fc",
+        cwd,
+        mcpServers: [],
+      };
+
+      const promise =
+        kind === "new" ? agent.newSession(params) : agent.resumeSession(params);
+      const rejection = expect(promise).rejects.toBeInstanceOf(Error);
+      await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+      const settings = String(createdQueryOptions[0]?.extraArgs?.settings);
+      expect(settings.startsWith(configDir)).toBe(true);
+      expect(existsSync(settings)).toBe(true);
+      rejectInit(new Error("init boom"));
+      await rejection;
+
+      expect(existsSync(settings)).toBe(false);
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "removes pinned settings when startup configuration fails after init",
+    async () => {
+      let rejectSetModel!: (error: Error) => void;
+      nextSetModel = () =>
+        new Promise((_, reject) => {
+          rejectSetModel = reject;
+        });
+      const client = {
+        sessionUpdate: vi.fn().mockResolvedValue(undefined),
+        extNotification: vi.fn().mockResolvedValue(undefined),
+      } as unknown as AgentSideConnection;
+      const agent = new ClaudeAcpAgent(client, {
+        gatewayEnv: {
+          anthropicBaseUrl: "http://127.0.0.1:1",
+          anthropicAuthToken: "tok",
+          openaiBaseUrl: "http://127.0.0.1:1/v1",
+          openaiApiKey: "tok",
+        },
+      });
+
+      const promise = agent.newSession({ cwd, mcpServers: [] });
+      const rejection = expect(promise).rejects.toThrow(
+        "Session model switch failed",
+      );
+      await vi.waitFor(() =>
+        expect(createdQueries[0]?.setModel).toHaveBeenCalledTimes(1),
+      );
+      const settings = String(createdQueryOptions[0]?.extraArgs?.settings);
+      expect(settings.startsWith(configDir)).toBe(true);
+      expect(existsSync(settings)).toBe(true);
+      rejectSetModel(new Error("set model boom"));
+      await rejection;
+
+      expect(existsSync(settings)).toBe(false);
+    },
+  );
 });
