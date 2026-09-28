@@ -288,7 +288,7 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     <SceneMenuBarFileItems dataAttrKey={RESOURCE_TYPE} />
                     {showCopyToProject && (
                         <SceneMenuBarItem
-                            onClick={() => push(urls.resourceTransfer('Insight', insight.id!))}
+                            onClick={() => push(urls.resourceTransfer('Insight', insight.id!, insight.short_id))}
                             data-attr={`${RESOURCE_TYPE}-menubar-copy-to-project`}
                         >
                             <IconCopy />

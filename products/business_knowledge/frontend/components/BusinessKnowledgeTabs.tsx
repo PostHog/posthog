@@ -2,7 +2,7 @@ import { LemonTabs } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-export type BusinessKnowledgeTab = 'sources' | 'settings'
+export type BusinessKnowledgeTab = 'sources' | 'playground' | 'settings'
 
 export function BusinessKnowledgeTabs({ activeTab }: { activeTab: BusinessKnowledgeTab }): JSX.Element {
     return (
@@ -16,6 +16,13 @@ export function BusinessKnowledgeTabs({ activeTab }: { activeTab: BusinessKnowle
                     link: urls.businessKnowledge(),
                     // pinned: autocapture / Playwright key. Do not rename.
                     'data-attr': 'business-knowledge-tab-sources',
+                },
+                {
+                    key: 'playground',
+                    label: 'Playground',
+                    link: urls.businessKnowledgePlayground(),
+                    // pinned: autocapture / Playwright key. Do not rename.
+                    'data-attr': 'business-knowledge-tab-playground',
                 },
                 {
                     key: 'settings',
