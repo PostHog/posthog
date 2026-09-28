@@ -1,3 +1,5 @@
+import json
+from io import BytesIO
 from ipaddress import ip_address
 from uuid import uuid4
 
@@ -8,6 +10,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import serializers, status
 
@@ -264,12 +267,22 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
     def test_custom_system_one_connection_round_trip(
         self, _flag: Mock, request: Mock, _budget: Mock, _dns: Mock
     ) -> None:
-        request.return_value = Mock(status_code=200)
-        request.return_value.json.return_value = {
-            "model": "custom-model",
-            "answers": {"verdict": {"type": "noul", "noul": 1.0}, "applicable": {"type": "noul", "noul": 1.0}},
-            "usage": {"input_tokens": 12, "output_tokens": 0},
-        }
+        body = json.dumps(
+            {
+                "model": "custom-model",
+                "answers": {"verdict": {"type": "noul", "noul": 1.0}, "applicable": {"type": "noul", "noul": 1.0}},
+                "usage": {"input_tokens": 12, "output_tokens": 0},
+            }
+        ).encode()
+        response_status = 200
+
+        def respond(*_args: object, **_kwargs: object) -> requests.Response:
+            response = requests.Response()
+            response.status_code = response_status
+            response.raw = BytesIO(body)
+            return response
+
+        request.side_effect = respond
         url = f"/api/environments/{self.team.id}/llm_analytics/provider_keys/"
         response = self.client.post(
             url,
@@ -294,7 +307,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         request.assert_not_called()
         key.refresh_from_db()
         self.assertEqual(key.encrypted_config["base_url"], "https://decisions.example.com/v1")
-        request.return_value.status_code = 401
+        response_status = 401
         response = self.client.patch(
             f"{url}{key.id}/", {"base_url": "https://other.example.com/v1", "api_key": "fake-token"}
         )
@@ -302,7 +315,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         key.refresh_from_db()
         self.assertEqual(key.encrypted_config["base_url"], "https://decisions.example.com/v1")
         self.assertEqual(key.encrypted_config["api_key"], "")
-        request.return_value.status_code = 200
+        response_status = 200
         response = self.client.patch(
             f"{url}{key.id}/", {"base_url": "https://other.example.com/v1", "api_key": "fake-token"}
         )

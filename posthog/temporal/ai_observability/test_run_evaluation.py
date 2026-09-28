@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from io import BytesIO
 from ipaddress import ip_address
 from typing import Any, cast
 
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
 
+import requests
 import posthoganalytics
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
@@ -133,8 +135,7 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
 ) -> None:
     key = MagicMock(provider="system_one", encrypted_config=connection_config)
     resolved = MagicMock(provider="system_one", model=model, provider_key=key, is_byok=True)
-    response = MagicMock(status_code=200)
-    response.json.return_value = {
+    response_body = {
         "model": "endpoint-controlled-model",
         "answers": {
             "verdict": {"type": "noul", "noul": probability},
@@ -142,6 +143,9 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         },
         "usage": usage,
     }
+    response = requests.Response()
+    response.status_code = 200
+    response.raw = BytesIO(json.dumps(response_body).encode())
     evaluation = {
         "id": "test-evaluation",
         "name": "Politeness",
@@ -245,6 +249,9 @@ def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         provider="system_one",
         encrypted_config={"api_key": "example-token", "base_url": "https://decisions.example.com/v1"},
     )
+    response = requests.Response()
+    response.status_code = status
+    response.raw = BytesIO(b"Invalid request")
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.egress.limiter.backends.LimitsBackend.consume_sync", return_value=True),
@@ -252,10 +259,7 @@ def test_system_one_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         patch(
             "posthog.temporal.ai_observability.evaluation_llm_judge.system_one_evaluations_enabled", return_value=True
         ),
-        patch(
-            "requests.Session.request",
-            return_value=MagicMock(status_code=status, text="Invalid request"),
-        ),
+        patch("requests.Session.request", return_value=response),
     ):
         spec.return_value.resolve.return_value = MagicMock(
             provider="system_one", model="example-judge-v1", provider_key=key, is_byok=True
