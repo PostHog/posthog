@@ -1,7 +1,43 @@
-import { eventFilterParam, heatmapApiPath, isWithinBounds } from 'lib/components/heatmaps/heatmapDataLogic'
+import { expectLogic } from 'kea-test-utils'
+
+import {
+    eventFilterParam,
+    heatmapApiPath,
+    heatmapDataLogic,
+    isWithinBounds,
+} from 'lib/components/heatmaps/heatmapDataLogic'
 import { CommonFilters, HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
 
+import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
+
+describe('heatmapDataLogic window resize', () => {
+    const originalInnerWidth = window.innerWidth
+
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth })
+    })
+
+    // The in-app query uses a fixed analysis width, so a refetch on resize only hides the empty-state
+    // banner while the request runs. The toolbar queries the live window width, so it must refetch.
+    it.each([
+        ['in-app', false],
+        ['toolbar', true],
+    ] as const)('%s context refetches on resize: %s', async (context, refetches) => {
+        const logic = heatmapDataLogic({ context })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadHeatmapSuccess'])
+
+        Object.defineProperty(window, 'innerWidth', { configurable: true, value: window.innerWidth - 200 })
+        window.dispatchEvent(new Event('resize'))
+
+        expect(logic.values.rawHeatmapLoading).toBe(refetches)
+    })
+})
 
 describe('isWithinBounds', () => {
     const staticArea: HeatmapBoundsFilter = {

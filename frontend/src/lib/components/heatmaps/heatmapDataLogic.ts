@@ -754,9 +754,6 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         setHref: () => {
             actions.loadHeatmap()
         },
-        setWindowWidthOverride: () => {
-            actions.loadHeatmap()
-        },
         setSelectedArea: ({ area }) => {
             if (area) {
                 actions.loadAreaEvents({})
@@ -816,10 +813,8 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         },
     })),
     subscriptions(({ actions }) => ({
-        windowWidth: () => {
-            actions.loadHeatmap()
-        },
-        windowHeight: () => {
+        // Window size only reaches the query through analysisWidth, so an in-app resize must not refetch
+        analysisWidth: () => {
             actions.loadHeatmap()
         },
     })),
