@@ -29,7 +29,7 @@ def is_impersonated(request: Optional[HttpRequest]) -> bool:
 
     # Call-time import: this helper is wired at django.setup() via the activity-log signal
     # handlers, and posthog.auth pulls zxcvbn/webauthn, which no background process needs.
-    from posthog.auth import OAuthAccessTokenAuthentication  # noqa: PLC0415
+    from posthog.auth import OAuthAccessTokenAuthentication  # noqa: PLC0415 — keeps the heavy dep off the import path
 
     authenticator = getattr(request, "successful_authenticator", None)
     if isinstance(authenticator, OAuthAccessTokenAuthentication):

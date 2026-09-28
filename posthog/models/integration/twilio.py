@@ -15,7 +15,9 @@ class TwilioIntegration:
     twilio_provider: "TwilioProvider"
 
     def __init__(self, integration: model.Integration) -> None:
-        from products.workflows.backend.providers import TwilioProvider  # noqa: PLC0415
+        from products.workflows.backend.providers import (
+            TwilioProvider,  # noqa: PLC0415 — keeps the heavy dep off the import path
+        )
 
         if integration.kind != "twilio":
             raise Exception("TwilioIntegration init called with Integration with wrong 'kind'")

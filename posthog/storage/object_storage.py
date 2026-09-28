@@ -183,7 +183,7 @@ class ObjectStorage(ObjectStorageClient):
             return None
 
     def head_object_strict(self, bucket: str, file_key: str) -> Optional[dict]:
-        from botocore.exceptions import ClientError  # noqa: PLC0415
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         try:
             return self.aws_client.head_object(Bucket=bucket, Key=file_key)
@@ -271,7 +271,7 @@ class ObjectStorage(ObjectStorageClient):
         return None if result is None else result[0]
 
     def read_object(self, bucket: str, key: str, *, missing_ok: bool = False) -> Optional[tuple[bytes, Optional[str]]]:
-        from botocore.exceptions import ClientError  # noqa: PLC0415
+        from botocore.exceptions import ClientError  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         s3_response = {}
         try:
@@ -457,8 +457,8 @@ def object_storage_client() -> ObjectStorageClient:
     elif isinstance(_client, UnavailableStorage):
         # boto3/botocore are imported at call time: this module is on the django.setup() path
         # (hypercache -> group_type_mapping) and the SDK costs ~40ms that non-S3 processes never need.
-        from boto3 import client  # noqa: PLC0415
-        from botocore.client import Config  # noqa: PLC0415
+        from boto3 import client  # noqa: PLC0415 — keeps the heavy dep off the import path
+        from botocore.client import Config  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         s3_config = Config(
             signature_version="s3v4",
@@ -619,8 +619,8 @@ def _get_accelerated_presigned_client() -> Optional[Any]:
     if _accelerated_presigned_client is None and settings.OBJECT_STORAGE_TRANSFER_ACCELERATION:
         with _accelerated_client_lock:
             if _accelerated_presigned_client is None:
-                from boto3 import client  # noqa: PLC0415
-                from botocore.client import Config  # noqa: PLC0415
+                from boto3 import client  # noqa: PLC0415 — keeps the heavy dep off the import path
+                from botocore.client import Config  # noqa: PLC0415 — keeps the heavy dep off the import path
 
                 s3_config = Config(
                     signature_version="s3v4",

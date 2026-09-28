@@ -145,7 +145,9 @@ class PostHogConfig(AppConfig):
         if settings.SKIP_ASYNC_MIGRATIONS_SETUP:
             logger.warning("Skipping async migrations setup. This is unsafe in production!")
         else:
-            from posthog.async_migrations.setup import setup_async_migrations  # noqa: PLC0415
+            from posthog.async_migrations.setup import (
+                setup_async_migrations,  # noqa: PLC0415 — keeps the heavy dep off the import path
+            )
 
             setup_async_migrations()
 
