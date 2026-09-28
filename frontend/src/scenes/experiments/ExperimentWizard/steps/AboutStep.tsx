@@ -17,6 +17,18 @@ import { VariantsPanelLinkFeatureFlag } from '../../ExperimentForm/VariantsPanel
 import { getFlagVariants } from '../../utils'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
+/** Marks a required field with a small asterisk. Screen readers hear "(required)" instead. */
+function RequiredMark(): JSX.Element {
+    return (
+        <>
+            <span className="text-accent ml-0.5" aria-hidden="true">
+                *
+            </span>
+            <span className="sr-only">(required)</span>
+        </>
+    )
+}
+
 export function AboutStep(): JSX.Element {
     const { experiment, linkedFeatureFlag, featureFlagKeyValidation, featureFlagKeyValidationLoading, departedSteps } =
         useValues(experimentWizardLogic)
@@ -62,7 +74,15 @@ export function AboutStep(): JSX.Element {
         <div className="space-y-6">
             <h3 className="text-lg font-semibold">What are we testing?</h3>
 
-            <LemonField.Pure label="Experiment name" error={nameError}>
+            <LemonField.Pure
+                label={
+                    <span>
+                        Experiment name
+                        <RequiredMark />
+                    </span>
+                }
+                error={nameError}
+            >
                 <LemonInput
                     placeholder="e.g. New checkout flow test"
                     value={experiment.name}
@@ -107,7 +127,10 @@ export function AboutStep(): JSX.Element {
                 <LemonField.Pure
                     label={
                         <div className="flex items-center justify-between w-full">
-                            <span>Feature flag key</span>
+                            <span>
+                                Feature flag key
+                                <RequiredMark />
+                            </span>
                             <span className="text-muted text-sm font-normal">
                                 Do you have a feature flag already?{' '}
                                 <Link
