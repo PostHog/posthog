@@ -25,6 +25,8 @@ const CLASSIFY_TIMEOUT_MS = 7000
 // workflow_classifications.py), so a mocked test run fails on the same inputs as a live run.
 const MAX_CATEGORIES = 16
 const MAX_DESCRIPTION_LENGTH = 500
+// Counted on the JSON text, like MAX_CONTEXT_CHARS in workflow_classifications.py.
+const MAX_CONTEXT_CHARS = 65_536
 
 // The step test panel mocks async functions by default, so `mock` runs these checks too.
 const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
@@ -45,6 +47,9 @@ const parseClassifyPayload = (args: any[]): Record<string, unknown> => {
         )
     ) {
         throw new Error(`Keep each category description to ${MAX_DESCRIPTION_LENGTH} characters or fewer`)
+    }
+    if ([...(JSON.stringify(payload.context) ?? '')].length > MAX_CONTEXT_CHARS) {
+        throw new Error(`Keep the context to ${MAX_CONTEXT_CHARS} characters of JSON or fewer`)
     }
     return payload
 }
