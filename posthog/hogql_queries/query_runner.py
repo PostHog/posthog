@@ -2432,11 +2432,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             raise
 
                     cache_manager = QueryCache(
-                        failure_cache_class=(
-                            WarmingQueryFailureCache
+                        failure_cache=(
+                            WarmingQueryFailureCache(cache_key)
                             if analytics_props is not None
                             and analytics_props.get("source") == EventSource.CACHE_WARMING
-                            else QueryFailureCache
+                            else QueryFailureCache(cache_key)
                         ),
                         team_id=self.team.pk,
                         cache_key=cache_key,

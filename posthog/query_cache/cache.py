@@ -66,9 +66,9 @@ class QueryCache:
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         ttl: Optional[int] = None,
-        failure_cache_class: type[QueryFailureCache] = QueryFailureCache,
+        failure_cache: Optional[QueryFailureCache] = None,
     ) -> None:
-        self._failure_cache = failure_cache_class(cache_key)
+        self._failure_cache = failure_cache if failure_cache is not None else QueryFailureCache(cache_key)
         self.team_id = team_id
         self.cache_key = cache_key
         self.insight_id = insight_id
