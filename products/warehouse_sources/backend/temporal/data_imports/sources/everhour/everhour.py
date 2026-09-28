@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import (
     EVERHOUR_ENDPOINTS,
     EverhourEndpointConfig,
+    FanOut,
 )
 
 EVERHOUR_BASE_URL = "https://api.everhour.com"
@@ -30,6 +31,9 @@ EARLIEST_FROM_DATE = "2015-01-01"
 
 # Matches the parent project id in a fan-out tasks URL: /projects/{project_id}/tasks
 _PROJECT_ID_RE = re.compile(r"/projects/([^/?]+)/tasks")
+
+# The endpoint each fan-out mode draws its parent ids from.
+_FAN_OUT_PARENT_ENDPOINTS: dict[FanOut, str] = {"project": "projects", "user": "users"}
 
 
 class EverhourRetryableError(Exception):
@@ -164,19 +168,20 @@ def _build_initial_urls(
     logger: FilteringBoundLogger,
     session: requests.Session,
 ) -> list[str]:
-    """Resolve the set of base request URLs for an endpoint, fanning out over projects as needed."""
+    """Resolve the set of base request URLs for an endpoint, fanning out over parents as needed."""
     if config.fan_out == "none":
         return [_build_base_url(config, window)]
 
-    if config.fan_out == "project":
-        projects_config = EVERHOUR_ENDPOINTS["projects"]
-        projects_url = _build_base_url(projects_config, None)
-        return [
-            _with_query(config.path_template.format(project_id=project["id"]), {"limit": config.page_size})
-            for project in _iter_all_items(projects_url, projects_config.page_size, headers, logger, session)
-        ]
+    parent_endpoint = _FAN_OUT_PARENT_ENDPOINTS.get(config.fan_out)
+    if parent_endpoint is None:
+        raise ValueError(f"Unknown fan_out mode: {config.fan_out}")
 
-    raise ValueError(f"Unknown fan_out mode: {config.fan_out}")
+    parent_config = EVERHOUR_ENDPOINTS[parent_endpoint]
+    parent_url = _build_base_url(parent_config, None)
+    return [
+        _with_query(config.path_template.format(parent_id=parent["id"]), {"limit": config.page_size})
+        for parent in _iter_all_items(parent_url, parent_config.page_size, headers, logger, session)
+    ]
 
 
 def _parent_project_id(url: str) -> Optional[str]:
@@ -233,7 +238,8 @@ def get_rows(
     pages_on_current = 0
 
     while current is not None:
-        items = _fetch_page(_with_query(current, {"offset": offset}), headers, logger, session)
+        page_url = _with_query(current, {"offset": offset}) if config.paginates else current
+        items = _fetch_page(page_url, headers, logger, session)
         pages_on_current += 1
 
         new_items = [item for item in items if _row_key(item, config.dedupe_keys) not in seen_keys]
@@ -246,7 +252,7 @@ def get_rows(
 
         # A full page of genuinely new rows means there may be more; a short page (or one that
         # surfaced no new rows, i.e. offset was ignored) ends this URL.
-        would_continue = len(items) >= config.page_size and len(new_items) > 0
+        would_continue = config.paginates and len(items) >= config.page_size and len(new_items) > 0
         if would_continue and pages_on_current >= MAX_PAGES_PER_URL:
             logger.warning(f"Everhour: hit max page cap while paginating {current}")
         has_more = would_continue and pages_on_current < MAX_PAGES_PER_URL
