@@ -885,7 +885,7 @@ describe('experimentWizardLogic', () => {
             sessionStorage.clear()
             useMocks(apiMocks)
             initKeaTests()
-            // The checkbox's disabledReason fails closed when the app context carries no access
+            // The toggle's disabledReason fails closed when the app context carries no access
             // levels, which would swallow every click; grant what the backend grants an editor.
             appContextBeforeGrant = window.POSTHOG_APP_CONTEXT
             window.POSTHOG_APP_CONTEXT = {
@@ -929,12 +929,12 @@ describe('experimentWizardLogic', () => {
 
         it.each([
             {
-                desc: 'a tick without org AI consent opens the consent popover instead of arming the scanner',
+                desc: 'turning it on without org AI consent opens the consent popover instead of arming the scanner',
                 accepted: false,
                 expectedArmed: false,
             },
             {
-                desc: 'a tick with org AI consent arms the scanner without the popover',
+                desc: 'turning it on with org AI consent arms the scanner without the popover',
                 accepted: true,
                 expectedArmed: true,
             },
@@ -942,9 +942,9 @@ describe('experimentWizardLogic', () => {
             ;(global as any).__consentAccepted = accepted
 
             renderAnalyticsStep()
-            await userEvent.click(screen.getByText('Watch participant behavior with Replay Vision'))
+            await userEvent.click(screen.getByRole('switch', { name: 'Watch participant behavior with Replay Vision' }))
 
-            // Without the gate the unconsented tick lands in the logic, and the save path then
+            // Without the gate the unconsented toggle lands in the logic, and the save path then
             // creates a scanner the backend refuses with the consent 400.
             expect(logic.values.createReplayVisionScanner).toBe(expectedArmed)
             const popoverPrompt = screen.queryByText(/needs your approval/)
@@ -955,7 +955,7 @@ describe('experimentWizardLogic', () => {
             }
         })
 
-        it('shows the per-session price next to the checkbox', () => {
+        it('shows the per-session price on the card', () => {
             ;(global as any).__consentAccepted = true
 
             renderAnalyticsStep()
