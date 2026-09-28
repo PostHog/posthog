@@ -64,7 +64,7 @@ export const errorTrackingEmptyState: SceneProductEmptyState = {
                     },
                     'waiting-for-data': {
                         headline: 'Waiting for the first exception',
-                        lead: "Exception autocapture is enabled for this project, but that alone doesn't confirm your app sends exceptions. Run Wizard to check the integration.",
+                        lead: "Exception autocapture is enabled for this project, but that alone doesn't confirm your app sends exceptions. Check that your app is configured to capture exceptions.",
                     },
                 },
                 wizard: { slug: 'error-tracking', pinProjectId: true },

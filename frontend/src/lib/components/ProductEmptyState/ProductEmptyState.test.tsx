@@ -168,12 +168,13 @@ describe('ProductEmptyState', () => {
     })
 
     it.each([
-        [false, false],
-        [true, true],
+        [false, true, false],
+        [true, true, true],
+        [true, false, false],
     ])(
-        'in error tracking waiting mode with new wizard flag on=%s renders the command: %s',
-        async (flagOn, expected) => {
-            useMocks({ get: { '/_preflight/': { cloud: true } } })
+        'in error tracking waiting mode with new wizard flag on=%s and cloud=%s renders the command: %s',
+        async (flagOn, cloud, expected) => {
+            useMocks({ get: { '/_preflight/': { cloud } } })
             preflightLogic.actions.loadPreflight()
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             featureFlagLogic.mount()
@@ -190,7 +191,13 @@ describe('ProductEmptyState', () => {
                 expect(screen.getByText(/Run Wizard in your project/)).toBeTruthy()
             } else {
                 expect(screen.queryByLabelText(/Copy command/)).toBeNull()
-                expect(screen.getByText("You're set up. Waiting for the first exception")).toBeTruthy()
+                if (flagOn) {
+                    expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
+                    expect(screen.getByText(/Check that your app is configured to capture exceptions/)).toBeTruthy()
+                    expect(screen.queryByText(/Run Wizard/)).toBeNull()
+                } else {
+                    expect(screen.getByText("You're set up. Waiting for the first exception")).toBeTruthy()
+                }
             }
         }
     )
