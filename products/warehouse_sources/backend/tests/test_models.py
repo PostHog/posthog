@@ -1137,6 +1137,7 @@ def _merge_in_memory(schema: ExternalDataSchema) -> Iterator[None]:
         yield
 
 
+@pytest.mark.django_db
 def test_reset_pipeline_clears_xmin_state() -> None:
     schema = ExternalDataSchema(
         sync_type=ExternalDataSchema.SyncType.XMIN,
@@ -1151,6 +1152,7 @@ def test_reset_pipeline_clears_xmin_state() -> None:
     assert schema.initial_sync_complete is False
 
 
+@pytest.mark.django_db
 def test_reset_pipeline_preserves_partition_overrides_but_clears_auto_detected() -> None:
     # The operator pins a count via the admin repartition action; it must survive the reset
     # that repartition bundles, while the auto-detected partition_count is wiped so it gets
@@ -1172,6 +1174,7 @@ def test_reset_pipeline_preserves_partition_overrides_but_clears_auto_detected()
     assert schema.partition_size_override == 5
 
 
+@pytest.mark.django_db
 def test_set_partitioning_enabled_consumes_partition_overrides() -> None:
     # Once the override is baked into the effective settings, it's a one-shot pin: drop it so
     # a later reset re-detects instead of re-applying a stale value.
@@ -1189,6 +1192,7 @@ def test_set_partitioning_enabled_consumes_partition_overrides() -> None:
     assert schema.partition_size_override is None
 
 
+@pytest.mark.django_db
 def test_reset_pipeline_preserves_partition_mode_override() -> None:
     # Operator switches a table from md5 to datetime via the admin change-partition-mode action.
     # The mode/keys overrides must survive the bundled reset (which wipes the auto-detected

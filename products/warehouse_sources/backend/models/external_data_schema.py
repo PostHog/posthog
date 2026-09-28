@@ -301,7 +301,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # See `sources/common/history_window.py`. A column rather than a `sync_type_config` key
     # because it has to outlive a reset, and clearing that blob is what a reset is for.
     history_start = models.DateTimeField(null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict } }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "verified_primary_keys": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int, "max_partition_bytes": int, "last_repartition_at": iso8601 str, "repartition_pending": { "partition_mode": str, "partition_format": str | None, "partition_count": int | None, "partition_size": int | None, "partition_keys": list[str], "trigger_reason": str }, "repartition_swap": { "state": "ready", "temp_uri": str, "live_uri": str }, "repartition_rewrite": { "temp_uri": str, "rows_written": int, "target": dict }, "query_folder_state": { "<table>__query": { "active": str, "active_since": iso8601 str, "active_job_id": str, "history_since": iso8601 str, "inactive_since": { str: iso8601 str } } }, "registered_schema_fingerprint": str }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
@@ -1225,11 +1225,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         )
         if clear_initial_sync_complete:
             self.initial_sync_complete = False
-        # This copy still holds the due time, and a later full save of it would wipe the table again.
-        self.restart_full_refresh_clock()
+        # The locked update may use a newer interval than this long-lived copy. Reload the
+        # coupled values so the final full save preserves the new clock rather than overwriting it.
+        self.refresh_from_db(fields=["full_refresh_interval_days", "next_full_refresh_at"])
 
         self.save(skip_activity_log=True)
-        if clear_initial_sync_complete and not self._state.adding:
+        if clear_initial_sync_complete and self.pk is not None and not self._state.adding:
             _schedule_schema_resume_state_clear(schema_id=str(self.pk), team_id=self.team_id)
 
     def update_incremental_field_value(

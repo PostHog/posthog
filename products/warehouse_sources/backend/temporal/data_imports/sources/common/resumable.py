@@ -211,6 +211,10 @@ class ResumableSourceManager(Generic[ResumableData]):
         self._logger.debug(f"Staging resumable source state. key={self._key}, data={json_data}")
         self._staged[self._key] = json_data
 
+    def has_staged_state(self) -> bool:
+        """Whether the next `commit` will write anything."""
+        return bool(self._staged)
+
     def commit(
         self,
         *,
