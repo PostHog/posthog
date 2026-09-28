@@ -75,6 +75,12 @@ class TestFeaturebaseSource:
             ("admins", False, False),
             ("companies", False, False),
             ("contacts", False, False),
+            # Conversations list takes no sort or timestamp param, so it is full refresh only;
+            # tickets sweep newest-first on updatedAt.
+            ("conversations", False, False),
+            ("tickets", True, False),
+            ("ticket_statuses", False, False),
+            ("conversation_tags", False, False),
             ("post_voters", False, False),
         ]
     )
