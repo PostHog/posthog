@@ -2941,7 +2941,7 @@ Note: The Redoc page embeds the full OpenAPI document. Its entire GET surface is
 
 ## Everhour — gaps
 
-Today (9): `assignments`, `clients`, `expenses`, `invoices`, `projects`, `tasks`, `time_records`, `timecards`, `users`
+Today (13): `allocations`, `assignments`, `clients`, `expense_categories`, `expenses`, `invoices`, `projects`, `tasks`, `time_off_types`, `time_records`, `timecards`, `timesheets`, `users`
 
 Diffed against: <https://everhour.docs.apiary.io/api-description-document>
 
@@ -2949,10 +2949,10 @@ Diffed against: <https://everhour.docs.apiary.io/api-description-document>
 - [x] `GET /expenses` — project cost records that pair with time_records for margin analysis (high)
 - [x] `GET /timecards, GET /users/{user_id}/timecards` — clock-in/clock-out attendance records, distinct from time_records (high)
 - [x] `GET /resource-planner/assignments` — scheduled/planned work per user, project and task - planned vs actual (high)
-- [ ] `GET /expenses/categories` — lookup table resolving the category id carried on every expense (high)
-- [ ] `GET /timesheets, GET /users/{user_id}/timesheets` — weekly timesheet approval state and transitions (medium)
-- [ ] `GET /resource-planner/time-off-types` — lookup resolving time-off type ids on assignments/allocations (medium)
-- [ ] `GET /allocations` — time-off and capacity allocations per user (medium)
+- [x] `GET /expenses/categories` — lookup table resolving the category id carried on every expense (high)
+- [x] `GET /timesheets, GET /users/{user_id}/timesheets` — weekly timesheet approval state and transitions (medium)
+- [x] `GET /resource-planner/time-off-types` — lookup resolving time-off type ids on assignments/allocations (medium)
+- [x] `GET /allocations` — time-off and capacity allocations per user (medium)
 - [ ] `GET /projects/{project_id}/sections` — lookup resolving the section id on tasks (medium)
 - [ ] `GET /projects/{project_id}/fields` — custom field definitions needed to interpret task custom field values (medium)
 - [ ] `GET /dashboards/projects, /dashboards/clients, /dashboards/users` — prebuilt report aggregates by project, client and member (low)
@@ -2993,7 +2993,7 @@ Note: Endpoint list extracted from the \*.api URLs on the developers page. Also 
 
 ## Factorial — **thin**
 
-Today (21): `allowance_stats`, `allowances`, `applications`, `attendance_shifts`, `candidates`, `compensations`, `contract_versions`, `employees`, `expenses`, `flexible_time_records`, `job_postings`, `leave_types`, `leaves`, `legal_entities`, `locations`, `payroll_supplements`, `projects`, `team_memberships`, `teams`, `time_records`, `worked_times`
+Today (26): `allowance_stats`, `allowances`, `application_phases`, `applications`, `attendance_shifts`, `candidate_sources`, `candidates`, `compensations`, `contract_versions`, `cost_centers`, `employees`, `expenses`, `flexible_time_records`, `hiring_stages`, `job_postings`, `leave_types`, `leaves`, `legal_entities`, `locations`, `payroll_supplements`, `projects`, `team_memberships`, `teams`, `terminations`, `time_records`, `worked_times`
 
 Diffed against: <https://apidoc.factorialhr.com/reference>
 
@@ -3001,16 +3001,16 @@ Diffed against: <https://apidoc.factorialhr.com/reference>
 - [x] `project_management/time_records` — time booked against projects; projects are synced but the time booked to them is not (high)
 - [x] `contracts/compensations` — salary and compensation amounts attached to contract versions we already sync (high)
 - [x] `timeoff/allowance_stats` — consumed vs remaining balance per employee and allowance - the number leave reporting actually needs (high)
-- [ ] `ats/hiring_stages and ats/application_phases` — lookup tables resolving the stage/phase id carried on every synced application (high)
-- [ ] `finance/cost_centers` — lookup table for cost allocation across employees, expenses and projects (high)
-- [ ] `employee_updates/terminations` — attrition events with dates and reasons; headcount churn is not derivable from the employees snapshot (high)
+- [x] `ats/hiring_stages and ats/application_phases` — lookup tables resolving the stage/phase id carried on every synced application (high)
+- [x] `finance/cost_centers` — lookup table for cost allocation across employees, expenses and projects (high)
+- [x] `employee_updates/terminations` — attrition events with dates and reasons; headcount churn is not derivable from the employees snapshot (high)
 - [ ] `employee_updates/new_hires` — hire events for headcount growth and time-to-start reporting (medium)
 - [ ] `finance/cost_center_memberships` — employee-to-cost-center membership needed to attribute cost (medium)
-- [ ] `ats/candidate_sources` — lookup resolving the source id on candidates; source-of-hire is a core recruiting breakdown (medium)
+- [x] `ats/candidate_sources` — lookup resolving the source id on candidates; source-of-hire is a core recruiting breakdown (medium)
 - [ ] `attendance/overtime_requests` — overtime volume and approval state per employee (medium)
 - [ ] `job_catalog/roles and job_catalog/levels` — lookup tables for role and level ids used in compensation banding (medium)
 
-Note: The reference exposes roughly 140 list endpoints across ATS, attendance, contracts, finance, payroll, performance, procurement, project management, time off, trainings and work schedules; PostHog covers 17. Other notable untapped families: performance review evaluations/scores, banking transactions, finance journal entries/lines, procurement purchase orders, trainings sessions/attendances, shift management, custom field values. The docs hub is readme.io with no downloadable OpenAPI - the resource list was read off the /reference sidebar route slugs (api-2026-07-01).
+Note: The reference exposes roughly 140 list endpoints across ATS, attendance, contracts, finance, payroll, performance, procurement, project management, time off, trainings and work schedules; PostHog covers 26. Other notable untapped families: performance review evaluations/scores, banking transactions, finance journal entries/lines, procurement purchase orders, trainings sessions/attendances, shift management, custom field values. The docs hub is readme.io with no downloadable OpenAPI - the resource list was read off the /reference sidebar route slugs (api-2026-07-01).
 
 ## Fastly — **thin**
 
@@ -3165,8 +3165,8 @@ Today (24): `alerts`, `change_events`, `changes`, `checklist_templates`, `custom
 Diffed against: <https://raw.githubusercontent.com/firehydrant/firehydrant-typescript-sdk/main/openapi.yaml>
 
 - [x] `/v1/incidents/{incident_id}/milestones` — the incident state-transition history that every MTTx and lifecycle calculation is built from (high)
-- [ ] `/v1/incidents/{incident_id}/events` — the full incident timeline; incidents alone give no in-incident activity (high)
-- [ ] `/v1/incidents/{incident_id}/role_assignments` — membership table joining incidents to users and the already-synced incident_roles (high)
+- [x] `/v1/incidents/{incident_id}/events` — the full incident timeline; incidents alone give no in-incident activity (high)
+- [x] `/v1/incidents/{incident_id}/role_assignments` — membership table joining incidents to users and the already-synced incident_roles (high)
 - [ ] `/v1/metrics/mttx` — FireHydrant's headline reliability metric (MTTA/MTTR/MTTM) with no equivalent in the current tables (high)
 - [x] `/v1/schedules` — org-wide on-call schedules; signals_on_call is synced but the schedule definitions it references are not (high)
 - [x] `/v1/teams/{team_id}/escalation_policies` — lookup resolving how alerts route per team, joining teams already synced (high)
@@ -3174,7 +3174,7 @@ Diffed against: <https://raw.githubusercontent.com/firehydrant/firehydrant-types
 - [ ] `/v1/change_types` — lookup table resolving the change type carried on the synced changes and change_events rows (medium)
 - [ ] `/v1/lifecycles/phases and /v1/lifecycles/measurement_definitions` — lookup tables that give milestones and lifecycle measurements their names and ordering (medium)
 - [ ] `/v1/ticketing/tickets (plus /v1/ticketing/priorities, /v1/ticketing/ticket_tags)` — follow-up work tracked off incidents, entirely absent today (medium)
-- [ ] `/v1/services/{service_id}/dependencies` — service dependency graph edges; services are synced but their relationships are not (medium)
+- [x] `/v1/services/{service_id}/dependencies` — service dependency graph edges; services are synced but their relationships are not (medium)
 - [ ] `/v1/metrics/incidents, /v1/metrics/milestone_funnel, /v1/metrics/retrospectives, /v1/metrics/user_involvements` — prebuilt reporting aggregates for incident volume, funnel conversion and responder load (medium)
 
 Note: The repo already carries products/warehouse_sources/backend/temporal/data_imports/sources/firehydrant/api_inventory.md, which cites this same spec. The docs sidebar at docs.firehydrant.com additionally lists list_audit_events and list_incident_retrospectives, which do not appear in the SDK OpenAPI file, so paths for those could not be confirmed and they are omitted.
@@ -3228,10 +3228,10 @@ Diffed against: <https://developer.fleetio.com/sitemap.xml>
 - [x] `service_entry_line_items (v2)` — line-item detail behind each synced service entry - labor, parts and cost breakdown (high)
 - [x] `work_order_statuses` — lookup resolving the status ID on every synced work_orders row (high)
 - [x] `vehicle_statuses` — lookup resolving the status ID on every synced vehicles row (high)
-- [ ] `vehicle_types` — lookup resolving vehicle type IDs, the main breakdown dimension for fleet analysis (high)
-- [ ] `service_tasks` — lookup resolving the task IDs referenced by service entries, work orders and service reminders (high)
-- [ ] `vendors` — lookup resolving vendor IDs on service entries, fuel entries and purchase orders (high)
-- [ ] `purchase_orders (and purchase_order_line_items)` — parts procurement transactions and their line items; parts are synced but never their purchases (medium)
+- [x] `vehicle_types` — lookup resolving vehicle type IDs, the main breakdown dimension for fleet analysis (high)
+- [x] `service_tasks` — lookup resolving the task IDs referenced by service entries, work orders and service reminders (high)
+- [x] `vendors` — lookup resolving vendor IDs on service entries, fuel entries and purchase orders (high)
+- [x] `purchase_orders (and purchase_order_line_items)` — parts procurement transactions and their line items; parts are synced but never their purchases (medium)
 - [ ] `faults` — diagnostic trouble code events streamed off vehicles - a primary reliability signal (medium)
 - [ ] `location_entries` — vehicle location history, enabling utilization and route analysis (medium)
 - [ ] `service_reminders` — upcoming and overdue maintenance state, the operational counterpart to the synced service entries (medium)
