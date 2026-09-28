@@ -1,8 +1,11 @@
-import type { HogFlowBatchJobApi, HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowBatchJobApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { getBroadcastStatus } from './broadcastsLogic'
 
-const flow = (status: string): HogFlowMinimalApi => ({ status }) as unknown as HogFlowMinimalApi
+const flow = (
+    status: string,
+    origin_product: string | null = 'broadcasts'
+): Parameters<typeof getBroadcastStatus>[0] => ({ status, origin_product })
 const withJob = (status: string): { latestBatchJob: HogFlowBatchJobApi; totals: Record<string, number> } => ({
     latestBatchJob: { status } as HogFlowBatchJobApi,
     totals: {},
@@ -20,6 +23,18 @@ describe('getBroadcastStatus', () => {
         ['a run that failed', flow('active'), withJob('failed'), 'failed'],
         ['a run that was cancelled', flow('active'), withJob('cancelled'), 'failed'],
         ['no run yet', flow('active'), { latestBatchJob: null, totals: {} }, 'scheduled'],
+        [
+            'no run and no schedule to come',
+            flow('active'),
+            { latestBatchJob: null, totals: {}, hasPendingSchedule: false },
+            'failed',
+        ],
+        [
+            'a workflow waiting for a send started through the API',
+            flow('active', null),
+            { latestBatchJob: null, totals: {}, hasPendingSchedule: false },
+            'scheduled',
+        ],
         [
             'a recurring broadcast between runs',
             flow('active'),
