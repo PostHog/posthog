@@ -2,7 +2,7 @@ import json
 from decimal import Decimal
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,6 +11,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 from parameterized import parameterized
+from pytest_mock import MockerFixture
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     MissingPrimaryKeysException,
@@ -740,13 +741,16 @@ class TestCheckpointIntervalProperty:
     )
     @pytest.mark.asyncio
     async def test_first_sync_creates_the_table_with_the_property(
-        self, write_type: str, primary_keys: list[str] | None, tmp_path: Path
+        self,
+        write_type: Literal["incremental", "append", "full_refresh"],
+        primary_keys: list[str] | None,
+        tmp_path: Path,
     ) -> None:
         delta_path = str(tmp_path / "table")
 
         await DeltaWriter(make_local_table_ref(delta_path)).write(
             data=pa.table({"id": [1, 2]}),
-            write_type=cast(Any, write_type),
+            write_type=write_type,
             should_overwrite_table=False,
             primary_keys=primary_keys,
         )
@@ -776,7 +780,9 @@ class TestCheckpointIntervalProperty:
         assert _commit_operations(delta_path).count("SET TBLPROPERTIES") == 1
 
     @pytest.mark.asyncio
-    async def test_a_persistently_failing_commit_is_swallowed_not_propagated(self, tmp_path: Path, mocker) -> None:
+    async def test_a_persistently_failing_commit_is_swallowed_not_propagated(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
         # The data write has already committed by the time this runs, so a property commit that can
         # never succeed (an incompatible backend, an unexpected metadata shape, any bug in this path)
         # must not fail the write call it's attached to.
@@ -784,6 +790,22 @@ class TestCheckpointIntervalProperty:
         deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
         table = deltalake.DeltaTable(delta_path)
         mocker.patch.object(type(table.alter), "set_table_properties", side_effect=RuntimeError("boom"), create=True)
+
+        result = await ensure_table_properties(table, make_logger())
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_a_metadata_read_failure_is_swallowed_not_propagated(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        # The metadata read that decides whether a commit is even needed is in the same best-effort
+        # boundary as the commit itself: the data write has already landed either way, so a failure
+        # reading metadata must not propagate any more than a failed property commit does above.
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1]}))
+        table = deltalake.DeltaTable(delta_path)
+        mocker.patch.object(type(table), "metadata", side_effect=RuntimeError("boom"))
 
         result = await ensure_table_properties(table, make_logger())
 

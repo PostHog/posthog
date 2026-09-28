@@ -1,6 +1,7 @@
 import uuid
 import datetime as dt
 import contextvars
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -1102,10 +1103,10 @@ class TestRepartitionActivityHasWork:
     def test_matches_the_activitys_own_fast_path(
         self,
         _name: str,
-        overrides: dict,
-        pending: dict | None,
-        swap: dict | None,
-        coarsen_requested: dict | None,
+        overrides: dict[str, Any],
+        pending: dict[str, Any] | None,
+        swap: dict[str, Any] | None,
+        coarsen_requested: dict[str, Any] | None,
         enabled: bool,
         expected: bool,
         mock_enabled: MagicMock,

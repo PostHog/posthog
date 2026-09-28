@@ -112,7 +112,7 @@ class TestRunPostLoadDeltaMaintenance:
     @pytest.mark.asyncio
     async def test_uses_threshold_maintenance_not_unconditional_compact(
         self, _name: str, is_cdc: bool, cdc_write_mode: str | None
-    ):
+    ) -> None:
         # CDC finals land every tick, and a non-CDC final batch usually leaves nothing to compact,
         # so an unconditional compact+vacuum here paid a full file listing and rewrite plan per sync.
         schema = _make_schema(is_cdc=is_cdc, sync_type_config={"last_vacuum_version": 41})
@@ -122,7 +122,7 @@ class TestRunPostLoadDeltaMaintenance:
         run_scheduled.assert_awaited_once_with(schema, is_cdc_companion=False, partition_count_fallback=None)
 
     @pytest.mark.asyncio
-    async def test_forwards_resource_partition_count_as_fallback(self):
+    async def test_forwards_resource_partition_count_as_fallback(self) -> None:
         # A first sync has no schema.partition_count persisted yet; the fallback comes from the
         # synced resource instead, so this must actually reach run_scheduled and not silently drop.
         schema = _make_schema(is_cdc=False, sync_type_config={"last_vacuum_version": 41}, partition_count=None)

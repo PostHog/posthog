@@ -1224,7 +1224,7 @@ class TestResumeSwapWithMissingLive:
         schema.clear_repartition_pending.assert_called_once()
         assert result == {"outcome": "skipped", "reason": "no_delta_table"}
 
-    def test_recovery_finishes_swap_and_invalidates_cache(self):
+    def test_recovery_finishes_swap_and_invalidates_cache(self) -> None:
         # Live is gone but temp is intact and complete: the recovery finishes the swap from temp. The
         # cached delta-table handle still points at the now-deleted live files, so it must be dropped
         # or a subsequent read in the same run would keep serving the pre-swap listing.

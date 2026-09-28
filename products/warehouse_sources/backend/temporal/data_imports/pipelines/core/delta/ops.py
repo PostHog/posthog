@@ -156,17 +156,20 @@ async def ensure_table_properties(table: deltalake.DeltaTable, logger: Filtering
     nothing here. Never raises, because the data write has already committed and a property that
     fails to land only waits for the next write. Returns True when it committed.
     """
-    current = table.metadata().configuration or {}
-    missing = {key: value for key, value in DELTA_TABLE_PROPERTIES.items() if current.get(key) != value}
-    if not missing:
-        return False
     try:
+        # The metadata read is in the same best-effort boundary as the write below: it touches the
+        # same table handle (and, on a lazily-loaded snapshot, can hit the same object store), and
+        # the data commit has already landed either way, so a failure here must not propagate either.
+        current = table.metadata().configuration or {}
+        missing = {key: value for key, value in DELTA_TABLE_PROPERTIES.items() if current.get(key) != value}
+        if not missing:
+            return False
         await execute_with_conflict_retry(
             table, lambda: table.alter.set_table_properties(missing), "set_table_properties", logger
         )
     except ObjectStorePermissionDeniedError as e:
         await logger.awarning(
-            f"set_table_properties: could not set {sorted(missing)}, will retry on the next write: {e}"
+            f"set_table_properties: could not apply table properties, will retry on the next write: {e}"
         )
         return False
     except Exception as e:  # noqa: BLE001 - best-effort; the data commit already landed
@@ -175,7 +178,7 @@ async def ensure_table_properties(table: deltalake.DeltaTable, logger: Filtering
             # every write would otherwise retry it forever with nothing surfacing to error tracking.
             capture_exception(e)
         await logger.awarning(
-            f"set_table_properties: could not set {sorted(missing)}, will retry on the next write: {e}"
+            f"set_table_properties: could not apply table properties, will retry on the next write: {e}"
         )
         return False
     return True

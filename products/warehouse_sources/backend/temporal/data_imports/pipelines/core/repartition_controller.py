@@ -9,6 +9,7 @@ schema. The next run's pre-extraction activity performs the rewrite (see `repart
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -141,7 +142,7 @@ def needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) ->
 
 
 def is_pending_repartition_released_by_flag(
-    schema: ExternalDataSchema, pending: dict[str, Any], *, enabled: bool | None = None
+    schema: ExternalDataSchema, pending: Mapping[str, object], *, enabled: bool | None = None
 ) -> bool:
     """Whether a queued rewrite's own rollout flag has since been disabled, releasing it as a no-op.
 
