@@ -118,15 +118,19 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
             insight_ids_single.add(insight_id)
 
     if insight_ids_single:
+        # The fan-out joins go in a subquery, which Postgres answers with a semi-join: one row per
+        # insight, without the `DISTINCT` sort the outer query used to pay for. The team filter
+        # stays outside it, because neither join is team-scoped (an insight view can carry no team).
         single_insight_q_filter = Q(
-            team=team,
             insightviewed__last_viewed_at__gte=threshold,
             pk__in=insight_ids_single,
         )
         if shared_only:
             single_insight_q_filter &= Q(sharingconfiguration__enabled=True)
 
-        single_insight_ids = Insight.objects.filter(single_insight_q_filter).distinct().values_list("id", flat=True)
+        single_insight_ids = Insight.objects.filter(
+            team=team, pk__in=Insight.objects.filter(single_insight_q_filter).values("pk")
+        ).values_list("id", flat=True)
         for single_insight_id in single_insight_ids:
             yield single_insight_id, None
 
