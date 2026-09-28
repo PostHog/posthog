@@ -188,9 +188,12 @@ def _resolve_date_bounds(
         date_from = _parse_absolute_date(raw_date_from, timezone_info) or _parse_relative_date(
             raw_date_from, timezone_info, current, always_truncate=True
         )
-    else:
+    elif isinstance(raw_date_to, str) and raw_date_to:
         # Anchor the default window to the range end so a historical date_to keeps a valid range.
         date_from = date_to - datetime.timedelta(days=DEFAULT_WINDOW_DAYS)
+    else:
+        # Start at local midnight, the same as the issue list's default -7d window.
+        date_from = _parse_relative_date(f"-{DEFAULT_WINDOW_DAYS}d", timezone_info, current, always_truncate=True)
 
     # Compare instants, because two times in one zone compare by wall clock across a DST change.
     if date_from.timestamp() > date_to.timestamp():
