@@ -929,7 +929,11 @@ export const EmptyEventsWithEventMatchLoading: Story = {
     ],
     parameters: {
         featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]: true },
-        testOptions: { waitForSelector: '[data-attr="taxonomic-event-match-loading"]' },
+        // The spinner is the point of this story, so the runner must not wait for it to disappear.
+        testOptions: {
+            waitForSelector: '[data-attr="taxonomic-event-match-loading"]',
+            waitForLoadersToDisappear: false,
+        },
     },
 }
 
