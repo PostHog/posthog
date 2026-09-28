@@ -274,6 +274,11 @@
         "params": [],
         "scope": "project"
     },
+    "businessKnowledgePlayground": {
+        "template": "/business-knowledge/playground",
+        "params": [],
+        "scope": "project"
+    },
     "businessKnowledgeSettings": {
         "template": "/business-knowledge/settings",
         "params": [],
@@ -682,6 +687,11 @@
     "errorTrackingIssue": {
         "template": "/error_tracking/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "etlOverview": {
+        "template": "/etl",
+        "params": [],
         "scope": "project"
     },
     "event": {

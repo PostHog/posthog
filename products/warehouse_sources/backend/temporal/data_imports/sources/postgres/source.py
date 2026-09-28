@@ -133,6 +133,20 @@ _HOST_RESOLUTION_RETRY_MESSAGE = (
     "PostHog couldn't resolve your database host right now. Check the host name, then try again in a moment."
 )
 
+# libpq and the raw socket layer word the same DNS failure three different ways, so they share one
+# message at validation time.
+_DNS_RESOLUTION_VALIDATION_ERROR = (
+    "Could not resolve the database host. Check that the host is spelled correctly and reachable "
+    "from the public internet."
+)
+
+# libpq appends this hint both to a refused connection and to one the network dropped, which is what
+# a firewall that hasn't allowlisted PostHog looks like from our side.
+_HOST_UNREACHABLE_VALIDATION_ERROR = (
+    "Could not connect to the database on the host and port given. Check the host and port are "
+    "correct, and that PostHog's IP addresses are allowed through your firewall."
+)
+
 PostgresErrors = {
     "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # A proxy/pooler in front of some providers rejects bad credentials during its own
@@ -203,7 +217,7 @@ PostgresErrors = {
         'authentication failures ("too many authentication failures"). This usually means the '
         "username or password is wrong. Check your credentials and try again."
     ),
-    "could not translate host name": "Could not connect to the host",
+    "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
     # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
     # prefix — "[Errno -2] Name or service not known" (EAI_NONAME) or its EAI_NODATA sibling
@@ -211,15 +225,15 @@ PostgresErrors = {
     # Python-side resolution. `get_non_retryable_errors` already treats both as non-retryable; map
     # them here too so credential validation returns an actionable message instead of surfacing the
     # customer's unresolvable host as captured error noise.
-    "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
-    "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    "Name or service not known": _DNS_RESOLUTION_VALIDATION_ERROR,
+    "No address associated with hostname": _DNS_RESOLUTION_VALIDATION_ERROR,
     # A public host PostHog resolved but can't route to (IPv6-only host, or a firewall dropping our
     # IPs). Placed before the "Is the server running..." entry — some libpq versions append that hint
     # to routing failures too, and the IPv4/pooler guidance here is more actionable. `get_non_retryable_errors`
     # already treats both as non-retryable on the streaming path.
     "Network is unreachable": _HOST_UNREACHABLE_ERROR,
     "No route to host": _HOST_UNREACHABLE_ERROR,
-    "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
+    "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
     'database "': "The database named in your connection details doesn't exist on this server. Check the database name is correct and try again.",
     "timeout expired": "Connection timed out. Check that your database is reachable from the public internet and that PostHog's egress IP addresses are allowed through your firewall (see the docs). For a database that can't be exposed publicly, use the SSH tunnel option.",
     "the database system is starting up": "Your database is starting up or recovering. Wait a moment and try again.",
@@ -294,11 +308,16 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
 # down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
 # replace it with concrete guidance on both the validate and sync paths.
 _SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
-_SSH_GATEWAY_UNREACHABLE_MESSAGE = (
+_SSH_GATEWAY_UNREACHABLE_GUIDANCE = (
     "Could not connect to your SSH tunnel — PostHog couldn't open a session to the SSH gateway. "
     "Check that the SSH host and port point to a reachable SSH server (not the database port), that "
-    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall."
+    "the bastion is running, and that PostHog's IP addresses are allowed through its firewall"
 )
+_SSH_GATEWAY_UNREACHABLE_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}."
+# The sync path classifies this non-retryable, which switches the schema off, so the customer has
+# to turn it back on once the bastion is reachable again — the setup path has no sync to re-enable.
+# Mirrors `_SSH_HANDSHAKE_EOF_ERROR` below, the same gateway-configuration class.
+_SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE = f"{_SSH_GATEWAY_UNREACHABLE_GUIDANCE}, then re-enable the sync."
 
 # A source past the SSL cutoff connects with sslmode=require, so a server built without SSL support
 # fails the moment the sync — or a direct query — opens its connection. An SSH tunnel with
@@ -868,7 +887,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
-            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_MESSAGE,
+            _SSH_GATEWAY_SESSION_ERROR: _SSH_GATEWAY_UNREACHABLE_SYNC_MESSAGE,
             # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
             # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
             # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
@@ -915,6 +934,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "Your database provider blocked the connection because your project exceeded its data "
                 "transfer quota. Upgrade your provider's plan or wait for the quota to reset, then "
                 "re-enable the sync."
+            ),
+            # A Neon-style proxy refuses the connection because the compute endpoint itself has been
+            # disabled — distinct from the quota entries above, which describe a database that's
+            # still enabled but out of allowance. A disabled endpoint doesn't auto-wake on connect
+            # like a normally suspended one; only an explicit API/console call re-enables it, so every
+            # retry re-hits the same refusal. Match the stable provider sentence; it carries no host
+            # or account detail.
+            "The endpoint has been disabled": (
+                "Your database provider has disabled the compute endpoint, so PostHog can't connect "
+                '("The endpoint has been disabled"). This usually happens when a usage limit is '
+                "exceeded or the endpoint was disabled manually. Re-enable the endpoint from your "
+                "provider's dashboard or API, then re-enable the sync."
             ),
             # The same provider family names some quotas in the refusal and others not at all
             # ("has exceeded the quota"), so the two keys above miss those wordings and the raw
@@ -1777,8 +1808,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
             retire_orphaned_companions,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import hand_reset_to_capture
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
+            buffer_expired_unread,
             build_output_lanes,
             clear_listing,
             completed_listing_proof,
@@ -1840,6 +1873,29 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         if job is None:
             raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
 
+        proof_time = async_to_sync(completed_listing_proof)(schema)
+        # The bucket deletes a buffer file once it is older than BUFFER_FILE_RETENTION. A table that has
+        # consumed nothing for longer may have lost changes it never loaded, so reading on would leave it
+        # wrong for good, and only a re-snapshot makes it correct. Capture does the reset once this run
+        # has finished, as it does for any reset a sync could interfere with. A recent proof settles it
+        # without the longer read.
+        if proof_time is None and async_to_sync(buffer_expired_unread)(schema):
+            inputs.logger.warning(
+                "cdc_buffer_expired_before_consumption", schema_name=schema.name, last_synced_at=schema.last_synced_at
+            )
+            # The workflow completes the job on this empty response, so an earlier attempt's stamp
+            # has to come off it first, as it does on the in-flight stand-down above: a Completed
+            # job still carrying one would prove a listing that nothing drained.
+            clear_listing(inputs.job_id, inputs.team_id)
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            first_lane = served_lanes(schema)[0]
+            return SourceResponse(
+                name=first_lane.resource_name,
+                items=lambda: iter(()),
+                primary_keys=schema.primary_key_columns,
+                cdc_write_mode=first_lane.write_mode,
+            )
+
         # Nothing of any earlier run is executing now, so a companion still Running belongs to a
         # run that died without its `finally` and nothing else will ever close it.
         retired = retire_orphaned_companions(schema)
@@ -1853,7 +1909,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             inputs,
             inputs.logger,
             deletion_floor=deletion_floor,
-            proof_time=async_to_sync(completed_listing_proof)(schema),
+            proof_time=proof_time,
         )
         return SourceResponse(
             name=lanes[0].name,

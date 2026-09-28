@@ -156,7 +156,7 @@ Sort safety: removing the current or pinned server-sorted column drops that sort
 `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` changes account links from inline row expansion to `CustomerAnalyticsAccountScene` at `/customer_analytics/accounts/:accountId`.
 The keyed scene logic loads the account through `accountsRetrieve` when it mounts, including direct navigation between account routes.
 The scene renders the account logo in `SceneTitleSection`.
-Authenticated human viewers heartbeat `accountsPresenceCreate` immediately on mount and resume, then every 30 seconds. The Redis roster and each viewer profile expire after 90 seconds, collapses tabs per user, and returns only other viewers. `AccountPresence` renders up to five initial-only avatars before the detail actions. Presence failures clear the roster without affecting account loading or capturing analytics.
+Authenticated human viewers heartbeat `accountsPresenceCreate` immediately on mount and resume, then every 30 seconds. The Redis roster and each viewer profile expire after 90 seconds, collapses tabs per user, and returns only other viewers. The Accounts list batches teammate presence for its loaded rows, excludes the current viewer, and refreshes every 30 seconds through `cache.disposables`, including immediately after a hidden tab resumes. Empty results invalidate in-flight presence requests before clearing the avatars. `AccountPresence` renders up to five initial-only avatars before the detail actions. Presence failures clear the roster without affecting account loading or capturing analytics.
 `AccountSidebar` holds editable tags and the account property configuration. It sits flush with the scene's left edge and uses only a right border.
 Tag edits save through `accountsPartialUpdate` and update optimistically. Only the latest save can replace or reload the account.
 Pinned property preferences belong to the current user and project, never to an account. `accountSidebarConfigLogic({ projectId })` owns their load, draft, cancel, reorder, and save lifecycle through generated API functions. Keep that logic keyed by project so switching projects cannot briefly expose another project's preferences.
@@ -352,7 +352,7 @@ Use a full devbox stack when checking account tabs against real product routing 
 5. Restart the backend after syncing flags so local flag evaluation reloads them.
 6. Open `/project/<team_id>/customer_analytics/accounts` and confirm the seeded group appears as an account.
 
-The seed command does not create communication data. For the Email threads tab, capture a message through the Mailgun flow or add an invented local thread linked to one seeded account.
+The seed command also adds billing insights, meetings, an email thread, a Support ticket, and a weekly Slack summary to the first five accounts (`--accounts-with-widget-data`). It fills missing contact fields on those accounts and keeps values you set.
 
 ## Conventions
 

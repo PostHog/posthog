@@ -254,6 +254,14 @@ def _parse_legacy(obj: dict) -> ReviewerVerdict:
     return ReviewerVerdict(verdict=verdict, reasoning=reasoning, showstoppers=showstoppers)
 
 
+def parse_engine_timings(raw: str) -> dict[str, int]:
+    """The engine's own phase timings from its result line, or {} when it printed none."""
+    timings = (_find_result_object(raw) or {}).get("timings_ms")
+    if not isinstance(timings, dict):
+        return {}
+    return {str(name): value for name, value in timings.items() if isinstance(value, int)}
+
+
 def _find_result_object(raw: str) -> dict | None:
     for line in reversed((raw or "").splitlines()):
         line = line.strip()

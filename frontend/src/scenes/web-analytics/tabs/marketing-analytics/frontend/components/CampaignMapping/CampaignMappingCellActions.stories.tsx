@@ -23,12 +23,15 @@ const MARKETING_SOURCE_ICONS: Record<
         fields: [],
         caption: 'Pinterest Ads',
     },
+    AmazonAds: { name: 'AmazonAds', iconPath: '/static/services/amazon_ads.png', fields: [], caption: 'Amazon Ads' },
     AppleSearchAds: {
         name: 'AppleSearchAds',
         iconPath: '/static/services/apple_search_ads.png',
         fields: [],
         caption: 'Apple Ads',
     },
+    OpenAIAds: { name: 'OpenAIAds', iconPath: '/static/services/openai_ads.svg', fields: [], caption: 'OpenAI Ads' },
+    RoktAds: { name: 'RoktAds', iconPath: '/static/services/rokt_ads.png', fields: [], caption: 'Rokt Ads' },
     GoogleAds: {
         name: 'GoogleAds',
         iconPath: '/static/services/google-ads.png',
@@ -86,7 +89,12 @@ const meta: Meta<LemonMenuOverlayProps> = {
         }),
     ],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS],
+        featureFlags: [
+            FEATURE_FLAGS.MARKETING_ANALYTICS_APPLE_ADS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_OPENAI_ADS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
+            FEATURE_FLAGS.MARKETING_ANALYTICS_ROKT_ADS,
+        ],
         docs: {
             description: {
                 component: `

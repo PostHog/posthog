@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
 
@@ -8,15 +8,18 @@ import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
-import { FlatNavRecents } from './flat-nav/FlatNavRecents'
 import { NavFilesMenu } from './NavFilesMenu'
 import { FILES_STARRED_TREE_KEY, FILES_TREE_KEY, navFilesTabLogic } from './navFilesTabLogic'
+import { NavRecentItems } from './NavRecentItems'
+import { navRecentsLogic } from './navRecentsLogic'
 import { NavTabSection } from './NavTabSection'
 
 export function NavTabFiles(): JSX.Element {
     const { navExperimentActiveTab } = useValues(panelLayoutLogic)
     const { shortcutDataHasLoaded } = useValues(projectTreeDataLogic)
     const { searchTerm, folderRevealCount } = useValues(navFilesTabLogic)
+    const { recentsCollapsed } = useValues(navRecentsLogic)
+    const { setRecentsCollapsed } = useActions(navRecentsLogic)
     const { fullFileSystemFiltered: starredFiles } = useValues(
         projectTreeLogic({ key: FILES_STARRED_TREE_KEY, root: 'shortcuts://', shortcutScope: 'files' })
     )
@@ -62,6 +65,19 @@ export function NavTabFiles(): JSX.Element {
                         </NavTabSection>
                     </div>
                 )}
+                {/* Recents list what you viewed, not what matches the search, so a search hides them. */}
+                {!searchTerm.trim() && (
+                    <div className="pb-2">
+                        <NavTabSection
+                            label="Recents"
+                            dataAttr="nav-recents-toggle"
+                            open={!recentsCollapsed}
+                            onOpenChange={(open) => setRecentsCollapsed(!open)}
+                        >
+                            <NavRecentItems />
+                        </NavTabSection>
+                    </div>
+                )}
                 <NavTabSection
                     label="Files"
                     dataAttr="nav-files-project-toggle"
@@ -76,9 +92,6 @@ export function NavTabFiles(): JSX.Element {
                     />
                 </NavTabSection>
             </ScrollableShadows>
-            <div className="max-h-1/3 overflow-y-auto px-2 border-t">
-                <FlatNavRecents />
-            </div>
         </div>
     )
 }

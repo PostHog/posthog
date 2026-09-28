@@ -50,6 +50,7 @@ import {
   type BuildResult,
   type ConversationItem,
   hasSetupProgressForRun,
+  type TurnContext,
 } from "@posthog/ui/features/sessions/components/buildConversationItems";
 import {
   ChatMarkdown,
@@ -209,6 +210,61 @@ function isThoughtItem(item: ConversationItem): boolean {
   );
 }
 
+function isTurnDecided(
+  turnContext: TurnContext,
+  erroredTurns: Set<TurnContext>,
+  supersededTurns: Set<TurnContext>,
+  isSessionIdle: boolean,
+): boolean {
+  // A cloud turn that errors out never gets a `turn_completed` event.
+  if (erroredTurns.has(turnContext)) return true;
+  if (!turnContext.turnComplete) return false;
+  // `turnComplete` flips true the instant an implicit turn opens, so trust it only once
+  // superseded or the session goes idle.
+  return turnContext.isImplicit
+    ? supersededTurns.has(turnContext) || isSessionIdle
+    : true;
+}
+
+function lastRenderableIdsByTurn(
+  items: ConversationItem[],
+  isSessionIdle: boolean,
+): Map<TurnContext, string> {
+  const erroredTurns = new Set<TurnContext>();
+  const lastIndexByTurn = new Map<TurnContext, number>();
+  let lastSessionUpdateIndex = -1;
+  items.forEach((item, index) => {
+    if (!isSessionUpdateItem(item)) return;
+    lastIndexByTurn.set(item.turnContext, index);
+    lastSessionUpdateIndex = index;
+    if (item.update.sessionUpdate === "error") {
+      erroredTurns.add(item.turnContext);
+    }
+  });
+  const supersededTurns = new Set<TurnContext>();
+  for (const [turnContext, lastIndex] of lastIndexByTurn) {
+    if (lastIndex < lastSessionUpdateIndex) supersededTurns.add(turnContext);
+  }
+
+  const out = new Map<TurnContext, string>();
+  for (const item of items) {
+    if (!isToolCallItem(item)) continue;
+    if (
+      !isTurnDecided(
+        item.turnContext,
+        erroredTurns,
+        supersededTurns,
+        isSessionIdle,
+      )
+    ) {
+      continue;
+    }
+    if (!hasUiAppResult(item)) continue;
+    out.set(item.turnContext, item.id);
+  }
+  return out;
+}
+
 /**
  * An item that must render as its own row, never folded into a `ToolGroupItem`:
  * a plan awaiting approval, a show-actions handoff, or a call whose result
@@ -222,8 +278,16 @@ function isThoughtItem(item: ConversationItem): boolean {
  * hide behind a collapsed panel. Keeping the chart outside the group is the
  * rule that fixes both.
  */
-function rendersStandalone(item: ConversationItem): boolean {
-  return isPlanItem(item) || isShowActionsItem(item) || hasUiAppResult(item);
+function rendersStandalone(
+  item: ConversationItem,
+  lastRenderableIds: Map<TurnContext, string>,
+): boolean {
+  return (
+    isPlanItem(item) ||
+    isShowActionsItem(item) ||
+    (isToolCallItem(item) &&
+      lastRenderableIds.get(item.turnContext) === item.id)
+  );
 }
 
 /**
@@ -260,7 +324,15 @@ function stableRunItems(run: SessionUpdateItem[]): SessionUpdateItem[] {
   return run;
 }
 
-export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
+export function groupToolRuns(
+  items: ConversationItem[],
+  isPromptPending: boolean | null = true,
+): ThreadItem[] {
+  // `=== false` matches `incrementalConversationItems`'s own idle check.
+  const lastRenderableIds = lastRenderableIdsByTurn(
+    items,
+    isPromptPending === false,
+  );
   const out: ThreadItem[] = [];
   // The buffer holds the active run in order: tools, the thoughts between them, and any invisible
   // items interleaved with either.
@@ -268,7 +340,13 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
   let toolCount = 0;
 
   const flush = () => {
-    if (toolCount >= 2) {
+    const hasEarlierRenderableCall = buffer.some(
+      (item) =>
+        isToolCallItem(item) &&
+        hasUiAppResult(item) &&
+        lastRenderableIds.get(item.turnContext) !== item.id,
+    );
+    if (toolCount >= 2 || hasEarlierRenderableCall) {
       out.push({
         type: "tool_group",
         // Keyed on the first tool call so the id survives thoughts appending around it.
@@ -284,7 +362,7 @@ export function groupToolRuns(items: ConversationItem[]): ThreadItem[] {
 
   for (const item of items) {
     if (isToolCallItem(item)) {
-      if (rendersStandalone(item)) {
+      if (rendersStandalone(item, lastRenderableIds)) {
         flush();
         out.push(item);
         continue;
@@ -1390,8 +1468,11 @@ function ChatThreadRenderer({
   );
 
   const rows = useMemo<TurnRow[]>(
-    () => groupIntoTurns(groupToolCalls ? groupToolRuns(items) : items),
-    [items, groupToolCalls],
+    () =>
+      groupIntoTurns(
+        groupToolCalls ? groupToolRuns(items, isPromptPending) : items,
+      ),
+    [items, groupToolCalls, isPromptPending],
   );
 
   // Virtualization ratchet: past the threshold the thread switches to the windowed body and

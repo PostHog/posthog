@@ -95,6 +95,10 @@ import {
   type IFeedbackContext,
 } from "@posthog/platform/feedback-context";
 import {
+  type IScreenCapture,
+  SCREEN_CAPTURE_SERVICE,
+} from "@posthog/platform/screen-capture";
+import {
   BROWSER_TABS_CLIENT,
   type BrowserTabsClient,
 } from "@posthog/ui/features/browser-tabs/browserTabsClient";
@@ -181,6 +185,10 @@ container.bind<TRPCClient<TrpcRouter>>(TRPC_CLIENT).toConstantValue(trpcClient);
 
 container.bind(HOST_TRPC_CLIENT).toConstantValue(hostTrpcClient);
 
+container.bind(SCREEN_CAPTURE_SERVICE).toConstantValue({
+  captureRegion: (region) =>
+    hostTrpcClient.screenCapture.captureRegion.query(region),
+} satisfies IScreenCapture);
 container.bind(FEEDBACK_CONTEXT_SERVICE).toConstantValue({
   captureScreenshot: () =>
     hostTrpcClient.feedbackContext.captureScreenshot.query(),

@@ -2,6 +2,9 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
+import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
+import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -820,6 +823,21 @@ const meta: Meta = {
                     '$entry_utm_source',
                     '$entry_current_url',
                 ]),
+                // The observation page embeds the player, so it needs a recording to play.
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) =>
+                    new URL(request.url).searchParams.get('source') === 'blob_v2'
+                        ? new Response(snapshotsAsJSONLines())
+                        : {
+                              sources: [
+                                  {
+                                      source: 'blob_v2',
+                                      start_timestamp: '2023-08-11T12:03:36.097000Z',
+                                      end_timestamp: '2023-08-11T12:04:52.268000Z',
+                                      blob_key: '0',
+                                  },
+                              ],
+                          },
+                '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
                 '/api/projects/:team_id/property_definitions/': ({ request }) => {
                     const type = new URL(request.url).searchParams.get('type')
                     return type === 'person'
@@ -829,11 +847,18 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { query?: string } } | null
+                    const body = (await request.json()) as { query?: { kind?: string; query?: string } } | null
+                    if (body?.query?.kind === 'EventsQuery') {
+                        return recordingEventsJson
+                    }
                     // The observation page's pinned strip is the only query aliasing its columns this way.
                     return body?.query?.query?.includes('as pinned_0')
                         ? { results: [sessionPropertiesRow] }
                         : observationsTrend
+                },
+                '/api/projects/:team_id/vision/observations/:id/label/': async ({ request }) => {
+                    const body = (await request.json()) as { is_correct: boolean; feedback?: string }
+                    return { is_correct: body.is_correct, feedback: body.feedback ?? '' }
                 },
                 '/api/projects/:team_id/vision/scanners/estimate/': estimate,
                 '/api/projects/:team_id/vision/scanners/:scannerId/backfills/estimate/': backfillEstimate,
@@ -1077,6 +1102,109 @@ export const ScorerObservations: StoryObj = {
         { score: 5.5, confidence: 0.7, reasoning: 'Read the docs at length but never started a trial.' },
     ]),
 }
+
+const observationDetailFor = (
+    scannerResponse: ReplayScannerApi,
+    id: string,
+    output: Record<string, unknown>
+): ReplayObservationApi =>
+    observation({
+        id,
+        scanner_id: scannerResponse.id,
+        recording_subject_email: 'bob@example.com',
+        distinct_id: 'user_2m1x9d',
+        previous_observation_id: '00000000-0000-0000-0000-0000000000b1',
+        next_observation_id: '00000000-0000-0000-0000-0000000000b4',
+        scanner_snapshot: {
+            ...observation().scanner_snapshot!,
+            name: scannerResponse.name,
+            scanner_type: scannerResponse.scanner_type,
+            scanner_config: scannerResponse.scanner_config,
+        },
+        scanner_result: {
+            model_output: { scanner_type: scannerResponse.scanner_type, ...output },
+            signals_count: 0,
+            verification: null,
+        },
+    })
+
+const classifierObservationDetail = observationDetailFor(
+    classifierOverviewScanner,
+    '00000000-0000-0000-0000-0000000000d4',
+    {
+        tags: ['rage-click', 'slow-load'],
+        tags_freeform: ['coupon-confusion'],
+        confidence: 0.88,
+        reasoning: 'Clicked the disabled submit button repeatedly while the shipping rates loaded.',
+    }
+)
+
+const scorerObservationDetail = observationDetailFor(scorerOverviewScanner, '00000000-0000-0000-0000-0000000000d5', {
+    score: 8.5,
+    label: 'Strong buying intent',
+    confidence: 0.86,
+    reasoning: 'Compared plans, opened billing and invited a teammate.',
+})
+
+const observationDetailStory = (detail: ReplayObservationApi): StoryObj => ({
+    parameters: { pageUrl: urls.replayVisionObservation(detail.id) },
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/vision/observations/:id/': detail } })],
+})
+
+// A scan the model never finished, so the page leads with the failure and a retry instead of a result.
+const failedObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000d6',
+    status: 'failed',
+    error_reason: 'provider_transient:The model timed out before returning a result.',
+    scanner_result: null,
+})
+
+export const ObservationDetailFailed: StoryObj = observationDetailStory(failedObservationDetail)
+
+// The session had no screen data to watch, so no model ran and a later retry may still succeed.
+const notScannedObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000d7',
+    status: 'ineligible',
+    error_reason: 'no_snapshots:The recording has no snapshot data yet.',
+    scanner_result: null,
+})
+
+// A scan still in progress, so the page shows progress where the result goes.
+const runningObservationDetail = observation({
+    ...monitorObservationDetail,
+    id: '00000000-0000-0000-0000-0000000000d8',
+    status: 'running',
+    error_reason: '',
+    scanner_result: null,
+    completed_at: null,
+})
+
+export const ObservationDetailNotScanned: StoryObj = observationDetailStory(notScannedObservationDetail)
+
+export const ObservationDetailRunning: StoryObj = {
+    ...observationDetailStory(runningObservationDetail),
+    // A running scan keeps its progress and status spinners going, so the page never settles for a snapshot.
+    tags: ['test-skip'],
+}
+
+// The observation outlived its recording, so the player's place explains why and shows the saved frame.
+export const ObservationDetailRecordingExpired: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionObservation(monitorObservationDetail.id) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/observations/:id/': monitorObservationDetail,
+                '/api/environments/:team_id/session_recordings/:id': () => [404, { detail: 'Not found.' }],
+            },
+        }),
+    ],
+}
+
+export const ObservationDetailClassifier: StoryObj = observationDetailStory(classifierObservationDetail)
+
+export const ObservationDetailScorer: StoryObj = observationDetailStory(scorerObservationDetail)
 
 export const ScannerOnDemand: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=run` },
