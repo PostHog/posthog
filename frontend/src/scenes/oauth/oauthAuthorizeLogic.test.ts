@@ -9,7 +9,12 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
-import { describeOAuthError, oauthAuthorizeLogic, scopeGroupAccessLevel } from './oauthAuthorizeLogic'
+import {
+    describeOAuthError,
+    oauthAuthorizeLogic,
+    scopeGroupAccessLevel,
+    scopeGroupLevelTooltip,
+} from './oauthAuthorizeLogic'
 
 describe('oauthAuthorizeLogic', () => {
     let logic: ReturnType<typeof oauthAuthorizeLogic.build>
@@ -516,6 +521,13 @@ describe('oauthAuthorizeLogic', () => {
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'none')
             expect(logic.values.effectiveScopes).toEqual(['openid'])
             expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('none')
+            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'none', 'Test app')).toBeUndefined()
+            const [recordingRow, playlistRow] = logic.values.adjustableScopeRows
+            const requiredRows = [{ ...recordingRow, minLevel: 'read' as const, value: 'read' as const }, playlistRow]
+            expect(scopeGroupAccessLevel(requiredRows)).toBe('none')
+            expect(scopeGroupLevelTooltip(requiredRows, 'none', 'Test app')).toBe(
+                '1 of these permissions stays on. Test app requires it.'
+            )
             logic.actions.setScopeGroupAccess(['session_recording', 'session_recording_playlist'], 'write')
             expect(logic.values.effectiveScopes).toEqual([
                 'openid',
@@ -523,6 +535,9 @@ describe('oauthAuthorizeLogic', () => {
                 'session_recording_playlist:read',
             ])
             expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('write')
+            expect(scopeGroupLevelTooltip(logic.values.adjustableScopeRows, 'write', 'Test app')).toBe(
+                '1 of these permissions stays at read. Test app did not request write access.'
+            )
             logic.actions.setScopeAccess('session_recording', 'read')
             expect(scopeGroupAccessLevel(logic.values.adjustableScopeRows)).toBe('read')
             logic.actions.setScopeAccess('session_recording_playlist', 'none')

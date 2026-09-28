@@ -4,7 +4,12 @@ import { useId, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 import { LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
-import { type OAuthScopeRow, type ScopeAccessLevel, scopeGroupAccessLevel } from './oauthAuthorizeLogic'
+import {
+    type OAuthScopeRow,
+    type ScopeAccessLevel,
+    scopeGroupAccessLevel,
+    scopeGroupLevelTooltip,
+} from './oauthAuthorizeLogic'
 import { OAuthScopeRowControl } from './OAuthScopeRowControl'
 
 interface OAuthScopeGroupProps {
@@ -34,6 +39,7 @@ export function OAuthScopeGroup({
     const panelId = useId()
     const counts = countByLevel(rows)
     const groupLevel = scopeGroupAccessLevel(rows)
+    const groupLevelTooltip = scopeGroupLevelTooltip(rows, groupLevel, appName)
     const keys = rows.map((row) => row.key)
     const anyWritable = rows.some((row) => row.maxLevel === 'write')
     const allRequired = rows.every((row) => row.minLevel !== 'none')
@@ -99,7 +105,9 @@ export function OAuthScopeGroup({
                                     value: 'write',
                                     disabledReason: anyWritable ? undefined : `Not requested by ${appName}`,
                                 },
-                            ]}
+                            ].map((option) =>
+                                option.value === groupLevel ? { ...option, tooltip: groupLevelTooltip } : option
+                            )}
                         />
                     </div>
                 </div>

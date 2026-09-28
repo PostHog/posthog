@@ -87,6 +87,30 @@ export const scopeGroupAccessLevel = (rows: OAuthScopeRow[]): ScopeAccessLevel |
     )
 }
 
+// Tooltip for the selected group level when some rows sit at another level after the clamp.
+// A row sits lower when the app did not request the level, and higher when the app requires more.
+export const scopeGroupLevelTooltip = (
+    rows: OAuthScopeRow[],
+    level: ScopeAccessLevel | undefined,
+    appName: string
+): string | undefined => {
+    if (!level) {
+        return undefined
+    }
+    const lower = rows.filter((row) => ACCESS_LEVEL_ORDER[row.value] < ACCESS_LEVEL_ORDER[level]).length
+    const higher = rows.filter((row) => ACCESS_LEVEL_ORDER[row.value] > ACCESS_LEVEL_ORDER[level]).length
+    const stays = (count: number): string => `${count} of these permissions ${count === 1 ? 'stays' : 'stay'}`
+    const notes: string[] = []
+    if (lower > 0) {
+        notes.push(`${stays(lower)} at read. ${appName} did not request write access.`)
+    }
+    if (higher > 0) {
+        const where = level === 'none' ? 'on' : 'at write'
+        notes.push(`${stays(higher)} ${where}. ${appName} requires ${higher === 1 ? 'it' : 'them'}.`)
+    }
+    return notes.length > 0 ? notes.join(' ') : undefined
+}
+
 const WILDCARD_LABEL = 'All PostHog data'
 
 // A request with this many adjustable rows or fewer shows a flat alphabetical list. Group
