@@ -1,60 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton, LemonModal, LemonSkeleton, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
-
-import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import { LemonButton, LemonModal, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
-import { asReportMetricSeriesQuery, formatReportMetricValue, reportMetricSeriesPoints } from '../../utils/reportMetrics'
-import { ReportObservationChart } from './ReportObservationChart'
-
-function ExpectedImpactChart({ reportId, metric }: { reportId: string; metric: ReportMetricApi }): JSX.Element {
-    const query = asReportMetricSeriesQuery(metric)
-    if (!query) {
-        return <p className="text-tertiary m-0">The query is not available to you.</p>
-    }
-    return <ExpectedImpactChartData reportId={reportId} metric={metric} query={query.source} />
-}
-
-function ExpectedImpactChartData({
-    reportId,
-    metric,
-    query,
-}: {
-    reportId: string
-    metric: ReportMetricApi
-    query: NonNullable<ReturnType<typeof asReportMetricSeriesQuery>>['source']
-}): JSX.Element {
-    const props: DataNodeLogicProps = {
-        key: `ReportMetricSeries.${reportId}.${metric.metric_id}`,
-        query,
-        dataNodeCollectionId: `report-metrics-${reportId}`,
-        autoLoad: true,
-    }
-    const { response, responseError, responseLoading } = useValues(dataNodeLogic(props))
-    const points = reportMetricSeriesPoints(response)
-
-    if (responseLoading && !response) {
-        return <LemonSkeleton className="h-36 w-full" />
-    }
-    if (responseError || !points) {
-        return <p className="text-tertiary m-0">No chart data for this window. The goal is still a proposal.</p>
-    }
-
-    return (
-        <ReportObservationChart
-            metric={metric}
-            points={points}
-            type="line"
-            interval={query.interval}
-            goalValue={metric.goal_value ?? undefined}
-        />
-    )
-}
+import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
+import { ReportExpectedImpactChart } from './ReportExpectedImpactChart'
 
 export function ReportExpectedImpact({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
     const [modalOpen, setModalOpen] = useState(false)
@@ -84,33 +36,41 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
     return (
         <div className="flex flex-col gap-3 rounded-lg border p-4" data-attr="report-expected-impact">
             {proposedMetrics.length ? (
-                proposedMetrics.map((metric) => (
-                    <div key={metric.metric_id} className="flex flex-col gap-2">
-                        <p className="m-0 font-semibold">
-                            {metric.title}: {metric.goal_direction === 'at_most' ? 'at most' : 'at least'}{' '}
-                            {formatReportMetricValue(metric, metric.goal_value) ?? metric.goal_value}
-                        </p>
-                        <ExpectedImpactChart reportId={report.id} metric={metric} />
-                        <p className="m-0 text-secondary text-sm">
-                            Suggested decision:{' '}
-                            {[
-                                metric.decision_window_days && `${metric.decision_window_days} days after release`,
-                                metric.minimum_data_points && `${metric.minimum_data_points} qualifying observations`,
-                            ]
-                                .filter(Boolean)
-                                .join(' and ')}
-                            .
-                        </p>
-                        {metric.query != null && (
-                            <details className="text-sm">
-                                <summary className="cursor-pointer">View measurement query</summary>
-                                <pre className="max-h-64 overflow-auto rounded bg-surface-secondary p-2 text-xs">
-                                    {JSON.stringify(metric.query, null, 2)}
-                                </pre>
-                            </details>
-                        )}
-                    </div>
-                ))
+                proposedMetrics.map((metric) => {
+                    const query = asReportMetricSeriesQuery(metric)
+                    return (
+                        <div key={metric.metric_id} className="flex flex-col gap-2">
+                            <p className="m-0 font-semibold">
+                                {metric.title}: {metric.goal_direction === 'at_most' ? 'at most' : 'at least'}{' '}
+                                {formatReportMetricValue(metric, metric.goal_value) ?? metric.goal_value}
+                            </p>
+                            {query ? (
+                                <ReportExpectedImpactChart reportId={report.id} metric={metric} query={query.source} />
+                            ) : (
+                                <p className="text-tertiary m-0">The query is not available to you.</p>
+                            )}
+                            <p className="m-0 text-secondary text-sm">
+                                Suggested decision:{' '}
+                                {[
+                                    metric.decision_window_days && `${metric.decision_window_days} days after release`,
+                                    metric.minimum_data_points &&
+                                        `${metric.minimum_data_points} qualifying observations`,
+                                ]
+                                    .filter(Boolean)
+                                    .join(' and ')}
+                                .
+                            </p>
+                            {metric.query != null && (
+                                <details className="text-sm">
+                                    <summary className="cursor-pointer">View measurement query</summary>
+                                    <pre className="max-h-64 overflow-auto rounded bg-surface-secondary p-2 text-xs">
+                                        {JSON.stringify(metric.query, null, 2)}
+                                    </pre>
+                                </details>
+                            )}
+                        </div>
+                    )
+                })
             ) : (
                 <p className="m-0 text-secondary text-sm">
                     No measurement proposed yet. Ask AI to find a metric and set a goal.
@@ -118,13 +78,19 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
             )}
             <div className="flex flex-wrap gap-2">
                 <LemonButton
+                    data-attr="report-expected-impact-follow-up"
                     type="primary"
                     size="small"
                     onClick={() => lemonToast.info('Coming soon: automatic impact follow-ups are not available yet.')}
                 >
                     Keep an eye on this for me
                 </LemonButton>
-                <LemonButton type="secondary" size="small" onClick={() => setModalOpen(true)}>
+                <LemonButton
+                    data-attr="report-expected-impact-suggest-metrics"
+                    type="secondary"
+                    size="small"
+                    onClick={() => setModalOpen(true)}
+                >
                     Suggest different metrics
                 </LemonButton>
             </div>
@@ -139,6 +105,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                             Cancel
                         </LemonButton>
                         <LemonButton
+                            data-attr="report-expected-impact-submit-suggestion"
                             type="primary"
                             onClick={submit}
                             loading={isDiscussing}

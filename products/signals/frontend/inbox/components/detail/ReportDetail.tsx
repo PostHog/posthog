@@ -329,9 +329,10 @@ export function InboxDetailFrame({
         : []
     const impactMetrics =
         supportingMetrics.length > 0 ? <ReportImpactMetrics reportId={report.id} metrics={supportingMetrics} /> : null
-    const expectedImpact = useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY') ? (
-        <ReportExpectedImpact report={report} reportUrl={reportUrl} />
-    ) : null
+    const expectedImpact =
+        useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY') && !summaryPending ? (
+            <ReportExpectedImpact report={report} reportUrl={reportUrl} />
+        ) : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
