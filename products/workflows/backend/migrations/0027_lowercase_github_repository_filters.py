@@ -1,4 +1,5 @@
 from django.db import migrations
+from django.db.models import Q
 from django.utils import timezone
 
 BATCH_SIZE = 1000
@@ -114,29 +115,53 @@ def _lowercased_actions(actions: object) -> list | None:
     return result if changed else None
 
 
+def _lowercased_draft(draft: object) -> dict | None:
+    if not isinstance(draft, dict):
+        return None
+    trigger = _lowercased_config(draft.get("trigger"))
+    actions = _lowercased_actions(draft.get("actions"))
+    if trigger is None and actions is None:
+        return None
+    rewritten = {**draft}
+    if trigger is not None:
+        rewritten["trigger"] = trigger
+    if actions is not None:
+        rewritten["actions"] = actions
+    return rewritten
+
+
 def lowercase_github_repository_filters(apps, schema_editor):
-    """Publishing a draft or restoring a revision re-runs the serializer, which lowercases on its own,
-    so only the live trigger and its action need rewriting here."""
+    """Rewrite the live trigger and the staged draft. A test run executes the draft's bytecode as
+    stored, and only publish sends the draft through the serializer, which lowercases on its own.
+
+    Restoring a revision copies its content into the draft without the serializer, so a revision
+    taken before this change keeps its casing until that draft is published."""
     HogFlow = apps.get_model("workflows", "HogFlow")
     db_alias = schema_editor.connection.alias
 
     for row in (
         HogFlow.objects.using(db_alias)
-        .filter(trigger__type="internal-event")
+        .filter(Q(trigger__type="internal-event") | Q(draft__trigger__type="internal-event"))
         .order_by("pk")
-        .values("pk", "updated_at", "trigger", "actions")
+        .values("pk", "updated_at", "trigger", "actions", "draft", "draft_updated_at")
         .iterator(chunk_size=BATCH_SIZE)
     ):
         trigger = _lowercased_config(row["trigger"])
         actions = _lowercased_actions(row["actions"])
-        if trigger is None and actions is None:
-            continue
-        # A row saved since the read went through the serializer, which lowercases on its own, so
-        # skipping it is correct and the stale snapshot never overwrites that edit. Bumping
-        # updated_at makes an editor tab opened before the rewrite fail its stale-write check.
-        HogFlow.objects.using(db_alias).filter(pk=row["pk"], updated_at=row["updated_at"]).update(
-            trigger=trigger or row["trigger"], actions=actions or row["actions"], updated_at=timezone.now()
-        )
+        if trigger is not None or actions is not None:
+            # A row saved since the read went through the serializer, which lowercases on its own, so
+            # skipping it is correct and the stale snapshot never overwrites that edit. Bumping
+            # updated_at makes an editor tab opened before the rewrite fail its stale-write check.
+            HogFlow.objects.using(db_alias).filter(pk=row["pk"], updated_at=row["updated_at"]).update(
+                trigger=trigger or row["trigger"], actions=actions or row["actions"], updated_at=timezone.now()
+            )
+        draft = _lowercased_draft(row["draft"])
+        if draft is not None:
+            # A draft write sets draft_updated_at and leaves updated_at alone, and a publish or discard
+            # clears it, so the draft needs its own guard for the same reason.
+            HogFlow.objects.using(db_alias).filter(pk=row["pk"], draft_updated_at=row["draft_updated_at"]).update(
+                draft=draft, draft_updated_at=timezone.now()
+            )
 
 
 class Migration(migrations.Migration):
