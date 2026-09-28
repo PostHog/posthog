@@ -264,7 +264,7 @@ function getSourceStatus(
         const hasMapping = externalTable.source_map && Object.keys(externalTable.source_map).length > 0
 
         if (!hasMapping) {
-            return { status: MarketingSourceStatus.Warning, message: 'Needs column mapping' }
+            return validationWarning ?? { status: MarketingSourceStatus.Warning, message: 'Needs column mapping' }
         }
 
         // For sources with schema_status (managed sources like BigQuery)
@@ -348,11 +348,11 @@ export interface marketingAnalyticsLogicValues {
     allAvailableSourcesWithStatus: {
         id: string
         name: string
-        prefix?: string | undefined
+        prefix: string | undefined
         source_type: string
         status: SourceStatus
         statusMessage: string
-        type: string
+        type: DataWarehouseSettingsTab | 'native'
     }[]
     allExternalTablesWithStatus: {
         columns: {
@@ -700,24 +700,34 @@ export interface marketingAnalyticsLogicMeta {
         }[]
         sourceValidationErrors: (sourceValidation: SourceValidationApi) => SourceValidationApi['errors_by_source']
         allAvailableSourcesWithStatus: (
-            allAvailableSources: {
+            allExternalTablesWithStatus: {
+                columns: {
+                    name: string
+                    type: string
+                }[]
+                dw_source_type: string
+                external_type: DataWarehouseSettingsTab
                 id: string
                 name: string
-                prefix?: string | undefined
+                schema_name: string
+                schema_status?: string | undefined
+                source_map: SourceMap | null
+                source_map_id: string
+                source_prefix: string
                 source_type: string
-                type: string
-            }[],
-            nativeSources: ExternalDataSource[],
-            validExternalTables: ExternalTable[],
-            sourceValidationErrors: import('products/marketing_analytics/frontend/generated/api.schemas').SourceValidationApiErrorsBySource
+                sourceUrl: string
+                status: SourceStatus
+                statusMessage: string
+                url_pattern: string
+            }[]
         ) => {
             id: string
             name: string
-            prefix?: string | undefined
+            prefix: string | undefined
             source_type: string
             status: SourceStatus
             statusMessage: string
-            type: string
+            type: DataWarehouseSettingsTab | 'native'
         }[]
         hasNoConfiguredSources: (
             validExternalTables: ExternalTable[],
@@ -1363,58 +1373,19 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 sourceValidation.errors_by_source,
         ],
         allAvailableSourcesWithStatus: [
-            (s) => [s.allAvailableSources, s.nativeSources, s.validExternalTables, s.sourceValidationErrors],
-            (
-                allAvailableSources: {
-                    id: string
-                    name: string
-                    prefix?: string | undefined
-                    source_type: string
-                    type: string
-                }[],
-                nativeSources: ExternalDataSource[],
-                validExternalTables: ExternalTable[],
-                validationErrors: SourceValidationApi['errors_by_source']
-            ) => {
-                const sourcesWithStatus = allAvailableSources.map((source) => {
-                    const status = getSourceStatus(source, nativeSources, validExternalTables, validationErrors)
-                    return {
-                        ...source,
-                        status: status.status,
-                        statusMessage: status.message,
-                    }
-                })
-
-                // Also include native sources not in allAvailableSources (those with
-                // disabled/missing tables) so the banner can surface warnings for them
-                const includedIds = new Set(allAvailableSources.map((s) => s.id))
-                nativeSources.forEach((source) => {
-                    if (!includedIds.has(source.id)) {
-                        const status = getSourceStatus(
-                            {
-                                id: source.id,
-                                name: source.source_type,
-                                type: 'native',
-                                prefix: source.prefix ?? undefined,
-                            },
-                            nativeSources,
-                            validExternalTables,
-                            validationErrors
-                        )
-                        sourcesWithStatus.push({
-                            id: source.id,
-                            name: source.source_type,
-                            type: 'native',
-                            source_type: source.source_type,
-                            prefix: source.prefix ?? undefined,
-                            status: status.status,
-                            statusMessage: status.message,
-                        })
-                    }
-                })
-
-                return sourcesWithStatus
-            },
+            (s) => [s.allExternalTablesWithStatus],
+            (tables: (ExternalTable & { status: SourceStatus; statusMessage: string; isNativeSource?: boolean })[]) =>
+                tables
+                    .filter((table) => table.isNativeSource || table.source_map !== null)
+                    .map((table) => ({
+                        id: table.source_map_id,
+                        name: table.schema_name,
+                        type: table.isNativeSource ? 'native' : table.external_type,
+                        source_type: table.source_type,
+                        prefix: table.source_prefix || undefined,
+                        status: table.status,
+                        statusMessage: table.statusMessage,
+                    })),
         ],
         hasNoConfiguredSources: [
             (s) => [s.validExternalTables, s.validNativeSources, s.loading, s.dataWarehouseTables],

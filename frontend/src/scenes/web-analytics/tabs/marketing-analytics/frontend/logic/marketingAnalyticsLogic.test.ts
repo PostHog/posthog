@@ -25,6 +25,7 @@ import {
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
     NodeKind,
+    SourceMap,
     WebAnalyticsPropertyFilters,
 } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -458,6 +459,90 @@ describe('marketingAnalyticsLogic', () => {
         })
         await expectLogic(logic, () => logic.actions.loadSourceValidation()).toFinishAllListeners()
         expect(logic.values.sourceValidationError).toBeNull()
+    })
+
+    it.each(['managed', 'self-managed'])('shows invalid mappings for a %s source until corrected', async (type) => {
+        const tableId = 'example-table'
+        const sourceId = type === 'managed' ? 'example-schema' : tableId
+        let errors: Record<string, string[]> = { [sourceId]: ['Missing required column mapping: cost'] }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/marketing_analytics/source_validation/': () => [
+                    200,
+                    { errors_by_source: errors },
+                ],
+            },
+        })
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        databaseTableListLogic.actions.loadDatabaseSuccess({
+            tables: {
+                example_campaigns: {
+                    id: tableId,
+                    name: 'example_campaigns',
+                    type: 'data_warehouse',
+                    url_pattern: 'https://example.s3.amazonaws.com/campaigns',
+                    ...(type === 'managed'
+                        ? {
+                              schema: {
+                                  id: sourceId,
+                                  name: 'example_campaigns',
+                                  should_sync: true,
+                                  incremental: false,
+                                  status: ExternalDataSchemaStatus.Completed,
+                              },
+                              source: {
+                                  id: 'example-source',
+                                  source_type: 'BigQuery',
+                                  status: 'Completed',
+                                  prefix: '',
+                              },
+                          }
+                        : {}),
+                    fields: {
+                        cost: { name: 'cost', hogql_value: 'cost', type: 'float', schema_valid: true },
+                    },
+                } satisfies DatabaseSchemaDataWarehouseTable,
+            },
+            joins: [],
+        })
+
+        for (const sourceMap of [{}, { campaign: 'campaign' }] as SourceMap[]) {
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    marketing_analytics_config: { sources_map: { [sourceId]: sourceMap } },
+                })
+            ).toFinishAllListeners()
+            expect(logic.values.validExternalTables).toEqual([])
+            expect(logic.values.allAvailableSources).toEqual([])
+            expect(logic.values.allAvailableSourcesWithStatus).toEqual([
+                expect.objectContaining({
+                    id: sourceId,
+                    status: MarketingSourceStatus.Warning,
+                    statusMessage: expect.stringContaining(errors[sourceId][0]),
+                }),
+            ])
+        }
+        await expectLogic(logic, () =>
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...teamLogic.values.currentTeam!,
+                marketing_analytics_config: {
+                    sources_map: {
+                        [sourceId]: Object.fromEntries(
+                            Object.values(MarketingAnalyticsColumnsSchemaNames).map((name) => [name, name])
+                        ) as SourceMap,
+                    },
+                },
+            })
+        ).toFinishAllListeners()
+        errors = {}
+        await expectLogic(logic, () => logic.actions.reloadAll()).toFinishAllListeners()
+        expect(logic.values.validExternalTables).toHaveLength(1)
+        expect(logic.values.allAvailableSourcesWithStatus).toEqual([
+            expect.objectContaining({ id: sourceId, status: ExternalDataSchemaStatus.Completed }),
+        ])
     })
 
     it('keeps the selection and drops an unknown key from a filter saved by an older build', async () => {
