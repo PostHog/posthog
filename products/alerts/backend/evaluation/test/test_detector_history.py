@@ -19,6 +19,8 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLAlertConfig
 
+from posthog.models.team import Team
+
 from products.alerts.backend.evaluation.detector_history import detector_rows_from_history
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.alerts.backend.models.alert_series_point import AlertSeriesPoint, AlertSeriesState
@@ -43,6 +45,7 @@ RESTRICTIONS_PATH = (
 )
 PROBE_PATH = "products.alerts.backend.evaluation.detector_history.sync_execute"
 CAPTURE_PATH = "products.alerts.backend.evaluation.detector_history.ph_background_capture"
+EFFECTIVE_TEAM_PATH = "products.alerts.backend.evaluation.detector_history.resolve_effective_team_id"
 
 
 class _Warehouse:
@@ -419,6 +422,31 @@ class TestDetectorHistory(BaseTest):
             self._check(warehouse)
 
         assert warehouse.is_rebuild(warehouse.overrides[-1])
+
+    def test_the_probe_scans_the_literal_environment_not_the_effective_project(self) -> None:
+        warehouse = _Warehouse(self._dense(10))
+        parent = Team.objects.create(organization=self.organization, name="parent project")
+        with time_machine.travel(NOW, tick=False), patch(EFFECTIVE_TEAM_PATH, return_value=parent.pk):
+            self._check(warehouse)
+            with (
+                patch(FLAG_PATH, return_value=True),
+                patch(PROBE_PATH, return_value=[]) as probe,
+            ):
+                result = detector_rows_from_history(
+                    alert=self.alert,
+                    insight=self.alert.insight,
+                    config=self.config,
+                    min_samples=MIN_SAMPLES,
+                    run_query=warehouse.run,
+                )
+
+        # Cache rows scope to the effective project id, but events are scoped to the literal
+        # environment id the alert's own query scans - a probe against the project id would
+        # silently see no inserts for a child environment.
+        assert result is not None
+        assert probe.call_count == 1
+        assert probe.call_args.args[1]["team_id"] == self.team.pk
+        assert probe.call_args.kwargs["team_id"] == self.team.pk
 
     def test_a_failing_shadow_scan_never_fails_a_served_check(self) -> None:
         warehouse = _Warehouse(self._dense(10))

@@ -393,12 +393,14 @@ class _Check:
                 """,
                 {
                     "tz": self.team.timezone,
-                    "team_id": self.team_id,
+                    # The literal environment id, not the effective project id the cache rows
+                    # scope to: events and the alert's own query are scoped to the environment.
+                    "team_id": self.team.pk,
                     "watermark": watermark,
                     "window_start": self.window_start,
                     "anchor": self.anchor,
                 },
-                team_id=self.team_id,
+                team_id=self.team.pk,
             )
         except Exception:
             return None
