@@ -86,7 +86,6 @@ export type reputationWorkflowSearchLogicType = MakeLogicType<
     reputationWorkflowSearchLogicMeta
 >
 
-/** Searches the workflow table. A search narrows only the table, never the action list above it. */
 export const reputationWorkflowSearchLogic = kea<reputationWorkflowSearchLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'Reputation', 'reputationWorkflowSearchLogic']),
     connect(() => ({
@@ -116,7 +115,7 @@ export const reputationWorkflowSearchLogic = kea<reputationWorkflowSearchLogicTy
                         const response = await hogFlowsReputationRetrieve(String(values.currentProjectId), {
                             search,
                         })
-                        breakpoint() // a newer search superseded this one; discard the stale response
+                        breakpoint()
                         return { search, workflows: response.workflows, failed: false }
                     } catch {
                         breakpoint()

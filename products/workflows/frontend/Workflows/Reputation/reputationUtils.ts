@@ -60,9 +60,8 @@ export function workflowName(workflow: WorkflowEmailSendingRatesApi): string {
     return workflow.hog_flow_name || workflow.hog_flow_id
 }
 
-// Per-workflow rate classification. Reserved words like "Warning" / "Critical" belong to the
-// tenant-level AWS verdict. These coarser buckets are a triage aid for spotting which workflows
-// pull the project's numbers in the wrong direction.
+// Reserved words like "Warning" / "Critical" belong to the tenant-level AWS verdict. These coarser
+// buckets are a triage aid for spotting which workflows pull the project's numbers the wrong way.
 //
 // The "high" lines match the day-long rates at which PostHog pauses a workflow's email
 // (WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_24H and WORKFLOW_EMAIL_AUTO_PAUSE_COMPLAINT_RATE_24H), so

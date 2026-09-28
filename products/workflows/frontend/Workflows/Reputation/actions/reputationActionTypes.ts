@@ -40,7 +40,6 @@ export interface ReputationAction {
     blocksSending: boolean
     title: string
     description: string
-    /** Missing when no page in PostHog helps with the item. */
     cta?: ReputationActionCta
     docsLink?: ReputationDocsLink
 }

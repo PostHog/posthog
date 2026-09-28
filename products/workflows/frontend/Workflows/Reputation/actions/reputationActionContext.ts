@@ -17,7 +17,6 @@ import {
 import type { ReputationSetupTab } from './reputationActionTypes'
 
 export interface ReputationActionInputs {
-    /** The unsearched response, so a table search never changes what the list asks for. */
     response: TeamEmailReputationResponseApi
     tabUrl: (tab: ReputationSetupTab) => string
 }

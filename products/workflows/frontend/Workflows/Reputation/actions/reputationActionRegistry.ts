@@ -30,7 +30,6 @@ const REPUTATION_ACTIONS: readonly RegisteredReputationAction[] = [
     providerRateAction,
 ]
 
-/** Everything the Reputation tab knows, turned into a list of fixes, worst first. */
 export function buildReputationActions(context: ReputationActionContext): ReputationAction[] {
     const seenKeys = new Map<string, number>()
     return REPUTATION_ACTIONS.flatMap((action) => action.build(context))

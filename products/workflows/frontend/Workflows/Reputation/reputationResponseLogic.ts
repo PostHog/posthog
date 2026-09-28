@@ -105,7 +105,7 @@ export const reputationResponseLogic = kea<reputationResponseLogicType>([
                         return null
                     }
                     const response = await hogFlowsReputationRetrieve(String(values.currentProjectId))
-                    breakpoint() // a newer load superseded this one; discard the stale response
+                    breakpoint()
                     return response
                 },
             },
