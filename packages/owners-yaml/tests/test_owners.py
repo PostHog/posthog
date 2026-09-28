@@ -9,6 +9,7 @@ import pytest
 
 from click.testing import CliRunner
 from owners_yaml import (
+    addition_paths,
     census,
     cli as cli_module,
     first_team_owner,
@@ -907,6 +908,44 @@ def test_both_front_doors_pass_the_producer_to_the_channel_lookup(
         return
     assert exit_code == 0, output
     assert json.loads(output)["mapped/x.py"]["slack"] == channel
+
+
+@pytest.mark.parametrize(
+    "added,expected",
+    [
+        (["products/new/a.py", "products/new/sub/b.py"], ["products/new"]),
+        (["tools/new/deep/x.py"], ["tools/new"]),
+        (["products/old/c.py", "./products/old/c.py"], ["products/old/c.py"]),
+        (["products/old/existing.py"], []),
+    ],
+    ids=["new-directory", "new-nested-directory", "new-file-in-existing-directory", "existing-file"],
+)
+def test_addition_paths_names_the_path_nearest_the_root_that_the_tree_lacks(
+    added: list[str], expected: list[str]
+) -> None:
+    tree = {"products", "products/old", "products/old/existing.py", "tools"}
+
+    assert addition_paths(added, tree.__contains__) == expected
+
+
+@pytest.mark.parametrize("front_door", ["cli", "module"])
+def test_both_front_doors_resolve_the_additions_of_a_change(tmp_path: Path, front_door: str) -> None:
+    _write(
+        tmp_path,
+        "owners.yaml",
+        "version: 1\nowners: team-root\nrules:\n  - match: '/products/*'\n    additions: team-arch\n",
+    )
+    _write(tmp_path, "products/old/owners.yaml", "version: 1\nowners: team-old\n")
+    _write(tmp_path, "products/old/x.py", "")
+    args = ["--additions", "products/new/a.py", "products/new/b.py", "products/old/x.py", "products/old/y.py"]
+
+    exit_code, output = _resolve_json(front_door, tmp_path, args)
+
+    assert exit_code == 0, output
+    wire = json.loads(output)
+    assert set(wire) == {"products/new", "products/old/y.py"}
+    assert wire["products/new"]["additions"] == ["team-arch"]
+    assert wire["products/old/y.py"]["additions"] == []
 
 
 @pytest.mark.parametrize("root", ["nope", ""], ids=["missing", "empty"])

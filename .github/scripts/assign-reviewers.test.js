@@ -10,8 +10,11 @@ const {
     teamSlugToLabel,
     partitionExternalTeams,
     computeOwnerFootprints,
+    addedFilenames,
+    computeAdditionOwners,
     isSubstantive,
     classifyOwners,
+    requestAdditionOwners,
     buildReviewerComment,
     fileMatchesPattern,
 } = require('./assign-reviewers')
@@ -145,7 +148,10 @@ test('computeOwnerFootprints: ignores generated/excluded files and maps bare slu
 test('computeOwnerFootprints: skips resolutions with generated/vendored status', () => {
     const resolution = {
         'posthog/api/survey.py': resolved(['team-surveys'], 'products/surveys/product.yaml'),
-        'some/generated/tree/file.ts': { ...resolved(['team-devex'], 'some/generated/owners.yaml'), status: 'generated' },
+        'some/generated/tree/file.ts': {
+            ...resolved(['team-devex'], 'some/generated/owners.yaml'),
+            status: 'generated',
+        },
         'vendor/lib/thing.js': { ...resolved(['team-devex'], 'vendor/owners.yaml'), status: 'vendored' },
     }
     // An ownership file inside a generated tree resolves with that status too,
@@ -244,9 +250,7 @@ test('classifyOwners: promotes the largest owner when all are below the bar', ()
 })
 
 test('classifyOwners: caps requested teams at maxTeamsRequested, demoting the smallest', () => {
-    const footprints = Array.from({ length: CONFIG.maxTeamsRequested + 3 }, (_, i) =>
-        fp(`@PostHog/team-${i}`, 50 + i)
-    )
+    const footprints = Array.from({ length: CONFIG.maxTeamsRequested + 3 }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
     const { requested, demoted } = classifyOwners(footprints)
 
     assert.equal(requested.filter((f) => f.type === 'team').length, CONFIG.maxTeamsRequested)
@@ -267,9 +271,7 @@ test('classifyOwners: caps requested teams at maxTeamsRequested, demoting the sm
 
 test('classifyOwners: never caps explicit users even when teams overflow the cap', () => {
     // All substantive, so the cap (teams-only) is the only thing that can demote.
-    const teams = Array.from({ length: CONFIG.maxTeamsRequested + 2 }, (_, i) =>
-        fp(`@PostHog/team-${i}`, 50 + i)
-    )
+    const teams = Array.from({ length: CONFIG.maxTeamsRequested + 2 }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
     const users = [fp('@user-a', 20, 1, 'user'), fp('@user-b', 20, 1, 'user')]
     const { requested, demoted } = classifyOwners([...teams, ...users])
 
@@ -290,6 +292,38 @@ test('classifyOwners: never caps explicit users even when teams overflow the cap
         demoted.every((f) => f.type === 'team'),
         true
     )
+})
+
+test('addedFilenames: counts new, moved and copied files, not edits, deletions or generated files', () => {
+    const files = [
+        { ...file('products/new/a.py'), status: 'added' },
+        { ...file('products/new/b.py'), status: 'renamed' },
+        { ...file('tools/copy.py'), status: 'copied' },
+        { ...file('posthog/api/survey.py'), status: 'modified' },
+        { ...file('posthog/api/old.py'), status: 'removed' },
+        { ...file('products/new/frontend/generated/api.ts'), status: 'added' },
+    ]
+
+    assert.deepEqual(addedFilenames(files), ['products/new/a.py', 'products/new/b.py', 'tools/copy.py'])
+})
+
+test('requestAdditionOwners: requests owners of additions past the team cap and takes them off the demoted list', () => {
+    const teams = Array.from({ length: CONFIG.maxTeamsRequested }, (_, i) => fp(`@PostHog/team-${i}`, 50 + i))
+    const classified = classifyOwners([...teams, fp('@PostHog/team-devex', 1)])
+    const additionOwners = computeAdditionOwners({
+        'products/new': { ...resolved([], null), additions: ['team-devex', 'team-0'] },
+        'tools/new': { ...resolved([], null), additions: ['team-devex'] },
+    })
+
+    const { requested, demoted } = requestAdditionOwners(classified, additionOwners)
+
+    assert.equal(requested.length, CONFIG.maxTeamsRequested + 1)
+    assert.equal(requested.filter((f) => f.owner === '@PostHog/team-0').length, 1)
+    assertMatchObject(
+        requested.find((f) => f.owner === '@PostHog/team-devex'),
+        { type: 'team', name: 'team-devex', additionPaths: ['products/new', 'tools/new'] }
+    )
+    assert.deepEqual(demoted, [])
 })
 
 const requested = [
@@ -313,6 +347,14 @@ const demoted = [
 test('buildReviewerComment: returns null when no owner was dropped', () => {
     assert.equal(buildReviewerComment(requested, []), null)
     assert.equal(buildReviewerComment([...requested, requested[0]], []), null)
+})
+
+test('buildReviewerComment: names each owner of additions with its addition, even when nobody was skipped', () => {
+    const additionOwners = [{ owner: '@PostHog/team-devex', additionPaths: ['products/new'] }]
+    const body = buildReviewerComment(requested, [], additionOwners)
+    assert.ok(body.includes(CONFIG.commentMarker))
+    assert.ok(body.includes('- `@PostHog/team-devex` (`products/new`)'))
+    assert.ok(!body.includes('soft owners were skipped'))
 })
 
 test('buildReviewerComment: lists each skipped owner as a bullet with its matched rule, not raw counts', () => {

@@ -7,6 +7,12 @@ Notable changes to the `owners-yaml` package. The format follows
 `publish-owners-yaml.yml` reads the section matching the tagged version and uses it as
 the GitHub Release body, so add the entry here before you cut the tag.
 
+## Unreleased
+
+### Added
+
+- `--additions` on `owners resolve` and on `python -m owners_yaml` reads the paths as the files a change adds and resolves each addition instead: the new directory above the files, or a new file whose directory exists. SPEC section 3.6 asks a consumer to resolve the directory itself, because a path below it walks through the new directory's own ownership file. `addition_paths` and `addition_paths_on_disk` do the same in Python.
+
 ## 0.3.0
 
 ### Added

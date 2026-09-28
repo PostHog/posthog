@@ -327,6 +327,7 @@ This section describes the reference implementation. It is not part of the forma
 - It reads the alias files the root `owners.yaml` declares. PostHog's own repository declares `product.yaml`.
 - It removes the placeholder owner `team-CHANGEME` from every `owners` and `additions` list. Section 4 allows this removal.
 - Its linter reports schema errors, reserved locations, directories with both an `owners.yaml` and an alias file, rules that name a tracked directory without the trailing `/`, rule patterns that match no tracked file, and the number of unowned files. With `--live`, it also checks team slugs and person handles against the GitHub organization.
+- With `--additions`, `owners resolve` and `python -m owners_yaml` read the paths as the files a change adds. The response then has one key for each addition: the new directory above the files, or a new file in a directory that exists. The repository root must hold the tree before the change. This is one way to find the additions of section 3.6. It is not part of the format.
 - Its CODEOWNERS export covers test files only: `test_*.py` and `*_test.py` for pytest, and `*.test.*` or `*.spec.*` with a `.js`, `.jsx`, `.ts`, or `.tsx` extension for Jest. The `codeowners` setting accepts these keys:
 
   | Key                  | Meaning                                                                                                                                          |
